@@ -23,7 +23,7 @@ import type {
 const defaultLlmTimeoutMs = 15_000;
 const targetSelectionAttempts = 2;
 const roundSummaryInstruction =
-  'Return strict JSON only, with no markdown: {"summary":"one or two short spectator-facing sentences under 240 characters"}. Focus on deaths, claims, reads, and vote pressure. Do not reveal hidden roles beyond public claims.';
+  'Return strict JSON only, with no markdown: {"summary":"one or two short spectator-facing sentences"}. Focus on deaths, public claims, public reads, and vote pressure. Do not reveal hidden roles beyond public claims.';
 
 const demoSpeech: Record<Role, string[]> = {
   Werewolf: [
@@ -100,6 +100,13 @@ function clampSummary(text: string): string | null {
     return null;
   }
   return compact.length > 260 ? `${compact.slice(0, 257)}...` : compact;
+}
+
+function summaryStyleInstruction(language: string): string {
+  if (/japanese|日本語|ja\b/i.test(language)) {
+    return "Use natural Japanese for spectators. Keep it under 120 Japanese characters, concrete, and easy to scan.";
+  }
+  return "Use plain English for spectators. Keep it under 240 characters, concrete, and easy to scan.";
 }
 
 function clampReason(text: unknown, fallback: string): string {
@@ -329,6 +336,38 @@ function targetName(targetId: string, candidates: TargetCandidate[]): string {
   return candidates.find((candidate) => candidate.id === targetId)?.name ?? targetId;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function evidenceTarget(input: AgentTargetInput): TargetCandidate | null {
+  if (!/day elimination vote/i.test(input.action)) {
+    return null;
+  }
+
+  const context = input.context.toLowerCase();
+  const ranked = input.candidates
+    .map((candidate) => {
+      const name = candidate.name.toLowerCase();
+      const escapedName = escapeRegExp(name);
+      let score = 0;
+      if (
+        context.includes(`${name} checked as werewolf`) ||
+        context.includes(`${name} checked werewolf`) ||
+        context.includes(`${name} reads as werewolf`)
+      ) {
+        score += 4;
+      }
+      const suspectMentions = context.match(new RegExp(`suspects: [^\\n.]*${escapedName}`, "g"))?.length ?? 0;
+      score += suspectMentions;
+      return { candidate, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name));
+
+  return ranked[0]?.candidate ?? null;
+}
+
 function normalizeLlmSummary(content: string): string | null {
   const parsed = extractJsonObject(content);
   const summary = typeof parsed?.summary === "string" ? parsed.summary : content.replace(/```(?:json)?|```/g, "");
@@ -455,6 +494,13 @@ export class DemoAgent implements Agent {
     if (input.candidates.length === 0) {
       return { targetId: null, reason: "No legal targets are available." };
     }
+    const publicEvidenceTarget = evidenceTarget(input);
+    if (publicEvidenceTarget && weightedChance(0.72)) {
+      return {
+        targetId: publicEvidenceTarget.id,
+        reason: `${publicEvidenceTarget.name} has the clearest public pressure from claims and reads.`
+      };
+    }
     const target = sample(input.candidates);
     return {
       targetId: target.id,
@@ -464,7 +510,7 @@ export class DemoAgent implements Agent {
 
   async decide(input: AgentBooleanInput): Promise<boolean> {
     if (input.question.toLowerCase().includes("save")) {
-      return input.context.includes(input.player.name) || weightedChance(0.45);
+      return input.context.includes(input.player.name) || input.context.includes("Round: 1") || weightedChance(0.6);
     }
     if (input.question.toLowerCase().includes("poison")) {
       return weightedChance(0.25);
@@ -556,6 +602,9 @@ export async function summarizeRoundWithLlm(input: {
         content: [
           "You summarize a hidden-role werewolf match for spectators.",
           roundSummaryInstruction,
+          summaryStyleInstruction(input.language),
+          "Prefer one sentence unless two are clearly easier to read.",
+          "Use only the structured public round data and the deterministic summary as source material.",
           `Respond in ${input.language}.`
         ].join("\n")
       },

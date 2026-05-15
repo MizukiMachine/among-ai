@@ -9,7 +9,8 @@
     "dev:api": "tsx watch src/server/index.ts",
     "dev:web": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --import tsx --test tests/engine.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.tsx",
+    "balance": "tsx scripts/balance-report.ts",
     "start": "NODE_ENV=production tsx src/server/index.ts",
     "lint": "eslint ."
   },

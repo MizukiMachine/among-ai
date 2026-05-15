@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAICompatibleAgent } from "../src/game/agents";
+import { OpenAICompatibleAgent, summarizeRoundWithLlm } from "../src/game/agents";
 import { WerewolfGame } from "../src/game/engine";
 import { redactEventForVillage } from "../src/game/redaction";
 import type {
@@ -352,6 +352,7 @@ test("LLM summary mode uses a short provider summary when available", async () =
     const body = JSON.parse(String(init?.body));
     assert.equal(body.temperature, 0.35);
     assert.equal(body.model, "test-model");
+    assert.match(body.messages[0].content, /plain English for spectators/);
     return new Response(
       JSON.stringify({
         choices: [{ message: { content: JSON.stringify({ summary: "Votes tightened around Darwin after public reads." }) } }]
@@ -368,6 +369,7 @@ test("LLM summary mode uses a short provider summary when available", async () =
       ...baseConfig,
       provider: "llm",
       model: "test-model",
+      language: "English",
       summaryMode: "llm"
     }) as TestableGame;
     setTable(game, [
@@ -387,6 +389,49 @@ test("LLM summary mode uses a short provider summary when available", async () =
     assert.equal(summary.data?.summarySource, "llm");
     assert.match(String(summary.data?.deterministicMessage), /Votes:/);
     assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("LLM summary prompt switches to Japanese spectator style", async () => {
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-key";
+
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.match(body.messages[0].content, /natural Japanese for spectators/);
+    assert.match(body.messages[0].content, /Respond in Japanese/);
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) } }]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const summary = await summarizeRoundWithLlm({
+      deterministicMessage: "Votes: Darwin 3.",
+      round: 1,
+      model: "test-model",
+      language: "Japanese",
+      data: {
+        votes: [],
+        totals: [{ targetName: "Darwin", count: 3 }]
+      }
+    });
+
+    assert.equal(summary, "投票はDarwinに集まり、公開推理が焦点になっています。");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {

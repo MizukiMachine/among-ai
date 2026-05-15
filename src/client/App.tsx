@@ -39,6 +39,10 @@ const roleClass: Record<Role, string> = {
   Villager: "role-villager"
 };
 
+function roleClassName(role: string | undefined): string {
+  return roleClass[role as Role] ?? "role-hidden";
+}
+
 const phaseLabels: Record<Phase, string> = {
   setup: "Setup",
   night: "Night",
@@ -143,15 +147,16 @@ function eventTone(event: GameEvent): string {
 }
 
 function roleLabel(player: PlayerSnapshot, mode: SpectatorMode): string {
-  if (mode === "village") {
+  const role = String(player.role);
+  if (mode === "village" || role === "Hidden") {
     return "Hidden";
   }
-  if (player.role !== "Witch" || !player.witch) {
-    return player.role;
+  if (role !== "Witch" || !player.witch) {
+    return role;
   }
   const save = player.witch.savePotion ? "S" : "-";
   const poison = player.witch.poisonPotion ? "P" : "-";
-  return `${player.role} ${save}/${poison}`;
+  return `${role} ${save}/${poison}`;
 }
 
 function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
@@ -219,6 +224,7 @@ export function App() {
   const [model, setModel] = useState("gpt-4o-mini");
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("deterministic");
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
+  const [language, setLanguage] = useState("English");
   const [speed, setSpeed] = useState(650);
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
@@ -343,8 +349,9 @@ export function App() {
       model: provider === "llm" ? model : "demo",
       summary: provider === "llm" ? summaryMode : "deterministic",
       scenario: debugScenario,
+      view: spectatorMode,
       speed: String(speed),
-      language: "English"
+      language
     });
 
     const source = new EventSource(`/api/games/stream?${params.toString()}`);
@@ -522,6 +529,14 @@ export function App() {
           </label>
 
           <label className="field">
+            <span>Language</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+              <option value="English">English</option>
+              <option value="Japanese">Japanese</option>
+            </select>
+          </label>
+
+          <label className="field">
             <span>Speed</span>
             <input
               type="range"
@@ -597,7 +612,7 @@ export function App() {
                       <span>{phaseLabels[event.phase]}</span>
                       {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibility}</span> : null}
                       {event.playerName && !hidden ? <span>{event.playerName}</span> : null}
-                      {event.role && spectatorMode === "omniscient" && !hidden ? <span className={roleClass[event.role]}>{event.role}</span> : null}
+                      {event.role && spectatorMode === "omniscient" && !hidden ? <span className={roleClassName(event.role)}>{event.role}</span> : null}
                     </div>
                     <p>{hidden ? "Hidden information is concealed in village view." : event.message}</p>
                     {!hidden && showDetails ? (
@@ -662,7 +677,7 @@ export function App() {
                   <span>{player.model}</span>
                   <span className="persona-line">{player.persona}</span>
                 </div>
-                <div className={`role-chip ${spectatorMode === "omniscient" ? roleClass[player.role] : "role-hidden"}`}>
+                <div className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>
                   {roleLabel(player, spectatorMode)}
                 </div>
               </div>
