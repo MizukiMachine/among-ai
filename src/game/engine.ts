@@ -1,11 +1,14 @@
-import { createAgentFactory, DemoAgent } from "./agents";
+import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { buildBaseContext } from "./prompts";
 import { sample, shuffle } from "./random";
 import type {
   Agent,
+  AgentBooleanInput,
   AgentSpeech,
+  AgentTargetInput,
   Camp,
   ClaimMetadata,
+  DebugScenario,
   GameConfig,
   GameEvent,
   GameSnapshot,
@@ -14,6 +17,7 @@ import type {
   Player,
   Role,
   SpeechMetadata,
+  SummaryMode,
   TargetCandidate,
   TargetDecision,
   VoteRecord
@@ -58,6 +62,76 @@ function createRoles(playerCount: number): Role[] {
   return [...fixed, ...Array.from<Role>({ length: playerCount - fixed.length }).fill("Villager")];
 }
 
+function normalizeSummaryMode(mode: SummaryMode | undefined): SummaryMode {
+  return mode === "llm" ? "llm" : "deterministic";
+}
+
+function normalizeDebugScenario(scenario: DebugScenario | undefined): DebugScenario {
+  return scenario === "guard_success" || scenario === "hunter_shot" ? scenario : "none";
+}
+
+function minimumPlayerCountForScenario(scenario: DebugScenario): number {
+  if (scenario === "guard_success") {
+    return 8;
+  }
+  if (scenario === "hunter_shot") {
+    return 9;
+  }
+  return 6;
+}
+
+function createScenarioRoles(scenario: DebugScenario, playerCount: number): Role[] {
+  if (scenario === "guard_success") {
+    const roles: Role[] = ["Guard", "Werewolf", "Villager", "Seer", "Witch", "Werewolf", "Villager", "Villager"];
+    return [...roles, ...Array.from<Role>({ length: playerCount - roles.length }).fill("Hunter")];
+  }
+  if (scenario === "hunter_shot") {
+    const roles: Role[] = ["Werewolf", "Werewolf", "Hunter", "Witch", "Guard", "Seer", "Villager", "Villager", "Villager"];
+    return roles.slice(0, playerCount);
+  }
+  return createRoles(playerCount);
+}
+
+class ScenarioAgent extends DemoAgent {
+  constructor(
+    name: string,
+    private readonly scenarioName: DebugScenario,
+    private readonly scriptedTargets: Array<string | null> = [],
+    private readonly scriptedDecisions: boolean[] = []
+  ) {
+    super(name, "debug-demo");
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    while (this.scriptedTargets.length > 0) {
+      const targetId = this.scriptedTargets.shift() ?? null;
+      if (targetId === null) {
+        if (input.allowSkip) {
+          return {
+            targetId: null,
+            reason: `${this.name} follows the ${this.scenarioName} script.`
+          };
+        }
+        continue;
+      }
+      if (input.candidates.some((candidate) => candidate.id === targetId)) {
+        return {
+          targetId,
+          reason: `${this.name} follows the ${this.scenarioName} script.`
+        };
+      }
+    }
+    return super.chooseTarget(input);
+  }
+
+  async decide(input: AgentBooleanInput): Promise<boolean> {
+    if (this.scriptedDecisions.length > 0) {
+      return this.scriptedDecisions.shift() ?? false;
+    }
+    return super.decide(input);
+  }
+}
+
 function tallyVotes(votes: VoteRecord[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const vote of votes) {
@@ -98,10 +172,13 @@ export class WerewolfGame {
   private lastVotes: VoteRecord[] = [];
 
   constructor(config: GameConfig) {
+    const debugScenario = normalizeDebugScenario(config.debugScenario);
     this.config = {
       ...config,
-      playerCount: normalizePlayerCount(config.playerCount),
-      maxRounds: Math.max(3, config.maxRounds)
+      playerCount: normalizePlayerCount(Math.max(config.playerCount, minimumPlayerCountForScenario(debugScenario))),
+      maxRounds: Math.max(3, config.maxRounds),
+      summaryMode: normalizeSummaryMode(config.summaryMode),
+      debugScenario
     };
 
     if (this.config.provider === "llm" && !process.env.OPENAI_API_KEY) {
@@ -110,10 +187,17 @@ export class WerewolfGame {
       );
     }
 
-    const roles = shuffle(createRoles(this.config.playerCount));
-    const assignedPersonas = shuffle(
-      Array.from({ length: this.config.playerCount }, (_, index) => personas[index % personas.length])
-    );
+    if (this.config.summaryMode === "llm" && this.config.provider !== "llm") {
+      this.startupWarnings.push("LLM summaries require the LLM provider. Deterministic summaries will be used.");
+    }
+
+    const activeDebugScenario = this.config.debugScenario ?? "none";
+    const roles =
+      activeDebugScenario === "none"
+        ? shuffle(createRoles(this.config.playerCount))
+        : createScenarioRoles(activeDebugScenario, this.config.playerCount);
+    const personaPool = Array.from({ length: this.config.playerCount }, (_, index) => personas[index % personas.length]);
+    const assignedPersonas = activeDebugScenario === "none" ? shuffle(personaPool) : personaPool;
     const createAgent = createAgentFactory({
       provider: this.config.provider,
       model: this.config.model,
@@ -122,7 +206,10 @@ export class WerewolfGame {
 
     this.players = roles.map((role, index) => {
       const name = names[index];
-      const agent = createAgent(name);
+      const agent =
+        activeDebugScenario === "none"
+          ? createAgent(name)
+          : this.createScenarioAgent(name, activeDebugScenario, index);
       const player: Player = {
         id: `p${index + 1}`,
         name,
@@ -143,11 +230,27 @@ export class WerewolfGame {
     });
   }
 
+  private createScenarioAgent(name: string, scenario: DebugScenario, index: number): Agent {
+    if (scenario === "guard_success") {
+      const targetsByIndex: Array<Array<string | null>> = [["p3"], ["p3"], [], [], [null], ["p3"], [], [], []];
+      const decisionsByIndex: boolean[][] = [[], [], [], [], [false], [], [], [], []];
+      return new ScenarioAgent(name, scenario, targetsByIndex[index] ?? [], decisionsByIndex[index] ?? []);
+    }
+    if (scenario === "hunter_shot") {
+      const targetsByIndex: Array<Array<string | null>> = [["p3"], ["p3"], ["p1"], [null], ["p4"], [], [], [], []];
+      const decisionsByIndex: boolean[][] = [[], [], [], [false], [], [], [], [], []];
+      return new ScenarioAgent(name, scenario, targetsByIndex[index] ?? [], decisionsByIndex[index] ?? []);
+    }
+    return new DemoAgent(name);
+  }
+
   async *run(): AsyncGenerator<GameEvent> {
     yield this.emit("game_started", "A new AI werewolf match has started.", {
       provider: this.config.provider,
       model: this.config.model || "demo",
-      playerCount: this.config.playerCount
+      playerCount: this.config.playerCount,
+      summaryMode: this.config.summaryMode,
+      debugScenario: this.config.debugScenario
     });
 
     for (const warning of this.startupWarnings) {
@@ -497,7 +600,7 @@ export class WerewolfGame {
     this.lastVotes = votes;
     if (votes.length === 0) {
       yield this.emit("vote_result", "No votes were cast.", { votes: [] });
-      yield this.emitRoundSummary();
+      yield await this.emitRoundSummary();
       return;
     }
 
@@ -514,7 +617,7 @@ export class WerewolfGame {
 
     if (candidates.length !== 1) {
       yield this.emit("vote_result", "The vote is tied, so no one is eliminated.");
-      yield this.emitRoundSummary();
+      yield await this.emitRoundSummary();
       return;
     }
 
@@ -528,7 +631,7 @@ export class WerewolfGame {
       eliminated
     );
     yield* this.runHunterShot(eliminated);
-    yield this.emitRoundSummary();
+    yield await this.emitRoundSummary();
   }
 
   private async *runHunterShot(hunter: Player, blockedTargetIds = new Set<string>(), chainDepth = 0): AsyncGenerator<GameEvent> {
@@ -676,9 +779,54 @@ export class WerewolfGame {
     return parts.join(" ");
   }
 
-  private emitRoundSummary(): GameEvent {
+  private async emitRoundSummary(): Promise<GameEvent> {
     const summary = this.buildRoundSummary();
-    return this.emit("round_summary", summary.message, summary.data);
+    const data: Record<string, unknown> = {
+      ...summary.data,
+      deterministicMessage: summary.message,
+      summaryMode: this.config.summaryMode,
+      summarySource: "deterministic"
+    };
+    let message = summary.message;
+
+    const fallbackReason = this.llmSummaryFallbackReason();
+    if (fallbackReason) {
+      data.summaryFallbackReason = fallbackReason;
+    } else if (this.config.summaryMode === "llm") {
+      try {
+        const llmSummary = await summarizeRoundWithLlm({
+          deterministicMessage: summary.message,
+          round: this.round,
+          model: this.config.model,
+          language: this.config.language,
+          data: summary.data
+        });
+        if (llmSummary) {
+          message = llmSummary;
+          data.summarySource = "llm";
+        } else {
+          data.summaryFallbackReason = "empty_llm_summary";
+        }
+      } catch (error) {
+        data.summaryFallbackReason = "llm_error";
+        data.summaryError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    return this.emit("round_summary", message, data);
+  }
+
+  private llmSummaryFallbackReason(): string | null {
+    if (this.config.summaryMode !== "llm") {
+      return null;
+    }
+    if (this.config.provider !== "llm") {
+      return "llm_provider_not_selected";
+    }
+    if (!process.env.OPENAI_API_KEY) {
+      return "missing_api_key";
+    }
+    return null;
   }
 
   private buildRoundSummary(): { message: string; data: Record<string, unknown> } {

@@ -22,6 +22,8 @@ import type {
 
 const defaultLlmTimeoutMs = 15_000;
 const targetSelectionAttempts = 2;
+const roundSummaryInstruction =
+  'Return strict JSON only, with no markdown: {"summary":"one or two short spectator-facing sentences under 240 characters"}. Focus on deaths, claims, reads, and vote pressure. Do not reveal hidden roles beyond public claims.';
 
 const demoSpeech: Record<Role, string[]> = {
   Werewolf: [
@@ -90,6 +92,14 @@ function clampText(text: string, fallback: string): string {
     return fallback;
   }
   return compact.length > 420 ? `${compact.slice(0, 417)}...` : compact;
+}
+
+function clampSummary(text: string): string | null {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+  return compact.length > 260 ? `${compact.slice(0, 257)}...` : compact;
 }
 
 function clampReason(text: unknown, fallback: string): string {
@@ -319,6 +329,12 @@ function targetName(targetId: string, candidates: TargetCandidate[]): string {
   return candidates.find((candidate) => candidate.id === targetId)?.name ?? targetId;
 }
 
+function normalizeLlmSummary(content: string): string | null {
+  const parsed = extractJsonObject(content);
+  const summary = typeof parsed?.summary === "string" ? parsed.summary : content.replace(/```(?:json)?|```/g, "");
+  return clampSummary(summary);
+}
+
 function buildDemoSpeech(input: AgentSpeechInput): AgentSpeech {
   const candidates = input.knownPlayers.filter((candidate) => candidate.id !== input.player.id);
   const fallback = sample(demoSpeech[input.player.role]);
@@ -457,18 +473,114 @@ export class DemoAgent implements Agent {
   }
 }
 
+type ChatMessage = { role: "system" | "user"; content: string };
+
+interface OpenAICompatibleOptions {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  language: string;
+  timeoutMs: number;
+}
+
+async function completeChat(
+  options: OpenAICompatibleOptions,
+  messages: ChatMessage[],
+  temperature: number
+): Promise<string> {
+  const baseUrl = options.baseUrl.replace(/\/$/, "");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${options.apiKey}`
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: options.model,
+        messages,
+        temperature
+      })
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`LLM request timed out after ${options.timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`LLM request failed: ${response.status} ${details}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+export async function summarizeRoundWithLlm(input: {
+  deterministicMessage: string;
+  round: number;
+  model: string;
+  language: string;
+  data: Record<string, unknown>;
+}): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+  const timeoutMs = positiveInt(process.env.OPENAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
+  const content = await completeChat(
+    {
+      apiKey,
+      baseUrl,
+      model: input.model || process.env.OPENAI_MODEL || "gpt-4o-mini",
+      language: input.language,
+      timeoutMs
+    },
+    [
+      {
+        role: "system",
+        content: [
+          "You summarize a hidden-role werewolf match for spectators.",
+          roundSummaryInstruction,
+          `Respond in ${input.language}.`
+        ].join("\n")
+      },
+      {
+        role: "user",
+        content: [
+          `Round: ${input.round}`,
+          `Deterministic summary: ${input.deterministicMessage}`,
+          "Structured public round data:",
+          JSON.stringify(input.data)
+        ].join("\n")
+      }
+    ],
+    0.35
+  );
+
+  return normalizeLlmSummary(content);
+}
+
 export class OpenAICompatibleAgent implements Agent {
   public readonly model: string;
 
   constructor(
     public readonly name: string,
-    private readonly options: {
-      apiKey: string;
-      baseUrl: string;
-      model: string;
-      language: string;
-      timeoutMs: number;
-    }
+    private readonly options: OpenAICompatibleOptions
   ) {
     this.model = options.model;
   }
@@ -566,45 +678,8 @@ export class OpenAICompatibleAgent implements Agent {
     return /\byes\b|\btrue\b/i.test(content);
   }
 
-  private async complete(messages: Array<{ role: "system" | "user"; content: string }>): Promise<string> {
-    const baseUrl = this.options.baseUrl.replace(/\/$/, "");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
-    let response: Response;
-
-    try {
-      response = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.options.apiKey}`
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: this.options.model,
-          messages,
-          temperature: 0.8
-        })
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`LLM request timed out after ${this.options.timeoutMs}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!response.ok) {
-      const details = await response.text();
-      throw new Error(`LLM request failed: ${response.status} ${details}`);
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    return data.choices?.[0]?.message?.content ?? "";
+  private async complete(messages: ChatMessage[]): Promise<string> {
+    return completeChat(this.options, messages, 0.8);
   }
 }
 

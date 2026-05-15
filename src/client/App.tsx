@@ -17,7 +17,18 @@ import {
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ClaimMetadata, EventVisibility, GameEvent, GameSnapshot, Phase, PlayerReadMetadata, PlayerSnapshot, Role } from "../game/types";
+import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
+import type {
+  ClaimMetadata,
+  DebugScenario,
+  GameEvent,
+  GameSnapshot,
+  Phase,
+  PlayerReadMetadata,
+  PlayerSnapshot,
+  Role,
+  SummaryMode
+} from "../game/types";
 
 const roleClass: Record<Role, string> = {
   Werewolf: "role-werewolf",
@@ -39,8 +50,6 @@ const phaseLabels: Record<Phase, string> = {
   voting: "Voting",
   ended: "Ended"
 };
-
-type SpectatorMode = "omniscient" | "village";
 
 interface VoteDetail {
   voterId: string;
@@ -145,30 +154,6 @@ function roleLabel(player: PlayerSnapshot, mode: SpectatorMode): string {
   return `${player.role} ${save}/${poison}`;
 }
 
-function isSecretEvent(event: GameEvent): boolean {
-  const visibility = event.data?.visibility;
-  if (visibility === "private" || visibility === "werewolf") {
-    return true;
-  }
-  return (
-    event.type === "private_info" ||
-    event.type === "night_action" ||
-    (event.type === "player_speech" && event.phase === "werewolf_discussion")
-  );
-}
-
-function isVisibility(value: unknown): value is EventVisibility {
-  return value === "public" || value === "private" || value === "werewolf";
-}
-
-function eventVisibility(event: GameEvent): EventVisibility {
-  const visibility = event.data?.visibility;
-  if (isVisibility(visibility)) {
-    return visibility;
-  }
-  return isSecretEvent(event) ? "private" : "public";
-}
-
 function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
   const value = event?.data?.[key];
   return Array.isArray(value) ? (value as T[]) : [];
@@ -232,6 +217,8 @@ export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [provider, setProvider] = useState<"demo" | "llm">("demo");
   const [model, setModel] = useState("gpt-4o-mini");
+  const [summaryMode, setSummaryMode] = useState<SummaryMode>("deterministic");
+  const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
   const [speed, setSpeed] = useState(650);
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
@@ -319,6 +306,23 @@ export function App() {
     [latestVoteTotals]
   );
 
+  function updateProvider(nextProvider: "demo" | "llm") {
+    setProvider(nextProvider);
+    if (nextProvider === "demo") {
+      setSummaryMode("deterministic");
+    }
+  }
+
+  function updateDebugScenario(nextScenario: DebugScenario) {
+    setDebugScenario(nextScenario);
+    if (nextScenario === "guard_success") {
+      setPlayerCount((current) => Math.max(current, 8));
+    }
+    if (nextScenario === "hunter_shot") {
+      setPlayerCount(9);
+    }
+  }
+
   function stopGame() {
     sourceRef.current?.close();
     sourceRef.current = null;
@@ -337,6 +341,8 @@ export function App() {
       players: String(playerCount),
       provider,
       model: provider === "llm" ? model : "demo",
+      summary: provider === "llm" ? summaryMode : "deterministic",
+      scenario: debugScenario,
       speed: String(speed),
       language: "English"
     });
@@ -467,7 +473,7 @@ export function App() {
 
           <label className="field">
             <span>Provider</span>
-            <select value={provider} onChange={(event) => setProvider(event.target.value as "demo" | "llm")}>
+            <select value={provider} onChange={(event) => updateProvider(event.target.value as "demo" | "llm")}>
               <option value="demo">Demo</option>
               <option value="llm">LLM</option>
             </select>
@@ -476,6 +482,18 @@ export function App() {
           <label className="field">
             <span>Model</span>
             <input value={model} onChange={(event) => setModel(event.target.value)} disabled={provider === "demo"} />
+          </label>
+
+          <label className="field">
+            <span>Summary</span>
+            <select
+              value={summaryMode}
+              onChange={(event) => setSummaryMode(event.target.value as SummaryMode)}
+              disabled={provider === "demo"}
+            >
+              <option value="deterministic">Deterministic</option>
+              <option value="llm">LLM when available</option>
+            </select>
           </label>
 
           <div className="field">
@@ -493,6 +511,15 @@ export function App() {
               ))}
             </div>
           </div>
+
+          <label className="field">
+            <span>Demo scenario</span>
+            <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
+              <option value="none">Normal</option>
+              <option value="guard_success">Guard success</option>
+              <option value="hunter_shot">Hunter shot</option>
+            </select>
+          </label>
 
           <label className="field">
             <span>Speed</span>
@@ -621,7 +648,9 @@ export function App() {
           <div className="panel-heading">
             <h2>Players</h2>
             <span>
-              {snapshot?.werewolfCount ?? 0} / {snapshot?.villageCount ?? 0}
+              {spectatorMode === "omniscient"
+                ? `${snapshot?.werewolfCount ?? 0} / ${snapshot?.villageCount ?? 0}`
+                : `${snapshot?.aliveCount ?? 0} alive`}
             </span>
           </div>
 
@@ -743,7 +772,11 @@ export function App() {
             {summaryEvents.length > 0 ? (
               summaryEvents.slice(-3).reverse().map((event) => (
                 <p className="summary-line" key={event.id}>
-                  <strong>R{event.round}</strong> {event.message}
+                  <strong>R{event.round}</strong>
+                  <span className={`summary-source ${dataString(event, "summarySource") === "llm" ? "llm" : ""}`}>
+                    {dataString(event, "summarySource") === "llm" ? "LLM" : "Deterministic"}
+                  </span>
+                  {event.message}
                 </p>
               ))
             ) : (

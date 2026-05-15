@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { WerewolfGame } from "../game/engine";
-import type { GameConfig, GameEvent } from "../game/types";
+import type { DebugScenario, GameConfig, GameEvent, SummaryMode } from "../game/types";
 import { loadDotEnv } from "./env";
 
 loadDotEnv();
@@ -18,6 +18,14 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
+function summaryModeParam(value: string | null): SummaryMode {
+  return value === "llm" ? "llm" : "deterministic";
+}
+
+function debugScenarioParam(value: string | null): DebugScenario {
+  return value === "guard_success" || value === "hunter_shot" ? value : "none";
+}
+
 function parseConfig(url: URL): GameConfig & { speed: number } {
   const provider = url.searchParams.get("provider") === "llm" ? "llm" : "demo";
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
@@ -27,6 +35,8 @@ function parseConfig(url: URL): GameConfig & { speed: number } {
     playerCount: intParam(url.searchParams.get("players"), 7, 6, 9),
     language: url.searchParams.get("language") || "English",
     maxRounds: intParam(url.searchParams.get("maxRounds"), 8, 3, 15),
+    summaryMode: summaryModeParam(url.searchParams.get("summary")),
+    debugScenario: debugScenarioParam(url.searchParams.get("scenario")),
     speed: intParam(url.searchParams.get("speed"), 650, 80, 3000)
   };
 }

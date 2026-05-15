@@ -188,6 +188,7 @@ input:disabled {
 
 .field {
   display: grid;
+  min-width: 0;
   gap: 8px;
   padding: 12px 14px 2px;
 }
@@ -216,6 +217,7 @@ input:disabled {
 }
 
 .segments button {
+  min-width: 0;
   min-height: 36px;
   border: 1px solid #d0d5dd;
   border-radius: 8px;
@@ -238,6 +240,7 @@ input:disabled {
 
 .view-toggle button {
   display: inline-flex;
+  min-width: 0;
   min-height: 38px;
   align-items: center;
   justify-content: center;
@@ -248,6 +251,7 @@ input:disabled {
   color: #344054;
   font-size: 13px;
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .view-toggle button.selected {
@@ -520,6 +524,7 @@ input:disabled {
 }
 
 .insight-section {
+  min-width: 0;
   border-top: 1px solid #eaecf0;
   padding: 12px;
 }
@@ -599,6 +604,23 @@ input:disabled {
   -webkit-line-clamp: 3;
 }
 
+.summary-source {
+  display: inline-flex;
+  margin: 0 6px;
+  border-radius: 8px;
+  background: #f2f4f7;
+  color: #475467;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.summary-source.llm {
+  background: #eef4ff;
+  color: #244b9b;
+}
+
 .vote-map {
   display: grid;
   gap: 10px;
@@ -606,11 +628,13 @@ input:disabled {
 
 .vote-target {
   display: grid;
+  min-width: 0;
   gap: 5px;
 }
 
 .vote-target > div {
   display: flex;
+  min-width: 0;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OpenAICompatibleAgent } from "../src/game/agents";
 import { WerewolfGame } from "../src/game/engine";
+import { redactEventForVillage } from "../src/game/redaction";
 import type {
   Agent,
   AgentSpeech,
@@ -171,6 +172,25 @@ test("role distribution includes required special roles and scales werewolves", 
   }
 });
 
+test("demo simulations for 6-9 players complete with consistent alive counts", async () => {
+  for (const playerCount of [6, 7, 8, 9]) {
+    for (let runIndex = 0; runIndex < 3; runIndex += 1) {
+      const game = new WerewolfGame({ ...baseConfig, playerCount, maxRounds: 5 });
+      const events = await collect(game.run());
+      const ended = events.find((event) => event.type === "game_ended");
+
+      assert.ok(ended, `expected ${playerCount}p run ${runIndex} to finish`);
+      for (const event of events) {
+        assert.equal(
+          event.snapshot.aliveCount,
+          event.snapshot.players.filter((player) => player.alive).length
+        );
+        assert.equal(event.snapshot.players.length, playerCount);
+      }
+    }
+  }
+});
+
 test("voting eliminates a single top-voted player and records totals", async () => {
   const game = createGame();
   const players = setTable(game, [
@@ -237,6 +257,144 @@ test("round summary carries claims, reads, and votes in deterministic data", asy
   assert.ok((data.suspects as unknown[]).length > 0);
   assert.ok((data.trusts as unknown[]).length > 0);
   assert.ok((data.votes as unknown[]).length > 0);
+});
+
+test("LLM summary mode falls back to deterministic summary without an API key", async () => {
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  try {
+    const game = new WerewolfGame({
+      ...baseConfig,
+      provider: "llm",
+      model: "test-model",
+      summaryMode: "llm"
+    }) as TestableGame;
+    setTable(game, [
+      { role: "Werewolf", targets: ["p4"] },
+      { role: "Seer", targets: ["p4"] },
+      { role: "Witch", targets: ["p4"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p2"] }
+    ]);
+
+    const events = await collect(game.runVoting());
+    const summary = events.find((event) => event.type === "round_summary");
+
+    assert.ok(summary);
+    assert.match(summary.message, /Votes:/);
+    assert.equal(summary.data?.summaryMode, "llm");
+    assert.equal(summary.data?.summarySource, "deterministic");
+    assert.equal(summary.data?.summaryFallbackReason, "missing_api_key");
+    assert.equal(summary.data?.deterministicMessage, summary.message);
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("LLM summary request failure keeps deterministic summary data intact", async () => {
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-key";
+
+  globalThis.fetch = (async () => {
+    return new Response("bad gateway", { status: 502 });
+  }) as typeof fetch;
+
+  try {
+    const game = new WerewolfGame({
+      ...baseConfig,
+      provider: "llm",
+      model: "test-model",
+      summaryMode: "llm"
+    }) as TestableGame;
+    setTable(game, [
+      { role: "Werewolf", targets: ["p4"] },
+      { role: "Seer", targets: ["p4"] },
+      { role: "Witch", targets: ["p4"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p2"] }
+    ]);
+
+    const events = await collect(game.runVoting());
+    const summary = events.find((event) => event.type === "round_summary");
+
+    assert.ok(summary);
+    assert.match(summary.message, /Votes:/);
+    assert.equal(summary.data?.summarySource, "deterministic");
+    assert.equal(summary.data?.summaryFallbackReason, "llm_error");
+    assert.match(String(summary.data?.summaryError), /502/);
+    assert.equal(summary.data?.deterministicMessage, summary.message);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("LLM summary mode uses a short provider summary when available", async () => {
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  process.env.OPENAI_API_KEY = "test-key";
+
+  globalThis.fetch = (async (_url, init) => {
+    calls += 1;
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.temperature, 0.35);
+    assert.equal(body.model, "test-model");
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ summary: "Votes tightened around Darwin after public reads." }) } }]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = new WerewolfGame({
+      ...baseConfig,
+      provider: "llm",
+      model: "test-model",
+      summaryMode: "llm"
+    }) as TestableGame;
+    setTable(game, [
+      { role: "Werewolf", targets: ["p4"] },
+      { role: "Seer", targets: ["p4"] },
+      { role: "Witch", targets: ["p4"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p1"] },
+      { role: "Villager", targets: ["p2"] }
+    ]);
+
+    const events = await collect(game.runVoting());
+    const summary = events.find((event) => event.type === "round_summary");
+
+    assert.ok(summary);
+    assert.equal(summary.message, "Votes tightened around Darwin after public reads.");
+    assert.equal(summary.data?.summarySource, "llm");
+    assert.match(String(summary.data?.deterministicMessage), /Votes:/);
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey;
+    }
+  }
 });
 
 test("seer records a private camp result for the chosen living target", async () => {
@@ -355,6 +513,33 @@ test("private night events are marked for client-side village redaction", async 
   assert.ok(secretEvents.every((event) => event.data?.visibility === "private"));
 });
 
+test("village redaction helper strips private event and snapshot role data", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Guard", targets: ["p3"] },
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch", decisions: [false], targets: [null] },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+  const privateEvent = events.find((event) => event.type === "night_action" && event.data?.action === "guard_protect");
+
+  assert.ok(privateEvent);
+  const redacted = redactEventForVillage(privateEvent);
+
+  assert.equal(redacted.message, "Hidden information is concealed in village view.");
+  assert.equal(redacted.playerName, undefined);
+  assert.equal(redacted.targetName, undefined);
+  assert.equal(redacted.role, undefined);
+  assert.equal(redacted.data.redacted, true);
+  assert.equal(redacted.snapshot.werewolfCount, null);
+  assert.equal(redacted.snapshot.villageCount, null);
+  assert.ok(redacted.snapshot.players.every((player) => player.role === "Hidden" && player.camp === "hidden"));
+});
+
 test("hunter gets one death shot after vote elimination", async () => {
   const game = createGame();
   const players = setTable(game, [
@@ -412,6 +597,35 @@ test("hunter shot cannot overwrite a simultaneous night death target", async () 
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "poison"));
 });
 
+test("guard success debug scenario forces an observable protected night", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 6,
+    debugScenario: "guard_success"
+  }) as TestableGame;
+
+  const events = await collect(game.runNight());
+
+  assert.equal(game.players.length, 8);
+  assert.ok(events.some((event) => event.type === "private_info" && event.data?.action === "guard_success"));
+  assert.ok(events.some((event) => event.type === "death" && event.data?.cause === "no_death"));
+});
+
+test("hunter shot debug scenario forces an observable night shot", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 6,
+    debugScenario: "hunter_shot"
+  }) as TestableGame;
+
+  const events = await collect(game.runNight());
+
+  assert.equal(game.players.length, 9);
+  assert.equal(game.players[2].alive, false);
+  assert.equal(game.players[0].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.data?.cause === "hunter" && event.targetId === "p1"));
+});
+
 test("public death events keep target roles in data for village-view redaction", async () => {
   const game = createGame();
   setTable(game, [
@@ -431,6 +645,29 @@ test("public death events keep target roles in data for village-view redaction",
     const role = String(event.data?.targetRole);
     assert.ok(!event.message.includes(role));
   }
+});
+
+test("village redaction helper removes public target role payloads", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Hunter", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+  const publicDeath = events.find((event) => event.type === "death" && typeof event.data?.targetRole === "string");
+
+  assert.ok(publicDeath);
+  const redacted = redactEventForVillage(publicDeath);
+
+  assert.equal(redacted.message, publicDeath.message);
+  assert.equal(redacted.data.targetRole, undefined);
+  assert.equal(redacted.role, undefined);
+  assert.equal(redacted.snapshot.players.every((player) => player.role === "Hidden"), true);
 });
 
 test("LLM target selection retries malformed JSON and falls back to a random legal target", async () => {

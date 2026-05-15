@@ -28,6 +28,8 @@ export type GameEventType =
   | "system";
 
 export type EventVisibility = "public" | "private" | "werewolf";
+export type SummaryMode = "deterministic" | "llm";
+export type DebugScenario = "none" | "guard_success" | "hunter_shot";
 
 export interface SeerClaimResult {
   targetId: string;
@@ -134,6 +136,8 @@ export interface GameConfig {
   model: string;
   language: string;
   maxRounds: number;
+  summaryMode?: SummaryMode;
+  debugScenario?: DebugScenario;
 }
 
 export interface TargetCandidate {
