@@ -28,10 +28,15 @@ class ScriptedAgent implements Agent {
   constructor(
     readonly name: string,
     private readonly targets: Array<string | null> = [],
-    private readonly decisions: boolean[] = []
+    private readonly decisions: boolean[] = [],
+    private readonly speeches: AgentSpeech[] = []
   ) {}
 
   async speak(): Promise<AgentSpeech> {
+    const scripted = this.speeches.shift();
+    if (scripted) {
+      return scripted;
+    }
     return {
       message: `${this.name} speaks.`,
       metadata: {
@@ -64,6 +69,9 @@ type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
   checkVictory(): { camp: Camp; reason: string } | null;
   players: Player[];
+  runDay(): AsyncGenerator<GameEvent>;
+  runGuardAction(): AsyncGenerator<GameEvent>;
+  runHunterShot(hunter: Player, blockedTargetIds?: Set<string>, chainDepth?: number): AsyncGenerator<GameEvent>;
   runNight(): AsyncGenerator<GameEvent>;
   runSeerAction(): AsyncGenerator<GameEvent>;
   runVoting(): AsyncGenerator<GameEvent>;
@@ -87,7 +95,7 @@ function createGame(): TestableGame {
 
 function setTable(
   game: TestableGame,
-  specs: Array<{ role: Role; alive?: boolean; targets?: Array<string | null>; decisions?: boolean[] }>
+  specs: Array<{ role: Role; alive?: boolean; targets?: Array<string | null>; decisions?: boolean[]; speeches?: AgentSpeech[] }>
 ): Player[] {
   game.witchState.savePotion = true;
   game.witchState.poisonPotion = true;
@@ -108,7 +116,7 @@ function setTable(
       savePotion: spec.role === "Witch",
       poisonPotion: spec.role === "Witch"
     };
-    game.agents.set(player.id, new ScriptedAgent(player.name, spec.targets, spec.decisions));
+    game.agents.set(player.id, new ScriptedAgent(player.name, spec.targets, spec.decisions, spec.speeches));
     return player;
   });
 }
@@ -155,9 +163,9 @@ test("role distribution includes required special roles and scales werewolves", 
     const roles = first.value.snapshot.players.map((player) => player.role);
     assert.equal(roles.filter((role) => role === "Seer").length, 1);
     assert.equal(roles.filter((role) => role === "Witch").length, 1);
-    assert.equal(roles.filter((role) => role === "Guard").length, playerCount >= 7 ? 1 : 0);
-    assert.equal(roles.filter((role) => role === "Hunter").length, playerCount >= 8 ? 1 : 0);
-    assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 8 ? 2 : 1);
+    assert.equal(roles.filter((role) => role === "Guard").length, playerCount >= 8 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Hunter").length, playerCount >= 9 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 7 ? 2 : 1);
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
@@ -181,6 +189,54 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
   assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "Ada scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
+});
+
+test("round summary carries claims, reads, and votes in deterministic data", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    {
+      role: "Seer",
+      targets: ["p4"],
+      speeches: [
+        {
+          message: "I claim Seer with a wolf result.",
+          metadata: {
+            claims: [
+              {
+                type: "role_claim",
+                role: "Seer",
+                result: { targetId: "p1", targetName: "Ada", camp: "werewolf", round: 1 }
+              }
+            ],
+            suspects: [{ targetId: "p1", targetName: "Ada", reason: "wolf result", weight: 0.9 }],
+            trusts: [{ targetId: "p3", targetName: "Curie", reason: "consistent pressure", weight: 0.6 }]
+          }
+        }
+      ]
+    },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p2"] }
+  ]);
+
+  const events = await collect(game.runDay());
+  const summary = events.find((event) => event.type === "round_summary");
+
+  assert.ok(summary);
+  assert.match(summary.message, /Claims:/);
+  assert.match(summary.message, /Reads:/);
+  assert.match(summary.message, /Votes:/);
+  const data = summary.data ?? {};
+  assert.ok(Array.isArray(data.claims));
+  assert.ok(Array.isArray(data.suspects));
+  assert.ok(Array.isArray(data.trusts));
+  assert.ok(Array.isArray(data.votes));
+  assert.ok((data.claims as unknown[]).length > 0);
+  assert.ok((data.suspects as unknown[]).length > 0);
+  assert.ok((data.trusts as unknown[]).length > 0);
+  assert.ok((data.votes as unknown[]).length > 0);
 });
 
 test("seer records a private camp result for the chosen living target", async () => {
@@ -258,8 +314,45 @@ test("guard protection blocks the werewolf kill and remembers the protected targ
 
   assert.equal(players[2].alive, true);
   assert.equal(game.guardState.lastProtectedTargetId, "p3");
-  assert.ok(events.some((event) => event.type === "night_action" && event.data?.action === "guard_protect"));
-  assert.ok(events.some((event) => event.type === "death" && event.message.includes("No one died")));
+  assert.ok(events.some((event) => event.type === "night_action" && event.data?.action === "guard_protect" && event.data?.visibility === "private"));
+  assert.ok(events.some((event) => event.type === "private_info" && event.data?.action === "guard_success" && event.data?.visibility === "private"));
+  assert.ok(events.some((event) => event.type === "death" && event.data?.cause === "no_death"));
+});
+
+test("guard protection miss does not block the werewolf kill or emit success info", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Guard", targets: ["p4"] },
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch", decisions: [false], targets: [null] },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[2].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "werewolf"));
+  assert.ok(!events.some((event) => event.type === "private_info" && event.data?.action === "guard_success"));
+});
+
+test("private night events are marked for client-side village redaction", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Guard", targets: ["p3"] },
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch", decisions: [false], targets: [null] },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+  const secretEvents = events.filter((event) => event.type === "night_action" || event.type === "private_info");
+
+  assert.ok(secretEvents.length > 0);
+  assert.ok(secretEvents.every((event) => event.data?.visibility === "private"));
 });
 
 test("hunter gets one death shot after vote elimination", async () => {
@@ -278,6 +371,66 @@ test("hunter gets one death shot after vote elimination", async () => {
   assert.equal(players[3].alive, false);
   assert.equal(players[0].alive, false);
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "hunter"));
+});
+
+test("hunter death shot is consumed only once", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Hunter", alive: false, targets: ["p2", "p3"] },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+
+  const first = await collect(game.runHunterShot(players[0]));
+  const second = await collect(game.runHunterShot(players[0]));
+
+  assert.equal(players[1].alive, false);
+  assert.equal(players[2].alive, true);
+  assert.equal(first.filter((event) => event.data?.cause === "hunter").length, 1);
+  assert.equal(second.filter((event) => event.data?.cause === "hunter").length, 0);
+});
+
+test("hunter shot cannot overwrite a simultaneous night death target", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Witch", decisions: [false], targets: ["p4"] },
+    { role: "Hunter", targets: ["p4"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[2].alive, false);
+  assert.equal(players[3].alive, false);
+  assert.ok(!events.some((event) => event.data?.cause === "hunter" && event.targetId === "p4"));
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "poison"));
+});
+
+test("public death events keep target roles in data for village-view redaction", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Hunter", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+  const deathEvents = events.filter((event) => event.type === "death" && typeof event.data?.targetRole === "string");
+
+  assert.ok(deathEvents.length >= 2);
+  for (const event of deathEvents) {
+    const role = String(event.data?.targetRole);
+    assert.ok(!event.message.includes(role));
+  }
 });
 
 test("LLM target selection retries malformed JSON and falls back to a random legal target", async () => {

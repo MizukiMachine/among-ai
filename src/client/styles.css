@@ -312,6 +312,16 @@ input:disabled {
   color: #16745f;
 }
 
+.event-row.hunter-shot .event-icon {
+  background: #f8f3e8;
+  color: #805b10;
+}
+
+.event-row.guard-action .event-icon {
+  background: #eaf7f8;
+  color: #0e6670;
+}
+
 .event-row.secret-redacted .event-icon {
   background: #f2f4f7;
   color: #667085;
@@ -359,6 +369,7 @@ input:disabled {
 
 .detail-chip {
   display: inline-flex;
+  max-width: 100%;
   min-height: 24px;
   align-items: center;
   border-radius: 8px;
@@ -368,6 +379,7 @@ input:disabled {
   font-size: 12px;
   font-weight: 680;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .detail-chip.claim {
@@ -389,6 +401,17 @@ input:disabled {
 .detail-chip.total {
   background: #f8f3e8;
   color: #805b10;
+}
+
+.detail-chip.hunter,
+.detail-chip.role-info {
+  background: #f8f3e8;
+  color: #805b10;
+}
+
+.detail-chip.guard {
+  background: #eaf7f8;
+  color: #0e6670;
 }
 
 .roster-panel {
@@ -533,6 +556,11 @@ input:disabled {
   margin-top: 10px;
 }
 
+.read-group p {
+  display: grid;
+  gap: 2px;
+}
+
 .read-group > span {
   color: #667085;
   font-size: 11px;
@@ -544,6 +572,31 @@ input:disabled {
 .summary-line strong,
 .vote-target strong {
   color: #1d2939;
+}
+
+.read-meta,
+.read-group small,
+.more-line {
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.read-group small,
+.vote-target small,
+.summary-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.read-group small,
+.vote-target small {
+  -webkit-line-clamp: 2;
+}
+
+.summary-line {
+  -webkit-line-clamp: 3;
 }
 
 .vote-map {
@@ -570,7 +623,6 @@ input:disabled {
 }
 
 .vote-target small {
-  display: block;
   margin-top: 2px;
   color: #667085;
 }
@@ -619,5 +671,25 @@ input:disabled {
 
   .status-strip div:last-child {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 460px) {
+  .icon-button span {
+    display: none;
+  }
+
+  .status-strip strong {
+    font-size: 18px;
+  }
+
+  .event-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .event-icon {
+    width: 28px;
+    height: 28px;
   }
 }

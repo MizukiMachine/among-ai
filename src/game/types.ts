@@ -27,6 +27,8 @@ export type GameEventType =
   | "game_ended"
   | "system";
 
+export type EventVisibility = "public" | "private" | "werewolf";
+
 export interface SeerClaimResult {
   targetId: string;
   targetName?: string;
@@ -120,7 +122,9 @@ export interface GameEvent {
   role?: Role;
   targetId?: string;
   targetName?: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> & {
+    visibility?: EventVisibility;
+  };
   snapshot: GameSnapshot;
 }
 

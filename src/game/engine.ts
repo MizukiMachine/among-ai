@@ -43,16 +43,16 @@ function normalizePlayerCount(count: number): number {
 }
 
 function createRoles(playerCount: number): Role[] {
-  const werewolves = playerCount >= 8 ? 2 : 1;
+  const werewolves = playerCount >= 7 ? 2 : 1;
   const fixed: Role[] = [
     ...Array.from<Role>({ length: werewolves }).fill("Werewolf"),
     "Seer",
     "Witch"
   ];
-  if (playerCount >= 7) {
+  if (playerCount >= 8) {
     fixed.push("Guard");
   }
-  if (playerCount >= 8) {
+  if (playerCount >= 9) {
     fixed.push("Hunter");
   }
   return [...fixed, ...Array.from<Role>({ length: playerCount - fixed.length }).fill("Villager")];
@@ -207,45 +207,74 @@ export class WerewolfGame {
         ]);
         const speech = await this.safeSpeak(wolf, "Suggest a night victim and explain the strategic reason.", context);
         this.wolfHistory.push(`${wolf.name}: ${speech.message}`);
-        yield this.emit("player_speech", speech.message, { speech: speech.message, ...speech.metadata }, wolf);
+        yield this.emit("player_speech", speech.message, { visibility: "werewolf", speech: speech.message, ...speech.metadata }, wolf);
       }
     }
 
     this.phase = "night";
     const killTarget = await this.resolveWerewolfAttack(werewolves);
     if (killTarget) {
-      yield this.emit("night_action", "The werewolves selected a victim.", {}, undefined, killTarget);
+      yield this.emit("night_action", "The werewolves selected a victim.", { visibility: "private", action: "werewolf_attack" }, undefined, killTarget);
     }
 
     yield* this.runSeerAction();
     const savedTarget = yield* this.runWitchAction(killTarget);
-    const deaths = new Set<string>();
+    const guardBlockedAttack = Boolean(
+      killTarget && savedTarget !== killTarget.id && this.guardState.protectedTargetId === killTarget.id
+    );
+
+    if (guardBlockedAttack && killTarget) {
+      const guard = this.players.find((player) => player.role === "Guard");
+      if (guard) {
+        yield this.emit(
+          "private_info",
+          `${guard.name}'s protection stopped the attack on ${killTarget.name}.`,
+          {
+            visibility: "private",
+            visibleTo: guard.id,
+            action: "guard_success",
+            protectedTargetId: killTarget.id,
+            protectedTargetName: killTarget.name
+          },
+          guard,
+          killTarget
+        );
+      }
+    }
+
+    const deaths = new Map<string, string>();
+    const addNightDeath = (playerId: string, cause: string) => {
+      const existing = deaths.get(playerId);
+      deaths.set(playerId, existing && existing !== cause ? "multiple" : cause);
+    };
 
     if (killTarget && savedTarget !== killTarget.id && this.guardState.protectedTargetId !== killTarget.id) {
-      deaths.add(killTarget.id);
+      addNightDeath(killTarget.id, "werewolf");
     }
 
     const poisonTarget = this.witchState.poisonTargetId
       ? this.requirePlayer(this.witchState.poisonTargetId)
       : null;
     if (poisonTarget) {
-      deaths.add(poisonTarget.id);
+      addNightDeath(poisonTarget.id, "poison");
     }
 
     if (deaths.size === 0) {
-      yield this.emit("death", "No one died during the night.");
+      yield this.emit("death", "No one died during the night.", { cause: "no_death" });
       return;
     }
 
-    for (const id of deaths) {
+    const pendingDeaths = new Set(deaths.keys());
+    for (const [id, cause] of deaths) {
       const player = this.requirePlayer(id);
       if (!player.alive) {
         continue;
       }
       player.alive = false;
       this.lastNightDeaths.push(id);
-      yield this.emit("death", `${player.name} died during the night.`, {}, undefined, player);
-      yield* this.runHunterShot(player);
+      pendingDeaths.delete(id);
+      yield this.emit("death", `${player.name} died during the night.`, { cause, targetRole: player.role }, undefined, player);
+      yield* this.runHunterShot(player, pendingDeaths);
     }
   }
 
@@ -277,7 +306,19 @@ export class WerewolfGame {
     this.guardState.protectedTargetId = target.id;
     this.guardState.lastProtectedTargetId = target.id;
     guard.memories.push(`Round ${this.round}: protected ${target.name}. Reason: ${decision.reason}`);
-    yield this.emit("night_action", `${guard.name} protected ${target.name}.`, { action: "guard_protect", reason: decision.reason }, guard, target);
+    yield this.emit(
+      "night_action",
+      `${guard.name} protected ${target.name}.`,
+      {
+        visibility: "private",
+        action: "guard_protect",
+        protectedTargetId: target.id,
+        protectedTargetName: target.name,
+        reason: decision.reason
+      },
+      guard,
+      target
+    );
   }
 
   private async resolveWerewolfAttack(werewolves: Player[]): Promise<Player | null> {
@@ -332,7 +373,7 @@ export class WerewolfGame {
     yield this.emit(
       "private_info",
       `${seer.name} learned that ${target.name} is ${target.camp}.`,
-      { visibleTo: seer.id, result: target.camp },
+      { visibility: "private", visibleTo: seer.id, action: "seer_check", result: target.camp },
       seer,
       target
     );
@@ -358,7 +399,13 @@ export class WerewolfGame {
         this.witchState.savedTargetId = killTarget.id;
         savedTarget = killTarget.id;
         witch.memories.push(`Round ${this.round}: saved ${killTarget.name}.`);
-        yield this.emit("night_action", `${witch.name} used the save potion.`, {}, witch, killTarget);
+        yield this.emit(
+          "night_action",
+          `${witch.name} used the save potion.`,
+          { visibility: "private", action: "witch_save", savedTargetId: killTarget.id, savedTargetName: killTarget.name },
+          witch,
+          killTarget
+        );
         return savedTarget;
       }
     }
@@ -375,7 +422,13 @@ export class WerewolfGame {
         this.witchState.poisonPotion = false;
         this.witchState.poisonTargetId = target.id;
         witch.memories.push(`Round ${this.round}: poisoned ${target.name}.`);
-        yield this.emit("night_action", `${witch.name} used the poison potion.`, {}, witch, target);
+        yield this.emit(
+          "night_action",
+          `${witch.name} used the poison potion.`,
+          { visibility: "private", action: "witch_poison", poisonTargetId: target.id, poisonTargetName: target.name },
+          witch,
+          target
+        );
       }
     }
 
@@ -469,8 +522,8 @@ export class WerewolfGame {
     eliminated.alive = false;
     yield this.emit(
       "death",
-      `${eliminated.name} was eliminated by vote. Their role was ${eliminated.role}.`,
-      { cause: "vote" },
+      `${eliminated.name} was eliminated by vote.`,
+      { cause: "vote", targetRole: eliminated.role },
       undefined,
       eliminated
     );
@@ -478,23 +531,24 @@ export class WerewolfGame {
     yield this.emitRoundSummary();
   }
 
-  private async *runHunterShot(hunter: Player): AsyncGenerator<GameEvent> {
+  private async *runHunterShot(hunter: Player, blockedTargetIds = new Set<string>(), chainDepth = 0): AsyncGenerator<GameEvent> {
     if (hunter.role !== "Hunter" || this.hunterShotsUsed.has(hunter.id)) {
       return;
     }
 
-    const targets = this.alivePlayers();
+    const targets = this.alivePlayers().filter((player) => !blockedTargetIds.has(player.id));
     if (targets.length === 0) {
       return;
     }
 
     this.hunterShotsUsed.add(hunter.id);
+    const legalTargetIds = new Set(targets.map((player) => player.id));
     const context = this.contextFor(hunter, [
       "You died as the Hunter and may shoot one living player before leaving the game.",
       `Legal shot targets: ${targets.map((player) => player.name).join(", ")}.`
     ]);
     const decision = await this.safeChooseTarget(hunter, "Hunter death shot", context, targets, false);
-    if (!decision.targetId) {
+    if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
 
@@ -510,12 +564,19 @@ export class WerewolfGame {
     hunter.memories.push(`Round ${this.round}: shot ${target.name}. Reason: ${decision.reason}`);
     yield this.emit(
       "death",
-      `${target.name} was shot by Hunter ${hunter.name}. Their role was ${target.role}.`,
-      { cause: "hunter", hunterId: hunter.id, hunterName: hunter.name, reason: decision.reason },
+      `${target.name} was shot by Hunter ${hunter.name}.`,
+      {
+        cause: "hunter",
+        hunterId: hunter.id,
+        hunterName: hunter.name,
+        targetRole: target.role,
+        reason: decision.reason,
+        chainDepth
+      },
       hunter,
       target
     );
-    yield* this.runHunterShot(target);
+    yield* this.runHunterShot(target, blockedTargetIds, chainDepth + 1);
   }
 
   private checkVictory(): { camp: Camp; reason: string } | null {
@@ -640,24 +701,23 @@ export class WerewolfGame {
 
     const nightLine =
       nightDeaths.length > 0
-        ? `Night deaths: ${nightDeaths.map((death) => death.playerName).join(", ")}.`
-        : "Night deaths: none.";
+        ? `Night: ${nightDeaths.map((death) => death.playerName).join(", ")} died.`
+        : "Night: no deaths.";
+    const shownClaims = claims.slice(0, 2);
     const claimLine =
       claims.length > 0
-        ? `Claims: ${claims.slice(0, 4).map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}.`
+        ? `Claims: ${shownClaims.map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}${claims.length > shownClaims.length ? ` +${claims.length - shownClaims.length} more` : ""}.`
         : "Claims: none.";
-    const suspectLine =
-      suspects.length > 0
-        ? `Suspicion: ${suspects.slice(0, 5).map((item) => `${item.sourceName}->${item.targetName}`).join(", ")}.`
-        : "Suspicion: none.";
-    const trustLine =
-      trusts.length > 0
-        ? `Trust: ${trusts.slice(0, 5).map((item) => `${item.sourceName}->${item.targetName}`).join(", ")}.`
-        : "Trust: none.";
-    const voteLine = votes.length > 0 ? `Votes: ${votes.map((vote) => `${vote.voterName}->${vote.targetName}`).join(", ")}.` : "Votes: none.";
+    const readLine = `Reads: suspects ${this.formatReadLeaders(suspects)}; trusts ${this.formatReadLeaders(trusts)}.`;
+    const sortedTotals = [...totals].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
+    const shownTotals = sortedTotals.slice(0, 3);
+    const voteLine =
+      shownTotals.length > 0
+        ? `Votes: ${shownTotals.map((total) => `${total.targetName} ${total.count}`).join(", ")}${sortedTotals.length > shownTotals.length ? ` +${sortedTotals.length - shownTotals.length} more` : ""}.`
+        : "Votes: none.";
 
     return {
-      message: [nightLine, claimLine, suspectLine, trustLine, voteLine].join(" "),
+      message: [nightLine, claimLine, readLine, voteLine].join(" "),
       data: {
         nightDeaths,
         claims,
@@ -667,6 +727,26 @@ export class WerewolfGame {
         totals
       }
     };
+  }
+
+  private formatReadLeaders(reads: Array<{ targetId: string; targetName: string }>): string {
+    if (reads.length === 0) {
+      return "none";
+    }
+
+    const counts = new Map<string, { targetName: string; count: number }>();
+    for (const read of reads) {
+      const current = counts.get(read.targetId);
+      counts.set(read.targetId, {
+        targetName: read.targetName,
+        count: (current?.count ?? 0) + 1
+      });
+    }
+
+    const ranked = [...counts.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
+    const shown = ranked.slice(0, 3);
+    const text = shown.map((item) => `${item.targetName}${item.count > 1 ? ` x${item.count}` : ""}`).join(", ");
+    return ranked.length > shown.length ? `${text} +${ranked.length - shown.length} more` : text;
   }
 
   private claimDetails(): Array<{ speakerId: string; speakerName: string; claim: ClaimMetadata }> {

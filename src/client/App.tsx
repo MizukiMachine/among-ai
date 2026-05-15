@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  Crosshair,
   Eye,
   EyeOff,
   FlaskConical,
@@ -9,13 +10,14 @@ import {
   Network,
   Play,
   RotateCcw,
+  Shield,
   Skull,
   Square,
   Sun,
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ClaimMetadata, GameEvent, GameSnapshot, Phase, PlayerReadMetadata, PlayerSnapshot, Role } from "../game/types";
+import type { ClaimMetadata, EventVisibility, GameEvent, GameSnapshot, Phase, PlayerReadMetadata, PlayerSnapshot, Role } from "../game/types";
 
 const roleClass: Record<Role, string> = {
   Werewolf: "role-werewolf",
@@ -69,7 +71,34 @@ interface ReadDetail {
   weight?: number;
 }
 
+interface ReadCluster {
+  targetId: string;
+  targetName: string;
+  count: number;
+  sources: string[];
+  latestReason?: string;
+}
+
+function dataString(event: GameEvent | undefined, key: string): string {
+  const value = event?.data?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function eventAction(event: GameEvent): string {
+  return dataString(event, "action");
+}
+
+function eventCause(event: GameEvent): string {
+  return dataString(event, "cause");
+}
+
 function eventIcon(event: GameEvent) {
+  if (eventCause(event) === "hunter") {
+    return <Crosshair size={16} />;
+  }
+  if (eventAction(event).startsWith("guard_")) {
+    return <Shield size={16} />;
+  }
   if (event.type === "round_summary") {
     return <MessageCircle size={16} />;
   }
@@ -94,6 +123,16 @@ function eventIcon(event: GameEvent) {
   return <Activity size={16} />;
 }
 
+function eventTone(event: GameEvent): string {
+  if (eventCause(event) === "hunter") {
+    return "hunter-shot";
+  }
+  if (eventAction(event).startsWith("guard_")) {
+    return "guard-action";
+  }
+  return "";
+}
+
 function roleLabel(player: PlayerSnapshot, mode: SpectatorMode): string {
   if (mode === "village") {
     return "Hidden";
@@ -107,11 +146,27 @@ function roleLabel(player: PlayerSnapshot, mode: SpectatorMode): string {
 }
 
 function isSecretEvent(event: GameEvent): boolean {
+  const visibility = event.data?.visibility;
+  if (visibility === "private" || visibility === "werewolf") {
+    return true;
+  }
   return (
     event.type === "private_info" ||
     event.type === "night_action" ||
     (event.type === "player_speech" && event.phase === "werewolf_discussion")
   );
+}
+
+function isVisibility(value: unknown): value is EventVisibility {
+  return value === "public" || value === "private" || value === "werewolf";
+}
+
+function eventVisibility(event: GameEvent): EventVisibility {
+  const visibility = event.data?.visibility;
+  if (isVisibility(visibility)) {
+    return visibility;
+  }
+  return isSecretEvent(event) ? "private" : "public";
 }
 
 function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
@@ -146,6 +201,31 @@ function formatClaim(claim: ClaimMetadata): string {
 function readLabel(read: PlayerReadMetadata | ReadDetail): string {
   const target = read.targetName ?? read.targetId;
   return read.reason ? `${target}: ${read.reason}` : target;
+}
+
+function shortText(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function clusterReads(reads: ReadDetail[]): ReadCluster[] {
+  const clusters = new Map<string, ReadCluster>();
+  for (const read of reads) {
+    const current = clusters.get(read.targetId) ?? {
+      targetId: read.targetId,
+      targetName: read.targetName,
+      count: 0,
+      sources: []
+    };
+    current.count += 1;
+    if (!current.sources.includes(read.sourceName)) {
+      current.sources.push(read.sourceName);
+    }
+    if (read.reason) {
+      current.latestReason = read.reason;
+    }
+    clusters.set(read.targetId, current);
+  }
+  return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
 export function App() {
@@ -225,6 +305,8 @@ export function App() {
       ),
     [currentDaySpeeches]
   );
+  const suspectClusters = useMemo(() => clusterReads(publicSuspects), [publicSuspects]);
+  const trustClusters = useMemo(() => clusterReads(publicTrusts), [publicTrusts]);
   const summaryEvents = useMemo(() => events.filter((event) => event.type === "round_summary"), [events]);
   const latestVoteResult = useMemo(
     () => latestEvent(events, (event) => event.type === "vote_result" && dataArray<VoteDetail>(event, "votes").length > 0),
@@ -232,6 +314,10 @@ export function App() {
   );
   const latestVotes = useMemo(() => dataArray<VoteDetail>(latestVoteResult, "votes"), [latestVoteResult]);
   const latestVoteTotals = useMemo(() => dataArray<VoteTotal>(latestVoteResult, "totals"), [latestVoteResult]);
+  const latestVoteTotalsSorted = useMemo(
+    () => [...latestVoteTotals].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName)),
+    [latestVoteTotals]
+  );
 
   function stopGame() {
     sourceRef.current?.close();
@@ -452,29 +538,55 @@ export function App() {
           </div>
           <div className="event-log" ref={logRef}>
             {events.map((event) => {
+              const visibility = eventVisibility(event);
               const hidden = spectatorMode === "village" && isSecretEvent(event);
               const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
               const suspects = hidden ? [] : dataArray<PlayerReadMetadata>(event, "suspects");
               const trusts = hidden ? [] : dataArray<PlayerReadMetadata>(event, "trusts");
               const totals = hidden ? [] : dataArray<VoteTotal>(event, "totals");
-              const reason = hidden || typeof event.data?.reason !== "string" ? "" : event.data.reason;
+              const reason = hidden ? "" : dataString(event, "reason");
+              const targetRole = !hidden && spectatorMode === "omniscient" ? dataString(event, "targetRole") : "";
+              const action = eventAction(event);
+              const hunterName = !hidden ? dataString(event, "hunterName") : "";
+              const protectedTarget = !hidden ? dataString(event, "protectedTargetName") : "";
+              const tone = eventTone(event);
               const showDetails =
                 event.type !== "round_summary" &&
-                (claims.length > 0 || suspects.length > 0 || trusts.length > 0 || Boolean(reason) || totals.length > 0);
+                (claims.length > 0 ||
+                  suspects.length > 0 ||
+                  trusts.length > 0 ||
+                  Boolean(reason) ||
+                  Boolean(targetRole) ||
+                  Boolean(hunterName) ||
+                  Boolean(protectedTarget) ||
+                  totals.length > 0);
 
               return (
-                <article className={`event-row ${event.type} ${hidden ? "secret-redacted" : ""}`} key={event.id}>
+                <article className={`event-row ${event.type} ${tone} ${hidden ? "secret-redacted" : ""}`} key={event.id}>
                   <div className="event-icon">{eventIcon(event)}</div>
                   <div className="event-body">
                     <div className="event-meta">
                       <span>R{event.round}</span>
                       <span>{phaseLabels[event.phase]}</span>
+                      {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibility}</span> : null}
                       {event.playerName && !hidden ? <span>{event.playerName}</span> : null}
                       {event.role && spectatorMode === "omniscient" && !hidden ? <span className={roleClass[event.role]}>{event.role}</span> : null}
                     </div>
                     <p>{hidden ? "Hidden information is concealed in village view." : event.message}</p>
                     {!hidden && showDetails ? (
                       <div className="event-details">
+                        {targetRole ? <span className="detail-chip role-info">Role: {targetRole}</span> : null}
+                        {hunterName ? (
+                          <span className="detail-chip hunter">
+                            Shot: {hunterName} {"->"} {event.targetName ?? "target"}
+                          </span>
+                        ) : null}
+                        {action === "guard_protect" && protectedTarget ? (
+                          <span className="detail-chip guard">Guarded {protectedTarget}</span>
+                        ) : null}
+                        {action === "guard_success" && protectedTarget ? (
+                          <span className="detail-chip guard">Guard save on {protectedTarget}</span>
+                        ) : null}
                         {reason ? <span className="detail-chip vote-reason">Reason: {reason}</span> : null}
                         {claims.map((claim, index) => (
                           <span className="detail-chip claim" key={`claim-${index}`}>
@@ -551,31 +663,44 @@ export function App() {
             {publicClaims.length > 0 ? (
               <div className="read-group">
                 <span>Claims</span>
-                {publicClaims.slice(-5).map((item, index) => (
+                {publicClaims.slice(-4).map((item, index) => (
                   <p key={`${item.speakerId}-${index}`}>
                     <strong>{item.speakerName}</strong> {formatClaim(item.claim)}
                   </p>
                 ))}
+                {publicClaims.length > 4 ? <p className="more-line">+{publicClaims.length - 4} older claims</p> : null}
               </div>
             ) : null}
-            {publicSuspects.length > 0 ? (
+            {suspectClusters.length > 0 ? (
               <div className="read-group">
                 <span>Suspects</span>
-                {publicSuspects.slice(-6).map((item, index) => (
-                  <p key={`${item.sourceId}-suspect-${index}`}>
-                    <strong>{item.sourceName}</strong> {"->"} {readLabel(item)}
+                {suspectClusters.slice(0, 4).map((item) => (
+                  <p key={`suspect-${item.targetId}`}>
+                    <strong>{item.targetName}</strong>
+                    <span className="read-meta">
+                      {item.count} from {item.sources.slice(0, 3).join(", ")}
+                      {item.sources.length > 3 ? ` +${item.sources.length - 3}` : ""}
+                    </span>
+                    {item.latestReason ? <small>{shortText(item.latestReason, 92)}</small> : null}
                   </p>
                 ))}
+                {suspectClusters.length > 4 ? <p className="more-line">+{suspectClusters.length - 4} more targets</p> : null}
               </div>
             ) : null}
-            {publicTrusts.length > 0 ? (
+            {trustClusters.length > 0 ? (
               <div className="read-group">
                 <span>Trusts</span>
-                {publicTrusts.slice(-6).map((item, index) => (
-                  <p key={`${item.sourceId}-trust-${index}`}>
-                    <strong>{item.sourceName}</strong> {"->"} {readLabel(item)}
+                {trustClusters.slice(0, 4).map((item) => (
+                  <p key={`trust-${item.targetId}`}>
+                    <strong>{item.targetName}</strong>
+                    <span className="read-meta">
+                      {item.count} from {item.sources.slice(0, 3).join(", ")}
+                      {item.sources.length > 3 ? ` +${item.sources.length - 3}` : ""}
+                    </span>
+                    {item.latestReason ? <small>{shortText(item.latestReason, 92)}</small> : null}
                   </p>
                 ))}
+                {trustClusters.length > 4 ? <p className="more-line">+{trustClusters.length - 4} more targets</p> : null}
               </div>
             ) : null}
           </div>
@@ -587,7 +712,7 @@ export function App() {
             </div>
             {latestVotes.length > 0 ? (
               <div className="vote-map">
-                {latestVoteTotals.map((total) => {
+                {latestVoteTotalsSorted.map((total) => {
                   const voters = latestVotes.filter((vote) => vote.targetId === total.targetId);
                   return (
                     <div className="vote-target" key={total.targetId}>
@@ -598,7 +723,7 @@ export function App() {
                       {voters.map((vote) => (
                         <p key={`${vote.voterId}-${vote.targetId}`}>
                           {vote.voterName} {"->"} {vote.targetName}
-                          {vote.reason ? <small>{vote.reason}</small> : null}
+                          {vote.reason ? <small>{shortText(vote.reason, 110)}</small> : null}
                         </p>
                       ))}
                     </div>
