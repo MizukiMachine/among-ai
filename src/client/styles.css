@@ -1,0 +1,442 @@
+:root {
+  color: #17202a;
+  background: #f6f7f9;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 247, 249, 0.96)),
+    #f6f7f9;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.topbar h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.topbar p {
+  margin: 2px 0 0;
+  color: #667085;
+  font-size: 14px;
+}
+
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.icon-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 8px 12px;
+  font-weight: 650;
+}
+
+.icon-button.primary {
+  border-color: #16745f;
+  background: #16745f;
+  color: #ffffff;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-strip div,
+.panel {
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.status-strip div {
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
+.status-strip span {
+  display: block;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 680;
+  text-transform: uppercase;
+}
+
+.status-strip strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #111827;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #f7c56f;
+  border-radius: 8px;
+  background: #fff7e6;
+  color: #8a4b05;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.warning-banner span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(220px, 260px) minmax(360px, 1fr) minmax(260px, 320px);
+  gap: 14px;
+}
+
+.panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.panel-heading {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #eaecf0;
+  padding: 12px 14px;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  color: #1d2939;
+  font-size: 15px;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.panel-heading span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.controls-panel {
+  padding-bottom: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 2px;
+}
+
+.field span {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  padding: 8px 10px;
+}
+
+.segments {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.segments button {
+  min-height: 36px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  font-weight: 750;
+}
+
+.segments button.selected {
+  border-color: #16745f;
+  background: #e9f6f2;
+  color: #0e5948;
+}
+
+.log-panel {
+  display: flex;
+  min-height: 520px;
+  flex-direction: column;
+}
+
+.event-log {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  border-bottom: 1px solid #eef1f5;
+  padding: 11px 4px;
+}
+
+.event-row:last-child {
+  border-bottom: 0;
+}
+
+.event-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: #edf2f7;
+  color: #344054;
+}
+
+.event-row.death .event-icon {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.event-row.warning .event-icon {
+  background: #fff7e6;
+  color: #b26b00;
+}
+
+.event-row.vote_cast .event-icon,
+.event-row.vote_result .event-icon {
+  background: #eef4ff;
+  color: #244b9b;
+}
+
+.event-body {
+  min-width: 0;
+}
+
+.event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.event-meta span,
+.role-chip {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border-radius: 999px;
+  background: #f2f4f7;
+  color: #475467;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.event-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.roster-panel {
+  overflow-y: auto;
+}
+
+.roster {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.player-card {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.player-card strong {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+}
+
+.player-card span {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-chip {
+  flex: 0 0 auto;
+  border-radius: 8px;
+}
+
+.role-werewolf {
+  background: #fff1f0 !important;
+  color: #b42318 !important;
+}
+
+.role-seer {
+  background: #eef4ff !important;
+  color: #244b9b !important;
+}
+
+.role-witch {
+  background: #f0f9f4 !important;
+  color: #16745f !important;
+}
+
+.role-villager {
+  background: #f4f3ff !important;
+  color: #5b3aa4 !important;
+}
+
+.graveyard {
+  border-top: 1px solid #eaecf0;
+  padding: 12px;
+}
+
+.graveyard h3 {
+  margin: 0 0 8px;
+  color: #475467;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.dead-player {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+@media (max-width: 1020px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .controls-panel,
+  .roster-panel {
+    order: 2;
+  }
+
+  .log-panel {
+    order: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .icon-button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-strip div:last-child {
+    grid-column: 1 / -1;
+  }
+}
