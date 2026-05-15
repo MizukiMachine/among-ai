@@ -230,6 +230,32 @@ input:disabled {
   color: #0e5948;
 }
 
+.view-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.view-toggle button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.view-toggle button.selected {
+  border-color: #244b9b;
+  background: #eef4ff;
+  color: #244b9b;
+}
+
 .log-panel {
   display: flex;
   min-height: 520px;
@@ -281,6 +307,16 @@ input:disabled {
   color: #244b9b;
 }
 
+.event-row.round_summary .event-icon {
+  background: #f0f9f4;
+  color: #16745f;
+}
+
+.event-row.secret-redacted .event-icon {
+  background: #f2f4f7;
+  color: #667085;
+}
+
 .event-body {
   min-width: 0;
 }
@@ -312,6 +348,47 @@ input:disabled {
   color: #1f2937;
   font-size: 14px;
   line-height: 1.45;
+}
+
+.event-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.detail-chip {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 8px;
+  background: #f2f4f7;
+  color: #475467;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.25;
+}
+
+.detail-chip.claim {
+  background: #eef4ff;
+  color: #244b9b;
+}
+
+.detail-chip.suspect {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.detail-chip.trust {
+  background: #f0f9f4;
+  color: #16745f;
+}
+
+.detail-chip.vote-reason,
+.detail-chip.total {
+  background: #f8f3e8;
+  color: #805b10;
 }
 
 .roster-panel {
@@ -352,6 +429,12 @@ input:disabled {
   white-space: nowrap;
 }
 
+.player-card .persona-line {
+  color: #344054;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
 .role-chip {
   flex: 0 0 auto;
   border-radius: 8px;
@@ -372,9 +455,24 @@ input:disabled {
   color: #16745f !important;
 }
 
+.role-guard {
+  background: #eaf7f8 !important;
+  color: #0e6670 !important;
+}
+
+.role-hunter {
+  background: #f8f3e8 !important;
+  color: #805b10 !important;
+}
+
 .role-villager {
   background: #f4f3ff !important;
   color: #5b3aa4 !important;
+}
+
+.role-hidden {
+  background: #f2f4f7 !important;
+  color: #475467 !important;
 }
 
 .graveyard {
@@ -396,6 +494,89 @@ input:disabled {
   padding: 6px 0;
   color: #667085;
   font-size: 13px;
+}
+
+.insight-section {
+  border-top: 1px solid #eaecf0;
+  padding: 12px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: #344054;
+}
+
+.section-title h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: 0;
+}
+
+.empty-note,
+.summary-line,
+.read-group p,
+.vote-target p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.read-group {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.read-group > span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.read-group strong,
+.summary-line strong,
+.vote-target strong {
+  color: #1d2939;
+}
+
+.vote-map {
+  display: grid;
+  gap: 10px;
+}
+
+.vote-target {
+  display: grid;
+  gap: 5px;
+}
+
+.vote-target > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vote-target > div span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vote-target small {
+  display: block;
+  margin-top: 2px;
+  color: #667085;
+}
+
+.summary-line + .summary-line {
+  margin-top: 8px;
 }
 
 @media (max-width: 1020px) {

@@ -4,12 +4,14 @@ import { OpenAICompatibleAgent } from "../src/game/agents";
 import { WerewolfGame } from "../src/game/engine";
 import type {
   Agent,
+  AgentSpeech,
   AgentTargetInput,
   Camp,
   GameConfig,
   GameEvent,
   Player,
-  Role
+  Role,
+  TargetDecision
 } from "../src/game/types";
 
 const baseConfig: GameConfig = {
@@ -29,15 +31,28 @@ class ScriptedAgent implements Agent {
     private readonly decisions: boolean[] = []
   ) {}
 
-  async speak(): Promise<string> {
-    return `${this.name} speaks.`;
+  async speak(): Promise<AgentSpeech> {
+    return {
+      message: `${this.name} speaks.`,
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
   }
 
-  async chooseTarget(input: AgentTargetInput): Promise<string | null> {
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
     if (this.targets.length > 0) {
-      return this.targets.shift() ?? null;
+      return {
+        targetId: this.targets.shift() ?? null,
+        reason: `${this.name} scripted reason`
+      };
     }
-    return input.candidates[0]?.id ?? null;
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} default reason`
+    };
   }
 
   async decide(): Promise<boolean> {
@@ -59,6 +74,11 @@ type TestableGame = WerewolfGame & {
     savedTargetId: string | null;
     poisonTargetId: string | null;
   };
+  guardState: {
+    protectedTargetId: string | null;
+    lastProtectedTargetId: string | null;
+  };
+  hunterShotsUsed: Set<string>;
 };
 
 function createGame(): TestableGame {
@@ -73,6 +93,9 @@ function setTable(
   game.witchState.poisonPotion = true;
   game.witchState.savedTargetId = null;
   game.witchState.poisonTargetId = null;
+  game.guardState.protectedTargetId = null;
+  game.guardState.lastProtectedTargetId = null;
+  game.hunterShotsUsed.clear();
 
   return game.players.map((player, index) => {
     const spec = specs[index] ?? { role: "Villager" as const };
@@ -132,8 +155,11 @@ test("role distribution includes required special roles and scales werewolves", 
     const roles = first.value.snapshot.players.map((player) => player.role);
     assert.equal(roles.filter((role) => role === "Seer").length, 1);
     assert.equal(roles.filter((role) => role === "Witch").length, 1);
+    assert.equal(roles.filter((role) => role === "Guard").length, playerCount >= 7 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Hunter").length, playerCount >= 8 ? 1 : 0);
     assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 8 ? 2 : 1);
     assert.equal(roles.length, playerCount);
+    assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
 });
 
@@ -153,6 +179,8 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.equal(players[3].alive, false);
   assert.ok(events.some((event) => event.type === "vote_result"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
+  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "Ada scripted reason"));
+  assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
 });
 
 test("seer records a private camp result for the chosen living target", async () => {
@@ -215,6 +243,43 @@ test("witch poison uses engine state and does not mark target memories", async (
   );
 });
 
+test("guard protection blocks the werewolf kill and remembers the protected target", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Guard", targets: ["p3"] },
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch", decisions: [false], targets: [null] },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[2].alive, true);
+  assert.equal(game.guardState.lastProtectedTargetId, "p3");
+  assert.ok(events.some((event) => event.type === "night_action" && event.data?.action === "guard_protect"));
+  assert.ok(events.some((event) => event.type === "death" && event.message.includes("No one died")));
+});
+
+test("hunter gets one death shot after vote elimination", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Hunter", targets: ["p1", "p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[3].alive, false);
+  assert.equal(players[0].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "hunter"));
+});
+
 test("LLM target selection retries malformed JSON and falls back to a random legal target", async () => {
   const originalFetch = globalThis.fetch;
   const originalRandom = Math.random;
@@ -245,7 +310,7 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
       timeoutMs: 1_000
     });
 
-    const targetId = await agent.chooseTarget({
+    const decision = await agent.chooseTarget({
       player,
       phase: "voting",
       action: "Vote",
@@ -257,11 +322,58 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
       allowSkip: false
     });
 
-    assert.equal(targetId, "p2");
+    assert.equal(decision.targetId, "p2");
+    assert.match(decision.reason, /Fallback legal choice/);
     assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;
     Math.random = originalRandom;
+  }
+});
+
+test("LLM malformed speech falls back to empty metadata", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: "plain speech without json" } }]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new OpenAICompatibleAgent("llm", {
+      apiKey: "test-key",
+      baseUrl: "https://example.test/v1",
+      model: "test-model",
+      language: "English",
+      timeoutMs: 1_000
+    });
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(speech.message, "plain speech without json");
+    assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

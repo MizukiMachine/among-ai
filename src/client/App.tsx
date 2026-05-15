@@ -1,8 +1,12 @@
 import {
   Activity,
   AlertTriangle,
+  Eye,
+  EyeOff,
   FlaskConical,
+  MessageCircle,
   Moon,
+  Network,
   Play,
   RotateCcw,
   Skull,
@@ -11,12 +15,14 @@ import {
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GameEvent, GameSnapshot, Phase, PlayerSnapshot, Role } from "../game/types";
+import type { ClaimMetadata, GameEvent, GameSnapshot, Phase, PlayerReadMetadata, PlayerSnapshot, Role } from "../game/types";
 
 const roleClass: Record<Role, string> = {
   Werewolf: "role-werewolf",
   Seer: "role-seer",
   Witch: "role-witch",
+  Guard: "role-guard",
+  Hunter: "role-hunter",
   Villager: "role-villager"
 };
 
@@ -24,6 +30,7 @@ const phaseLabels: Record<Phase, string> = {
   setup: "Setup",
   night: "Night",
   werewolf_discussion: "Wolf talk",
+  guard_action: "Guard",
   seer_action: "Seer",
   witch_action: "Witch",
   day_discussion: "Discussion",
@@ -31,7 +38,41 @@ const phaseLabels: Record<Phase, string> = {
   ended: "Ended"
 };
 
+type SpectatorMode = "omniscient" | "village";
+
+interface VoteDetail {
+  voterId: string;
+  voterName: string;
+  targetId: string;
+  targetName: string;
+  reason?: string;
+}
+
+interface VoteTotal {
+  targetId: string;
+  targetName: string;
+  count: number;
+}
+
+interface ClaimDetail {
+  speakerId: string;
+  speakerName: string;
+  claim: ClaimMetadata;
+}
+
+interface ReadDetail {
+  sourceId: string;
+  sourceName: string;
+  targetId: string;
+  targetName: string;
+  reason?: string;
+  weight?: number;
+}
+
 function eventIcon(event: GameEvent) {
+  if (event.type === "round_summary") {
+    return <MessageCircle size={16} />;
+  }
   if (event.type === "death") {
     return <Skull size={16} />;
   }
@@ -41,7 +82,7 @@ function eventIcon(event: GameEvent) {
   if (event.type === "vote_cast" || event.type === "vote_result") {
     return <Vote size={16} />;
   }
-  if (event.phase === "night" || event.phase === "werewolf_discussion") {
+  if (event.phase === "night" || event.phase === "werewolf_discussion" || event.phase === "guard_action") {
     return <Moon size={16} />;
   }
   if (event.phase === "witch_action") {
@@ -53,13 +94,58 @@ function eventIcon(event: GameEvent) {
   return <Activity size={16} />;
 }
 
-function roleLabel(player: PlayerSnapshot): string {
+function roleLabel(player: PlayerSnapshot, mode: SpectatorMode): string {
+  if (mode === "village") {
+    return "Hidden";
+  }
   if (player.role !== "Witch" || !player.witch) {
     return player.role;
   }
   const save = player.witch.savePotion ? "S" : "-";
   const poison = player.witch.poisonPotion ? "P" : "-";
   return `${player.role} ${save}/${poison}`;
+}
+
+function isSecretEvent(event: GameEvent): boolean {
+  return (
+    event.type === "private_info" ||
+    event.type === "night_action" ||
+    (event.type === "player_speech" && event.phase === "werewolf_discussion")
+  );
+}
+
+function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
+  const value = event?.data?.[key];
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function latestEvent(events: GameEvent[], predicate: (event: GameEvent) => boolean): GameEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (predicate(events[index])) {
+      return events[index];
+    }
+  }
+  return undefined;
+}
+
+function formatClaim(claim: ClaimMetadata): string {
+  const role = claim.role ? `${claim.role} CO` : "Claim";
+  const result = claim.result;
+  if (result && typeof result === "object") {
+    return `${role}: ${result.targetName ?? result.targetId} ${result.camp}`;
+  }
+  if (typeof result === "string" && result) {
+    return `${role}: ${result}`;
+  }
+  if (claim.targetName && claim.camp) {
+    return `${role}: ${claim.targetName} ${claim.camp}`;
+  }
+  return claim.note ? `${role}: ${claim.note}` : role;
+}
+
+function readLabel(read: PlayerReadMetadata | ReadDetail): string {
+  const target = read.targetName ?? read.targetId;
+  return read.reason ? `${target}: ${read.reason}` : target;
 }
 
 export function App() {
@@ -71,6 +157,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("Idle");
+  const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const sourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,6 +171,67 @@ export function App() {
     [snapshot]
   );
   const warnings = useMemo(() => events.filter((event) => event.type === "warning"), [events]);
+  const currentRound = snapshot?.round ?? 0;
+  const latestDiscussionRound = useMemo(() => {
+    const latestSpeech = latestEvent(
+      events,
+      (event) => event.type === "player_speech" && event.phase === "day_discussion"
+    );
+    return latestSpeech?.round ?? currentRound;
+  }, [currentRound, events]);
+  const currentDaySpeeches = useMemo(
+    () =>
+      events.filter(
+        (event) => event.round === latestDiscussionRound && event.type === "player_speech" && event.phase === "day_discussion"
+      ),
+    [events, latestDiscussionRound]
+  );
+  const publicClaims = useMemo<ClaimDetail[]>(
+    () =>
+      currentDaySpeeches.flatMap((event) =>
+        dataArray<ClaimMetadata>(event, "claims").map((claim) => ({
+          speakerId: event.playerId ?? "",
+          speakerName: event.playerName ?? "Unknown",
+          claim
+        }))
+      ),
+    [currentDaySpeeches]
+  );
+  const publicSuspects = useMemo<ReadDetail[]>(
+    () =>
+      currentDaySpeeches.flatMap((event) =>
+        dataArray<PlayerReadMetadata>(event, "suspects").map((read) => ({
+          sourceId: event.playerId ?? "",
+          sourceName: event.playerName ?? "Unknown",
+          targetId: read.targetId,
+          targetName: read.targetName ?? read.targetId,
+          reason: read.reason,
+          weight: read.weight
+        }))
+      ),
+    [currentDaySpeeches]
+  );
+  const publicTrusts = useMemo<ReadDetail[]>(
+    () =>
+      currentDaySpeeches.flatMap((event) =>
+        dataArray<PlayerReadMetadata>(event, "trusts").map((read) => ({
+          sourceId: event.playerId ?? "",
+          sourceName: event.playerName ?? "Unknown",
+          targetId: read.targetId,
+          targetName: read.targetName ?? read.targetId,
+          reason: read.reason,
+          weight: read.weight
+        }))
+      ),
+    [currentDaySpeeches]
+  );
+  const summaryEvents = useMemo(() => events.filter((event) => event.type === "round_summary"), [events]);
+  const latestVoteResult = useMemo(
+    () => latestEvent(events, (event) => event.type === "vote_result" && dataArray<VoteDetail>(event, "votes").length > 0),
+    [events]
+  );
+  const latestVotes = useMemo(() => dataArray<VoteDetail>(latestVoteResult, "votes"), [latestVoteResult]);
+  const latestVoteTotals = useMemo(() => dataArray<VoteTotal>(latestVoteResult, "totals"), [latestVoteResult]);
 
   function stopGame() {
     sourceRef.current?.close();
@@ -271,6 +419,30 @@ export function App() {
               onChange={(event) => setSpeed(Number(event.target.value))}
             />
           </label>
+
+          <div className="field">
+            <span>View</span>
+            <div className="view-toggle">
+              <button
+                className={spectatorMode === "omniscient" ? "selected" : ""}
+                onClick={() => setSpectatorMode("omniscient")}
+                type="button"
+                title="Show all roles and private events"
+              >
+                <Eye size={16} />
+                All info
+              </button>
+              <button
+                className={spectatorMode === "village" ? "selected" : ""}
+                onClick={() => setSpectatorMode("village")}
+                type="button"
+                title="Hide roles and private night events"
+              >
+                <EyeOff size={16} />
+                Village
+              </button>
+            </div>
+          </div>
         </aside>
 
         <section className="panel log-panel">
@@ -279,20 +451,57 @@ export function App() {
             <span>{events.length} events</span>
           </div>
           <div className="event-log" ref={logRef}>
-            {events.map((event) => (
-              <article className={`event-row ${event.type}`} key={event.id}>
-                <div className="event-icon">{eventIcon(event)}</div>
-                <div className="event-body">
-                  <div className="event-meta">
-                    <span>R{event.round}</span>
-                    <span>{phaseLabels[event.phase]}</span>
-                    {event.playerName ? <span>{event.playerName}</span> : null}
-                    {event.role ? <span className={roleClass[event.role]}>{event.role}</span> : null}
+            {events.map((event) => {
+              const hidden = spectatorMode === "village" && isSecretEvent(event);
+              const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
+              const suspects = hidden ? [] : dataArray<PlayerReadMetadata>(event, "suspects");
+              const trusts = hidden ? [] : dataArray<PlayerReadMetadata>(event, "trusts");
+              const totals = hidden ? [] : dataArray<VoteTotal>(event, "totals");
+              const reason = hidden || typeof event.data?.reason !== "string" ? "" : event.data.reason;
+              const showDetails =
+                event.type !== "round_summary" &&
+                (claims.length > 0 || suspects.length > 0 || trusts.length > 0 || Boolean(reason) || totals.length > 0);
+
+              return (
+                <article className={`event-row ${event.type} ${hidden ? "secret-redacted" : ""}`} key={event.id}>
+                  <div className="event-icon">{eventIcon(event)}</div>
+                  <div className="event-body">
+                    <div className="event-meta">
+                      <span>R{event.round}</span>
+                      <span>{phaseLabels[event.phase]}</span>
+                      {event.playerName && !hidden ? <span>{event.playerName}</span> : null}
+                      {event.role && spectatorMode === "omniscient" && !hidden ? <span className={roleClass[event.role]}>{event.role}</span> : null}
+                    </div>
+                    <p>{hidden ? "Hidden information is concealed in village view." : event.message}</p>
+                    {!hidden && showDetails ? (
+                      <div className="event-details">
+                        {reason ? <span className="detail-chip vote-reason">Reason: {reason}</span> : null}
+                        {claims.map((claim, index) => (
+                          <span className="detail-chip claim" key={`claim-${index}`}>
+                            {formatClaim(claim)}
+                          </span>
+                        ))}
+                        {suspects.map((read, index) => (
+                          <span className="detail-chip suspect" key={`suspect-${index}`}>
+                            Suspects {readLabel(read)}
+                          </span>
+                        ))}
+                        {trusts.map((read, index) => (
+                          <span className="detail-chip trust" key={`trust-${index}`}>
+                            Trusts {readLabel(read)}
+                          </span>
+                        ))}
+                        {totals.map((total) => (
+                          <span className="detail-chip total" key={total.targetId}>
+                            {total.targetName}: {total.count}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  <p>{event.message}</p>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </section>
 
@@ -310,8 +519,11 @@ export function App() {
                 <div>
                   <strong>{player.name}</strong>
                   <span>{player.model}</span>
+                  <span className="persona-line">{player.persona}</span>
                 </div>
-                <div className={`role-chip ${roleClass[player.role]}`}>{roleLabel(player)}</div>
+                <div className={`role-chip ${spectatorMode === "omniscient" ? roleClass[player.role] : "role-hidden"}`}>
+                  {roleLabel(player, spectatorMode)}
+                </div>
               </div>
             ))}
           </div>
@@ -322,11 +534,97 @@ export function App() {
               {deadPlayers.map((player) => (
                 <div className="dead-player" key={player.id}>
                   <span>{player.name}</span>
-                  <span>{player.role}</span>
+                  <span>{spectatorMode === "omniscient" ? player.role : "Hidden"}</span>
                 </div>
               ))}
             </div>
           ) : null}
+
+          <div className="insight-section">
+            <div className="section-title">
+              <Network size={15} />
+              <h3>Claims & Reads</h3>
+            </div>
+            {publicClaims.length === 0 && publicSuspects.length === 0 && publicTrusts.length === 0 ? (
+              <p className="empty-note">No public reads this round yet.</p>
+            ) : null}
+            {publicClaims.length > 0 ? (
+              <div className="read-group">
+                <span>Claims</span>
+                {publicClaims.slice(-5).map((item, index) => (
+                  <p key={`${item.speakerId}-${index}`}>
+                    <strong>{item.speakerName}</strong> {formatClaim(item.claim)}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {publicSuspects.length > 0 ? (
+              <div className="read-group">
+                <span>Suspects</span>
+                {publicSuspects.slice(-6).map((item, index) => (
+                  <p key={`${item.sourceId}-suspect-${index}`}>
+                    <strong>{item.sourceName}</strong> {"->"} {readLabel(item)}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {publicTrusts.length > 0 ? (
+              <div className="read-group">
+                <span>Trusts</span>
+                {publicTrusts.slice(-6).map((item, index) => (
+                  <p key={`${item.sourceId}-trust-${index}`}>
+                    <strong>{item.sourceName}</strong> {"->"} {readLabel(item)}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="insight-section">
+            <div className="section-title">
+              <Vote size={15} />
+              <h3>Vote Map</h3>
+            </div>
+            {latestVotes.length > 0 ? (
+              <div className="vote-map">
+                {latestVoteTotals.map((total) => {
+                  const voters = latestVotes.filter((vote) => vote.targetId === total.targetId);
+                  return (
+                    <div className="vote-target" key={total.targetId}>
+                      <div>
+                        <strong>{total.targetName}</strong>
+                        <span>{total.count} votes</span>
+                      </div>
+                      {voters.map((vote) => (
+                        <p key={`${vote.voterId}-${vote.targetId}`}>
+                          {vote.voterName} {"->"} {vote.targetName}
+                          {vote.reason ? <small>{vote.reason}</small> : null}
+                        </p>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="empty-note">No completed vote yet.</p>
+            )}
+          </div>
+
+          <div className="insight-section">
+            <div className="section-title">
+              <MessageCircle size={15} />
+              <h3>Round Summaries</h3>
+            </div>
+            {summaryEvents.length > 0 ? (
+              summaryEvents.slice(-3).reverse().map((event) => (
+                <p className="summary-line" key={event.id}>
+                  <strong>R{event.round}</strong> {event.message}
+                </p>
+              ))
+            ) : (
+              <p className="empty-note">Summaries appear after voting.</p>
+            )}
+          </div>
         </aside>
       </section>
     </main>

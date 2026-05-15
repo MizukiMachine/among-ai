@@ -1,4 +1,4 @@
-import type { Phase, Player, Role, TargetCandidate } from "./types";
+import type { Persona, Phase, Player, Role, TargetCandidate } from "./types";
 
 const roleStrategies: Record<Role, string[]> = {
   Werewolf: [
@@ -22,6 +22,20 @@ const roleStrategies: Record<Role, string[]> = {
     "You can share potion information, but revealing too much can make you a night target.",
     "Use your private knowledge of saved or poisoned players to evaluate public claims."
   ],
+  Guard: [
+    "You can protect one living player each night from the werewolf kill.",
+    "You cannot protect the same player on consecutive nights.",
+    "Protect players who are likely night targets, valuable claimants, or critical village voices.",
+    "Your protection does not stop poison or daytime eliminations.",
+    "You can claim Guard if it explains a no-death night, but claiming can make you a target."
+  ],
+  Hunter: [
+    "If you die, you can shoot one living player before leaving the game.",
+    "Your shot is powerful but dangerous: a bad shot can lose the game for the village.",
+    "Build a clear ranked suspect list during the day so your death shot has a reason.",
+    "Claiming Hunter can deter votes, but it can also invite manipulation.",
+    "When pressured, explain who you would shoot and why."
+  ],
   Villager: [
     "You have no night ability, so your strength is public reasoning.",
     "Look for contradictions between claims, votes, and timing.",
@@ -31,8 +45,35 @@ const roleStrategies: Record<Role, string[]> = {
   ]
 };
 
+const personaStrategies: Record<Persona, string[]> = {
+  cautious: [
+    "Avoid overcommitting unless the evidence is strong.",
+    "Ask for timelines and prefer lower-risk eliminations."
+  ],
+  aggressive: [
+    "Apply direct pressure and force unclear players to take a stance.",
+    "Do not let weak claims pass without challenge."
+  ],
+  logical: [
+    "Compare claims, votes, incentives, and night outcomes explicitly.",
+    "Name the contradiction or pattern behind each read."
+  ],
+  opportunistic: [
+    "Look for leverage in messy discussions and shifting coalitions.",
+    "You may support a claim if it advances your win condition."
+  ],
+  empathetic: [
+    "Listen for tone changes and defensive reactions.",
+    "Build trust by acknowledging uncertainty before making a read."
+  ]
+};
+
 export function getRoleStrategy(role: Role): string {
   return roleStrategies[role].map((line) => `- ${line}`).join("\n");
+}
+
+export function getPersonaStrategy(persona: Persona): string {
+  return personaStrategies[persona].map((line) => `- ${line}`).join("\n");
 }
 
 export function buildBaseContext(options: {
@@ -59,10 +100,14 @@ export function buildBaseContext(options: {
   const lines = [
     `You are ${player.name}.`,
     `Your role: ${player.role}.`,
+    `Your public persona: ${player.persona}.`,
     `Current phase: ${phase}. Round: ${round}.`,
     "",
     "Role strategy:",
     getRoleStrategy(player.role),
+    "",
+    "Persona style:",
+    getPersonaStrategy(player.persona),
     "",
     `Alive players: ${alivePlayers.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
     deadPlayers.length > 0
@@ -90,7 +135,13 @@ export function buildTargetList(candidates: TargetCandidate[]): string {
 }
 
 export const speechInstruction =
-  "Speak in character in 1-3 concise sentences. Make a concrete point. Do not mention that you are an AI or that you received a prompt.";
+  [
+    "Return strict JSON only, with no markdown.",
+    "Shape: {\"message\":\"1-3 concise in-character sentences\",\"suspects\":[{\"targetId\":\"player_id\",\"reason\":\"short reason\",\"weight\":0.0}],\"trusts\":[{\"targetId\":\"player_id\",\"reason\":\"short reason\",\"weight\":0.0}],\"claims\":[{\"type\":\"role_claim\",\"role\":\"Seer\",\"result\":{\"targetId\":\"player_id\",\"camp\":\"werewolf\",\"round\":1},\"note\":\"short note\"}]}",
+    "Only use listed player ids. Keep reasons short.",
+    "Use claims for role claims, Seer results, Witch information, or fake claims if strategically useful.",
+    "Do not mention that you are an AI or that you received a prompt."
+  ].join(" ");
 
 export const targetInstruction =
   "Return strict JSON only, with no markdown: {\"targetId\":\"player_id_or_null\",\"reason\":\"short reason\"}.";

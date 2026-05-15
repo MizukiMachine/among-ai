@@ -8,9 +8,16 @@ import { sample, weightedChance } from "./random";
 import type {
   Agent,
   AgentBooleanInput,
+  AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
-  Role
+  Camp,
+  ClaimMetadata,
+  PlayerReadMetadata,
+  Role,
+  SpeechMetadata,
+  TargetCandidate,
+  TargetDecision
 } from "./types";
 
 const defaultLlmTimeoutMs = 15_000;
@@ -32,10 +39,48 @@ const demoSpeech: Record<Role, string[]> = {
     "I am more concerned by people pushing certainty than by people asking careful questions.",
     "There is enough pressure on the table now that a rushed vote would help the wolves."
   ],
+  Guard: [
+    "The night outcome gives us information, but I do not want to overstate it before the claims are clear.",
+    "If a claimed power role is real, the wolves have a reason to steer today around that pressure.",
+    "We should separate who looked protected by the night result from who is actually trustworthy."
+  ],
+  Hunter: [
+    "Before anyone pushes me as an easy vote, I want clear reasons on the record for who should be punished next.",
+    "The table needs a ranked suspect list. A vague pile-on creates a dangerous death chain.",
+    "I am watching who treats my slot as disposable without explaining the follow-up."
+  ],
   Villager: [
     "I want specific reasons, not just vibes. Who benefits most from last night's outcome?",
     "The contradiction is in the timing: the suspicion appeared only after a safer target was available.",
     "I am not convinced by a broad accusation. Please name one statement that changed your read."
+  ]
+};
+
+const personaReasons: Record<AgentSpeechInput["player"]["persona"], string[]> = {
+  cautious: [
+    "their stance has been careful but not testable",
+    "the risk profile around their claim is unclear",
+    "they avoided giving a firm read when pressure rose"
+  ],
+  aggressive: [
+    "they need direct pressure after a weak defense",
+    "their push looks forced and timed for a misvote",
+    "they are steering the table without enough evidence"
+  ],
+  logical: [
+    "their vote does not match their stated suspicion",
+    "their timeline conflicts with the public claims",
+    "the incentives point to them benefiting from confusion"
+  ],
+  opportunistic: [
+    "their position is the easiest one for a wolf to exploit",
+    "their claim gives the table leverage if tested",
+    "their late movement creates a useful pressure point"
+  ],
+  empathetic: [
+    "their reaction became defensive when asked for details",
+    "their tone changed after the night result",
+    "they are not engaging with the concerns aimed at them"
   ]
 };
 
@@ -45,6 +90,17 @@ function clampText(text: string, fallback: string): string {
     return fallback;
   }
   return compact.length > 420 ? `${compact.slice(0, 417)}...` : compact;
+}
+
+function clampReason(text: unknown, fallback: string): string {
+  if (typeof text !== "string") {
+    return fallback;
+  }
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return fallback;
+  }
+  return compact.length > 150 ? `${compact.slice(0, 147)}...` : compact;
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
@@ -70,6 +126,163 @@ function tryParseJson(text: string): Record<string, unknown> | null {
   }
 }
 
+function emptySpeechMetadata(): SpeechMetadata {
+  return {
+    suspects: [],
+    trusts: [],
+    claims: []
+  };
+}
+
+function candidateById(candidates: TargetCandidate[]): Map<string, TargetCandidate> {
+  return new Map(candidates.map((candidate) => [candidate.id, candidate]));
+}
+
+function isRole(value: unknown): value is Role {
+  return (
+    value === "Werewolf" ||
+    value === "Seer" ||
+    value === "Witch" ||
+    value === "Guard" ||
+    value === "Hunter" ||
+    value === "Villager"
+  );
+}
+
+function isCamp(value: unknown): value is Camp {
+  return value === "werewolf" || value === "village";
+}
+
+function normalizeWeight(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeRead(value: unknown, candidates: TargetCandidate[]): PlayerReadMetadata | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const byId = candidateById(candidates);
+  const raw = value as Record<string, unknown>;
+  const targetId = typeof raw.targetId === "string" ? raw.targetId : "";
+  const target = byId.get(targetId);
+  if (!target) {
+    return null;
+  }
+
+  return {
+    targetId,
+    targetName: target.name,
+    reason: clampReason(raw.reason, ""),
+    weight: normalizeWeight(raw.weight)
+  };
+}
+
+function normalizeClaimResult(
+  value: unknown,
+  candidates: TargetCandidate[]
+): ClaimMetadata["result"] | undefined {
+  if (typeof value === "string") {
+    return clampReason(value, "");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const byId = candidateById(candidates);
+  const raw = value as Record<string, unknown>;
+  const targetId = typeof raw.targetId === "string" ? raw.targetId : "";
+  const target = byId.get(targetId);
+  const camp = isCamp(raw.camp) ? raw.camp : undefined;
+  if (!target || !camp) {
+    return undefined;
+  }
+
+  const round = typeof raw.round === "number" && Number.isFinite(raw.round) ? Math.max(1, Math.floor(raw.round)) : undefined;
+  return {
+    targetId,
+    targetName: target.name,
+    camp,
+    round
+  };
+}
+
+function normalizeClaim(value: unknown, candidates: TargetCandidate[]): ClaimMetadata | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const byId = candidateById(candidates);
+  const raw = value as Record<string, unknown>;
+  const type =
+    raw.type === "role_claim" || raw.type === "seer_result" || raw.type === "witch_info" || raw.type === "generic"
+      ? raw.type
+      : "generic";
+  const role = isRole(raw.role) ? raw.role : undefined;
+  const targetId = typeof raw.targetId === "string" && byId.has(raw.targetId) ? raw.targetId : undefined;
+  const target = targetId ? byId.get(targetId) : undefined;
+  const camp = isCamp(raw.camp) ? raw.camp : undefined;
+  const result = normalizeClaimResult(raw.result, candidates);
+  const note = typeof raw.note === "string" ? clampReason(raw.note, "") : undefined;
+
+  if (!role && !targetId && !camp && !result && !note) {
+    return null;
+  }
+
+  return {
+    type,
+    role,
+    targetId,
+    targetName: target?.name,
+    camp,
+    result,
+    note
+  };
+}
+
+function normalizeSpeechMetadata(parsed: Record<string, unknown>, candidates: TargetCandidate[]): SpeechMetadata {
+  const suspects = Array.isArray(parsed.suspects)
+    ? parsed.suspects.map((item) => normalizeRead(item, candidates)).filter((item): item is PlayerReadMetadata => Boolean(item))
+    : [];
+  const trusts = Array.isArray(parsed.trusts)
+    ? parsed.trusts.map((item) => normalizeRead(item, candidates)).filter((item): item is PlayerReadMetadata => Boolean(item))
+    : [];
+  const claims = Array.isArray(parsed.claims)
+    ? parsed.claims.map((item) => normalizeClaim(item, candidates)).filter((item): item is ClaimMetadata => Boolean(item))
+    : [];
+
+  return {
+    suspects: suspects.slice(0, 3),
+    trusts: trusts.slice(0, 3),
+    claims: claims.slice(0, 3)
+  };
+}
+
+function parseSpeech(content: string, candidates: TargetCandidate[], fallback: string): AgentSpeech {
+  const parsed = extractJsonObject(content);
+  if (!parsed) {
+    return {
+      message: clampText(content, fallback),
+      metadata: emptySpeechMetadata()
+    };
+  }
+
+  const messageSource =
+    typeof parsed.message === "string"
+      ? parsed.message
+      : typeof parsed.speech === "string"
+        ? parsed.speech
+        : "";
+
+  return {
+    message: clampText(messageSource, fallback),
+    metadata: normalizeSpeechMetadata(parsed, candidates)
+  };
+}
+
 function positiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -82,15 +295,16 @@ function parseTargetSelection(
   content: string,
   candidates: AgentTargetInput["candidates"],
   allowSkip: boolean
-): { valid: true; targetId: string | null } | { valid: false } {
+): { valid: true; decision: TargetDecision } | { valid: false } {
   const parsed = extractJsonObject(content);
   if (!parsed || !Object.hasOwn(parsed, "targetId")) {
     return { valid: false };
   }
 
+  const reason = clampReason(parsed.reason, "No reason provided.");
   const targetId = parsed.targetId;
   if (targetId === null || targetId === "null" || targetId === "") {
-    return allowSkip ? { valid: true, targetId: null } : { valid: false };
+    return allowSkip ? { valid: true, decision: { targetId: null, reason } } : { valid: false };
   }
 
   if (typeof targetId !== "string") {
@@ -98,7 +312,111 @@ function parseTargetSelection(
   }
 
   const ids = new Set(candidates.map((candidate) => candidate.id));
-  return ids.has(targetId) ? { valid: true, targetId } : { valid: false };
+  return ids.has(targetId) ? { valid: true, decision: { targetId, reason } } : { valid: false };
+}
+
+function targetName(targetId: string, candidates: TargetCandidate[]): string {
+  return candidates.find((candidate) => candidate.id === targetId)?.name ?? targetId;
+}
+
+function buildDemoSpeech(input: AgentSpeechInput): AgentSpeech {
+  const candidates = input.knownPlayers.filter((candidate) => candidate.id !== input.player.id);
+  const fallback = sample(demoSpeech[input.player.role]);
+  const metadata = emptySpeechMetadata();
+  const suspect = candidates.length > 0 ? sample(candidates) : null;
+  const trustPool = suspect ? candidates.filter((candidate) => candidate.id !== suspect.id) : candidates;
+  const trusted = trustPool.length > 0 ? sample(trustPool) : null;
+  const personaReason = sample(personaReasons[input.player.persona]);
+
+  if (suspect) {
+    metadata.suspects.push({
+      targetId: suspect.id,
+      targetName: suspect.name,
+      reason: personaReason,
+      weight: input.player.persona === "aggressive" ? 0.78 : 0.58
+    });
+  }
+
+  if (trusted && input.player.persona !== "aggressive") {
+    metadata.trusts.push({
+      targetId: trusted.id,
+      targetName: trusted.name,
+      reason: "their pressure has been consistent with their stated read",
+      weight: input.player.persona === "empathetic" ? 0.66 : 0.52
+    });
+  }
+
+  const seerResult = Object.entries(input.player.seerResults).at(-1);
+  if (input.player.role === "Seer" && seerResult) {
+    const [targetId, camp] = seerResult;
+    const name = targetName(targetId, input.knownPlayers);
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Seer",
+      result: {
+        targetId,
+        targetName: name,
+        camp
+      },
+      note: `${name} checked as ${camp}`
+    });
+    return {
+      message: clampText(
+        `I am claiming Seer now: ${name} checked as ${camp}. ${suspect ? `${suspect.name} still needs pressure because ${personaReason}.` : fallback}`,
+        fallback
+      ),
+      metadata
+    };
+  }
+
+  if (input.player.role === "Witch" && input.player.memories.some((memory) => /saved|poisoned/.test(memory))) {
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Witch",
+      note: "I have potion information that affects the night story."
+    });
+  }
+
+  if (input.player.role === "Guard" && input.player.memories.some((memory) => memory.includes("protected"))) {
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Guard",
+      note: "My protection choice may explain the night outcome."
+    });
+  }
+
+  if (input.player.role === "Hunter" && weightedChance(0.2)) {
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Hunter",
+      note: suspect ? `If I die, ${suspect.name} is my likely shot.` : "I am not an easy safe elimination."
+    });
+  }
+
+  if (input.player.role === "Werewolf" && suspect && weightedChance(0.25)) {
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Seer",
+      result: {
+        targetId: suspect.id,
+        targetName: suspect.name,
+        camp: "werewolf"
+      },
+      note: "Fake pressure claim"
+    });
+    return {
+      message: clampText(
+        `I am willing to claim Seer if the table needs a hard line: ${suspect.name} reads as werewolf. Their movement is too convenient.`,
+        fallback
+      ),
+      metadata
+    };
+  }
+
+  return {
+    message: clampText(`${fallback} ${suspect ? `${suspect.name} stands out because ${personaReason}.` : ""}`, fallback),
+    metadata
+  };
 }
 
 export class DemoAgent implements Agent {
@@ -107,19 +425,25 @@ export class DemoAgent implements Agent {
     public readonly model = "demo"
   ) {}
 
-  async speak(input: AgentSpeechInput): Promise<string> {
-    const bank = demoSpeech[input.player.role];
-    return sample(bank);
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    return buildDemoSpeech(input);
   }
 
-  async chooseTarget(input: AgentTargetInput): Promise<string | null> {
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
     if (input.allowSkip && weightedChance(0.35)) {
-      return null;
+      return {
+        targetId: null,
+        reason: input.player.persona === "cautious" ? "Saving the option is lower risk right now." : "Skipping keeps more leverage for later."
+      };
     }
     if (input.candidates.length === 0) {
-      return null;
+      return { targetId: null, reason: "No legal targets are available." };
     }
-    return sample(input.candidates).id;
+    const target = sample(input.candidates);
+    return {
+      targetId: target.id,
+      reason: clampReason(sample(personaReasons[input.player.persona]), `${target.name} is the best pressure target.`)
+    };
   }
 
   async decide(input: AgentBooleanInput): Promise<boolean> {
@@ -149,14 +473,15 @@ export class OpenAICompatibleAgent implements Agent {
     this.model = options.model;
   }
 
-  async speak(input: AgentSpeechInput): Promise<string> {
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     const content = await this.complete([
       {
         role: "system",
         content: [
           "You are playing a hidden-role werewolf game.",
           speechInstruction,
-          `Respond in ${this.options.language}.`
+          `Respond in ${this.options.language}.`,
+          `Legal player ids: ${input.knownPlayers.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`
         ].join("\n")
       },
       {
@@ -165,12 +490,12 @@ export class OpenAICompatibleAgent implements Agent {
       }
     ]);
 
-    return clampText(content, sample(demoSpeech[input.player.role]));
+    return parseSpeech(content, input.knownPlayers, sample(demoSpeech[input.player.role]));
   }
 
-  async chooseTarget(input: AgentTargetInput): Promise<string | null> {
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
     if (input.candidates.length === 0) {
-      return null;
+      return { targetId: null, reason: "No legal targets are available." };
     }
 
     const messages: Array<{ role: "system" | "user"; content: string }> = [
@@ -198,7 +523,7 @@ export class OpenAICompatibleAgent implements Agent {
       const content = await this.complete(messages);
       const selection = parseTargetSelection(content, input.candidates, input.allowSkip);
       if (selection.valid) {
-        return selection.targetId;
+        return selection.decision;
       }
 
       messages.push({
@@ -212,7 +537,11 @@ export class OpenAICompatibleAgent implements Agent {
       });
     }
 
-    return sample(input.candidates).id;
+    const fallbackTarget = sample(input.candidates);
+    return {
+      targetId: fallbackTarget.id,
+      reason: "Fallback legal choice after invalid target JSON."
+    };
   }
 
   async decide(input: AgentBooleanInput): Promise<boolean> {

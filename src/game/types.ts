@@ -1,10 +1,12 @@
-export type Role = "Werewolf" | "Seer" | "Witch" | "Villager";
+export type Role = "Werewolf" | "Seer" | "Witch" | "Guard" | "Hunter" | "Villager";
 export type Camp = "werewolf" | "village";
+export type Persona = "cautious" | "aggressive" | "logical" | "opportunistic" | "empathetic";
 
 export type Phase =
   | "setup"
   | "night"
   | "werewolf_discussion"
+  | "guard_action"
   | "seer_action"
   | "witch_action"
   | "day_discussion"
@@ -21,14 +23,56 @@ export type GameEventType =
   | "death"
   | "vote_cast"
   | "vote_result"
+  | "round_summary"
   | "game_ended"
   | "system";
+
+export interface SeerClaimResult {
+  targetId: string;
+  targetName?: string;
+  camp: Camp;
+  round?: number;
+}
+
+export interface ClaimMetadata {
+  type: "role_claim" | "seer_result" | "witch_info" | "generic";
+  role?: Role;
+  targetId?: string;
+  targetName?: string;
+  camp?: Camp;
+  result?: SeerClaimResult | string;
+  note?: string;
+}
+
+export interface PlayerReadMetadata {
+  targetId: string;
+  targetName?: string;
+  reason?: string;
+  weight?: number;
+}
+
+export interface SpeechMetadata {
+  suspects: PlayerReadMetadata[];
+  trusts: PlayerReadMetadata[];
+  claims: ClaimMetadata[];
+}
+
+export interface AgentSpeech {
+  message: string;
+  metadata: SpeechMetadata;
+}
+
+export interface TargetDecision {
+  targetId: string | null;
+  reason: string;
+}
 
 export interface Player {
   id: string;
   name: string;
   role: Role;
   camp: Camp;
+  persona: Persona;
   alive: boolean;
   model: string;
   memories: string[];
@@ -44,6 +88,7 @@ export interface PlayerSnapshot {
   name: string;
   role: Role;
   camp: Camp;
+  persona: Persona;
   alive: boolean;
   model: string;
   memoryCount: number;
@@ -97,6 +142,7 @@ export interface AgentSpeechInput {
   phase: Phase;
   task: string;
   context: string;
+  knownPlayers: TargetCandidate[];
   publicHistory: string[];
   privateHistory: string[];
 }
@@ -120,12 +166,13 @@ export interface AgentBooleanInput {
 export interface Agent {
   name: string;
   model: string;
-  speak(input: AgentSpeechInput): Promise<string>;
-  chooseTarget(input: AgentTargetInput): Promise<string | null>;
+  speak(input: AgentSpeechInput): Promise<AgentSpeech>;
+  chooseTarget(input: AgentTargetInput): Promise<TargetDecision>;
   decide(input: AgentBooleanInput): Promise<boolean>;
 }
 
 export interface VoteRecord {
   voterId: string;
   targetId: string;
+  reason?: string;
 }
