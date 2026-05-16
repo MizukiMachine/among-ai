@@ -18,7 +18,7 @@ import {
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { campLabel, defaultLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
+import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
 import type {
   ClaimMetadata,
@@ -217,24 +217,59 @@ function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
-function getRoleDistributionText(count: number): string {
-  const parts: string[] = [];
-  const werewolves = count >= 7 ? 2 : 1;
-  parts.push(`人狼x${werewolves}`);
-  parts.push("占い師");
-  parts.push("魔女");
-  if (count >= 8) {
-    parts.push("騎士");
+const playerCountOptions = [6, 7, 8, 9] as const;
+const minPlayerCount = playerCountOptions[0];
+const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
+
+function normalizePlayerCount(count: number): number {
+  if (!Number.isFinite(count)) {
+    return 7;
   }
-  if (count >= 9) {
-    parts.push("ハンター");
+  return Math.min(maxPlayerCount, Math.max(minPlayerCount, Math.trunc(count)));
+}
+
+function minimumPlayerCountForScenario(scenario: DebugScenario): number {
+  if (scenario === "guard_success") {
+    return 8;
   }
-  const fixed = werewolves + 2 + (count >= 8 ? 1 : 0) + (count >= 9 ? 1 : 0);
-  const villagers = count - fixed;
+  if (scenario === "hunter_shot") {
+    return 9;
+  }
+  return minPlayerCount;
+}
+
+function effectivePlayerCountForScenario(count: number, scenario: DebugScenario): number {
+  return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
+}
+
+function formatRoleCount(role: Role, count: number, language: string): string {
+  const label = displayRoleLabel(role, language);
+  if (count === 1) {
+    return label;
+  }
+  return `${label}${isJapaneseLanguage(language) ? "x" : " x"}${count}`;
+}
+
+function getRoleDistributionText(count: number, language: string): string {
+  const normalizedCount = normalizePlayerCount(count);
+  const roleCounts: Array<[Role, number]> = [
+    ["Werewolf", normalizedCount >= 7 ? 2 : 1],
+    ["Seer", 1],
+    ["Witch", 1]
+  ];
+  if (normalizedCount >= 8) {
+    roleCounts.push(["Guard", 1]);
+  }
+  if (normalizedCount >= 9) {
+    roleCounts.push(["Hunter", 1]);
+  }
+
+  const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
+  const villagers = Math.max(0, normalizedCount - assignedRoles);
   if (villagers > 0) {
-    parts.push(`村人x${villagers}`);
+    roleCounts.push(["Villager", villagers]);
   }
-  return parts.join(" ");
+  return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language)).join(" ");
 }
 
 export function App() {
@@ -335,6 +370,8 @@ export function App() {
   );
   const currentEvent = events.at(-1);
   const visibleHistory = events.slice(-6, -1).reverse();
+  const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
+  const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
 
   function updateProvider(nextProvider: "demo" | "llm") {
     setProvider(nextProvider);
@@ -345,12 +382,11 @@ export function App() {
 
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
-    if (nextScenario === "guard_success") {
-      setPlayerCount((current) => Math.max(current, 8));
-    }
-    if (nextScenario === "hunter_shot") {
-      setPlayerCount(9);
-    }
+    setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
+  }
+
+  function updatePlayerCount(nextCount: number) {
+    setPlayerCount(Math.max(nextCount, scenarioMinimumPlayerCount));
   }
 
   function stopGame() {
@@ -374,7 +410,7 @@ export function App() {
     setStatus("生成中");
 
     const params = new URLSearchParams({
-      players: String(playerCount),
+      players: String(effectivePlayerCount),
       provider,
       model: provider === "llm" ? model : "demo",
       summary: provider === "llm" ? summaryMode : "deterministic",
@@ -636,19 +672,28 @@ export function App() {
 
           <div className="field">
             <span>人数</span>
+            {scenarioMinimumPlayerCount > minPlayerCount ? (
+              <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
+            ) : null}
             <div className="segments">
-              {[6, 7, 8, 9].map((count) => (
-                <button
-                  key={count}
-                  className={playerCount === count ? "selected" : ""}
-                  onClick={() => setPlayerCount(count)}
-                  type="button"
-                >
-                  {count}
-                </button>
-              ))}
+              {playerCountOptions.map((count) => {
+                const disabled = count < scenarioMinimumPlayerCount;
+                return (
+                  <button
+                    key={count}
+                    aria-pressed={effectivePlayerCount === count}
+                    className={effectivePlayerCount === count ? "selected" : ""}
+                    disabled={disabled}
+                    onClick={() => updatePlayerCount(count)}
+                    title={disabled ? `${scenarioMinimumPlayerCount}人以上が必要です` : `${count}人で開始`}
+                    type="button"
+                  >
+                    {count}
+                  </button>
+                );
+              })}
             </div>
-            <span className="role-distribution">{getRoleDistributionText(playerCount)}</span>
+            <span className="role-distribution">{getRoleDistributionText(effectivePlayerCount, language)}</span>
           </div>
 
           <label className="field">
@@ -681,6 +726,7 @@ export function App() {
 
           <label className="field">
             <span>表示速度</span>
+            <span className="field-desc">自動送りで次の場面を表示する間隔</span>
             <input
               type="range"
               min="220"
@@ -694,6 +740,7 @@ export function App() {
 
           <div className="field">
             <span>視点</span>
+            <span className="field-desc">全情報は非公開情報も表示、村視点は伏せます</span>
             <div className="view-toggle">
               <button
                 className={spectatorMode === "omniscient" ? "selected" : ""}

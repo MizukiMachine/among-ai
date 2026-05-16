@@ -10,7 +10,7 @@ test("app shell renders spectator controls and insight panels", () => {
 
   assert.match(html, /Among AI/);
   assert.match(html, /要約/);
-  assert.match(html, /デモシナリオ/);
+  assert.match(html, /テストシナリオ/);
   assert.match(html, /言語/);
   assert.match(html, /全情報/);
   assert.match(html, /村視点/);

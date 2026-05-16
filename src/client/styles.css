@@ -199,19 +199,22 @@ input:disabled {
   font-weight: 700;
 }
 
-/* 各フィールドの下に表示する説明テキスト */
-.field-desc {
-  color: #98a2b3;
+.field .field-desc,
+.field .role-distribution {
+  display: block;
+  overflow-wrap: anywhere;
   font-size: 11.5px;
+  font-weight: 500;
   line-height: 1.4;
-  padding-bottom: 6px;
 }
 
-/* 役職配分テキスト */
-.role-distribution {
+.field .field-desc {
+  color: #98a2b3;
+  padding-bottom: 4px;
+}
+
+.field .role-distribution {
   color: #667085;
-  font-size: 11.5px;
-  line-height: 1.4;
   padding-bottom: 6px;
 }
 
@@ -246,6 +249,11 @@ input:disabled {
   border-color: #16745f;
   background: #e9f6f2;
   color: #0e5948;
+}
+
+.segments button:disabled {
+  background: #f9fafb;
+  color: #98a2b3;
 }
 
 .view-toggle {
