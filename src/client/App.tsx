@@ -217,6 +217,26 @@ function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
+function getRoleDistributionText(count: number): string {
+  const parts: string[] = [];
+  const werewolves = count >= 7 ? 2 : 1;
+  parts.push(`人狼x${werewolves}`);
+  parts.push("占い師");
+  parts.push("魔女");
+  if (count >= 8) {
+    parts.push("騎士");
+  }
+  if (count >= 9) {
+    parts.push("ハンター");
+  }
+  const fixed = werewolves + 2 + (count >= 8 ? 1 : 0) + (count >= 9 ? 1 : 0);
+  const villagers = count - fixed;
+  if (villagers > 0) {
+    parts.push(`村人x${villagers}`);
+  }
+  return parts.join(" ");
+}
+
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [provider, setProvider] = useState<"demo" | "llm">("demo");
@@ -587,27 +607,30 @@ export function App() {
           </div>
 
           <label className="field">
-            <span>プロバイダー</span>
+            <span>進行方式</span>
+            <span className="field-desc">デモはテンプレート即時進行、LLMはAIが思考して議論</span>
             <select value={provider} onChange={(event) => updateProvider(event.target.value as "demo" | "llm")}>
-              <option value="demo">デモ</option>
-              <option value="llm">LLM</option>
+              <option value="demo">テンプレート</option>
+              <option value="llm">AI思考</option>
             </select>
           </label>
 
           <label className="field">
-            <span>モデル</span>
+            <span>モデル名</span>
+            <span className="field-desc">LLM選択時のみ使用。デモでは無視されます</span>
             <input value={model} onChange={(event) => setModel(event.target.value)} disabled={provider === "demo"} />
           </label>
 
           <label className="field">
-            <span>要約</span>
+            <span>要約方法</span>
+            <span className="field-desc">定型文はテンプレート、AIで自然な文章はLLM要約</span>
             <select
               value={summaryMode}
               onChange={(event) => setSummaryMode(event.target.value as SummaryMode)}
               disabled={provider === "demo"}
             >
-              <option value="deterministic">決定的</option>
-              <option value="llm">LLM使用可ならLLM</option>
+              <option value="deterministic">定型文</option>
+              <option value="llm">AIで自然な文章</option>
             </select>
           </label>
 
@@ -625,19 +648,22 @@ export function App() {
                 </button>
               ))}
             </div>
+            <span className="role-distribution">{getRoleDistributionText(playerCount)}</span>
           </div>
 
           <label className="field">
-            <span>デモシナリオ</span>
+            <span>テストシナリオ</span>
+            <span className="field-desc">特定の役職の動きを強制的に再現できます</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">通常</option>
-              <option value="guard_success">護衛成功</option>
-              <option value="hunter_shot">ハンター発砲</option>
+              <option value="none">通常進行</option>
+              <option value="guard_success">護衛成功を再現</option>
+              <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
           </label>
 
           <label className="field">
             <span>言語</span>
+            <span className="field-desc">プレイヤーの発言とUIの言語</span>
             <select value={language} onChange={(event) => setLanguage(event.target.value)}>
               <option value="Japanese">日本語</option>
               <option value="English">英語</option>
@@ -645,7 +671,8 @@ export function App() {
           </label>
 
           <label className="field">
-            <span>進行</span>
+            <span>進行方法</span>
+            <span className="field-desc">手動はボタンで1場面ずつ、自動は一定間隔で送ります</span>
             <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
               <option value="manual">手動で進める</option>
               <option value="auto">自動送り</option>
@@ -653,7 +680,7 @@ export function App() {
           </label>
 
           <label className="field">
-            <span>自動送り間隔</span>
+            <span>表示速度</span>
             <input
               type="range"
               min="220"
