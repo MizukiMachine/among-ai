@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { WerewolfGame } from "../game/engine";
+import { defaultLanguage } from "../game/i18n";
 import { redactEventForVillage, type SpectatorMode } from "../game/redaction";
 import type { DebugScenario, GameConfig, GameEvent, SummaryMode } from "../game/types";
 
@@ -30,9 +31,9 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
   return {
     provider,
-    model: requestedModel || process.env.OPENAI_MODEL || "demo",
+    model: requestedModel || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || "demo",
     playerCount: intParam(url.searchParams.get("players"), 7, 6, 9),
-    language: url.searchParams.get("language") || "English",
+    language: url.searchParams.get("language") || defaultLanguage,
     maxRounds: intParam(url.searchParams.get("maxRounds"), 8, 3, 15),
     summaryMode: summaryModeParam(url.searchParams.get("summary")),
     debugScenario: debugScenarioParam(url.searchParams.get("scenario")),
