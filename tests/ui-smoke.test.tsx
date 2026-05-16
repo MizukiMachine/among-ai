@@ -9,14 +9,14 @@ test("app shell renders spectator controls and insight panels", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /Among AI/);
-  assert.match(html, /Summary/);
-  assert.match(html, /Demo scenario/);
-  assert.match(html, /Language/);
-  assert.match(html, /All info/);
-  assert.match(html, /Village/);
-  assert.match(html, /Claims &amp; Reads/);
-  assert.match(html, /Vote Map/);
-  assert.match(html, /Round Summaries/);
+  assert.match(html, /要約/);
+  assert.match(html, /デモシナリオ/);
+  assert.match(html, /言語/);
+  assert.match(html, /全情報/);
+  assert.match(html, /村視点/);
+  assert.match(html, /主張と読み/);
+  assert.match(html, /投票マップ/);
+  assert.match(html, /ラウンド要約/);
 });
 
 test("mobile layout CSS keeps spectator panels in a single column", () => {
@@ -28,4 +28,15 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.event-body\s*\{[^}]*min-width:\s*0/s);
   assert.match(css, /\.vote-target\s*\{[^}]*min-width:\s*0/s);
+});
+
+test("story controls stay stable as history grows", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(620px,\s*calc\(100vh - 188px\),\s*780px\)/s);
+  assert.match(css, /\.novel-stage\s*\{[^}]*flex:\s*1 1 0/s);
+  assert.match(css, /\.scene-card\s*\{[^}]*max-height:\s*100%/s);
+  assert.match(css, /\.scene-card\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.history-strip\s*\{[^}]*height:\s*150px/s);
+  assert.match(css, /\.history-strip\s*\{[^}]*flex:\s*0 0 150px/s);
 });

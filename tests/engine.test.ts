@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAICompatibleAgent, summarizeRoundWithLlm } from "../src/game/agents";
+import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundWithLlm } from "../src/game/agents";
 import { WerewolfGame } from "../src/game/engine";
+import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForVillage } from "../src/game/redaction";
 import type {
   Agent,
@@ -113,6 +115,7 @@ function setTable(
     player.alive = spec.alive ?? true;
     player.memories = [];
     player.seerResults = {};
+    player.seerResultRounds = {};
     player.witch = {
       savePotion: spec.role === "Witch",
       poisonPotion: spec.role === "Witch"
@@ -128,6 +131,23 @@ async function collect(generator: AsyncGenerator<GameEvent>): Promise<GameEvent[
     events.push(event);
   }
   return events;
+}
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+function createTestAnthropicClient(): Anthropic {
+  return new Anthropic({
+    apiKey: "test-key",
+    baseURL: "https://example.test",
+    timeout: 1_000,
+    maxRetries: 0
+  });
 }
 
 test("victory follows werewolf parity and all-wolves-dead rules", () => {
@@ -170,6 +190,198 @@ test("role distribution includes required special roles and scales werewolves", 
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
+});
+
+test("Japanese demo agents produce Japanese speech", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Villager" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+
+  const speech = await agent.speak({
+    player,
+    phase: "day_discussion",
+    task: "昼議論で発言してください。",
+    context: "公開議論です。",
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" }
+    ],
+    publicHistory: [],
+    privateHistory: []
+  });
+
+  assert.match(speech.message, /[ぁ-んァ-ヶ一-龠]/);
+  assert.ok(speech.metadata.suspects.every((read) => /[ぁ-んァ-ヶ一-龠]/.test(read.reason ?? "")));
+});
+
+test("Japanese demo werewolf private chat uses night-kill context instead of day accusations", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Werewolf" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+
+  const speech = await agent.speak({
+    player,
+    phase: "werewolf_discussion",
+    task: "夜の襲撃先を提案してください。",
+    context: [
+      "あなたはAdaです。",
+      "把握している人狼: Ada, Byron。",
+      "襲撃候補: Curie, Darwin。",
+      "夜の襲撃先を提案し、戦略的な理由を説明してください。"
+    ].join("\n"),
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" },
+      { id: "p3", name: "Curie" },
+      { id: "p4", name: "Darwin" }
+    ],
+    publicHistory: [],
+    privateHistory: []
+  });
+
+  assert.match(speech.message, /今夜|襲撃候補/);
+  assert.match(speech.message, /Curie|Darwin/);
+  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
+  assert.doesNotMatch(speech.message, /証拠が薄い|疑いが急に動いた|その主張/);
+  assert.ok(speech.metadata.suspects.every((read) => read.targetId === "p3" || read.targetId === "p4"));
+  assert.ok(speech.metadata.suspects.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
+});
+
+test("Japanese demo copy samples avoid translationese game terms", () => {
+  for (const sample of listJapaneseDemoCopySamples()) {
+    assert.equal(containsAwkwardJapaneseOutputTerm(sample), false, sample);
+  }
+});
+
+test("Japanese demo day speech and target reasons avoid translationese game terms", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Villager" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+  const knownPlayers = [
+    { id: "p1", name: "Ada" },
+    { id: "p2", name: "Byron" },
+    { id: "p3", name: "Curie" }
+  ];
+
+  const speech = await agent.speak({
+    player,
+    phase: "day_discussion",
+    task: "昼議論で発言してください。",
+    context: "公開議論です。",
+    knownPlayers,
+    publicHistory: [],
+    privateHistory: []
+  });
+  const decision = await agent.chooseTarget({
+    player,
+    phase: "voting",
+    action: "昼の処刑投票",
+    context: "投票してください。",
+    candidates: knownPlayers.filter((candidate) => candidate.id !== player.id),
+    allowSkip: false
+  });
+
+  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
+  assert.ok(speech.metadata.suspects.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
+  assert.ok(speech.metadata.trusts.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
+  assert.equal(containsAwkwardJapaneseOutputTerm(decision.reason), false);
+});
+
+test("Japanese demo first-day speech stays tentative and question-led", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Villager" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+
+  const speech = await agent.speak({
+    player,
+    phase: "day_discussion",
+    task: "昼議論の公開発言をしてください。",
+    context: "現在のフェーズ: 昼議論。ラウンド: 1。",
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" },
+      { id: "p3", name: "Curie" }
+    ],
+    publicHistory: [],
+    privateHistory: []
+  });
+
+  assert.match(speech.message, /初日|情報が少ない|決め打ち|仮説|発言量|便乗/);
+  assert.doesNotMatch(speech.message, /人狼判定|確定|決めつけ/);
+  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
+});
+
+test("Japanese demo werewolf does not fake a black Seer result on quiet first day", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Werewolf" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+  const input = {
+    player,
+    phase: "day_discussion" as const,
+    task: "昼議論の公開発言をしてください。",
+    context: "現在のフェーズ: 昼議論。ラウンド: 1。",
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" },
+      { id: "p3", name: "Curie" }
+    ],
+    publicHistory: [],
+    privateHistory: []
+  };
+
+  for (let i = 0; i < 20; i += 1) {
+    const speech = await agent.speak(input);
+    assert.doesNotMatch(speech.message, /人狼判定|占い師として出ます/);
+    assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), false);
+  }
+});
+
+test("Japanese demo Seer keeps a first-day white result hidden", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Villager" }]);
+  player.seerResults = { p2: "village" };
+  player.seerResultRounds = { p2: 1 };
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+
+  const speech = await agent.speak({
+    player,
+    phase: "day_discussion",
+    task: "昼議論の公開発言をしてください。",
+    context: "現在のフェーズ: 昼議論。ラウンド: 1。",
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" },
+      { id: "p3", name: "Curie" }
+    ],
+    publicHistory: [],
+    privateHistory: []
+  });
+
+  assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), false);
+  assert.doesNotMatch(speech.message, /占い師を名乗ります|判定/);
+});
+
+test("Japanese demo voting reason uses pre-vote framing", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Villager" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+  const knownPlayers = [
+    { id: "p1", name: "Ada" },
+    { id: "p2", name: "Byron" },
+    { id: "p3", name: "Curie" }
+  ];
+
+  const decision = await agent.chooseTarget({
+    player,
+    phase: "voting",
+    action: "昼の処刑投票",
+    context: "現在のフェーズ: 投票。ラウンド: 1。\nこれは今日の公開議論後、投票直前の最終判断です。",
+    candidates: knownPlayers.filter((candidate) => candidate.id !== player.id),
+    allowSkip: false
+  });
+
+  assert.match(decision.reason, /公開発言|検証しやすい|投票理由|今日の発言/);
+  assert.equal(containsAwkwardJapaneseOutputTerm(decision.reason), false);
 });
 
 test("demo simulations for 6-9 players complete with consistent alive counts", async () => {
@@ -260,7 +472,9 @@ test("round summary carries claims, reads, and votes in deterministic data", asy
 });
 
 test("LLM summary mode falls back to deterministic summary without an API key", async () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalZaiApiKey = process.env.ZAI_API_KEY;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+  delete process.env.ZAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
 
   try {
@@ -289,18 +503,17 @@ test("LLM summary mode falls back to deterministic summary without an API key", 
     assert.equal(summary.data?.summaryFallbackReason, "missing_api_key");
     assert.equal(summary.data?.deterministicMessage, summary.message);
   } finally {
-    if (originalApiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = originalApiKey;
-    }
+    restoreEnvVar("ZAI_API_KEY", originalZaiApiKey);
+    restoreEnvVar("OPENAI_API_KEY", originalOpenAiApiKey);
   }
 });
 
 test("LLM summary request failure keeps deterministic summary data intact", async () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalZaiApiKey = process.env.ZAI_API_KEY;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = "test-key";
+  process.env.ZAI_API_KEY = "test-key";
+  delete process.env.OPENAI_API_KEY;
 
   globalThis.fetch = (async () => {
     return new Response("bad gateway", { status: 502 });
@@ -333,29 +546,30 @@ test("LLM summary request failure keeps deterministic summary data intact", asyn
     assert.equal(summary.data?.deterministicMessage, summary.message);
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalApiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = originalApiKey;
-    }
+    restoreEnvVar("ZAI_API_KEY", originalZaiApiKey);
+    restoreEnvVar("OPENAI_API_KEY", originalOpenAiApiKey);
   }
 });
 
 test("LLM summary mode uses a short provider summary when available", async () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalZaiApiKey = process.env.ZAI_API_KEY;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
   let calls = 0;
-  process.env.OPENAI_API_KEY = "test-key";
+  process.env.ZAI_API_KEY = "test-key";
+  delete process.env.OPENAI_API_KEY;
 
   globalThis.fetch = (async (_url, init) => {
     calls += 1;
     const body = JSON.parse(String(init?.body));
     assert.equal(body.temperature, 0.35);
     assert.equal(body.model, "test-model");
-    assert.match(body.messages[0].content, /plain English for spectators/);
+    assert.equal(body.max_tokens, 512);
+    assert.match(body.system, /plain English for spectators/);
+    assert.equal(body.messages[0].role, "user");
     return new Response(
       JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({ summary: "Votes tightened around Darwin after public reads." }) } }]
+        content: [{ type: "text", text: JSON.stringify({ summary: "Votes tightened around Darwin after public reads." }) }]
       }),
       {
         status: 200,
@@ -391,26 +605,25 @@ test("LLM summary mode uses a short provider summary when available", async () =
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalApiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = originalApiKey;
-    }
+    restoreEnvVar("ZAI_API_KEY", originalZaiApiKey);
+    restoreEnvVar("OPENAI_API_KEY", originalOpenAiApiKey);
   }
 });
 
 test("LLM summary prompt switches to Japanese spectator style", async () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalZaiApiKey = process.env.ZAI_API_KEY;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = "test-key";
+  process.env.ZAI_API_KEY = "test-key";
+  delete process.env.OPENAI_API_KEY;
 
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
-    assert.match(body.messages[0].content, /natural Japanese for spectators/);
-    assert.match(body.messages[0].content, /Respond in Japanese/);
+    assert.match(body.system, /natural Japanese for spectators/);
+    assert.match(body.system, /Respond in Japanese/);
     return new Response(
       JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) } }]
+        content: [{ type: "text", text: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) }]
       }),
       {
         status: 200,
@@ -434,11 +647,8 @@ test("LLM summary prompt switches to Japanese spectator style", async () => {
     assert.equal(summary, "投票はDarwinに集まり、公開推理が焦点になっています。");
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalApiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = originalApiKey;
-    }
+    restoreEnvVar("ZAI_API_KEY", originalZaiApiKey);
+    restoreEnvVar("OPENAI_API_KEY", originalOpenAiApiKey);
   }
 });
 
@@ -456,6 +666,7 @@ test("seer records a private camp result for the chosen living target", async ()
   const events = await collect(game.runSeerAction());
 
   assert.equal(players[0].seerResults.p2, "werewolf");
+  assert.equal(players[0].seerResultRounds.p2, 1);
   assert.ok(players[0].memories.some((memory) => memory.includes("checked as werewolf")));
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
 });
@@ -575,7 +786,7 @@ test("village redaction helper strips private event and snapshot role data", asy
   assert.ok(privateEvent);
   const redacted = redactEventForVillage(privateEvent);
 
-  assert.equal(redacted.message, "Hidden information is concealed in village view.");
+  assert.equal(redacted.message, "村視点では非公開情報です。");
   assert.equal(redacted.playerName, undefined);
   assert.equal(redacted.targetName, undefined);
   assert.equal(redacted.role, undefined);
@@ -724,7 +935,7 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
     calls += 1;
     return new Response(
       JSON.stringify({
-        choices: [{ message: { content: "not-json" } }]
+        content: [{ type: "text", text: "not-json" }]
       }),
       {
         status: 200,
@@ -737,13 +948,7 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
   try {
     const game = createGame();
     const [player] = setTable(game, [{ role: "Villager" }]);
-    const agent = new OpenAICompatibleAgent("llm", {
-      apiKey: "test-key",
-      baseUrl: "https://example.test/v1",
-      model: "test-model",
-      language: "English",
-      timeoutMs: 1_000
-    });
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
 
     const decision = await agent.chooseTarget({
       player,
@@ -772,7 +977,7 @@ test("LLM malformed speech falls back to empty metadata", async () => {
   globalThis.fetch = (async () => {
     return new Response(
       JSON.stringify({
-        choices: [{ message: { content: "plain speech without json" } }]
+        content: [{ type: "text", text: "plain speech without json" }]
       }),
       {
         status: 200,
@@ -784,13 +989,7 @@ test("LLM malformed speech falls back to empty metadata", async () => {
   try {
     const game = createGame();
     const [player] = setTable(game, [{ role: "Villager" }]);
-    const agent = new OpenAICompatibleAgent("llm", {
-      apiKey: "test-key",
-      baseUrl: "https://example.test/v1",
-      model: "test-model",
-      language: "English",
-      timeoutMs: 1_000
-    });
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
 
     const speech = await agent.speak({
       player,
@@ -813,7 +1012,9 @@ test("LLM malformed speech falls back to empty metadata", async () => {
 });
 
 test("LLM provider without API key emits a warning event before falling back to demo agents", async () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalZaiApiKey = process.env.ZAI_API_KEY;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+  delete process.env.ZAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
 
   try {
@@ -825,12 +1026,9 @@ test("LLM provider without API key emits a warning event before falling back to 
 
     assert.equal(started.value?.type, "game_started");
     assert.equal(warning.value?.type, "warning");
-    assert.match(warning.value?.message ?? "", /OPENAI_API_KEY/);
+    assert.match(warning.value?.message ?? "", /ZAI_API_KEY|OPENAI_API_KEY/);
   } finally {
-    if (originalApiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = originalApiKey;
-    }
+    restoreEnvVar("ZAI_API_KEY", originalZaiApiKey);
+    restoreEnvVar("OPENAI_API_KEY", originalOpenAiApiKey);
   }
 });

@@ -31,6 +31,7 @@ test("stream options parse server-side spectator view and zero-speed smoke runs"
   assert.equal(options.view, "village");
   assert.equal(options.summaryMode, "llm");
   assert.equal(options.debugScenario, "hunter_shot");
+  assert.equal(options.language, "Japanese");
 });
 
 test("village stream payload is redacted on the server before SSE delivery", async () => {
