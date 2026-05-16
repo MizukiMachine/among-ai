@@ -18,7 +18,7 @@ import {
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { campLabel, defaultLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
+import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
 import type {
   ClaimMetadata,
@@ -217,6 +217,61 @@ function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
+const playerCountOptions = [6, 7, 8, 9] as const;
+const minPlayerCount = playerCountOptions[0];
+const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
+
+function normalizePlayerCount(count: number): number {
+  if (!Number.isFinite(count)) {
+    return 7;
+  }
+  return Math.min(maxPlayerCount, Math.max(minPlayerCount, Math.trunc(count)));
+}
+
+function minimumPlayerCountForScenario(scenario: DebugScenario): number {
+  if (scenario === "guard_success") {
+    return 8;
+  }
+  if (scenario === "hunter_shot") {
+    return 9;
+  }
+  return minPlayerCount;
+}
+
+function effectivePlayerCountForScenario(count: number, scenario: DebugScenario): number {
+  return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
+}
+
+function formatRoleCount(role: Role, count: number, language: string): string {
+  const label = displayRoleLabel(role, language);
+  if (count === 1) {
+    return label;
+  }
+  return `${label}${isJapaneseLanguage(language) ? "x" : " x"}${count}`;
+}
+
+function getRoleDistributionText(count: number, language: string): string {
+  const normalizedCount = normalizePlayerCount(count);
+  const roleCounts: Array<[Role, number]> = [
+    ["Werewolf", normalizedCount >= 7 ? 2 : 1],
+    ["Seer", 1],
+    ["Witch", 1]
+  ];
+  if (normalizedCount >= 8) {
+    roleCounts.push(["Guard", 1]);
+  }
+  if (normalizedCount >= 9) {
+    roleCounts.push(["Hunter", 1]);
+  }
+
+  const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
+  const villagers = Math.max(0, normalizedCount - assignedRoles);
+  if (villagers > 0) {
+    roleCounts.push(["Villager", villagers]);
+  }
+  return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language)).join(" ");
+}
+
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [provider, setProvider] = useState<"demo" | "llm">("demo");
@@ -315,6 +370,8 @@ export function App() {
   );
   const currentEvent = events.at(-1);
   const visibleHistory = events.slice(-6, -1).reverse();
+  const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
+  const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
 
   function updateProvider(nextProvider: "demo" | "llm") {
     setProvider(nextProvider);
@@ -325,12 +382,11 @@ export function App() {
 
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
-    if (nextScenario === "guard_success") {
-      setPlayerCount((current) => Math.max(current, 8));
-    }
-    if (nextScenario === "hunter_shot") {
-      setPlayerCount(9);
-    }
+    setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
+  }
+
+  function updatePlayerCount(nextCount: number) {
+    setPlayerCount(Math.max(nextCount, scenarioMinimumPlayerCount));
   }
 
   function stopGame() {
@@ -354,7 +410,7 @@ export function App() {
     setStatus("生成中");
 
     const params = new URLSearchParams({
-      players: String(playerCount),
+      players: String(effectivePlayerCount),
       provider,
       model: provider === "llm" ? model : "demo",
       summary: provider === "llm" ? summaryMode : "deterministic",
@@ -587,57 +643,72 @@ export function App() {
           </div>
 
           <label className="field">
-            <span>プロバイダー</span>
+            <span>進行方式</span>
+            <span className="field-desc">デモはテンプレート即時進行、LLMはAIが思考して議論</span>
             <select value={provider} onChange={(event) => updateProvider(event.target.value as "demo" | "llm")}>
-              <option value="demo">デモ</option>
-              <option value="llm">LLM</option>
+              <option value="demo">テンプレート</option>
+              <option value="llm">AI思考</option>
             </select>
           </label>
 
           <label className="field">
-            <span>モデル</span>
+            <span>モデル名</span>
+            <span className="field-desc">LLM選択時のみ使用。デモでは無視されます</span>
             <input value={model} onChange={(event) => setModel(event.target.value)} disabled={provider === "demo"} />
           </label>
 
           <label className="field">
-            <span>要約</span>
+            <span>要約方法</span>
+            <span className="field-desc">定型文はテンプレート、AIで自然な文章はLLM要約</span>
             <select
               value={summaryMode}
               onChange={(event) => setSummaryMode(event.target.value as SummaryMode)}
               disabled={provider === "demo"}
             >
-              <option value="deterministic">決定的</option>
-              <option value="llm">LLM使用可ならLLM</option>
+              <option value="deterministic">定型文</option>
+              <option value="llm">AIで自然な文章</option>
             </select>
           </label>
 
           <div className="field">
             <span>人数</span>
+            {scenarioMinimumPlayerCount > minPlayerCount ? (
+              <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
+            ) : null}
             <div className="segments">
-              {[6, 7, 8, 9].map((count) => (
-                <button
-                  key={count}
-                  className={playerCount === count ? "selected" : ""}
-                  onClick={() => setPlayerCount(count)}
-                  type="button"
-                >
-                  {count}
-                </button>
-              ))}
+              {playerCountOptions.map((count) => {
+                const disabled = count < scenarioMinimumPlayerCount;
+                return (
+                  <button
+                    key={count}
+                    aria-pressed={effectivePlayerCount === count}
+                    className={effectivePlayerCount === count ? "selected" : ""}
+                    disabled={disabled}
+                    onClick={() => updatePlayerCount(count)}
+                    title={disabled ? `${scenarioMinimumPlayerCount}人以上が必要です` : `${count}人で開始`}
+                    type="button"
+                  >
+                    {count}
+                  </button>
+                );
+              })}
             </div>
+            <span className="role-distribution">{getRoleDistributionText(effectivePlayerCount, language)}</span>
           </div>
 
           <label className="field">
-            <span>デモシナリオ</span>
+            <span>テストシナリオ</span>
+            <span className="field-desc">特定の役職の動きを強制的に再現できます</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">通常</option>
-              <option value="guard_success">護衛成功</option>
-              <option value="hunter_shot">ハンター発砲</option>
+              <option value="none">通常進行</option>
+              <option value="guard_success">護衛成功を再現</option>
+              <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
           </label>
 
           <label className="field">
             <span>言語</span>
+            <span className="field-desc">プレイヤーの発言とUIの言語</span>
             <select value={language} onChange={(event) => setLanguage(event.target.value)}>
               <option value="Japanese">日本語</option>
               <option value="English">英語</option>
@@ -645,7 +716,8 @@ export function App() {
           </label>
 
           <label className="field">
-            <span>進行</span>
+            <span>進行方法</span>
+            <span className="field-desc">手動はボタンで1場面ずつ、自動は一定間隔で送ります</span>
             <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
               <option value="manual">手動で進める</option>
               <option value="auto">自動送り</option>
@@ -653,7 +725,8 @@ export function App() {
           </label>
 
           <label className="field">
-            <span>自動送り間隔</span>
+            <span>表示速度</span>
+            <span className="field-desc">自動送りで次の場面を表示する間隔</span>
             <input
               type="range"
               min="220"
@@ -667,6 +740,7 @@ export function App() {
 
           <div className="field">
             <span>視点</span>
+            <span className="field-desc">全情報は非公開情報も表示、村視点は伏せます</span>
             <div className="view-toggle">
               <button
                 className={spectatorMode === "omniscient" ? "selected" : ""}

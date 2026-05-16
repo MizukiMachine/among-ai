@@ -199,6 +199,25 @@ input:disabled {
   font-weight: 700;
 }
 
+.field .field-desc,
+.field .role-distribution {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.field .field-desc {
+  color: #98a2b3;
+  padding-bottom: 4px;
+}
+
+.field .role-distribution {
+  color: #667085;
+  padding-bottom: 6px;
+}
+
 .field input,
 .field select {
   width: 100%;
@@ -230,6 +249,11 @@ input:disabled {
   border-color: #16745f;
   background: #e9f6f2;
   color: #0e5948;
+}
+
+.segments button:disabled {
+  background: #f9fafb;
+  color: #98a2b3;
 }
 
 .view-toggle {
