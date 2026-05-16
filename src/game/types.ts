@@ -81,6 +81,7 @@ export interface Player {
   model: string;
   memories: string[];
   seerResults: Record<string, Camp>;
+  seerResultRounds: Record<string, number>;
   witch: {
     savePotion: boolean;
     poisonPotion: boolean;

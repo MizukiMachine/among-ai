@@ -90,7 +90,7 @@ export function redactEventForVillage(event: GameEvent): VillageGameEvent {
     round: event.round,
     phase: event.phase,
     type: event.type,
-    message: secret ? "Hidden information is concealed in village view." : event.message,
+    message: secret ? "村視点では非公開情報です。" : event.message,
     playerId: secret ? undefined : event.playerId,
     playerName: secret ? undefined : event.playerName,
     targetId: secret ? undefined : event.targetId,
