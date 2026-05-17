@@ -1,4 +1,5 @@
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
+import { getCharacterProfile } from "./characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
 import { sample, shuffle } from "./random";
@@ -24,8 +25,11 @@ import type {
   VoteRecord
 } from "./types";
 
-const names = ["Ada", "Byron", "Curie", "Darwin", "Edison", "Faraday", "Galileo", "Hopper", "Iris"];
-const personas: Persona[] = ["cautious", "aggressive", "logical", "opportunistic", "empathetic"];
+const names = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
+const personas: Persona[] = [
+  "cautious", "aggressive", "logical", "opportunistic", "empathetic",
+  "cautious", "logical", "aggressive", "empathetic"
+];
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
@@ -225,8 +229,10 @@ export class WerewolfGame {
         activeDebugScenario === "none"
           ? createAgent(name)
           : this.createScenarioAgent(name, activeDebugScenario, index);
+      const playerId = `p${index + 1}`;
+      const profile = getCharacterProfile(playerId);
       const player: Player = {
-        id: `p${index + 1}`,
+        id: playerId,
         name,
         role,
         camp: roleCamp(role),
@@ -239,7 +245,8 @@ export class WerewolfGame {
         witch: {
           savePotion: role === "Witch",
           poisonPotion: role === "Witch"
-        }
+        },
+        characterProfile: profile
       };
       this.agents.set(player.id, agent);
       return player;

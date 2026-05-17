@@ -191,6 +191,12 @@ function readLabel(read: PlayerReadMetadata | ReadDetail): string {
   return read.reason ? `${target}: ${read.reason}` : target;
 }
 
+function formatMessage(text: string) {
+  const parts = text.split(/(?<=。)/g);
+  if (parts.length <= 1) return text;
+  return parts.filter((p) => p).map((part, i) => <span key={i}>{part}<br /></span>);
+}
+
 function shortText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
@@ -774,7 +780,7 @@ export function App() {
                       <div className="speaker-line">
                         {currentEvent.playerName && !hidden ? currentEvent.playerName : currentEvent.type === "system" ? "システム" : "進行"}
                       </div>
-                      <p>{hidden ? "村視点では非公開情報です。" : currentEvent.message}</p>
+                      <p>{hidden ? "村視点では非公開情報です。" : formatMessage(currentEvent.message)}</p>
                       {renderEventDetails(currentEvent, hidden)}
                     </div>
                   </article>
@@ -855,7 +861,6 @@ export function App() {
               <div className="player-card" key={player.id}>
                 <div>
                   <strong>{player.name}</strong>
-                  <span>{player.model}</span>
                   <span className="persona-line">{personaLabel(player.persona, language)}</span>
                 </div>
                 <div className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>

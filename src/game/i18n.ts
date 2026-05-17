@@ -21,7 +21,10 @@ const personaJa: Record<Persona, string> = {
   aggressive: "強気",
   logical: "論理派",
   opportunistic: "機を見る",
-  empathetic: "共感型"
+  empathetic: "共感型",
+  trickster: "攪乱",
+  stoic: "沈黙",
+  passionate: "熱血"
 };
 
 const phaseJa: Record<Phase, string> = {

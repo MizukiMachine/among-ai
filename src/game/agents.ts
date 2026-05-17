@@ -193,6 +193,21 @@ const personaReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> 
     "their reaction became defensive when asked for details",
     "their tone changed after the night result",
     "they are not engaging with the concerns aimed at them"
+  ],
+  trickster: [
+    "just to see how they react",
+    "because predictable players are suspicious",
+    "the chaos reveals the truth"
+  ],
+  stoic: [
+    "based on what was not said",
+    "the silence speaks volumes",
+    "observation over conversation"
+  ],
+  passionate: [
+    "because I believe in this team",
+    "my gut tells me so",
+    "I can feel it in my heart"
   ]
 };
 
@@ -221,6 +236,21 @@ const personaReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> 
     "詳細を聞かれた時に防御的になった",
     "夜の結果後に反応が変わった",
     "向けられた懸念に向き合っていない"
+  ],
+  trickster: [
+    "反応を見たかっただけ",
+    "予測可能な人こそ怪しい",
+    "カオスの中に真実がある"
+  ],
+  stoic: [
+    "言わなかったことに基づいて",
+    "沈黙が語るものがある",
+    "観察こそが武器"
+  ],
+  passionate: [
+    "このチームを信じてるから",
+    "直感がそう言ってる",
+    "心が感じてるんだ"
   ]
 };
 
@@ -249,6 +279,21 @@ const firstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]>
     "their tone changed when asked for details",
     "they have not answered the concern aimed at them yet",
     "I want to hear their reasoning before reading them too strongly"
+  ],
+  trickster: [
+    "their seriousness feels like a mask",
+    "I want to see how they handle a weird question",
+    "everyone is playing it safe and that is boring"
+  ],
+  stoic: [
+    "their silence on day one is data",
+    "they said nothing when they could have",
+    "I am watching who avoids eye contact"
+  ],
+  passionate: [
+    "I want to believe them but need to see conviction",
+    "their energy feels real but energy can be faked",
+    "my heart says trust them but let me verify"
   ]
 };
 
@@ -277,11 +322,26 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
     "詳細を聞かれた時の反応をもう少し見たい",
     "向けられた質問にまだ答えきっていない",
     "強く読む前に本人の理由を聞きたい"
+  ],
+  trickster: [
+    "真面目すぎるのが逆に怪しい",
+    "変な質問にどう答えるか見たい",
+    "みんな安全牌すぎて面白くない"
+  ],
+  stoic: [
+    "初日の沈黙もデータ",
+    "言えたはずなのに言わなかった",
+    "目を逸らす人を観察してる"
+  ],
+  passionate: [
+    "信じたいけど覚悟を見せてほしい",
+    "エネルギーは本物に感じるけど演技もできる",
+    "心は信じてるけど確認したい"
   ]
 };
 
 export function listJapaneseDemoCopySamples(): string[] {
-  const name = "Ada";
+  const name = "カズ";
   return [
     ...Object.values(demoSpeechJa).flat(),
     ...Object.values(demoDaySituationSpeechJa).flat(),

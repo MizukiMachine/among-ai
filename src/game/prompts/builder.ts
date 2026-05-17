@@ -1,5 +1,6 @@
 import type { Persona, Phase, Player, Role, TargetCandidate } from "../types";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "../i18n";
+import { characterVoiceSection } from "../characters";
 import { daySituationGuidance } from "../daySituations";
 import { japaneseStyleGuide } from "../japaneseStyle";
 import {
@@ -13,6 +14,7 @@ import {
   promptPhaseFromGamePhase,
   recentLines
 } from "./common";
+import { personaDetails } from "./personaDetails";
 import { discussionPhaseInstructions } from "./phases/discussion";
 import { nightPhaseInstructions } from "./phases/night";
 import { votingPhaseInstructions } from "./phases/voting";
@@ -155,6 +157,19 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     "",
     "Persona style:",
     getPersonaStrategy(player.persona),
+    "",
+    "Persona character:",
+    ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
+    "",
+    "Persona values:",
+    ...personaDetails[player.persona].principles.map((s) => `- ${s}`),
+    ...(player.characterProfile
+      ? [
+          "",
+          "Character voice:",
+          ...characterVoiceSection(player.characterProfile).split("\n")
+        ]
+      : []),
     "",
     `Alive players: ${formatPlayers(alivePlayers)}.`,
     deadPlayers.length > 0
