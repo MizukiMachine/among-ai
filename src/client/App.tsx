@@ -30,6 +30,23 @@ import type {
   Role
 } from "../game/types";
 
+const characterImageMap: Record<string, string> = {
+  p1: "/characters/kazu.png",
+  p2: "/characters/kai.png",
+  p3: "/characters/mio.png",
+  p4: "/characters/ren.png",
+  p5: "/characters/saki.png",
+  p6: "/characters/taka.png",
+  p7: "/characters/yuki.png",
+  p8: "/characters/ken.png",
+  p9: "/characters/rin.png",
+};
+
+function getCharacterImage(playerId?: string): string | null {
+  if (!playerId) return null;
+  return characterImageMap[playerId] ?? null;
+}
+
 const roleClass: Record<Role, string> = {
   Werewolf: "role-werewolf",
   Seer: "role-seer",
@@ -765,25 +782,37 @@ export function App() {
                 const visibility = eventVisibility(currentEvent);
                 const hidden = spectatorMode === "village" && isSecretEvent(currentEvent);
                 const tone = eventTone(currentEvent);
+                const charImg = getCharacterImage(currentEvent.playerId);
+                const speakerName =
+                  currentEvent.playerName && !hidden
+                    ? currentEvent.playerName
+                    : currentEvent.type === "system"
+                      ? "システム"
+                      : "進行";
                 return (
-                  <article className={`scene-card ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                    <div className="scene-icon">{eventIcon(currentEvent)}</div>
-                    <div className="scene-content">
-                      <div className="event-meta">
-                        <span>R{currentEvent.round}</span>
-                        <span>{phaseLabel(currentEvent.phase, language)}</span>
-                        {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibilityLabel(visibility)}</span> : null}
-                        {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
-                          <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
-                        ) : null}
+                  <div className="scene-layout">
+                    {charImg && !hidden && (
+                      <div className="scene-character">
+                        <img src={charImg} alt={speakerName} />
                       </div>
-                      <div className="speaker-line">
-                        {currentEvent.playerName && !hidden ? currentEvent.playerName : currentEvent.type === "system" ? "システム" : "進行"}
+                    )}
+                    <article className={`scene-card ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
+                      <div className="scene-icon">{eventIcon(currentEvent)}</div>
+                      <div className="scene-content">
+                        <div className="event-meta">
+                          <span>R{currentEvent.round}</span>
+                          <span>{phaseLabel(currentEvent.phase, language)}</span>
+                          {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibilityLabel(visibility)}</span> : null}
+                          {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
+                            <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
+                          ) : null}
+                        </div>
+                        <div className="speaker-line">{speakerName}</div>
+                        <p>{hidden ? "村視点では非公開情報です。" : formatMessage(currentEvent.message)}</p>
+                        {renderEventDetails(currentEvent, hidden)}
                       </div>
-                      <p>{hidden ? "村視点では非公開情報です。" : formatMessage(currentEvent.message)}</p>
-                      {renderEventDetails(currentEvent, hidden)}
-                    </div>
-                  </article>
+                    </article>
+                  </div>
                 );
               })()
             ) : (
