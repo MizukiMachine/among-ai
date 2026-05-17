@@ -303,8 +303,8 @@ input:disabled {
 
 .story-panel {
   align-self: start;
-  height: clamp(620px, calc(100vh - 188px), 780px);
-  min-height: 620px;
+  height: clamp(720px, calc(100vh - 120px), 920px);
+  min-height: 720px;
 }
 
 .story-panel .panel-heading,
@@ -316,7 +316,7 @@ input:disabled {
   display: grid;
   min-height: 0;
   flex: 1 1 0;
-  align-items: end;
+  align-items: stretch;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(17, 24, 39, 0.08)),
     #edf2f7;
@@ -348,11 +348,42 @@ input:disabled {
   line-height: 1.6;
 }
 
+.scene-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 16px;
+  min-height: 0;
+  width: 100%;
+}
+
+.scene-character {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.scene-character img {
+  max-height: 100%;
+  max-width: 220px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.15));
+}
+
 .scene-card {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 14px;
-  max-height: 100%;
+  width: 100%;
+  max-height: 50%;
+  flex: 0 0 auto;
   overflow-y: auto;
   border: 1px solid rgba(29, 41, 57, 0.14);
   border-radius: 8px;
@@ -402,9 +433,9 @@ input:disabled {
 }
 
 .speaker-line {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   color: #111827;
-  font-size: 22px;
+  font-size: 40px;
   font-weight: 780;
   line-height: 1.3;
 }
@@ -412,7 +443,7 @@ input:disabled {
 .scene-content > p {
   margin: 0;
   color: #1f2937;
-  font-size: 19px;
+  font-size: 38px;
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
