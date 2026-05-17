@@ -41,7 +41,7 @@ class ScriptedAgent implements Agent {
       return scripted;
     }
     return {
-      message: `${this.name} speaks.`,
+      messages: [`${this.name} speaks.`],
       metadata: {
         suspects: [],
         trusts: [],
@@ -210,7 +210,8 @@ test("Japanese demo agents produce Japanese speech", async () => {
     privateHistory: []
   });
 
-  assert.match(speech.message, /[ぁ-んァ-ヶ一-龠]/);
+  const messageText = speech.messages.join(" ");
+  assert.match(messageText, /[ぁ-んァ-ヶ一-龠]/);
   assert.ok(speech.metadata.suspects.every((read) => /[ぁ-んァ-ヶ一-龠]/.test(read.reason ?? "")));
 });
 
@@ -239,10 +240,11 @@ test("Japanese demo werewolf private chat uses night-kill context instead of day
     privateHistory: []
   });
 
-  assert.match(speech.message, /今夜|襲撃候補/);
-  assert.match(speech.message, /Curie|Darwin/);
-  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
-  assert.doesNotMatch(speech.message, /証拠が薄い|疑いが急に動いた|その主張/);
+  const messageText = speech.messages.join(" ");
+  assert.match(messageText, /今夜|襲撃候補/);
+  assert.match(messageText, /Curie|Darwin/);
+  assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
+  assert.doesNotMatch(messageText, /証拠が薄い|疑いが急に動いた|その主張/);
   assert.ok(speech.metadata.suspects.every((read) => read.targetId === "p3" || read.targetId === "p4"));
   assert.ok(speech.metadata.suspects.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
 });
@@ -281,7 +283,8 @@ test("Japanese demo day speech and target reasons avoid translationese game term
     allowSkip: false
   });
 
-  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
+  const messageText = speech.messages.join(" ");
+  assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
   assert.ok(speech.metadata.suspects.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
   assert.ok(speech.metadata.trusts.every((read) => !containsAwkwardJapaneseOutputTerm(read.reason ?? "")));
   assert.equal(containsAwkwardJapaneseOutputTerm(decision.reason), false);
@@ -306,9 +309,10 @@ test("Japanese demo first-day speech stays tentative and question-led", async ()
     privateHistory: []
   });
 
-  assert.match(speech.message, /初日|情報が少ない|決め打ち|仮説|発言量|便乗/);
-  assert.doesNotMatch(speech.message, /人狼判定|確定|決めつけ/);
-  assert.equal(containsAwkwardJapaneseOutputTerm(speech.message), false);
+  const messageText = speech.messages.join(" ");
+  assert.match(messageText, /初日|情報が少ない|決め打ち|仮説|発言量|便乗/);
+  assert.doesNotMatch(messageText, /人狼判定|確定|決めつけ/);
+  assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
 test("Japanese demo werewolf does not fake a black Seer result on quiet first day", async () => {
@@ -331,7 +335,8 @@ test("Japanese demo werewolf does not fake a black Seer result on quiet first da
 
   for (let i = 0; i < 20; i += 1) {
     const speech = await agent.speak(input);
-    assert.doesNotMatch(speech.message, /人狼判定|占い師として出ます/);
+    const messageText = speech.messages.join(" ");
+    assert.doesNotMatch(messageText, /人狼判定|占い師として出ます/);
     assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), false);
   }
 });
@@ -358,7 +363,8 @@ test("Japanese demo Seer keeps a first-day white result hidden", async () => {
   });
 
   assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), false);
-  assert.doesNotMatch(speech.message, /占い師を名乗ります|判定/);
+  const messageText = speech.messages.join(" ");
+  assert.doesNotMatch(messageText, /占い師を名乗ります|判定/);
 });
 
 test("Japanese demo voting reason uses pre-vote framing", async () => {
@@ -432,7 +438,7 @@ test("round summary carries claims, reads, and votes in deterministic data", asy
       targets: ["p4"],
       speeches: [
         {
-          message: "I claim Seer with a wolf result.",
+          messages: ["I claim Seer with a wolf result."],
           metadata: {
             claims: [
               {
@@ -1004,7 +1010,7 @@ test("LLM malformed speech falls back to empty metadata", async () => {
       privateHistory: []
     });
 
-    assert.equal(speech.message, "plain speech without json");
+    assert.deepEqual(speech.messages, ["plain speech without json"]);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
     globalThis.fetch = originalFetch;
