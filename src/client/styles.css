@@ -262,6 +262,16 @@ input:disabled {
   gap: 6px;
 }
 
+.view-toggle-inline {
+  grid-template-columns: auto auto;
+}
+
+.view-toggle-inline button {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
 .view-toggle button {
   display: inline-flex;
   min-width: 0;
@@ -420,10 +430,13 @@ input:disabled {
 }
 
 .queue-count {
-  margin-left: auto;
   color: #667085;
   font-size: 13px;
   font-weight: 700;
+}
+
+.view-toggle-inline {
+  margin-left: 8px;
 }
 
 .history-strip {
