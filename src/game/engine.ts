@@ -25,7 +25,7 @@ import type {
   VoteRecord
 } from "./types";
 
-const names = ["カズ", "カイ", "ミオ", "レン", "サキ", "ソウ", "ユキ", "ケン", "リン"];
+const names = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
 const personas: Persona[] = [
   "cautious", "aggressive", "logical", "opportunistic", "empathetic",
   "cautious", "logical", "aggressive", "empathetic"

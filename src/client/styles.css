@@ -402,9 +402,9 @@ input:disabled {
 }
 
 .speaker-line {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   color: #111827;
-  font-size: 22px;
+  font-size: 40px;
   font-weight: 780;
   line-height: 1.3;
 }
@@ -412,7 +412,7 @@ input:disabled {
 .scene-content > p {
   margin: 0;
   color: #1f2937;
-  font-size: 19px;
+  font-size: 38px;
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
