@@ -27,8 +27,7 @@ import type {
   GameSnapshot,
   PlayerReadMetadata,
   PlayerSnapshot,
-  Role,
-  SummaryMode
+  Role
 } from "../game/types";
 
 const roleClass: Record<Role, string> = {
@@ -242,12 +241,12 @@ function effectivePlayerCountForScenario(count: number, scenario: DebugScenario)
   return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
 }
 
-function formatRoleCount(role: Role, count: number, language: string): string {
+function formatRoleCount(role: Role, count: number, language: string, forceCount = false): string {
   const label = displayRoleLabel(role, language);
-  if (count === 1) {
+  if (count === 1 && !forceCount) {
     return label;
   }
-  return `${label}${isJapaneseLanguage(language) ? "x" : " x"}${count}`;
+  return `${label}${isJapaneseLanguage(language) ? "×" : " x"}${count}`;
 }
 
 function getRoleDistributionText(count: number, language: string): string {
@@ -269,14 +268,18 @@ function getRoleDistributionText(count: number, language: string): string {
   if (villagers > 0) {
     roleCounts.push(["Villager", villagers]);
   }
-  return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language)).join(" ");
+  return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language, role === "Werewolf")).join(" ");
+}
+
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest("button, input, select, textarea, [contenteditable='true']"));
 }
 
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
-  const [provider, setProvider] = useState<"demo" | "llm">("demo");
-  const [model, setModel] = useState("glm-5-turbo");
-  const [summaryMode, setSummaryMode] = useState<SummaryMode>("deterministic");
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
   const [language, setLanguage] = useState(defaultLanguage);
   const [speed, setSpeed] = useState(650);
@@ -373,13 +376,6 @@ export function App() {
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
 
-  function updateProvider(nextProvider: "demo" | "llm") {
-    setProvider(nextProvider);
-    if (nextProvider === "demo") {
-      setSummaryMode("deterministic");
-    }
-  }
-
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
     setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
@@ -411,9 +407,8 @@ export function App() {
 
     const params = new URLSearchParams({
       players: String(effectivePlayerCount),
-      provider,
-      model: provider === "llm" ? model : "demo",
-      summary: provider === "llm" ? summaryMode : "deterministic",
+      provider: "llm",
+      summary: "llm",
       scenario: debugScenario,
       view: spectatorMode,
       speed: "0",
@@ -505,11 +500,48 @@ export function App() {
     setStatus(last.type === "game_ended" ? "完了" : "表示完了");
   }
 
+  function advanceStory() {
+    if (queuedRef.current.length > 0) {
+      revealNext();
+      return;
+    }
+    if (!running && events.length === 0) {
+      startGame();
+    }
+  }
+
   useEffect(() => {
     return () => {
       sourceRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    function handleStoryShortcut(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        (event.key !== "Enter" && event.key !== "ArrowRight") ||
+        isEditableShortcutTarget(event.target)
+      ) {
+        return;
+      }
+
+      const canAdvance = queuedRef.current.length > 0 || (!running && events.length === 0);
+      if (!canAdvance) {
+        return;
+      }
+      event.preventDefault();
+      advanceStory();
+    }
+
+    window.addEventListener("keydown", handleStoryShortcut);
+    return () => window.removeEventListener("keydown", handleStoryShortcut);
+  }, [events.length, running]);
 
   useEffect(() => {
     if (progressMode !== "auto" || queuedEvents.length === 0) {
@@ -642,34 +674,6 @@ export function App() {
             <h2>設定</h2>
           </div>
 
-          <label className="field">
-            <span>進行方式</span>
-            <span className="field-desc">デモはテンプレート即時進行、LLMはAIが思考して議論</span>
-            <select value={provider} onChange={(event) => updateProvider(event.target.value as "demo" | "llm")}>
-              <option value="demo">テンプレート</option>
-              <option value="llm">AI思考</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>モデル名</span>
-            <span className="field-desc">LLM選択時のみ使用。デモでは無視されます</span>
-            <input value={model} onChange={(event) => setModel(event.target.value)} disabled={provider === "demo"} />
-          </label>
-
-          <label className="field">
-            <span>要約方法</span>
-            <span className="field-desc">定型文はテンプレート、AIで自然な文章はLLM要約</span>
-            <select
-              value={summaryMode}
-              onChange={(event) => setSummaryMode(event.target.value as SummaryMode)}
-              disabled={provider === "demo"}
-            >
-              <option value="deterministic">定型文</option>
-              <option value="llm">AIで自然な文章</option>
-            </select>
-          </label>
-
           <div className="field">
             <span>人数</span>
             {scenarioMinimumPlayerCount > minPlayerCount ? (
@@ -697,8 +701,8 @@ export function App() {
           </div>
 
           <label className="field">
-            <span>テストシナリオ</span>
-            <span className="field-desc">特定の役職の動きを強制的に再現できます</span>
+            <span>必ず起こしたいイベント</span>
+            <span className="field-desc">特にない場合は通常進行のままで進めます</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
               <option value="none">通常進行</option>
               <option value="guard_success">護衛成功を再現</option>
@@ -812,7 +816,7 @@ export function App() {
             <button
               className="icon-button primary"
               disabled={storyButtonDisabled}
-              onClick={queuedEvents.length > 0 ? revealNext : startGame}
+              onClick={advanceStory}
               type="button"
             >
               <ChevronRight size={18} />

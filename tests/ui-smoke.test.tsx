@@ -9,14 +9,16 @@ test("app shell renders spectator controls and insight panels", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /Among AI/);
-  assert.match(html, /要約/);
-  assert.match(html, /テストシナリオ/);
+  assert.match(html, /必ず起こしたいイベント/);
   assert.match(html, /言語/);
   assert.match(html, /全情報/);
   assert.match(html, /村視点/);
   assert.match(html, /主張と読み/);
   assert.match(html, /投票マップ/);
   assert.match(html, /ラウンド要約/);
+  assert.doesNotMatch(html, /進行方式/);
+  assert.doesNotMatch(html, /モデル名/);
+  assert.doesNotMatch(html, /要約方法/);
 });
 
 test("mobile layout CSS keeps spectator panels in a single column", () => {
@@ -39,4 +41,12 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.scene-card\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.history-strip\s*\{[^}]*height:\s*150px/s);
   assert.match(css, /\.history-strip\s*\{[^}]*flex:\s*0 0 150px/s);
+});
+
+test("story can advance from keyboard shortcuts outside form controls", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /event\.key !== "Enter"/);
+  assert.match(source, /event\.key !== "ArrowRight"/);
+  assert.match(source, /isEditableShortcutTarget/);
 });

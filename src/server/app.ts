@@ -5,6 +5,7 @@ import { redactEventForVillage, type SpectatorMode } from "../game/redaction";
 import type { DebugScenario, GameConfig, GameEvent, SummaryMode } from "../game/types";
 
 const encoder = new TextEncoder();
+const defaultLlmModel = "glm-5-turbo";
 
 function intParam(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
@@ -27,15 +28,16 @@ function spectatorModeParam(value: string | null): SpectatorMode {
 }
 
 export function parseStreamOptions(url: URL): GameConfig & { speed: number; view: SpectatorMode } {
-  const provider = url.searchParams.get("provider") === "llm" ? "llm" : "demo";
+  const provider = url.searchParams.get("provider") === "demo" ? "demo" : "llm";
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
+  const requestedSummaryMode = url.searchParams.get("summary");
   return {
     provider,
-    model: requestedModel || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || "demo",
+    model: requestedModel || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultLlmModel,
     playerCount: intParam(url.searchParams.get("players"), 7, 6, 9),
     language: url.searchParams.get("language") || defaultLanguage,
     maxRounds: intParam(url.searchParams.get("maxRounds"), 8, 3, 15),
-    summaryMode: summaryModeParam(url.searchParams.get("summary")),
+    summaryMode: requestedSummaryMode ? summaryModeParam(requestedSummaryMode) : provider === "llm" ? "llm" : "deterministic",
     debugScenario: debugScenarioParam(url.searchParams.get("scenario")),
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))

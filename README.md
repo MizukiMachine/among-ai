@@ -19,7 +19,7 @@ corepack pnpm dev
 
 Open `http://localhost:5173`.
 
-The default provider is `demo`, so the app runs without an API key. For LLM mode, set:
+The app requests LLM agents by default. If no API key is configured, the server falls back to demo agents and keeps the UI usable. For full LLM mode, set:
 
 ```bash
 OPENAI_API_KEY=...

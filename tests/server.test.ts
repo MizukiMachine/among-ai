@@ -27,11 +27,20 @@ test("stream options parse server-side spectator view and zero-speed smoke runs"
   );
 
   assert.equal(options.playerCount, 9);
+  assert.equal(options.provider, "llm");
   assert.equal(options.speed, 0);
   assert.equal(options.view, "village");
   assert.equal(options.summaryMode, "llm");
   assert.equal(options.debugScenario, "hunter_shot");
   assert.equal(options.language, "Japanese");
+});
+
+test("stream options default to LLM provider and LLM summaries", () => {
+  const options = parseStreamOptions(new URL("http://localhost/api/games/stream?players=7"));
+
+  assert.equal(options.provider, "llm");
+  assert.equal(options.summaryMode, "llm");
+  assert.notEqual(options.model, "demo");
 });
 
 test("village stream payload is redacted on the server before SSE delivery", async () => {

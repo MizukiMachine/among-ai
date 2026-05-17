@@ -106,15 +106,12 @@
 
 ### 4-4. SETTINGS PANEL（左カラム）
 
-ゲーム開始前に設定する項目群。各項目はラベル + コントロール。
+ゲーム開始前に設定する項目群。各項目はラベル + コントロール。エージェント種別と要約はLLM固定で、画面上の設定項目としては表示しない。
 
 | 設定項目 | コントロール | 選択肢/範囲 | デフォルト |
 |---------|-------------|------------|-----------|
-| エージェント種別 | セレクトボックス | demo / LLM | demo |
-| モデル名 | テキスト入力 | 任意（LLM選択時のみ有効） | — |
-| 要約モード | セレクトボックス | deterministic / LLM | deterministic |
 | プレイヤー数 | セレクトボックス | 6 / 7 / 8 / 9 | 7 |
-| デバッグシナリオ | セレクトボックス | なし / guard_success / hunter_shot | なし |
+| 必ず起こしたいイベント | セレクトボックス | 通常進行 / 護衛成功を再現 / ハンター発砲を再現 | 通常進行 |
 | 言語 | セレクトボックス | 日本語 / English | 日本語 |
 | 進行モード | セレクトボックス | 手動 / 自動 | 手動 |
 | 自動速度 | スライダー | 0〜3000ms | 650ms |
@@ -144,6 +141,8 @@
 |--------|------|
 | 次へ（▶） | 次のイベントを表示 |
 | 全て読む（⏩） | キュー内の全イベントを一気に表示 |
+
+フォーム操作中でない場合、Enter または右方向キーでも開始/次へを実行できる。
 
 #### ヒストリーストリップ
 
@@ -379,11 +378,11 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 | パラメータ | 型 | 範囲 | デフォルト |
 |-----------|-----|------|-----------|
 | `players` | number | 6-9 | 7 |
-| `provider` | string | demo / llm | demo |
-| `model` | string | 任意 | demo |
+| `provider` | string | demo / llm | llm |
+| `model` | string | 任意 | `ZAI_MODEL` / `OPENAI_MODEL` / glm-5-turbo |
 | `language` | string | Japanese / English | Japanese |
 | `maxRounds` | number | 3-15 | 8 |
-| `summary` | string | deterministic / llm | deterministic |
+| `summary` | string | deterministic / llm | llm（provider=demo時はdeterministic） |
 | `scenario` | string | none / guard_success / hunter_shot | none |
 | `speed` | number | 0-3000 | 650 |
 | `view` | string | omniscient / village | omniscient |
