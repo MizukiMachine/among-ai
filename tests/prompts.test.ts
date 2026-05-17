@@ -134,7 +134,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   const boolean = buildBooleanSystemPrompt(base);
 
   assert.match(speech, /Return strict JSON only/);
-  assert.match(speech, /"message"/);
+  assert.match(speech, /"messages"/);
   assert.match(speech, /Public speech must not reveal/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
