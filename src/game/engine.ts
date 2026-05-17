@@ -361,8 +361,10 @@ export class WerewolfGame {
           this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
           context
         );
-        this.wolfHistory.push(`${wolf.name}: ${speech.message}`);
-        yield this.emit("player_speech", speech.message, { visibility: "werewolf", speech: speech.message, ...speech.metadata }, wolf);
+        this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
+        for (const message of speech.messages) {
+          yield this.emit("player_speech", message, { visibility: "werewolf", speech: message, ...speech.metadata }, wolf);
+        }
       }
     }
 
@@ -683,10 +685,12 @@ export class WerewolfGame {
       this.lastDiscussion.push({
         playerId: player.id,
         playerName: player.name,
-        message: speech.message,
+        message: speech.messages.join(" "),
         metadata: speech.metadata
       });
-      yield this.emit("player_speech", speech.message, { speech: speech.message, ...speech.metadata }, player);
+      for (const message of speech.messages) {
+        yield this.emit("player_speech", message, { speech: message, ...speech.metadata }, player);
+      }
     }
 
     yield* this.runVoting();
@@ -916,7 +920,7 @@ export class WerewolfGame {
   }
 
   private formatSpeechHistory(player: Player, speech: AgentSpeech): string {
-    const parts = [`${player.name}: ${speech.message}`];
+    const parts = [`${player.name}: ${speech.messages.join(" ")}`];
     if (speech.metadata.claims.length > 0) {
       parts.push(
         this.text(

@@ -58,7 +58,8 @@ export interface BuildSystemPromptOptions {
 
 export const speechJsonSchemaInstruction = [
   "Return strict JSON only, with no markdown.",
-  'Shape: {"message":"1-3 concise in-character sentences","suspects":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"short note"}]}',
+  'Shape: {"messages":["short sentence","short sentence"],"suspects":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"short note"}]}',
+  "Each message must be a single short sentence. If you want to speak at length, split into multiple messages.",
   "Only use listed player ids. Keep reasons short.",
   "Use claims for public role claims, Seer results, Witch information, or fake claims only when strategically useful.",
   "Do not mention that you are an AI, prompt, system message, hidden instruction, or JSON schema."

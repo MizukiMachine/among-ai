@@ -376,7 +376,7 @@ function clampText(text: string, fallback: string): string {
   if (!compact) {
     return fallback;
   }
-  return compact.length > 420 ? `${compact.slice(0, 417)}...` : compact;
+  return compact.length > 150 ? `${compact.slice(0, 147)}...` : compact;
 }
 
 function clampSummary(text: string): string | null {
@@ -567,20 +567,21 @@ function parseSpeech(content: string, candidates: TargetCandidate[], fallback: s
   const parsed = extractJsonObject(content);
   if (!parsed) {
     return {
-      message: clampText(content, fallback),
+      messages: [clampText(content, fallback)],
       metadata: emptySpeechMetadata()
     };
   }
 
-  const messageSource =
-    typeof parsed.message === "string"
-      ? parsed.message
+  const messagesSource = Array.isArray(parsed.messages)
+    ? parsed.messages.filter((msg): msg is string => typeof msg === "string")
+    : typeof parsed.message === "string"
+      ? [parsed.message]
       : typeof parsed.speech === "string"
-        ? parsed.speech
-        : "";
+        ? [parsed.speech]
+        : [];
 
   return {
-    message: clampText(messageSource, fallback),
+    messages: messagesSource.length > 0 ? messagesSource.map((msg) => clampText(msg, fallback)) : [clampText(content, fallback)],
     metadata: normalizeSpeechMetadata(parsed, candidates)
   };
 }
@@ -710,7 +711,7 @@ function naturalizeDemoReason(text: string, language: string): string {
 
 function finalizeDemoSpeech(speech: AgentSpeech, language: string): AgentSpeech {
   return {
-    message: naturalizeDemoText(speech.message, language),
+    messages: speech.messages.map((msg) => naturalizeDemoText(msg, language)),
     metadata: {
       suspects: speech.metadata.suspects.map((read) => ({
         ...read,
@@ -768,22 +769,24 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
 
   if (!target) {
     return {
-      message: fallback,
+      messages: [fallback],
       metadata: emptySpeechMetadata()
     };
   }
 
+  const messageText = clampText(
+    japanese
+      ? hasWolfChat
+        ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`
+        : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
+      : hasWolfChat
+        ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
+        : `I want ${target.name} as tonight's victim. On day one there is little public evidence, so we should remove someone likely to become a village anchor.`,
+    fallback
+  );
+
   return {
-    message: clampText(
-      japanese
-        ? hasWolfChat
-          ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`
-          : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
-        : hasWolfChat
-          ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
-          : `I want ${target.name} as tonight's victim. On day one there is little public evidence, so we should remove someone likely to become a village anchor.`,
-      fallback
-    ),
+    messages: [messageText],
     metadata: {
       suspects: [
         {
@@ -942,12 +945,20 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
         note: japanese ? `${name}は${campLabel(camp, language)}判定` : `${name} checked as ${camp}`
       });
       return {
-        message: clampText(
-          japanese
-            ? `ここで${roleLabel("Seer", language)}を名乗ります。${name}は${campLabel(camp, language)}判定です。${suspect ? `${suspect.name}は${personaReason}ので、まだ理由を聞きたいです。` : fallback}`
-            : `I am claiming Seer now: ${name} checked as ${camp}. ${suspect ? `${suspect.name} still needs pressure because ${personaReason}.` : fallback}`,
-          fallback
-        ),
+        messages: [
+          clampText(
+            japanese
+              ? `ここで${roleLabel("Seer", language)}を名乗ります。${name}は${campLabel(camp, language)}判定です。`
+              : `I am claiming Seer now: ${name} checked as ${camp}.`,
+            fallback
+          ),
+          suspect
+            ? clampText(
+                japanese ? `${suspect.name}は${personaReason}ので、まだ理由を聞きたいです。` : `${suspect.name} still needs pressure because ${personaReason}.`,
+                fallback
+              )
+            : clampText(fallback, fallback)
+        ],
         metadata
       };
     }
@@ -996,23 +1007,31 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
       note: japanese ? "疑いを向けるための偽主張" : "Fake pressure claim"
     });
     return {
-      message: clampText(
-        japanese
-          ? `強い主張が必要なら、私は${roleLabel("Seer", language)}として出ます。${suspect.name}は${campLabel("werewolf", language)}判定です。動きが不自然です。`
-          : `I am willing to claim Seer if the table needs a hard line: ${suspect.name} reads as werewolf. Their movement is too convenient.`,
-        fallback
-      ),
+      messages: [
+        clampText(
+          japanese
+            ? `強い主張が必要なら、私は${roleLabel("Seer", language)}として出ます。${suspect.name}は${campLabel("werewolf", language)}判定です。`
+            : `I am willing to claim Seer if the table needs a hard line: ${suspect.name} reads as werewolf.`,
+          fallback
+        ),
+        clampText(
+          japanese ? "動きが不自然です。" : "Their movement is too convenient.",
+          fallback
+        )
+      ],
       metadata
     };
   }
 
   return {
-    message: naturalizeDemoText(
-      japanese
-        ? `${fallback} ${suspect ? `${suspect.name}が気になります。理由は${personaReason}からです。` : ""}`
-        : `${fallback} ${suspect ? `${suspect.name} stands out because ${personaReason}.` : ""}`,
-      language
-    ),
+    messages: [
+      naturalizeDemoText(
+        japanese
+          ? `${fallback} ${suspect ? `${suspect.name}が気になります。理由は${personaReason}からです。` : ""}`
+          : `${fallback} ${suspect ? `${suspect.name} stands out because ${personaReason}.` : ""}`,
+        language
+      )
+    ],
     metadata
   };
 }
