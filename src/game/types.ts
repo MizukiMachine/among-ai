@@ -1,6 +1,14 @@
 export type Role = "Werewolf" | "Seer" | "Witch" | "Guard" | "Hunter" | "Villager";
 export type Camp = "werewolf" | "village";
-export type Persona = "cautious" | "aggressive" | "logical" | "opportunistic" | "empathetic";
+export type Persona =
+  | "cautious"
+  | "aggressive"
+  | "logical"
+  | "opportunistic"
+  | "empathetic"
+  | "trickster"
+  | "stoic"
+  | "passionate";
 
 export type Phase =
   | "setup"
@@ -71,6 +79,17 @@ export interface TargetDecision {
   reason: string;
 }
 
+export interface CharacterProfile {
+  playerId: string;
+  nameJa: string;
+  gender: "male" | "female";
+  tagline: string;
+  speechStyle: string;
+  values: string;
+  sampleLines: string[];
+  relations: Record<string, string>;
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -86,6 +105,7 @@ export interface Player {
     savePotion: boolean;
     poisonPotion: boolean;
   };
+  characterProfile?: CharacterProfile;
 }
 
 export interface PlayerSnapshot {

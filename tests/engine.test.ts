@@ -419,7 +419,7 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.equal(players[3].alive, false);
   assert.ok(events.some((event) => event.type === "vote_result"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
-  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "Ada scripted reason"));
+  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "カズ scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
 });
 

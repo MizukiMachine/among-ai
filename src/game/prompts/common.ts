@@ -1,34 +1,11 @@
 import type { Persona, Phase } from "../types";
 import { isJapaneseLanguage, personaLabel, phaseLabel } from "../i18n";
+import { personaDetails } from "./personaDetails";
 import type { PromptMode, PromptPhase } from "./schemas";
 
-export const personaStrategies: Record<Persona, string[]> = {
-  cautious: [
-    "Avoid overcommitting unless the evidence is strong.",
-    "Ask for timelines and prefer lower-risk eliminations.",
-    "Use uncertainty honestly, but still name the next player who needs pressure."
-  ],
-  aggressive: [
-    "Apply direct pressure and force unclear players to take a stance.",
-    "Do not let weak claims pass without challenge.",
-    "Push one main case at a time so the table can respond."
-  ],
-  logical: [
-    "Compare claims, votes, incentives, and night outcomes explicitly.",
-    "Name the contradiction or pattern behind each read.",
-    "Separate confirmed facts from guesses."
-  ],
-  opportunistic: [
-    "Look for leverage in messy discussions and shifting coalitions.",
-    "You may support a claim if it advances your win condition.",
-    "Exploit uncertainty without sounding careless."
-  ],
-  empathetic: [
-    "Listen for tone changes and defensive reactions.",
-    "Build trust by acknowledging uncertainty before making a read.",
-    "Ask questions that let cautious players reveal useful reasoning."
-  ]
-};
+export const personaStrategies: Record<Persona, string[]> = Object.fromEntries(
+  (Object.keys(personaDetails) as Persona[]).map((p) => [p, personaDetails[p].strategies])
+) as Record<Persona, string[]>;
 
 export function bulletList(lines: string[]): string {
   return lines.map((line) => `- ${line}`).join("\n");
