@@ -855,7 +855,6 @@ export function App() {
               <div className="player-card" key={player.id}>
                 <div>
                   <strong>{player.name}</strong>
-                  <span>{player.model}</span>
                   <span className="persona-line">{personaLabel(player.persona, language)}</span>
                 </div>
                 <div className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>
