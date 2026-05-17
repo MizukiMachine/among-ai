@@ -70,7 +70,7 @@ export interface SpeechMetadata {
 }
 
 export interface AgentSpeech {
-  message: string;
+  messages: string[];
   metadata: SpeechMetadata;
 }
 
