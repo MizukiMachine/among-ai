@@ -35,9 +35,9 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(620px,\s*calc\(100vh - 188px\),\s*780px\)/s);
+  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(720px,\s*calc\(100vh - 120px\),\s*920px\)/s);
   assert.match(css, /\.novel-stage\s*\{[^}]*flex:\s*1 1 0/s);
-  assert.match(css, /\.scene-card\s*\{[^}]*max-height:\s*100%/s);
+  assert.match(css, /\.scene-card\s*\{[^}]*max-height:\s*50%/s);
   assert.match(css, /\.scene-card\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.history-strip\s*\{[^}]*height:\s*150px/s);
   assert.match(css, /\.history-strip\s*\{[^}]*flex:\s*0 0 150px/s);

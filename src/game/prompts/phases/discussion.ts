@@ -12,6 +12,6 @@ export function discussionPhaseInstructions(profile: RolePromptProfile): string[
     "Public statement goals:",
     "- Say something other players can respond to.",
     "- Include a concrete suspicion, trust read, question, or claim decision.",
-    "- 各発言は1文で短く。長く話したい場合は複数の短い発言に分割すること。"
+    "- Keep each message to one short sentence. Split longer thoughts into multiple short messages."
   ];
 }

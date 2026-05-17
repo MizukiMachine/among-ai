@@ -33,6 +33,7 @@ const llmRequestAttempts = 3;
 const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
 const booleanDecisionAttempts = 2;
+const maxSpeechMessages = 3;
 const roundSummaryInstruction =
   'Return strict JSON only, with no markdown: {"summary":"one or two short spectator-facing sentences"}. Focus on deaths, public claims, public reads, and vote pressure. Do not reveal hidden roles beyond public claims.';
 
@@ -580,8 +581,14 @@ function parseSpeech(content: string, candidates: TargetCandidate[], fallback: s
         ? [parsed.speech]
         : [];
 
+  const messages = messagesSource
+    .map((message) => message.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, maxSpeechMessages)
+    .map((message) => clampText(message, fallback));
+
   return {
-    messages: messagesSource.length > 0 ? messagesSource.map((msg) => clampText(msg, fallback)) : [clampText(content, fallback)],
+    messages: messages.length > 0 ? messages : [clampText(fallback, fallback)],
     metadata: normalizeSpeechMetadata(parsed, candidates)
   };
 }
@@ -705,6 +712,23 @@ function naturalizeDemoText(text: string, language: string): string {
   return sanitizeDemoJapaneseGameText(clampText(text, text), language);
 }
 
+function splitDemoSpeechText(text: string): string[] {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return [];
+  }
+  return (compact.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g) ?? [compact]).map((part) => part.trim()).filter(Boolean);
+}
+
+function buildDemoSpeechMessages(parts: string[], language: string): string[] {
+  const messages = parts
+    .flatMap(splitDemoSpeechText)
+    .map((part) => naturalizeDemoText(part, language))
+    .filter(Boolean)
+    .slice(0, maxSpeechMessages);
+  return messages.length > 0 ? messages : [naturalizeDemoText(parts.join(" "), language)];
+}
+
 function naturalizeDemoReason(text: string, language: string): string {
   return sanitizeDemoJapaneseGameText(clampReason(text, text), language);
 }
@@ -769,24 +793,21 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
 
   if (!target) {
     return {
-      messages: [fallback],
+      messages: buildDemoSpeechMessages([fallback], language),
       metadata: emptySpeechMetadata()
     };
   }
 
-  const messageText = clampText(
-    japanese
-      ? hasWolfChat
-        ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`
-        : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
-      : hasWolfChat
-        ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
-        : `I want ${target.name} as tonight's victim. On day one there is little public evidence, so we should remove someone likely to become a village anchor.`,
-    fallback
-  );
+  const messageText = japanese
+    ? hasWolfChat
+      ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`
+      : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
+    : hasWolfChat
+      ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
+      : `I want ${target.name} as tonight's victim. On day one there is little public evidence, so we should remove someone likely to become a village anchor.`;
 
   return {
-    messages: [messageText],
+    messages: buildDemoSpeechMessages([messageText], language),
     metadata: {
       suspects: [
         {
@@ -945,20 +966,19 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
         note: japanese ? `${name}は${campLabel(camp, language)}判定` : `${name} checked as ${camp}`
       });
       return {
-        messages: [
-          clampText(
+        messages: buildDemoSpeechMessages(
+          [
             japanese
               ? `ここで${roleLabel("Seer", language)}を名乗ります。${name}は${campLabel(camp, language)}判定です。`
               : `I am claiming Seer now: ${name} checked as ${camp}.`,
-            fallback
-          ),
-          suspect
-            ? clampText(
-                japanese ? `${suspect.name}は${personaReason}ので、まだ理由を聞きたいです。` : `${suspect.name} still needs pressure because ${personaReason}.`,
-                fallback
-              )
-            : clampText(fallback, fallback)
-        ],
+            suspect
+              ? japanese
+                ? `${suspect.name}は${personaReason}ので、まだ理由を聞きたいです。`
+                : `${suspect.name} still needs pressure because ${personaReason}.`
+              : fallback
+          ],
+          language
+        ),
         metadata
       };
     }
@@ -1007,31 +1027,27 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
       note: japanese ? "疑いを向けるための偽主張" : "Fake pressure claim"
     });
     return {
-      messages: [
-        clampText(
+      messages: buildDemoSpeechMessages(
+        [
           japanese
             ? `強い主張が必要なら、私は${roleLabel("Seer", language)}として出ます。${suspect.name}は${campLabel("werewolf", language)}判定です。`
             : `I am willing to claim Seer if the table needs a hard line: ${suspect.name} reads as werewolf.`,
-          fallback
-        ),
-        clampText(
-          japanese ? "動きが不自然です。" : "Their movement is too convenient.",
-          fallback
-        )
-      ],
+          japanese ? "動きが不自然です。" : "Their movement is too convenient."
+        ],
+        language
+      ),
       metadata
     };
   }
 
   return {
-    messages: [
-      naturalizeDemoText(
-        japanese
-          ? `${fallback} ${suspect ? `${suspect.name}が気になります。理由は${personaReason}からです。` : ""}`
-          : `${fallback} ${suspect ? `${suspect.name} stands out because ${personaReason}.` : ""}`,
-        language
-      )
-    ],
+    messages: buildDemoSpeechMessages(
+      [
+        fallback,
+        suspect ? (japanese ? `${suspect.name}が気になります。理由は${personaReason}からです。` : `${suspect.name} stands out because ${personaReason}.`) : ""
+      ],
+      language
+    ),
     metadata
   };
 }

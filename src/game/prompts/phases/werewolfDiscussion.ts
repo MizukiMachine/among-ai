@@ -18,6 +18,6 @@ export function werewolfDiscussionPhaseInstructions(profile: RolePromptProfile):
     "Private speech goals:",
     "- Name one preferred victim or a short ranked pair.",
     "- Explain the strategic reason in terms of village threat, power-role likelihood, or next-day framing.",
-    "- Keep the message short enough for allies to act on."
+    "- Keep each message to one short sentence. Split longer plans into multiple short messages."
   ];
 }
