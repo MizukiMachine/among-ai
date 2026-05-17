@@ -728,6 +728,7 @@ export function App() {
             </select>
           </label>
 
+          {progressMode === "auto" && (
           <label className="field">
             <span>表示速度</span>
             <span className="field-desc">自動送りで次の場面を表示する間隔</span>
@@ -737,35 +738,10 @@ export function App() {
               max="2200"
               step="80"
               value={speed}
-              disabled={progressMode === "manual"}
               onChange={(event) => setSpeed(Number(event.target.value))}
             />
           </label>
-
-          <div className="field">
-            <span>視点</span>
-            <span className="field-desc">全情報は非公開情報も表示、村視点は伏せます</span>
-            <div className="view-toggle">
-              <button
-                className={spectatorMode === "omniscient" ? "selected" : ""}
-                onClick={() => setSpectatorMode("omniscient")}
-                type="button"
-                title="すべての役職と非公開イベントを表示"
-              >
-                <Eye size={16} />
-                全情報
-              </button>
-              <button
-                className={spectatorMode === "village" ? "selected" : ""}
-                onClick={() => setSpectatorMode("village")}
-                type="button"
-                title="役職と夜の非公開イベントを隠す"
-              >
-                <EyeOff size={16} />
-                村視点
-              </button>
-            </div>
-          </div>
+          )}
         </aside>
 
         <section className="panel story-panel">
@@ -826,6 +802,26 @@ export function App() {
               <span>一気に読む</span>
             </button>
             <span className="queue-count">未読 {queuedEvents.length}件</span>
+            <div className="view-toggle view-toggle-inline">
+              <button
+                className={spectatorMode === "omniscient" ? "selected" : ""}
+                onClick={() => setSpectatorMode("omniscient")}
+                type="button"
+                title="すべての役職と非公開イベントを表示"
+              >
+                <Eye size={14} />
+                全情報
+              </button>
+              <button
+                className={spectatorMode === "village" ? "selected" : ""}
+                onClick={() => setSpectatorMode("village")}
+                type="button"
+                title="役職と夜の非公開イベントを隠す"
+              >
+                <EyeOff size={14} />
+                村視点
+              </button>
+            </div>
           </div>
 
           <div className="history-strip">
