@@ -691,33 +691,6 @@ input:disabled {
   color: #98a2b3;
 }
 
-.speed-field {
-  position: relative;
-}
-
-.speed-field output {
-  justify-self: center;
-  border-radius: 5px;
-  background: #079455;
-  color: #ffffff;
-  padding: 2px 7px;
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.range-row {
-  display: grid;
-  align-items: center;
-  gap: 8px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
-.range-row small {
-  color: #667085;
-  font-size: 11px;
-  font-weight: 700;
-}
-
 input[type="range"] {
   accent-color: #079455;
 }
@@ -1271,27 +1244,12 @@ input[type="range"] {
   color: #9df2bf !important;
 }
 
-.setup-card .range-row small {
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.setup-card .speed-field output {
-  background: #10b981;
-}
-
 .player-count-field {
   grid-column: 1 / -1;
 }
 
-.setup-card .speed-field {
-  position: relative;
-  padding-right: 0;
-}
-
-.setup-card .speed-field output {
-  position: absolute;
-  top: 1px;
-  right: 0;
+.scenario-field {
+  grid-column: 1 / -1;
 }
 
 .story-controls {
@@ -1337,6 +1295,18 @@ input[type="range"] {
   min-height: 38px;
   padding: 8px 10px;
   font-size: 12px;
+}
+
+.story-controls .story-run-button span {
+  white-space: nowrap;
+}
+
+.story-controls .story-pause-button {
+  min-width: 86px;
+}
+
+.story-controls .story-reset-button {
+  min-width: 128px;
 }
 
 .queue-count {

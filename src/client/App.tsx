@@ -9,13 +9,13 @@ import {
   Eye,
   EyeOff,
   FlaskConical,
-  Gauge,
   History,
   ListChecks,
   MessageCircle,
   Moon,
   Network,
   Play,
+  RotateCcw,
   Settings,
   Shield,
   Skull,
@@ -374,32 +374,34 @@ export function storyRevealAllStatus(lastType: GameEvent["type"], streamRunning:
   return streamRunning || !streamDone ? "生成中" : "表示完了";
 }
 
-export function storyRunControlState(streamRunning: boolean, manuallyStopped: boolean): {
-  resumeDisabled: boolean;
-  stopDisabled: boolean;
+export function storyRunControlState(gameStarted: boolean, paused: boolean): {
+  pauseLabel: "一時停止" | "再開";
+  pauseDisabled: boolean;
+  resetVisible: boolean;
 } {
   return {
-    resumeDisabled: streamRunning || !manuallyStopped,
-    stopDisabled: !streamRunning
+    pauseLabel: paused ? "再開" : "一時停止",
+    pauseDisabled: !gameStarted,
+    resetVisible: gameStarted && paused
   };
 }
 
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
-  const [language, setLanguage] = useState(defaultLanguage);
-  const [speed, setSpeed] = useState(650);
-  const [progressMode, setProgressMode] = useState<"manual" | "auto">("manual");
+  const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
-  const [manuallyStopped, setManuallyStopped] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const sourceRef = useRef<EventSource | null>(null);
   const queuedRef = useRef<GameEvent[]>([]);
+  const pausedRef = useRef(false);
+  const statusBeforePauseRef = useRef("待機中");
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -503,7 +505,15 @@ export function App() {
   const voteMapQuietPlayers = allPlayers
     .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
     .slice(0, 2);
-  const speedScale = `${(650 / speed).toFixed(1)}x`;
+  const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
+
+  function setGameStatus(nextStatus: string) {
+    if (pausedRef.current) {
+      statusBeforePauseRef.current = nextStatus;
+      return;
+    }
+    setStatus(nextStatus);
+  }
 
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
@@ -519,25 +529,36 @@ export function App() {
     sourceRef.current = null;
   }
 
-  function stopGame() {
-    closeGameStream();
-    setRunning(false);
-    setSourceDone(true);
-    setManuallyStopped(true);
-    queuedRef.current = [];
-    setQueuedEvents([]);
-    setStatus("停止");
+  function pauseGame() {
+    if (!gameStarted || pausedRef.current) {
+      return;
+    }
+    statusBeforePauseRef.current = status;
+    pausedRef.current = true;
+    setPaused(true);
+    setStatus("一時停止");
+  }
+
+  function resumeGame() {
+    if (!pausedRef.current) {
+      return;
+    }
+    pausedRef.current = false;
+    setPaused(false);
+    setStatus(statusBeforePauseRef.current);
   }
 
   function startGame() {
     closeGameStream();
+    pausedRef.current = false;
+    setPaused(false);
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
     setSourceDone(false);
     setRunning(true);
-    setManuallyStopped(false);
+    statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
 
     const params = new URLSearchParams({
@@ -554,7 +575,7 @@ export function App() {
     sourceRef.current = source;
 
     source.addEventListener("system", () => {
-      setStatus("生成中");
+      setGameStatus("生成中");
     });
 
     source.addEventListener("game", (message) => {
@@ -567,16 +588,14 @@ export function App() {
     source.addEventListener("done", () => {
       setRunning(false);
       setSourceDone(true);
-      setManuallyStopped(false);
-      setStatus("生成完了");
+      setGameStatus("生成完了");
       source.close();
     });
 
     source.addEventListener("error", (message) => {
       setRunning(false);
       setSourceDone(true);
-      setManuallyStopped(false);
-      setStatus("エラー");
+      setGameStatus("エラー");
       if ("data" in message && typeof message.data === "string") {
         const payload = JSON.parse(message.data) as { message?: string };
         const errorEvent: GameEvent = {
@@ -606,6 +625,9 @@ export function App() {
   }
 
   function revealNext() {
+    if (paused) {
+      return;
+    }
     const next = queuedRef.current[0];
     if (!next) {
       return;
@@ -616,15 +638,18 @@ export function App() {
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
     if (next.type === "game_ended") {
-      setStatus("完了");
+      setGameStatus("完了");
     } else if (sourceDone && remaining.length === 0) {
-      setStatus("表示完了");
+      setGameStatus("表示完了");
     } else {
-      setStatus(running ? "生成中" : "進行中");
+      setGameStatus(running ? "生成中" : "進行中");
     }
   }
 
   function revealAll() {
+    if (paused) {
+      return;
+    }
     const current = queuedRef.current;
     if (current.length === 0) {
       return;
@@ -634,10 +659,13 @@ export function App() {
     setQueuedEvents([]);
     setEvents((visible) => [...visible, ...current]);
     setSnapshot(last.snapshot);
-    setStatus(storyRevealAllStatus(last.type, running, sourceDone));
+    setGameStatus(storyRevealAllStatus(last.type, running, sourceDone));
   }
 
   function advanceStory() {
+    if (paused) {
+      return;
+    }
     if (queuedRef.current.length > 0) {
       revealNext();
       return;
@@ -668,7 +696,7 @@ export function App() {
         return;
       }
 
-      const canAdvance = queuedRef.current.length > 0 || (!running && events.length === 0);
+      const canAdvance = !paused && (queuedRef.current.length > 0 || (!running && events.length === 0));
       if (!canAdvance) {
         return;
       }
@@ -678,15 +706,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, running]);
-
-  useEffect(() => {
-    if (progressMode !== "auto" || queuedEvents.length === 0) {
-      return;
-    }
-    const timeout = window.setTimeout(revealNext, Math.max(180, speed));
-    return () => window.clearTimeout(timeout);
-  }, [events.length, progressMode, queuedEvents.length, speed]);
+  }, [events.length, paused, running]);
 
   function renderEventDetails(event: GameEvent, hidden: boolean) {
     const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
@@ -749,9 +769,37 @@ export function App() {
   }
 
   const storyButtonLabel = events.length === 0 && queuedEvents.length === 0 ? "開始" : "次へ";
-  const storyButtonDisabled = queuedEvents.length === 0 && (running || events.length > 0);
+  const storyButtonDisabled = paused || (queuedEvents.length === 0 && (running || events.length > 0));
   const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
-  const runControlState = storyRunControlState(running, manuallyStopped);
+  const runControlState = storyRunControlState(gameStarted, paused);
+
+  function renderRunControls() {
+    return (
+      <div className="story-run-controls">
+        <button
+          className="icon-button story-run-button story-pause-button"
+          onClick={paused ? resumeGame : pauseGame}
+          disabled={runControlState.pauseDisabled}
+          title={paused ? "一時停止した対局を再開" : "対局を一時停止"}
+          type="button"
+        >
+          {paused ? <Play size={16} /> : <Square size={15} />}
+          <span>{runControlState.pauseLabel}</span>
+        </button>
+        {runControlState.resetVisible ? (
+          <button
+            className="icon-button story-run-button story-reset-button"
+            onClick={startGame}
+            title="ゲームをリセットして最初から開始"
+            type="button"
+          >
+            <RotateCcw size={15} />
+            <span>ゲームをリセット</span>
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   function renderSetupControls() {
     const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
@@ -807,50 +855,13 @@ export function App() {
             </div>
           </div>
 
-          <label className="field setup-field">
+          <label className="field setup-field scenario-field">
             <span>必ず起こしたいイベント</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
               <option value="none">ランダム（おすすめ）</option>
               <option value="guard_success">護衛成功を再現</option>
               <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
-          </label>
-
-          <label className="field setup-field">
-            <span>言語</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value="Japanese">日本語</option>
-              <option value="English">英語</option>
-            </select>
-          </label>
-
-          <label className="field setup-field">
-            <span>進行方法</span>
-            <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
-              <option value="manual">標準進行</option>
-              <option value="auto">自動送り</option>
-            </select>
-          </label>
-
-          <label className="field setup-field speed-field">
-            <span>
-              <Gauge size={15} />
-              表示速度
-            </span>
-            <output>{speedScale}</output>
-            <div className="range-row">
-              <small>遅い</small>
-              <input
-                type="range"
-                min="220"
-                max="2200"
-                step="80"
-                value={speed}
-                disabled={progressMode !== "auto"}
-                onChange={(event) => setSpeed(Number(event.target.value))}
-              />
-              <small>速い</small>
-            </div>
           </label>
         </div>
       </div>
@@ -1073,32 +1084,11 @@ export function App() {
                           <span>{storyButtonLabel}</span>
                           <ChevronRight size={20} />
                         </button>
-                        <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
+                        <button className="icon-button story-read-all" disabled={paused || queuedEvents.length === 0} onClick={revealAll} type="button">
                           <span>一気に読む</span>
                           <ChevronsRight size={19} />
                         </button>
-                        <div className="story-run-controls">
-                          <button
-                            className="icon-button story-run-button"
-                            onClick={startGame}
-                            disabled={runControlState.resumeDisabled}
-                            title="停止した対局を再開"
-                            type="button"
-                          >
-                            <Play size={16} />
-                            <span>再開</span>
-                          </button>
-                          <button
-                            className="icon-button story-run-button"
-                            onClick={stopGame}
-                            disabled={runControlState.stopDisabled}
-                            title="対局を停止"
-                            type="button"
-                          >
-                            <Square size={15} />
-                            <span>停止</span>
-                          </button>
-                        </div>
+                        {renderRunControls()}
                         <span className="queue-count">
                           <ListChecks size={17} />
                           未読 {queuedEvents.length}件
@@ -1147,32 +1137,11 @@ export function App() {
                       <span>{storyButtonLabel}</span>
                       <ChevronRight size={20} />
                     </button>
-                    <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
+                    <button className="icon-button story-read-all" disabled={paused || queuedEvents.length === 0} onClick={revealAll} type="button">
                       <span>一気に読む</span>
                       <ChevronsRight size={19} />
                     </button>
-                    <div className="story-run-controls">
-                      <button
-                        className="icon-button story-run-button"
-                        onClick={startGame}
-                        disabled={runControlState.resumeDisabled}
-                        title="停止した対局を再開"
-                        type="button"
-                      >
-                        <Play size={16} />
-                        <span>再開</span>
-                      </button>
-                      <button
-                        className="icon-button story-run-button"
-                        onClick={stopGame}
-                        disabled={runControlState.stopDisabled}
-                        title="対局を停止"
-                        type="button"
-                      >
-                        <Square size={15} />
-                        <span>停止</span>
-                      </button>
-                    </div>
+                    {renderRunControls()}
                     <span className="queue-count">
                       <ListChecks size={17} />
                       未読 {queuedEvents.length}件
@@ -1243,43 +1212,6 @@ export function App() {
               <option value="guard_success">護衛成功を再現</option>
               <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
-          </label>
-
-          <label className="field">
-            <span>言語</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value="Japanese">日本語</option>
-              <option value="English">英語</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>進行方法</span>
-            <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
-              <option value="manual">標準進行</option>
-              <option value="auto">自動送り</option>
-            </select>
-          </label>
-
-          <label className="field speed-field">
-            <span>
-              <Gauge size={15} />
-              表示速度
-            </span>
-            <output>{speedScale}</output>
-            <div className="range-row">
-              <small>遅い</small>
-            <input
-              type="range"
-              min="220"
-              max="2200"
-              step="80"
-              value={speed}
-              disabled={progressMode !== "auto"}
-              onChange={(event) => setSpeed(Number(event.target.value))}
-            />
-              <small>速い</small>
-            </div>
           </label>
         </aside>
       </section>

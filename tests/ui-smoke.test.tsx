@@ -18,14 +18,20 @@ test("app shell renders spectator controls and insight panels", () => {
 
   assert.match(html, /Among AI/);
   assert.match(html, /必ず起こしたいイベント/);
-  assert.match(html, /言語/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
   assert.match(html, /主張と読み/);
   assert.match(html, /投票マップ/);
   assert.match(html, /ラウンド要約/);
   assert.match(html, /story-run-controls/);
+  assert.match(html, /一時停止/);
   assert.doesNotMatch(html, /topbar-actions/);
+  assert.doesNotMatch(html, /ゲームをリセット/);
+  assert.doesNotMatch(html, />停止</);
+  assert.doesNotMatch(html, /言語/);
+  assert.doesNotMatch(html, /進行方法/);
+  assert.doesNotMatch(html, /表示速度/);
+  assert.doesNotMatch(html, /自動送り/);
   assert.doesNotMatch(html, /進行方式/);
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
@@ -51,18 +57,21 @@ test("hero cast mirrors selected and active player counts", () => {
   assert.equal(cast.at(-1)?.alive, false);
 });
 
-test("story run controls are mutually exclusive after start and stop", () => {
+test("story run controls switch between pause, resume, and reset", () => {
   assert.deepEqual(storyRunControlState(false, false), {
-    resumeDisabled: true,
-    stopDisabled: true
+    pauseLabel: "一時停止",
+    pauseDisabled: true,
+    resetVisible: false
   });
   assert.deepEqual(storyRunControlState(true, false), {
-    resumeDisabled: true,
-    stopDisabled: false
+    pauseLabel: "一時停止",
+    pauseDisabled: false,
+    resetVisible: false
   });
-  assert.deepEqual(storyRunControlState(false, true), {
-    resumeDisabled: false,
-    stopDisabled: true
+  assert.deepEqual(storyRunControlState(true, true), {
+    pauseLabel: "再開",
+    pauseDisabled: false,
+    resetVisible: true
   });
 });
 
