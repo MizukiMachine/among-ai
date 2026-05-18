@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { App } from "../src/client/App";
+import { App, eventMessageForSpectator, eventSpeakerForSpectator, storyRevealAllStatus } from "../src/client/App";
+import type { GameEvent } from "../src/game/types";
 
 test("app shell renders spectator controls and insight panels", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -24,23 +25,23 @@ test("app shell renders spectator controls and insight panels", () => {
 test("mobile layout CSS keeps spectator panels in a single column", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(css, /@media \(max-width: 1020px\)/);
-  assert.match(css, /\.workspace\s*\{[^}]*grid-template-columns:\s*1fr/s);
-  assert.match(css, /@media \(max-width: 720px\)/);
+  assert.match(css, /@media \(max-width: 980px\)/);
+  assert.match(css, /\.workspace,\s*\.insight-grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(css, /\.event-body\s*\{[^}]*min-width:\s*0/s);
-  assert.match(css, /\.vote-target\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.story-column\s*\{[^}]*order:\s*1/s);
+  assert.match(css, /\.controls-panel\s*\{[^}]*order:\s*3/s);
+  assert.match(css, /\.vote-node\s*\{[^}]*min-width:\s*0/s);
 });
 
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(720px,\s*calc\(100vh - 120px\),\s*920px\)/s);
-  assert.match(css, /\.novel-stage\s*\{[^}]*flex:\s*1 1 0/s);
-  assert.match(css, /\.scene-card\s*\{[^}]*max-height:\s*50%/s);
-  assert.match(css, /\.scene-card\s*\{[^}]*overflow-y:\s*auto/s);
-  assert.match(css, /\.history-strip\s*\{[^}]*height:\s*150px/s);
-  assert.match(css, /\.history-strip\s*\{[^}]*flex:\s*0 0 150px/s);
+  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(620px,\s*calc\(100vh - 104px\),\s*760px\)/s);
+  assert.match(css, /\.novel-stage\s*\{[^}]*height:\s*100%/s);
+  assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 98px\)/s);
+  assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*14px/s);
 });
 
 test("story can advance from keyboard shortcuts outside form controls", () => {
@@ -49,4 +50,39 @@ test("story can advance from keyboard shortcuts outside form controls", () => {
   assert.match(source, /event\.key !== "Enter"/);
   assert.match(source, /event\.key !== "ArrowRight"/);
   assert.match(source, /isEditableShortcutTarget/);
+});
+
+test("reveal all keeps generating status while stream is still open", () => {
+  assert.equal(storyRevealAllStatus("player_speech", true, false), "生成中");
+  assert.equal(storyRevealAllStatus("player_speech", false, true), "表示完了");
+  assert.equal(storyRevealAllStatus("game_ended", true, false), "完了");
+});
+
+test("village spectator history redacts secret event messages and speakers", () => {
+  const event: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-18T00:00:00.000Z",
+    round: 1,
+    phase: "werewolf_discussion",
+    type: "player_speech",
+    message: "人狼だけに見える相談内容",
+    playerId: "p1",
+    playerName: "カズ",
+    role: "Werewolf",
+    data: { visibility: "werewolf" },
+    snapshot: {
+      round: 1,
+      phase: "werewolf_discussion",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(eventMessageForSpectator(event, "village"), "村視点では非公開情報です。");
+  assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
+  assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
+  assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "カズ");
 });
