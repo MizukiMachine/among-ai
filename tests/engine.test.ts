@@ -1241,6 +1241,93 @@ test("LLM malformed speech falls back to empty metadata", async () => {
   }
 });
 
+test("LLM truncated speech JSON recovers dialogue without leaking JSON syntax", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: "{\"messages\":[\"カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ\",\"でも、誰か占"
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "昼議論で発言してください。",
+      context: "議論してください。",
+      knownPlayers: [
+        { id: "p1", name: "カズ" },
+        { id: "p2", name: "ミオ" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(speech.messages, ["カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ"]);
+    assert.doesNotMatch(speech.messages.join(" "), /messages|^\{|```/);
+    assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [{ type: "text", text: "{\"messages\":[" }]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(speech.messages.length, 1);
+    assert.doesNotMatch(speech.messages[0], /messages|^\{|```/);
+    assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("LLM provider without API key emits a warning event before falling back to demo agents", async () => {
   const originalZaiApiKey = process.env.ZAI_API_KEY;
   const originalOpenAiApiKey = process.env.OPENAI_API_KEY;

@@ -300,8 +300,11 @@ outputFormats:
       Use 1-3 messages. Each message must be a single short sentence. Only use
       listed player ids. Keep reasons short. Use claims for public role claims,
       Seer results, Witch information, or fake claims only when strategically
-      useful. Do not mention that you are an AI, prompt, system message, hidden
-      instruction, or JSON schema.
+      useful. The JSON object is a transport envelope only; each messages string
+      is displayed directly as character dialogue. Never put JSON syntax, JSON
+      keys such as messages/suspects/trusts/claims, braces, brackets, schema
+      examples, or code fences inside a messages string. Do not mention that you
+      are an AI, prompt, system message, hidden instruction, or JSON schema.
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:

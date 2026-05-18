@@ -387,6 +387,106 @@ function splitSpeechText(text: string): string[] {
   return (compact.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g) ?? [compact]).map((part) => part.trim()).filter(Boolean);
 }
 
+function isSpeechJsonLeak(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[") ||
+    /```(?:json)?/i.test(trimmed) ||
+    /"(?:messages|message|speech|suspects|trusts|claims|targetId|reason|weight|result)"\s*:/i.test(trimmed)
+  );
+}
+
+function normalizeSpeechMessages(messagesSource: string[], fallback: string): string[] {
+  return messagesSource
+    .flatMap(splitSpeechText)
+    .map((message) => message.replace(/\s+/g, " ").trim())
+    .filter((message) => message.length > 0 && !isSpeechJsonLeak(message))
+    .slice(0, maxSpeechMessages)
+    .map((message) => clampText(message, fallback));
+}
+
+function readJsonStringLiteral(text: string, startIndex: number): { value: string; endIndex: number } | null {
+  let escaped = false;
+  for (let index = startIndex + 1; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char !== "\"") {
+      continue;
+    }
+
+    try {
+      return {
+        value: JSON.parse(text.slice(startIndex, index + 1)) as string,
+        endIndex: index + 1
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function extractMalformedStringArrayField(text: string, fieldName: string): string[] {
+  const match = new RegExp(`"${fieldName}"\\s*:\\s*\\[`, "i").exec(text);
+  if (!match) {
+    return [];
+  }
+
+  const values: string[] = [];
+  let index = match.index + match[0].length;
+  while (index < text.length && values.length < maxSpeechMessages) {
+    const char = text[index];
+    if (char === "]") {
+      break;
+    }
+    if (char !== "\"") {
+      index += 1;
+      continue;
+    }
+
+    const literal = readJsonStringLiteral(text, index);
+    if (!literal) {
+      break;
+    }
+    values.push(literal.value);
+    index = literal.endIndex;
+  }
+
+  return values;
+}
+
+function extractMalformedStringField(text: string, fieldName: string): string[] {
+  const match = new RegExp(`"${fieldName}"\\s*:\\s*"`, "i").exec(text);
+  if (!match) {
+    return [];
+  }
+
+  const literalStart = match.index + match[0].length - 1;
+  const literal = readJsonStringLiteral(text, literalStart);
+  return literal ? [literal.value] : [];
+}
+
+function extractMalformedSpeechMessages(text: string): string[] {
+  const messages = extractMalformedStringArrayField(text, "messages");
+  if (messages.length > 0) {
+    return messages;
+  }
+  const message = extractMalformedStringField(text, "message");
+  if (message.length > 0) {
+    return message;
+  }
+  return extractMalformedStringField(text, "speech");
+}
+
 function clampSummary(text: string): string | null {
   const compact = text.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -574,8 +674,9 @@ function normalizeSpeechMetadata(parsed: Record<string, unknown>, candidates: Ta
 function parseSpeech(content: string, candidates: TargetCandidate[], fallback: string): AgentSpeech {
   const parsed = extractJsonObject(content);
   if (!parsed) {
+    const recoveredMessages = isSpeechJsonLeak(content) ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback) : [];
     return {
-      messages: [clampText(content, fallback)],
+      messages: recoveredMessages.length > 0 ? recoveredMessages : [clampText(isSpeechJsonLeak(content) ? fallback : content, fallback)],
       metadata: emptySpeechMetadata()
     };
   }
@@ -588,11 +689,7 @@ function parseSpeech(content: string, candidates: TargetCandidate[], fallback: s
         ? [parsed.speech]
         : [];
 
-  const messages = messagesSource
-    .flatMap(splitSpeechText)
-    .filter(Boolean)
-    .slice(0, maxSpeechMessages)
-    .map((message) => clampText(message, fallback));
+  const messages = normalizeSpeechMessages(messagesSource, fallback);
 
   return {
     messages: messages.length > 0 ? messages : [clampText(fallback, fallback)],
