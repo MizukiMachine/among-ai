@@ -3,8 +3,15 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { App, eventMessageForSpectator, eventSpeakerForSpectator, storyRevealAllStatus } from "../src/client/App";
-import type { GameEvent } from "../src/game/types";
+import {
+  App,
+  eventMessageForSpectator,
+  eventSpeakerForSpectator,
+  heroCastForStage,
+  storyRevealAllStatus,
+  storyRunControlState
+} from "../src/client/App";
+import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 
 test("app shell renders spectator controls and insight panels", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -13,13 +20,50 @@ test("app shell renders spectator controls and insight panels", () => {
   assert.match(html, /必ず起こしたいイベント/);
   assert.match(html, /言語/);
   assert.match(html, /全情報/);
-  assert.match(html, /村視点/);
+  assert.match(html, /人間視点/);
   assert.match(html, /主張と読み/);
   assert.match(html, /投票マップ/);
   assert.match(html, /ラウンド要約/);
+  assert.match(html, /story-run-controls/);
+  assert.doesNotMatch(html, /topbar-actions/);
   assert.doesNotMatch(html, /進行方式/);
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
+});
+
+test("hero cast mirrors selected and active player counts", () => {
+  assert.equal(heroCastForStage([], 9).length, 9);
+
+  const players: PlayerSnapshot[] = Array.from({ length: 9 }, (_, index) => ({
+    id: `p${index + 1}`,
+    name: `Player ${index + 1}`,
+    role: "Villager",
+    camp: "village",
+    persona: "cautious",
+    alive: index !== 8,
+    model: "demo",
+    memoryCount: 0
+  }));
+  const cast = heroCastForStage(players, 9);
+
+  assert.equal(cast.length, 9);
+  assert.equal(cast.at(-1)?.id, "p9");
+  assert.equal(cast.at(-1)?.alive, false);
+});
+
+test("story run controls are mutually exclusive after start and stop", () => {
+  assert.deepEqual(storyRunControlState(false, false), {
+    resumeDisabled: true,
+    stopDisabled: true
+  });
+  assert.deepEqual(storyRunControlState(true, false), {
+    resumeDisabled: true,
+    stopDisabled: false
+  });
+  assert.deepEqual(storyRunControlState(false, true), {
+    resumeDisabled: false,
+    stopDisabled: true
+  });
 });
 
 test("mobile layout CSS keeps spectator panels in a single column", () => {
@@ -42,6 +86,8 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*14px/s);
+  assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
+  assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
 });
 
 test("story can advance from keyboard shortcuts outside form controls", () => {
@@ -81,7 +127,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     }
   };
 
-  assert.equal(eventMessageForSpectator(event, "village"), "村視点では非公開情報です。");
+  assert.equal(eventMessageForSpectator(event, "village"), "人間視点では非公開情報です。");
   assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "カズ");

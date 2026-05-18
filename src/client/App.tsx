@@ -51,11 +51,34 @@ const characterImageMap: Record<string, string> = {
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
-const villageRedactedMessage = "村視点では非公開情報です。";
+const villageRedactedMessage = "人間視点では非公開情報です。";
+
+interface HeroCastItem {
+  id: string;
+  image: string;
+  alive: boolean;
+}
 
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
   return characterImageMap[playerId] ?? null;
+}
+
+export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
+  if (players.length > 0) {
+    return players
+      .map((player) => {
+        const image = getCharacterImage(player.id);
+        return image ? { id: player.id, image, alive: player.alive } : null;
+      })
+      .filter((item): item is HeroCastItem => Boolean(item));
+  }
+
+  return defaultCharacterImages.slice(0, playerCount).map((image, index) => ({
+    id: `pending-${index}`,
+    image,
+    alive: true
+  }));
 }
 
 const roleClass: Record<Role, string> = {
@@ -332,7 +355,7 @@ function getCampRatioText(count: number, language: string): string {
   const villagers = normalizePlayerCount(count) - werewolves;
 
   if (isJapaneseLanguage(language)) {
-    return `村陣営${villagers} / 人狼陣営${werewolves}`;
+    return `人間側${villagers} / 狼陣営${werewolves}`;
   }
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
@@ -351,6 +374,16 @@ export function storyRevealAllStatus(lastType: GameEvent["type"], streamRunning:
   return streamRunning || !streamDone ? "生成中" : "表示完了";
 }
 
+export function storyRunControlState(streamRunning: boolean, manuallyStopped: boolean): {
+  resumeDisabled: boolean;
+  stopDisabled: boolean;
+} {
+  return {
+    resumeDisabled: streamRunning || !manuallyStopped,
+    stopDisabled: !streamRunning
+  };
+}
+
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
@@ -362,6 +395,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
+  const [manuallyStopped, setManuallyStopped] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const sourceRef = useRef<EventSource | null>(null);
@@ -450,11 +484,8 @@ export function App() {
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
   const allPlayers = snapshot?.players ?? [];
   const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
-  const heroCastImages = (
-    alivePlayers.length > 0
-      ? alivePlayers.map((player) => getCharacterImage(player.id))
-      : defaultCharacterImages.slice(0, 6)
-  ).filter((image): image is string => Boolean(image));
+  const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
+  const heroCastDensity = heroCast.length >= 8 ? "cast-large" : heroCast.length === 7 ? "cast-medium" : "";
   const leadingVote = latestVoteTotalsSorted[0];
   const leadingRead = suspectClusters[0];
   const voteMapTargetId = leadingVote?.targetId ?? leadingRead?.targetId ?? "";
@@ -483,24 +514,30 @@ export function App() {
     setPlayerCount(Math.max(nextCount, scenarioMinimumPlayerCount));
   }
 
-  function stopGame() {
+  function closeGameStream() {
     sourceRef.current?.close();
     sourceRef.current = null;
+  }
+
+  function stopGame() {
+    closeGameStream();
     setRunning(false);
     setSourceDone(true);
+    setManuallyStopped(true);
     queuedRef.current = [];
     setQueuedEvents([]);
     setStatus("停止");
   }
 
   function startGame() {
-    stopGame();
+    closeGameStream();
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
     setSourceDone(false);
     setRunning(true);
+    setManuallyStopped(false);
     setStatus("生成中");
 
     const params = new URLSearchParams({
@@ -530,6 +567,7 @@ export function App() {
     source.addEventListener("done", () => {
       setRunning(false);
       setSourceDone(true);
+      setManuallyStopped(false);
       setStatus("生成完了");
       source.close();
     });
@@ -537,6 +575,7 @@ export function App() {
     source.addEventListener("error", (message) => {
       setRunning(false);
       setSourceDone(true);
+      setManuallyStopped(false);
       setStatus("エラー");
       if ("data" in message && typeof message.data === "string") {
         const payload = JSON.parse(message.data) as { message?: string };
@@ -712,6 +751,7 @@ export function App() {
   const storyButtonLabel = events.length === 0 && queuedEvents.length === 0 ? "開始" : "次へ";
   const storyButtonDisabled = queuedEvents.length === 0 && (running || events.length > 0);
   const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
+  const runControlState = storyRunControlState(running, manuallyStopped);
 
   function renderSetupControls() {
     const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
@@ -844,34 +884,7 @@ export function App() {
             <span>フェーズ</span>
             <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
           </div>
-          <div className="status-item">
-            <Users size={18} />
-            <span>生存</span>
-            <strong>
-              {snapshot?.aliveCount ?? 0} / {effectivePlayerCount}
-            </strong>
-          </div>
-          <div className="status-item">
-            <Shield size={18} />
-            <span>勝者</span>
-            <strong>{campLabel(snapshot?.winner, language)}</strong>
-          </div>
         </section>
-
-        <div className="topbar-actions">
-          <button className="icon-button primary" onClick={startGame} disabled={running} title="対局を開始">
-            <Play size={20} />
-            <span>開始</span>
-          </button>
-          <button className="icon-button" onClick={startGame} title="対局を再開">
-            <Play size={20} />
-            <span>再開</span>
-          </button>
-          <button className="icon-button" onClick={stopGame} disabled={!running && queuedEvents.length === 0} title="対局を停止">
-            <Square size={18} />
-            <span>停止</span>
-          </button>
-        </div>
       </header>
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
@@ -880,6 +893,21 @@ export function App() {
             <div className="heading-label">
               <Users size={18} />
               <h2>プレイヤー・インテリジェンス</h2>
+            </div>
+          </div>
+
+          <div className="roster-summary" aria-label="対局サマリー">
+            <div>
+              <Users size={16} />
+              <span>生存</span>
+              <strong>
+                {snapshot?.aliveCount ?? 0} / {effectivePlayerCount}
+              </strong>
+            </div>
+            <div>
+              <Shield size={16} />
+              <span>勝者</span>
+              <strong>{campLabel(snapshot?.winner, language)}</strong>
             </div>
           </div>
 
@@ -1008,9 +1036,9 @@ export function App() {
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       <div className="chapel-backdrop" aria-hidden="true" />
-                      <div className="hero-cast" aria-hidden="true">
-                        {heroCastImages.slice(0, 6).map((image, index) => (
-                          <img src={image} alt="" key={`${image}-${index}`} />
+                      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+                        {heroCast.map((item) => (
+                          <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
                         ))}
                       </div>
                       {activeSpeakerImage && !hidden ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
@@ -1049,6 +1077,28 @@ export function App() {
                           <span>一気に読む</span>
                           <ChevronsRight size={19} />
                         </button>
+                        <div className="story-run-controls">
+                          <button
+                            className="icon-button story-run-button"
+                            onClick={startGame}
+                            disabled={runControlState.resumeDisabled}
+                            title="停止した対局を再開"
+                            type="button"
+                          >
+                            <Play size={16} />
+                            <span>再開</span>
+                          </button>
+                          <button
+                            className="icon-button story-run-button"
+                            onClick={stopGame}
+                            disabled={runControlState.stopDisabled}
+                            title="対局を停止"
+                            type="button"
+                          >
+                            <Square size={15} />
+                            <span>停止</span>
+                          </button>
+                        </div>
                         <span className="queue-count">
                           <ListChecks size={17} />
                           未読 {queuedEvents.length}件
@@ -1070,7 +1120,7 @@ export function App() {
                             title="役職と夜の非公開イベントを隠す"
                           >
                             <EyeOff size={15} />
-                            村視点
+                            人間視点
                           </button>
                         </div>
                       </div>
@@ -1080,9 +1130,9 @@ export function App() {
               ) : (
                 <article className="scene-card story-hero empty-hero">
                   <div className="chapel-backdrop" aria-hidden="true" />
-                  <div className="hero-cast" aria-hidden="true">
-                    {heroCastImages.slice(0, 6).map((image, index) => (
-                      <img src={image} alt="" key={`${image}-${index}`} />
+                  <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+                    {heroCast.map((item) => (
+                      <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
                     ))}
                   </div>
                   <div className="pregame-layout">
@@ -1101,6 +1151,28 @@ export function App() {
                       <span>一気に読む</span>
                       <ChevronsRight size={19} />
                     </button>
+                    <div className="story-run-controls">
+                      <button
+                        className="icon-button story-run-button"
+                        onClick={startGame}
+                        disabled={runControlState.resumeDisabled}
+                        title="停止した対局を再開"
+                        type="button"
+                      >
+                        <Play size={16} />
+                        <span>再開</span>
+                      </button>
+                      <button
+                        className="icon-button story-run-button"
+                        onClick={stopGame}
+                        disabled={runControlState.stopDisabled}
+                        title="対局を停止"
+                        type="button"
+                      >
+                        <Square size={15} />
+                        <span>停止</span>
+                      </button>
+                    </div>
                     <span className="queue-count">
                       <ListChecks size={17} />
                       未読 {queuedEvents.length}件
@@ -1120,7 +1192,7 @@ export function App() {
                         type="button"
                       >
                         <EyeOff size={15} />
-                        村視点
+                        人間視点
                       </button>
                     </div>
                   </div>

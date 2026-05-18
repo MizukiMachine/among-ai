@@ -868,7 +868,7 @@ test("village redaction helper strips private event and snapshot role data", asy
   assert.ok(privateEvent);
   const redacted = redactEventForVillage(privateEvent);
 
-  assert.equal(redacted.message, "村視点では非公開情報です。");
+  assert.equal(redacted.message, "人間視点では非公開情報です。");
   assert.equal(redacted.playerName, undefined);
   assert.equal(redacted.targetName, undefined);
   assert.equal(redacted.role, undefined);
