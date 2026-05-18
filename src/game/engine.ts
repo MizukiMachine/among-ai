@@ -756,7 +756,7 @@ export class WerewolfGame {
       );
       yield this.emit(
         "vote_cast",
-        this.text(`${voter.name} votes for ${target.name}. ${decision.reason}`, `${voter.name}が${target.name}に投票しました。${decision.reason}`),
+        this.text(`${voter.name} votes for ${target.name}.`, `${voter.name}が${target.name}に投票しました。`),
         { reason: decision.reason },
         voter,
         target

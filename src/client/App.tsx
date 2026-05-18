@@ -1037,8 +1037,9 @@ export function App() {
                   const visibility = eventVisibility(currentEvent);
                   const hidden = isEventRedactedForSpectator(currentEvent, spectatorMode);
                   const tone = eventTone(currentEvent);
+                  const isSpeech = currentEvent.type === "player_speech";
                   const speakerName =
-                    currentEvent.playerName && !hidden
+                    isSpeech && currentEvent.playerName && !hidden
                       ? currentEvent.playerName
                       : currentEvent.type === "system"
                         ? "システム"
@@ -1051,7 +1052,7 @@ export function App() {
                           <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
                         ))}
                       </div>
-                      {activeSpeakerImage && !hidden ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
+                      {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
                           <span>R{currentEvent.round}</span>
