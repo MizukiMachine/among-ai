@@ -180,7 +180,7 @@ input:disabled {
   min-height: 0;
   align-self: stretch;
   gap: 12px;
-  grid-template-columns: minmax(248px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
 }
 
 .story-column {
