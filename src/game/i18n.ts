@@ -12,7 +12,7 @@ const roleJa: Record<Role | "Hidden", string> = {
   Witch: "魔女",
   Guard: "騎士",
   Hunter: "ハンター",
-  Villager: "村人",
+  Villager: "人間",
   Hidden: "非公開"
 };
 
@@ -69,10 +69,10 @@ export function campLabel(camp: string | null | undefined, language = defaultLan
     return camp;
   }
   if (camp === "werewolf") {
-    return "人狼陣営";
+    return "狼陣営";
   }
   if (camp === "village") {
-    return "村陣営";
+    return "人間側";
   }
   if (camp === "hidden") {
     return "非公開";

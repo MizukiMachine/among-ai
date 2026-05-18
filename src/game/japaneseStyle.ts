@@ -2,12 +2,12 @@ import { isJapaneseLanguage } from "./i18n";
 import { promptMaterials } from "./prompts/materials";
 
 // Output-only audit list; prompts may mention these terms as examples of wording to avoid.
-export const awkwardJapaneseOutputTerms = ["位置", "盤面", "処理枠", "処理", "圧", "落とす", "落として", "村の軸"];
+export const awkwardJapaneseOutputTerms = ["位置", "盤面", "処理枠", "処理", "圧", "落とす", "落として", "陣営の軸"];
 
 const demoOutputReplacements: Array<[RegExp, string]> = [
-  [/村の軸になりそうな位置を落として/g, "村をまとめそうな人を襲撃して"],
-  [/村の軸になりそうな位置/g, "村をまとめそうな人"],
-  [/村の軸/g, "村をまとめる人"],
+  [/陣営の軸になりそうな位置を落として/g, "議論をまとめそうな人を襲撃して"],
+  [/陣営の軸になりそうな位置/g, "議論をまとめそうな人"],
+  [/陣営の軸/g, "議論をまとめる人"],
   [/軸になりそうな位置/g, "中心になりそうな人"],
   [/発言力が伸びそうな位置/g, "発言力を持ちそうな人"],
   [/信用できる位置/g, "信用できる人"],

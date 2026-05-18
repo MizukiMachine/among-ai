@@ -873,7 +873,7 @@ export class WerewolfGame {
         camp: "werewolf",
         reason: this.text(
           `Werewolves (${werewolves}) equal or outnumber villagers (${village}).`,
-          `人狼の人数(${werewolves})が村陣営の人数(${village})以上になりました。`
+          `狼陣営の人数(${werewolves})が人間側の人数(${village})以上になりました。`
         )
       };
     }

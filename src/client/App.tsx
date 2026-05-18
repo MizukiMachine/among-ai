@@ -2,27 +2,26 @@ import {
   Activity,
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  ChevronsRight,
   CircleDot,
   Crosshair,
   Eye,
   EyeOff,
   FlaskConical,
-  Gauge,
   History,
   ListChecks,
   MessageCircle,
   Moon,
   Network,
   Play,
+  RotateCcw,
   Settings,
   Shield,
   Skull,
   Square,
   Sun,
   UserRound,
-  Users,
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -51,11 +50,34 @@ const characterImageMap: Record<string, string> = {
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
-const villageRedactedMessage = "村視点では非公開情報です。";
+const villageRedactedMessage = "人間視点では非公開情報です。";
+
+interface HeroCastItem {
+  id: string;
+  image: string;
+  alive: boolean;
+}
 
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
   return characterImageMap[playerId] ?? null;
+}
+
+export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
+  if (players.length > 0) {
+    return players
+      .map((player) => {
+        const image = getCharacterImage(player.id);
+        return image ? { id: player.id, image, alive: player.alive } : null;
+      })
+      .filter((item): item is HeroCastItem => Boolean(item));
+  }
+
+  return defaultCharacterImages.slice(0, playerCount).map((image, index) => ({
+    id: `pending-${index}`,
+    image,
+    alive: true
+  }));
 }
 
 const roleClass: Record<Role, string> = {
@@ -332,7 +354,7 @@ function getCampRatioText(count: number, language: string): string {
   const villagers = normalizePlayerCount(count) - werewolves;
 
   if (isJapaneseLanguage(language)) {
-    return `村陣営${villagers} / 人狼陣営${werewolves}`;
+    return `人間側${villagers} / 狼陣営${werewolves}`;
   }
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
@@ -344,28 +366,42 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest("button, input, select, textarea, [contenteditable='true']"));
 }
 
-export function storyRevealAllStatus(lastType: GameEvent["type"], streamRunning: boolean, streamDone: boolean): string {
-  if (lastType === "game_ended") {
-    return "完了";
+export function storyRunControlState(gameStarted: boolean, paused: boolean): {
+  pauseLabel: "一時停止" | "再開";
+  pauseDisabled: boolean;
+  resetVisible: boolean;
+} {
+  return {
+    pauseLabel: paused ? "再開" : "一時停止",
+    pauseDisabled: !gameStarted,
+    resetVisible: gameStarted && paused
+  };
+}
+
+export function winnerLabelForRoster(winner: string | null | undefined, language = defaultLanguage): string | null {
+  if (!winner) {
+    return null;
   }
-  return streamRunning || !streamDone ? "生成中" : "表示完了";
+  return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${campLabel(winner, language)}`;
 }
 
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
-  const [language, setLanguage] = useState(defaultLanguage);
-  const [speed, setSpeed] = useState(650);
-  const [progressMode, setProgressMode] = useState<"manual" | "auto">("manual");
+  const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const sourceRef = useRef<EventSource | null>(null);
   const queuedRef = useRef<GameEvent[]>([]);
+  const pausedRef = useRef(false);
+  const statusBeforePauseRef = useRef("待機中");
+  const revealFirstEventRef = useRef(false);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -450,11 +486,8 @@ export function App() {
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
   const allPlayers = snapshot?.players ?? [];
   const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
-  const heroCastImages = (
-    alivePlayers.length > 0
-      ? alivePlayers.map((player) => getCharacterImage(player.id))
-      : defaultCharacterImages.slice(0, 6)
-  ).filter((image): image is string => Boolean(image));
+  const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
+  const heroCastDensity = heroCast.length >= 8 ? "cast-large" : heroCast.length === 7 ? "cast-medium" : "";
   const leadingVote = latestVoteTotalsSorted[0];
   const leadingRead = suspectClusters[0];
   const voteMapTargetId = leadingVote?.targetId ?? leadingRead?.targetId ?? "";
@@ -472,7 +505,35 @@ export function App() {
   const voteMapQuietPlayers = allPlayers
     .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
     .slice(0, 2);
-  const speedScale = `${(650 / speed).toFixed(1)}x`;
+  const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
+  const winnerRosterText = winnerLabelForRoster(snapshot?.winner, language);
+
+  function setGameStatus(nextStatus: string) {
+    if (pausedRef.current) {
+      statusBeforePauseRef.current = nextStatus;
+      return;
+    }
+    setStatus(nextStatus);
+  }
+
+  function statusForVisibleStory(lastEvent: GameEvent | undefined, remainingCount: number): string {
+    if (!lastEvent) {
+      if (remainingCount > 0) {
+        return running ? "生成中" : "進行中";
+      }
+      if (running) {
+        return "生成中";
+      }
+      return sourceDone ? "表示完了" : "待機中";
+    }
+    if (lastEvent.type === "game_ended") {
+      return "完了";
+    }
+    if (sourceDone && remainingCount === 0) {
+      return "表示完了";
+    }
+    return running ? "生成中" : "進行中";
+  }
 
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
@@ -483,24 +544,42 @@ export function App() {
     setPlayerCount(Math.max(nextCount, scenarioMinimumPlayerCount));
   }
 
-  function stopGame() {
+  function closeGameStream() {
     sourceRef.current?.close();
     sourceRef.current = null;
-    setRunning(false);
-    setSourceDone(true);
-    queuedRef.current = [];
-    setQueuedEvents([]);
-    setStatus("停止");
   }
 
-  function startGame() {
-    stopGame();
+  function pauseGame() {
+    if (!gameStarted || pausedRef.current) {
+      return;
+    }
+    statusBeforePauseRef.current = status;
+    pausedRef.current = true;
+    setPaused(true);
+    setStatus("一時停止");
+  }
+
+  function resumeGame() {
+    if (!pausedRef.current) {
+      return;
+    }
+    pausedRef.current = false;
+    setPaused(false);
+    setStatus(statusBeforePauseRef.current);
+  }
+
+  function startGame(options: { revealFirstEvent?: boolean } = {}) {
+    closeGameStream();
+    pausedRef.current = false;
+    revealFirstEventRef.current = Boolean(options.revealFirstEvent);
+    setPaused(false);
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
     setSourceDone(false);
     setRunning(true);
+    statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
 
     const params = new URLSearchParams({
@@ -517,27 +596,38 @@ export function App() {
     sourceRef.current = source;
 
     source.addEventListener("system", () => {
-      setStatus("生成中");
+      setGameStatus("生成中");
     });
 
     source.addEventListener("game", (message) => {
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
+      if (revealFirstEventRef.current) {
+        revealFirstEventRef.current = false;
+        if (!pausedRef.current) {
+          setEvents([event]);
+          setSnapshot(event.snapshot);
+          setGameStatus(event.type === "game_ended" ? "完了" : "生成中");
+          return;
+        }
+      }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
     });
 
     source.addEventListener("done", () => {
+      revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
-      setStatus("生成完了");
+      setGameStatus("生成完了");
       source.close();
     });
 
     source.addEventListener("error", (message) => {
+      revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
-      setStatus("エラー");
+      setGameStatus("エラー");
       if ("data" in message && typeof message.data === "string") {
         const payload = JSON.parse(message.data) as { message?: string };
         const errorEvent: GameEvent = {
@@ -567,6 +657,9 @@ export function App() {
   }
 
   function revealNext() {
+    if (paused) {
+      return;
+    }
     const next = queuedRef.current[0];
     if (!next) {
       return;
@@ -576,35 +669,38 @@ export function App() {
     setQueuedEvents(remaining);
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
-    if (next.type === "game_ended") {
-      setStatus("完了");
-    } else if (sourceDone && remaining.length === 0) {
-      setStatus("表示完了");
-    } else {
-      setStatus(running ? "生成中" : "進行中");
-    }
+    setGameStatus(statusForVisibleStory(next, remaining.length));
   }
 
-  function revealAll() {
-    const current = queuedRef.current;
-    if (current.length === 0) {
+  function retreatStory() {
+    if (paused) {
       return;
     }
-    const last = current[current.length - 1];
-    queuedRef.current = [];
-    setQueuedEvents([]);
-    setEvents((visible) => [...visible, ...current]);
-    setSnapshot(last.snapshot);
-    setStatus(storyRevealAllStatus(last.type, running, sourceDone));
+    const restored = events.at(-1);
+    if (!restored) {
+      return;
+    }
+    const previousEvents = events.slice(0, -1);
+    const nextQueue = [restored, ...queuedRef.current];
+    const previousEvent = previousEvents.at(-1);
+
+    queuedRef.current = nextQueue;
+    setQueuedEvents(nextQueue);
+    setEvents(previousEvents);
+    setSnapshot(previousEvent?.snapshot ?? null);
+    setGameStatus(statusForVisibleStory(previousEvent, nextQueue.length));
   }
 
   function advanceStory() {
+    if (paused) {
+      return;
+    }
     if (queuedRef.current.length > 0) {
       revealNext();
       return;
     }
     if (!running && events.length === 0) {
-      startGame();
+      startGame({ revealFirstEvent: true });
     }
   }
 
@@ -623,13 +719,20 @@ export function App() {
         event.ctrlKey ||
         event.altKey ||
         event.shiftKey ||
-        (event.key !== "Enter" && event.key !== "ArrowRight") ||
+        (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
         isEditableShortcutTarget(event.target)
       ) {
         return;
       }
 
-      const canAdvance = queuedRef.current.length > 0 || (!running && events.length === 0);
+      const isBackKey = event.key === "ArrowLeft";
+      const canRetreat = !paused && events.length > 0;
+      const canAdvance = !paused && !isBackKey && (queuedRef.current.length > 0 || (!running && events.length === 0));
+      if (isBackKey && canRetreat) {
+        event.preventDefault();
+        retreatStory();
+        return;
+      }
       if (!canAdvance) {
         return;
       }
@@ -639,15 +742,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, running]);
-
-  useEffect(() => {
-    if (progressMode !== "auto" || queuedEvents.length === 0) {
-      return;
-    }
-    const timeout = window.setTimeout(revealNext, Math.max(180, speed));
-    return () => window.clearTimeout(timeout);
-  }, [events.length, progressMode, queuedEvents.length, speed]);
+  }, [events.length, paused, running]);
 
   function renderEventDetails(event: GameEvent, hidden: boolean) {
     const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
@@ -709,9 +804,38 @@ export function App() {
     );
   }
 
-  const storyButtonLabel = events.length === 0 && queuedEvents.length === 0 ? "開始" : "次へ";
-  const storyButtonDisabled = queuedEvents.length === 0 && (running || events.length > 0);
+  const storyBackDisabled = paused || events.length === 0;
+  const storyNextDisabled = paused || (queuedEvents.length === 0 && (running || events.length > 0));
   const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
+  const runControlState = storyRunControlState(gameStarted, paused);
+
+  function renderRunControls() {
+    return (
+      <div className="story-run-controls">
+        <button
+          className="icon-button story-run-button story-pause-button"
+          onClick={paused ? resumeGame : pauseGame}
+          disabled={runControlState.pauseDisabled}
+          title={paused ? "一時停止した対局を再開" : "対局を一時停止"}
+          type="button"
+        >
+          {paused ? <Play size={16} /> : <Square size={15} />}
+          <span>{runControlState.pauseLabel}</span>
+        </button>
+        {runControlState.resetVisible ? (
+          <button
+            className="icon-button story-run-button story-reset-button"
+            onClick={() => startGame({ revealFirstEvent: true })}
+            title="ゲームをリセットして最初から開始"
+            type="button"
+          >
+            <RotateCcw size={15} />
+            <span>ゲームをリセット</span>
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   function renderSetupControls() {
     const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
@@ -767,50 +891,13 @@ export function App() {
             </div>
           </div>
 
-          <label className="field setup-field">
+          <label className="field setup-field scenario-field">
             <span>必ず起こしたいイベント</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
               <option value="none">ランダム（おすすめ）</option>
               <option value="guard_success">護衛成功を再現</option>
               <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
-          </label>
-
-          <label className="field setup-field">
-            <span>言語</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value="Japanese">日本語</option>
-              <option value="English">英語</option>
-            </select>
-          </label>
-
-          <label className="field setup-field">
-            <span>進行方法</span>
-            <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
-              <option value="manual">標準進行</option>
-              <option value="auto">自動送り</option>
-            </select>
-          </label>
-
-          <label className="field setup-field speed-field">
-            <span>
-              <Gauge size={15} />
-              表示速度
-            </span>
-            <output>{speedScale}</output>
-            <div className="range-row">
-              <small>遅い</small>
-              <input
-                type="range"
-                min="220"
-                max="2200"
-                step="80"
-                value={speed}
-                disabled={progressMode !== "auto"}
-                onChange={(event) => setSpeed(Number(event.target.value))}
-              />
-              <small>速い</small>
-            </div>
           </label>
         </div>
       </div>
@@ -844,51 +931,23 @@ export function App() {
             <span>フェーズ</span>
             <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
           </div>
-          <div className="status-item">
-            <Users size={18} />
-            <span>生存</span>
-            <strong>
-              {snapshot?.aliveCount ?? 0} / {effectivePlayerCount}
-            </strong>
-          </div>
-          <div className="status-item">
-            <Shield size={18} />
-            <span>勝者</span>
-            <strong>{campLabel(snapshot?.winner, language)}</strong>
-          </div>
         </section>
-
-        <div className="topbar-actions">
-          <button className="icon-button primary" onClick={startGame} disabled={running} title="対局を開始">
-            <Play size={20} />
-            <span>開始</span>
-          </button>
-          <button className="icon-button" onClick={startGame} title="対局を再開">
-            <Play size={20} />
-            <span>再開</span>
-          </button>
-          <button className="icon-button" onClick={stopGame} disabled={!running && queuedEvents.length === 0} title="対局を停止">
-            <Square size={18} />
-            <span>停止</span>
-          </button>
-        </div>
       </header>
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
         <aside className="panel intelligence-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <Users size={18} />
-              <h2>プレイヤー・インテリジェンス</h2>
-            </div>
-          </div>
-
           <div className="player-section-title">
             <span>生存プレイヤー（{alivePlayers.length}人）</span>
             <ChevronDown size={16} />
           </div>
 
           <div className="roster">
+            {winnerRosterText ? (
+              <div className="winner-row" role="status">
+                <Shield size={16} />
+                <strong>{winnerRosterText}</strong>
+              </div>
+            ) : null}
             {alivePlayers.length > 0 ? (
               alivePlayers.map((player) => (
                 <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""}`} key={player.id}>
@@ -1008,9 +1067,9 @@ export function App() {
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       <div className="chapel-backdrop" aria-hidden="true" />
-                      <div className="hero-cast" aria-hidden="true">
-                        {heroCastImages.slice(0, 6).map((image, index) => (
-                          <img src={image} alt="" key={`${image}-${index}`} />
+                      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+                        {heroCast.map((item) => (
+                          <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
                         ))}
                       </div>
                       {activeSpeakerImage && !hidden ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
@@ -1041,14 +1100,21 @@ export function App() {
                       </div>
 
                       <div className="story-controls">
-                        <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
-                          <span>{storyButtonLabel}</span>
+                        <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                          <ChevronLeft size={20} />
+                          <span className="story-button-label">
+                            <span>戻る</span>
+                            <kbd>←</kbd>
+                          </span>
+                        </button>
+                        <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                          <span className="story-button-label">
+                            <span>次へ</span>
+                            <kbd>Enter / →</kbd>
+                          </span>
                           <ChevronRight size={20} />
                         </button>
-                        <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
-                          <span>一気に読む</span>
-                          <ChevronsRight size={19} />
-                        </button>
+                        {renderRunControls()}
                         <span className="queue-count">
                           <ListChecks size={17} />
                           未読 {queuedEvents.length}件
@@ -1070,7 +1136,7 @@ export function App() {
                             title="役職と夜の非公開イベントを隠す"
                           >
                             <EyeOff size={15} />
-                            村視点
+                            人間視点
                           </button>
                         </div>
                       </div>
@@ -1080,9 +1146,9 @@ export function App() {
               ) : (
                 <article className="scene-card story-hero empty-hero">
                   <div className="chapel-backdrop" aria-hidden="true" />
-                  <div className="hero-cast" aria-hidden="true">
-                    {heroCastImages.slice(0, 6).map((image, index) => (
-                      <img src={image} alt="" key={`${image}-${index}`} />
+                  <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+                    {heroCast.map((item) => (
+                      <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
                     ))}
                   </div>
                   <div className="pregame-layout">
@@ -1093,14 +1159,21 @@ export function App() {
                     {renderSetupControls()}
                   </div>
                   <div className="story-controls">
-                    <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
-                      <span>{storyButtonLabel}</span>
+                    <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                      <ChevronLeft size={20} />
+                      <span className="story-button-label">
+                        <span>戻る</span>
+                        <kbd>←</kbd>
+                      </span>
+                    </button>
+                    <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                      <span className="story-button-label">
+                        <span>次へ</span>
+                        <kbd>Enter / →</kbd>
+                      </span>
                       <ChevronRight size={20} />
                     </button>
-                    <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
-                      <span>一気に読む</span>
-                      <ChevronsRight size={19} />
-                    </button>
+                    {renderRunControls()}
                     <span className="queue-count">
                       <ListChecks size={17} />
                       未読 {queuedEvents.length}件
@@ -1120,7 +1193,7 @@ export function App() {
                         type="button"
                       >
                         <EyeOff size={15} />
-                        村視点
+                        人間視点
                       </button>
                     </div>
                   </div>
@@ -1171,43 +1244,6 @@ export function App() {
               <option value="guard_success">護衛成功を再現</option>
               <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
-          </label>
-
-          <label className="field">
-            <span>言語</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value="Japanese">日本語</option>
-              <option value="English">英語</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>進行方法</span>
-            <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
-              <option value="manual">標準進行</option>
-              <option value="auto">自動送り</option>
-            </select>
-          </label>
-
-          <label className="field speed-field">
-            <span>
-              <Gauge size={15} />
-              表示速度
-            </span>
-            <output>{speedScale}</output>
-            <div className="range-row">
-              <small>遅い</small>
-            <input
-              type="range"
-              min="220"
-              max="2200"
-              step="80"
-              value={speed}
-              disabled={progressMode !== "auto"}
-              onChange={(event) => setSpeed(Number(event.target.value))}
-            />
-              <small>速い</small>
-            </div>
           </label>
         </aside>
       </section>

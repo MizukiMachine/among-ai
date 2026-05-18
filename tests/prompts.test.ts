@@ -147,6 +147,8 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
 
   assert.match(speech, /Return strict JSON only/);
   assert.match(speech, /"messages"/);
+  assert.match(speech, /transport envelope only/);
+  assert.match(speech, /Never put JSON syntax/);
   assert.match(speech, /Public speech must not reveal/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
@@ -260,7 +262,7 @@ test("day situation detection recognizes common Japanese Seer CO wording", () =>
     detectDaySituations({
       phase: "day_discussion",
       round: 2,
-      publicHistory: ["Ada: 占いCOします。Byronは村陣営判定です。"]
+      publicHistory: ["Ada: 占いCOします。Byronは人間判定です。"]
     }),
     ["later_day", "seer_claim"]
   );
@@ -268,13 +270,13 @@ test("day situation detection recognizes common Japanese Seer CO wording", () =>
 
 test("Japanese demo text sanitizer rewrites only contextual translationese terms", () => {
   const text = sanitizeDemoJapaneseGameText(
-    "村の軸になりそうな位置を落として、処理枠へ圧をかける盤面です。",
+    "陣営の軸になりそうな位置を落として、処理枠へ圧をかける盤面です。",
     "Japanese"
   );
   const unrelated = sanitizeDemoJapaneseGameText("信用を落としてはいけません。", "Japanese");
 
   assert.equal(containsAwkwardJapaneseOutputTerm(text), false);
-  assert.match(text, /村をまとめそうな人/);
+  assert.match(text, /議論をまとめそうな人/);
   assert.match(text, /襲撃して/);
   assert.match(text, /投票先/);
   assert.match(text, /理由を聞く/);
