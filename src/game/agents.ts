@@ -73,7 +73,7 @@ const demoSpeechJa: Record<Role, string[]> = {
   Werewolf: [
     "まだ根拠が薄いので、発言の少ない人に理由を聞いてみたいです。",
     "その主張は夜の結果を見てから出したように見えます。信用する前に、時系列を確認したいです。",
-    "明確な意見を避けている人に投票したいです。村が迷うほど人狼は動きやすくなります。"
+    "明確な意見を避けている人に投票したいです。人間側が迷うほど人狼は動きやすくなります。"
   ],
   Seer: [
     "私には状況の見え方が変わる結果があります。ただ、全部話す前にもう一人の反応を見たいです。",
@@ -354,8 +354,8 @@ export function listJapaneseDemoCopySamples(): string[] {
     "私は安易に吊っていい人ではありません。",
     "疑いを向けるための偽主張",
     `強い主張が必要なら、私は占い師として出ます。${name}は人狼判定です。動きが不自然です。`,
-    "今夜は村の議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。",
-    `今夜は${name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`,
+    "今夜は議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。",
+    `今夜は${name}で合わせたいです。直近の相談を踏まえると、議論をまとめそうな人を先に噛むのが自然です。`,
     `今夜は${name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`,
     "襲撃相談で優先したい人",
     "今は選択肢を残す方が低リスクです。",
@@ -884,7 +884,7 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
   const target = candidates.length > 0 ? sample(candidates) : null;
   const hasWolfChat = /Werewolf chat|人狼チャット/.test(input.context);
   const fallback = japanese
-    ? "今夜は村の議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。"
+    ? "今夜は議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。"
     : "Tonight I want to remove someone likely to organize the village. With little day-one information, the kill should make tomorrow easier to frame.";
 
   if (!target) {
@@ -896,7 +896,7 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
 
   const messageText = japanese
     ? hasWolfChat
-      ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、村をまとめそうな人を先に噛むのが自然です。`
+      ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、議論をまとめそうな人を先に噛むのが自然です。`
       : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
     : hasWolfChat
       ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
