@@ -8,6 +8,7 @@ import {
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
 import { containsAwkwardJapaneseOutputTerm, sanitizeDemoJapaneseGameText } from "../src/game/japaneseStyle";
+import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
 import type { Camp, Persona, Player, Role } from "../src/game/types";
 
 function player(role: Role, id = "p1", name = "Ada", persona: Persona = "logical"): Player {
@@ -35,6 +36,17 @@ const alivePlayers = [
   { id: "p2", name: "Byron" },
   { id: "p3", name: "Curie" }
 ];
+
+test("prompt materials YAML is schema-valid and placeholder-safe", () => {
+  assert.equal(promptMaterials.id, "among_ai.game_prompt_materials");
+  assert.equal(promptMaterials.type, "material_bundle");
+  assert.ok(getPromptMaterialPath().endsWith("materials.yaml"));
+  assert.doesNotThrow(() => validatePromptMaterials());
+  assert.deepEqual(promptMaterialPlaceholders(), []);
+  assert.deepEqual(Object.keys(promptMaterials.roles).sort(), ["Guard", "Hunter", "Seer", "Villager", "Werewolf", "Witch"]);
+  assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
+  assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
+});
 
 function contextFor(role: Role) {
   return buildPromptContext({

@@ -1105,6 +1105,54 @@ test("LLM speech messages are filtered, clamped, and capped", async () => {
   }
 });
 
+test("LLM speech messages are auto-split into short sentence events", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["First short line. Second short line.", "Third short line. Fourth short line."],
+              trusts: [{ targetId: "p2", reason: "clear stance", weight: 0.5 }]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(speech.messages, ["First short line.", "Second short line.", "Third short line."]);
+    assert.equal(speech.metadata.trusts[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("LLM speech JSON without messages uses fallback speech", async () => {
   const originalFetch = globalThis.fetch;
 

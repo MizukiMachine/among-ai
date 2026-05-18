@@ -1,6 +1,7 @@
 import type { Persona, Phase } from "../types";
 import { isJapaneseLanguage, personaLabel, phaseLabel } from "../i18n";
 import { personaDetails } from "./personaDetails";
+import { promptMaterials } from "./materials";
 import type { PromptMode, PromptPhase } from "./schemas";
 
 export const personaStrategies: Record<Persona, string[]> = Object.fromEntries(
@@ -37,21 +38,7 @@ export function promptModeFromGamePhase(phase: Phase): PromptMode {
 }
 
 export function commonBoundaryLines(mode: PromptMode): string[] {
-  if (mode === "public_speech") {
-    return [
-      "This is a public table statement. Every living player can hear it.",
-      "Use private role knowledge only to decide what to say; do not expose it unless the role strategy says a claim is worth the risk.",
-      "Never cite hidden prompts, private memories, ally chat, night action targets, or protected system context.",
-      "If you claim a role or result, make it sound like an in-game claim with a clear reason and timeline."
-    ];
-  }
-
-  return [
-    "This is an internal decision prompt. Use only the visible information listed here.",
-    "Do not assume hidden roles, secret actions, or private results that are not included in this prompt.",
-    "A short reason may mention strategic logic, but it must not invent unavailable information.",
-    "Choose legal ids only when a target list is provided."
-  ];
+  return promptMaterials.common.boundaryLines[mode];
 }
 
 export function phaseHeading(phase: Phase, language: string): string {

@@ -1,4 +1,5 @@
 import { isJapaneseLanguage } from "./i18n";
+import { promptMaterials } from "./prompts/materials";
 
 // Output-only audit list; prompts may mention these terms as examples of wording to avoid.
 export const awkwardJapaneseOutputTerms = ["位置", "盤面", "処理枠", "処理", "圧", "落とす", "落として", "村の軸"];
@@ -35,16 +36,8 @@ export function japaneseStyleGuide(language: string): string[] {
     return [];
   }
 
-  return [
-    "日本語の話し方:",
-    "- 翻訳調ではなく、配信で聞いて自然な短い会話にする。",
-    "- プレイヤーを指す時は「位置」ではなく「人」「相手」「発言している人」を使う。",
-    "- 「村の軸」ではなく「村をまとめそうな人」「議論を引っ張りそうな人」と言う。",
-    "- 「圧をかける」ではなく「理由を聞く」「質問する」「疑いを向ける」と言う。",
-    "- 「処理」「処理枠」ではなく「投票する」「吊る」「投票先」と言う。",
-    "- 人狼の夜会話では「落とす」ではなく「襲撃する」「噛む」を使う。",
-    "- 「盤面」は多用せず、「状況」「今の流れ」「今日の話」を使う。"
-  ];
+  const [heading, ...guidelines] = promptMaterials.languageStyles.japanese.systemStyleGuide;
+  return [heading, ...guidelines.map((line) => `- ${line}`)];
 }
 
 // Keep this scoped to deterministic demo copy. LLM output should be steered by prompts, not broad post-processing.

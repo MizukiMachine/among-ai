@@ -8,6 +8,7 @@ import {
   buildSpeechSystemPrompt,
   buildTargetSystemPrompt
 } from "./prompts";
+import { promptMaterials } from "./prompts/materials";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { sample, weightedChance } from "./random";
 import type {
@@ -34,8 +35,6 @@ const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
 const booleanDecisionAttempts = 2;
 const maxSpeechMessages = 3;
-const roundSummaryInstruction =
-  'Return strict JSON only, with no markdown: {"summary":"one or two short spectator-facing sentences"}. Focus on deaths, public claims, public reads, and vote pressure. Do not reveal hidden roles beyond public claims.';
 
 const demoSpeechEn: Record<Role, string[]> = {
   Werewolf: [
@@ -380,6 +379,14 @@ function clampText(text: string, fallback: string): string {
   return compact.length > 150 ? `${compact.slice(0, 147)}...` : compact;
 }
 
+function splitSpeechText(text: string): string[] {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return [];
+  }
+  return (compact.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g) ?? [compact]).map((part) => part.trim()).filter(Boolean);
+}
+
 function clampSummary(text: string): string | null {
   const compact = text.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -390,9 +397,9 @@ function clampSummary(text: string): string | null {
 
 function summaryStyleInstruction(language: string): string {
   if (/japanese|日本語|ja\b/i.test(language)) {
-    return "Use natural Japanese for spectators. Keep it under 120 Japanese characters, concrete, and easy to scan.";
+    return promptMaterials.roundSummary.style.japanese;
   }
-  return "Use plain English for spectators. Keep it under 240 characters, concrete, and easy to scan.";
+  return promptMaterials.roundSummary.style.english;
 }
 
 function clampReason(text: unknown, fallback: string): string {
@@ -582,7 +589,7 @@ function parseSpeech(content: string, candidates: TargetCandidate[], fallback: s
         : [];
 
   const messages = messagesSource
-    .map((message) => message.replace(/\s+/g, " ").trim())
+    .flatMap(splitSpeechText)
     .filter(Boolean)
     .slice(0, maxSpeechMessages)
     .map((message) => clampText(message, fallback));
@@ -712,17 +719,9 @@ function naturalizeDemoText(text: string, language: string): string {
   return sanitizeDemoJapaneseGameText(clampText(text, text), language);
 }
 
-function splitDemoSpeechText(text: string): string[] {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (!compact) {
-    return [];
-  }
-  return (compact.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g) ?? [compact]).map((part) => part.trim()).filter(Boolean);
-}
-
 function buildDemoSpeechMessages(parts: string[], language: string): string[] {
   const messages = parts
-    .flatMap(splitDemoSpeechText)
+    .flatMap(splitSpeechText)
     .map((part) => naturalizeDemoText(part, language))
     .filter(Boolean)
     .slice(0, maxSpeechMessages);
@@ -1174,11 +1173,11 @@ export async function summarizeRoundWithLlm(input: {
     positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
   );
   const system = [
-    "You summarize a hidden-role werewolf match for spectators.",
-    roundSummaryInstruction,
+    promptMaterials.roundSummary.systemPreamble,
+    promptMaterials.roundSummary.jsonInstruction,
     summaryStyleInstruction(input.language),
-    "Prefer one sentence unless two are clearly easier to read.",
-    "Use only the structured public round data and the deterministic summary as source material.",
+    promptMaterials.roundSummary.brevityInstruction,
+    promptMaterials.roundSummary.sourcePolicy,
     `Respond in ${input.language}.`
   ].join("\n");
   const messages: MessageParam[] = [
