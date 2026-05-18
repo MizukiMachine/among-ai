@@ -5,3 +5,4 @@ dist
 *.log
 assets/
 public/characters/
+.claude/
