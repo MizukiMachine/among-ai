@@ -22,7 +22,8 @@ import {
   Square,
   Sun,
   UserRound,
-  Vote
+  Vote,
+  X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
@@ -397,6 +398,7 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
+  const [activeOverlay, setActiveOverlay] = useState<"vote" | "history" | "recent" | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
@@ -932,6 +934,21 @@ export function App() {
             <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
           </div>
         </section>
+
+        <nav className="info-bar" aria-label="情報パネル切替">
+          <button className={`info-bar-btn ${activeOverlay === "vote" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "vote" ? null : "vote")} type="button">
+            <Vote size={16} />
+            <span>投票</span>
+          </button>
+          <button className={`info-bar-btn ${activeOverlay === "history" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "history" ? null : "history")} type="button">
+            <History size={16} />
+            <span>履歴</span>
+          </button>
+          <button className={`info-bar-btn ${activeOverlay === "recent" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "recent" ? null : "recent")} type="button">
+            <Activity size={16} />
+            <span>イベント</span>
+          </button>
+        </nav>
       </header>
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
@@ -1201,6 +1218,88 @@ export function App() {
               )}
             </div>
           </section>
+
+          {activeOverlay ? (
+            <section className="overlay-panel">
+              <div className="overlay-header">
+                <div className="overlay-title">
+                  {activeOverlay === "vote" ? <><Vote size={18} /><h2>投票マップ</h2><span>現在の疑い先</span></> : null}
+                  {activeOverlay === "history" ? <><History size={18} /><h2>履歴</h2><span>最近の出来事</span></> : null}
+                  {activeOverlay === "recent" ? <><Activity size={18} /><h2>直近のイベント</h2></> : null}
+                </div>
+                <button className="overlay-close" onClick={() => setActiveOverlay(null)} type="button">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="overlay-body">
+                {activeOverlay === "vote" ? (
+                  voteMapSources.length > 0 || voteMapTargetId ? (
+                    <div className="vote-diagram">
+                      <div className="vote-column">
+                        {voteMapSources.slice(0, 4).map((source) => (
+                          <div className="vote-node voting" key={`${source.id}-${source.name}`}>
+                            <img src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} alt="" />
+                            <strong>{source.name}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="vote-focus">
+                        {voteMapTargetImage ? <img src={voteMapTargetImage} alt={voteMapTargetName} /> : <UserRound size={48} />}
+                        <strong>{voteMapTargetName}</strong>
+                        <span>{voteMapCount}票</span>
+                      </div>
+                      <div className="vote-column quiet">
+                        {voteMapQuietPlayers.map((player) => (
+                          <div className="vote-node" key={player.id}>
+                            <img src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} alt="" />
+                            <strong>{player.name}</strong>
+                            <span>0票</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="empty-note">投票データなし</p>
+                  )
+                ) : null}
+                {activeOverlay === "history" ? (
+                  <div className="timeline-list">
+                    {recentHistory.length > 0 ? (
+                      recentHistory.map((event) => {
+                        const message = eventMessageForSpectator(event, spectatorMode);
+                        return (
+                          <p key={event.id}>
+                            <span>R{event.round} {phaseLabel(event.phase, language)}</span>
+                            {shortText(message, 58)}
+                          </p>
+                        );
+                      })
+                    ) : (
+                      <p className="empty-note">履歴なし</p>
+                    )}
+                  </div>
+                ) : null}
+                {activeOverlay === "recent" ? (
+                  <div className="recent-events">
+                    {recentHistory.length > 0 ? (
+                      recentHistory.slice(0, 4).map((event) => {
+                        const hidden = isEventRedactedForSpectator(event, spectatorMode);
+                        return (
+                          <p className={`recent-event ${event.type} ${hidden ? "secret-redacted" : eventTone(event)}`} key={`recent-${event.id}`}>
+                            <span className="recent-icon">{hidden ? <Activity size={16} /> : eventIcon(event)}</span>
+                            <strong>{eventSpeakerForSpectator(event, spectatorMode, language)}</strong>
+                            <small>{shortText(eventMessageForSpectator(event, spectatorMode), 54)}</small>
+                          </p>
+                        );
+                      })
+                    ) : (
+                      <p className="empty-note">イベントなし</p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
         </section>
 
         <aside className="panel controls-panel" hidden>
@@ -1246,130 +1345,6 @@ export function App() {
             </select>
           </label>
         </aside>
-      </section>
-
-      <section className="insight-grid">
-        <section className="panel dashboard-card vote-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <Vote size={17} />
-              <h2>投票マップ</h2>
-            </div>
-            <span>現在の疑い先</span>
-          </div>
-          {voteMapSources.length > 0 || voteMapTargetId ? (
-            <div className="vote-diagram">
-              <div className="vote-column">
-                {voteMapSources.slice(0, 4).map((source) => (
-                  <div className="vote-node voting" key={`${source.id}-${source.name}`}>
-                    <img src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} alt="" />
-                    <strong>{source.name}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="vote-focus">
-                {voteMapTargetImage ? <img src={voteMapTargetImage} alt={voteMapTargetName} /> : <UserRound size={48} />}
-                <strong>{voteMapTargetName}</strong>
-                <span>{voteMapCount}票</span>
-              </div>
-              <div className="vote-column quiet">
-                {voteMapQuietPlayers.map((player) => (
-                  <div className="vote-node" key={player.id}>
-                    <img src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} alt="" />
-                    <strong>{player.name}</strong>
-                    <span>0票</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <p className="empty-note">投票データなし</p>
-          )}
-        </section>
-
-        <section className="panel dashboard-card summary-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <ListChecks size={17} />
-              <h2>ラウンド要約</h2>
-            </div>
-          </div>
-          {summaryEvents.length > 0 ? (
-            <>
-              <p className="summary-line featured">
-                <strong>R{summaryEvents.at(-1)?.round}</strong>
-                {summaryEvents.at(-1)?.message}
-              </p>
-              {leadingRead ? (
-                <div className="summary-highlight">
-                  最も疑われている：{leadingRead.targetName}（{leadingRead.count}票）
-                </div>
-              ) : null}
-              <ul className="check-list">
-                {suspectClusters.slice(0, 3).map((item) => (
-                  <li key={`summary-suspect-${item.targetId}`}>
-                    {item.sources.slice(0, 2).join("、")}が{item.targetName}を疑っています
-                  </li>
-                ))}
-                {trustClusters[0] ? (
-                  <li>{trustClusters[0].targetName}への信頼が{trustClusters[0].count}件あります</li>
-                ) : null}
-              </ul>
-            </>
-          ) : (
-            <p className="empty-note">要約は投票後に表示されます。</p>
-          )}
-        </section>
-
-        <section className="panel dashboard-card history-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <History size={17} />
-              <h2>履歴</h2>
-            </div>
-            <span>最近の出来事</span>
-          </div>
-          <div className="timeline-list">
-            {recentHistory.length > 0 ? (
-              recentHistory.map((event) => {
-                const message = eventMessageForSpectator(event, spectatorMode);
-                return (
-                  <p key={event.id}>
-                    <span>R{event.round} {phaseLabel(event.phase, language)}</span>
-                    {shortText(message, 58)}
-                  </p>
-                );
-              })
-            ) : (
-              <p className="empty-note">履歴なし</p>
-            )}
-          </div>
-        </section>
-
-        <section className="panel dashboard-card recent-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <Activity size={17} />
-              <h2>直近のイベント</h2>
-            </div>
-          </div>
-          <div className="recent-events">
-            {recentHistory.length > 0 ? (
-              recentHistory.slice(0, 4).map((event) => {
-                const hidden = isEventRedactedForSpectator(event, spectatorMode);
-                return (
-                  <p className={`recent-event ${event.type} ${hidden ? "secret-redacted" : eventTone(event)}`} key={`recent-${event.id}`}>
-                    <span className="recent-icon">{hidden ? <Activity size={16} /> : eventIcon(event)}</span>
-                    <strong>{eventSpeakerForSpectator(event, spectatorMode, language)}</strong>
-                    <small>{shortText(eventMessageForSpectator(event, spectatorMode), 54)}</small>
-                  </p>
-                );
-              })
-            ) : (
-              <p className="empty-note">イベントなし</p>
-            )}
-          </div>
-        </section>
       </section>
     </main>
   );
