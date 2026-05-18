@@ -14,11 +14,8 @@ import {
   promptPhaseFromGamePhase,
   recentLines
 } from "./common";
+import { promptMaterials } from "./materials";
 import { personaDetails } from "./personaDetails";
-import { discussionPhaseInstructions } from "./phases/discussion";
-import { nightPhaseInstructions } from "./phases/night";
-import { votingPhaseInstructions } from "./phases/voting";
-import { werewolfDiscussionPhaseInstructions } from "./phases/werewolfDiscussion";
 import { getRolePromptProfile } from "./roles";
 import {
   booleanJsonSchemaInstruction,
@@ -37,15 +34,49 @@ import {
 
 function phaseInstructions(profile: RolePromptProfile, promptPhase: PromptPhase): string[] {
   if (promptPhase === "werewolf_discussion") {
-    return werewolfDiscussionPhaseInstructions(profile);
+    const phase = promptMaterials.phases.werewolf_discussion;
+    return [
+      phase.privateDiscussionTitle,
+      bulletList(phase.privateDiscussionGuidance),
+      "",
+      phase.nightKillStrategyTitle,
+      bulletList(profile.nightAction),
+      "",
+      phase.privateSpeechGoalsTitle,
+      bulletList(phase.privateSpeechGoals)
+    ];
   }
   if (promptPhase === "discussion") {
-    return discussionPhaseInstructions(profile);
+    const phase = promptMaterials.phases.discussion;
+    return [
+      phase.roleSectionTitle,
+      bulletList(profile.discussion),
+      "",
+      phase.publicSpeechBoundaryTitle,
+      bulletList(profile.publicSpeechMustNotReveal),
+      "",
+      phase.publicStatementGoalsTitle,
+      bulletList(phase.publicStatementGoals)
+    ];
   }
   if (promptPhase === "voting") {
-    return votingPhaseInstructions(profile);
+    const phase = promptMaterials.phases.voting;
+    return [
+      phase.roleSectionTitle,
+      bulletList(profile.voting),
+      "",
+      phase.voteDecisionRulesTitle,
+      bulletList(phase.voteDecisionRules)
+    ];
   }
-  return nightPhaseInstructions(profile);
+  const phase = promptMaterials.phases.night;
+  return [
+    phase.roleSectionTitle,
+    bulletList(profile.nightAction),
+    "",
+    phase.internalTargetEvaluationTitle,
+    bulletList(phase.internalTargetEvaluation)
+  ];
 }
 
 function formatSeerResults(results: SeerPrivateResult[], language: string): string[] {

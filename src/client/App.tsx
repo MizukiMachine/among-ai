@@ -1,20 +1,28 @@
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
   ChevronRight,
+  ChevronsRight,
+  CircleDot,
   Crosshair,
   Eye,
   EyeOff,
   FlaskConical,
+  Gauge,
+  History,
+  ListChecks,
   MessageCircle,
   Moon,
   Network,
   Play,
-  RotateCcw,
+  Settings,
   Shield,
   Skull,
   Square,
   Sun,
+  UserRound,
+  Users,
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,16 +39,19 @@ import type {
 } from "../game/types";
 
 const characterImageMap: Record<string, string> = {
-  p1: "/characters/kazu.png",
-  p2: "/characters/kai.png",
-  p3: "/characters/mio.png",
-  p4: "/characters/ren.png",
-  p5: "/characters/saki.png",
-  p6: "/characters/taka.png",
-  p7: "/characters/yuki.png",
-  p8: "/characters/ken.png",
-  p9: "/characters/rin.png",
+  p1: new URL("../../assets/characters/kazu_final.png", import.meta.url).href,
+  p2: new URL("../../assets/characters/kai_final.png", import.meta.url).href,
+  p3: new URL("../../assets/characters/mio_final.png", import.meta.url).href,
+  p4: new URL("../../assets/characters/ren_final.png", import.meta.url).href,
+  p5: new URL("../../assets/characters/saki_final.png", import.meta.url).href,
+  p6: new URL("../../assets/characters/taka_final.png", import.meta.url).href,
+  p7: new URL("../../assets/characters/yuki_final.png", import.meta.url).href,
+  p8: new URL("../../assets/characters/ken_final.png", import.meta.url).href,
+  p9: new URL("../../assets/characters/rin_final.png", import.meta.url).href
 };
+
+const defaultCharacterImages = Object.values(characterImageMap);
+const villageRedactedMessage = "村視点では非公開情報です。";
 
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
@@ -218,6 +229,21 @@ function shortText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
+export function isEventRedactedForSpectator(event: GameEvent, mode: SpectatorMode): boolean {
+  return mode === "village" && isSecretEvent(event);
+}
+
+export function eventMessageForSpectator(event: GameEvent, mode: SpectatorMode): string {
+  return isEventRedactedForSpectator(event, mode) ? villageRedactedMessage : event.message;
+}
+
+export function eventSpeakerForSpectator(event: GameEvent, mode: SpectatorMode, language: string): string {
+  if (isEventRedactedForSpectator(event, mode)) {
+    return "進行";
+  }
+  return event.playerName ?? phaseLabel(event.phase, language);
+}
+
 function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   const clusters = new Map<string, ReadCluster>();
   for (const read of reads) {
@@ -272,7 +298,7 @@ function formatRoleCount(role: Role, count: number, language: string, forceCount
   return `${label}${isJapaneseLanguage(language) ? "×" : " x"}${count}`;
 }
 
-function getRoleDistributionText(count: number, language: string): string {
+function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const roleCounts: Array<[Role, number]> = [
     ["Werewolf", normalizedCount >= 7 ? 2 : 1],
@@ -291,7 +317,24 @@ function getRoleDistributionText(count: number, language: string): string {
   if (villagers > 0) {
     roleCounts.push(["Villager", villagers]);
   }
+
+  return roleCounts;
+}
+
+function getRoleDistributionText(count: number, language: string): string {
+  const roleCounts = getRoleDistributionItems(count);
   return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language, role === "Werewolf")).join(" ");
+}
+
+function getCampRatioText(count: number, language: string): string {
+  const roleCounts = getRoleDistributionItems(count);
+  const werewolves = roleCounts.find(([role]) => role === "Werewolf")?.[1] ?? 0;
+  const villagers = normalizePlayerCount(count) - werewolves;
+
+  if (isJapaneseLanguage(language)) {
+    return `村陣営${villagers} / 人狼陣営${werewolves}`;
+  }
+  return `Village ${villagers} / Werewolf ${werewolves}`;
 }
 
 function isEditableShortcutTarget(target: EventTarget | null): boolean {
@@ -299,6 +342,13 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
     return false;
   }
   return Boolean(target.closest("button, input, select, textarea, [contenteditable='true']"));
+}
+
+export function storyRevealAllStatus(lastType: GameEvent["type"], streamRunning: boolean, streamDone: boolean): string {
+  if (lastType === "game_ended") {
+    return "完了";
+  }
+  return streamRunning || !streamDone ? "生成中" : "表示完了";
 }
 
 export function App() {
@@ -395,9 +445,34 @@ export function App() {
     [latestVoteTotals]
   );
   const currentEvent = events.at(-1);
-  const visibleHistory = events.slice(-6, -1).reverse();
+  const recentHistory = events.slice(-6).reverse();
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
+  const allPlayers = snapshot?.players ?? [];
+  const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
+  const heroCastImages = (
+    alivePlayers.length > 0
+      ? alivePlayers.map((player) => getCharacterImage(player.id))
+      : defaultCharacterImages.slice(0, 6)
+  ).filter((image): image is string => Boolean(image));
+  const leadingVote = latestVoteTotalsSorted[0];
+  const leadingRead = suspectClusters[0];
+  const voteMapTargetId = leadingVote?.targetId ?? leadingRead?.targetId ?? "";
+  const voteMapTargetName = leadingVote?.targetName ?? leadingRead?.targetName ?? "未確定";
+  const voteMapCount = leadingVote?.count ?? leadingRead?.count ?? 0;
+  const voteMapTargetImage = getCharacterImage(voteMapTargetId);
+  const voteMapSources =
+    leadingVote && latestVotes.length > 0
+      ? latestVotes
+          .filter((vote) => vote.targetId === leadingVote.targetId)
+          .map((vote) => ({ id: vote.voterId, name: vote.voterName, reason: vote.reason }))
+      : publicSuspects
+          .filter((read) => read.targetId === leadingRead?.targetId)
+          .map((read) => ({ id: read.sourceId, name: read.sourceName, reason: read.reason }));
+  const voteMapQuietPlayers = allPlayers
+    .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
+    .slice(0, 2);
+  const speedScale = `${(650 / speed).toFixed(1)}x`;
 
   function updateDebugScenario(nextScenario: DebugScenario) {
     setDebugScenario(nextScenario);
@@ -520,7 +595,7 @@ export function App() {
     setQueuedEvents([]);
     setEvents((visible) => [...visible, ...current]);
     setSnapshot(last.snapshot);
-    setStatus(last.type === "game_ended" ? "完了" : "表示完了");
+    setStatus(storyRevealAllStatus(last.type, running, sourceDone));
   }
 
   function advanceStory() {
@@ -634,24 +709,162 @@ export function App() {
     );
   }
 
-  const receivedTotal = events.length + queuedEvents.length;
   const storyButtonLabel = events.length === 0 && queuedEvents.length === 0 ? "開始" : "次へ";
   const storyButtonDisabled = queuedEvents.length === 0 && (running || events.length > 0);
+  const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
+
+  function renderSetupControls() {
+    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
+
+    return (
+      <div className="setup-card">
+        <div className="setup-card-heading">
+          <div className="heading-label">
+            <Settings size={18} />
+            <h2>対局設定</h2>
+          </div>
+          <span>開始前のみ</span>
+        </div>
+
+        <div className="setup-grid">
+          <div className="field setup-field player-count-field">
+            <span>人数</span>
+            {scenarioMinimumPlayerCount > minPlayerCount ? (
+              <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
+            ) : null}
+            <div className="segments">
+              {playerCountOptions.map((count) => {
+                const disabled = count < scenarioMinimumPlayerCount;
+                return (
+                  <button
+                    key={count}
+                    aria-pressed={effectivePlayerCount === count}
+                    className={effectivePlayerCount === count ? "selected" : ""}
+                    disabled={disabled}
+                    onClick={() => updatePlayerCount(count)}
+                    title={disabled ? `${scenarioMinimumPlayerCount}人以上が必要です` : `${count}人で開始`}
+                    type="button"
+                  >
+                    {count}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="setup-breakdown" aria-label="役職内訳">
+              <div className="setup-ratio">
+                <span>陣営比率</span>
+                <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
+              </div>
+              <div className="setup-role-list">
+                {roleDistributionItems.map(([role, count]) => (
+                  <span className={`setup-role-chip ${roleClassName(role)}`} key={role}>
+                    {displayRoleLabel(role, language)}
+                    <strong>{count}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <label className="field setup-field">
+            <span>必ず起こしたいイベント</span>
+            <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
+              <option value="none">ランダム（おすすめ）</option>
+              <option value="guard_success">護衛成功を再現</option>
+              <option value="hunter_shot">ハンター発砲を再現</option>
+            </select>
+          </label>
+
+          <label className="field setup-field">
+            <span>言語</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+              <option value="Japanese">日本語</option>
+              <option value="English">英語</option>
+            </select>
+          </label>
+
+          <label className="field setup-field">
+            <span>進行方法</span>
+            <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
+              <option value="manual">標準進行</option>
+              <option value="auto">自動送り</option>
+            </select>
+          </label>
+
+          <label className="field setup-field speed-field">
+            <span>
+              <Gauge size={15} />
+              表示速度
+            </span>
+            <output>{speedScale}</output>
+            <div className="range-row">
+              <small>遅い</small>
+              <input
+                type="range"
+                min="220"
+                max="2200"
+                step="80"
+                value={speed}
+                disabled={progressMode !== "auto"}
+                onChange={(event) => setSpeed(Number(event.target.value))}
+              />
+              <small>速い</small>
+            </div>
+          </label>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>Among AI</h1>
-          <p>LLM人狼アリーナ</p>
+        <div className="brand-lockup">
+          <div className="brand-mark" aria-hidden="true" />
+          <div>
+            <h1>Among AI</h1>
+            <p>LLM人狼アリーナ</p>
+          </div>
         </div>
+
+        <section className="status-strip" aria-label="ゲーム状態">
+          <div className="status-item">
+            <CircleDot size={18} />
+            <span>状態</span>
+            <strong>{status}</strong>
+          </div>
+          <div className="status-item">
+            <Activity size={18} />
+            <span>ラウンド</span>
+            <strong>{snapshot?.round ?? 0}</strong>
+          </div>
+          <div className="status-item">
+            <Sun size={18} />
+            <span>フェーズ</span>
+            <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
+          </div>
+          <div className="status-item">
+            <Users size={18} />
+            <span>生存</span>
+            <strong>
+              {snapshot?.aliveCount ?? 0} / {effectivePlayerCount}
+            </strong>
+          </div>
+          <div className="status-item">
+            <Shield size={18} />
+            <span>勝者</span>
+            <strong>{campLabel(snapshot?.winner, language)}</strong>
+          </div>
+        </section>
+
         <div className="topbar-actions">
           <button className="icon-button primary" onClick={startGame} disabled={running} title="対局を開始">
-            <Play size={18} />
+            <Play size={20} />
             <span>開始</span>
           </button>
           <button className="icon-button" onClick={startGame} title="対局を再開">
-            <RotateCcw size={18} />
+            <Play size={20} />
             <span>再開</span>
           </button>
           <button className="icon-button" onClick={stopGame} disabled={!running && queuedEvents.length === 0} title="対局を停止">
@@ -661,40 +874,268 @@ export function App() {
         </div>
       </header>
 
-      <section className="status-strip">
-        <div>
-          <span>状態</span>
-          <strong>{status}</strong>
-        </div>
-        <div>
-          <span>ラウンド</span>
-          <strong>{snapshot?.round ?? 0}</strong>
-        </div>
-        <div>
-          <span>フェーズ</span>
-          <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
-        </div>
-        <div>
-          <span>生存</span>
-          <strong>{snapshot?.aliveCount ?? 0}</strong>
-        </div>
-        <div>
-          <span>勝者</span>
-          <strong>{campLabel(snapshot?.winner, language)}</strong>
-        </div>
-      </section>
-
-      {warnings.length > 0 ? (
-        <section className="warning-banner" role="status">
-          <AlertTriangle size={18} />
-          <span>{warnings[warnings.length - 1].message}</span>
-        </section>
-      ) : null}
-
-      <section className="workspace">
-        <aside className="panel controls-panel">
+      <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
+        <aside className="panel intelligence-panel">
           <div className="panel-heading">
-            <h2>設定</h2>
+            <div className="heading-label">
+              <Users size={18} />
+              <h2>プレイヤー・インテリジェンス</h2>
+            </div>
+          </div>
+
+          <div className="player-section-title">
+            <span>生存プレイヤー（{alivePlayers.length}人）</span>
+            <ChevronDown size={16} />
+          </div>
+
+          <div className="roster">
+            {alivePlayers.length > 0 ? (
+              alivePlayers.map((player) => (
+                <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""}`} key={player.id}>
+                  {getCharacterImage(player.id) ? (
+                    <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                  ) : (
+                    <div className="player-avatar avatar-fallback">
+                      <UserRound size={20} />
+                    </div>
+                  )}
+                  <div className="player-main">
+                    <div className="player-name-row">
+                      <strong>{player.name}</strong>
+                      <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                    </div>
+                    <span className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>
+                      {roleDisplay(player, spectatorMode, language)}
+                    </span>
+                  </div>
+                  <div className="signal-bars" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="empty-note">プレイヤー未生成</p>
+            )}
+          </div>
+
+          {deadPlayers.length > 0 ? (
+            <>
+              <div className="player-section-title grave-title">
+                <span>墓地（{deadPlayers.length}人）</span>
+                <ChevronDown size={16} />
+              </div>
+              <div className="graveyard">
+                {deadPlayers.map((player) => (
+                  <div className="dead-player" key={player.id}>
+                    {getCharacterImage(player.id) ? (
+                      <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                    ) : (
+                      <span className="avatar-fallback small">
+                        <UserRound size={15} />
+                      </span>
+                    )}
+                    <strong>{player.name}</strong>
+                    <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          <div className="insight-section">
+            <div className="section-title">
+              <Network size={16} />
+              <h3>主張と読み（最新）</h3>
+              <span>{publicClaims.length + publicSuspects.length + publicTrusts.length}件</span>
+            </div>
+            {publicClaims.length === 0 && publicSuspects.length === 0 && publicTrusts.length === 0 ? (
+              <p className="empty-note">公開情報なし</p>
+            ) : (
+              <div className="mini-feed">
+                {publicClaims.slice(-3).reverse().map((item, index) => (
+                  <p key={`claim-${item.speakerId}-${index}`}>
+                    <img src={getCharacterImage(item.speakerId) ?? defaultCharacterImages[0]} alt="" />
+                    <strong>{item.speakerName}</strong>
+                    <span className="claim-tag">主張</span>
+                    <small>{shortText(formatClaim(item.claim, language), 46)}</small>
+                  </p>
+                ))}
+                {publicSuspects.slice(-3).reverse().map((item, index) => (
+                  <p key={`suspect-read-${item.sourceId}-${index}`}>
+                    <img src={getCharacterImage(item.sourceId) ?? defaultCharacterImages[1]} alt="" />
+                    <strong>{item.sourceName}</strong>
+                    <span className="read-tag">読み</span>
+                    <small>{shortText(`${item.targetName}が怪しい。${item.reason ?? ""}`, 52)}</small>
+                  </p>
+                ))}
+                {publicTrusts.slice(-2).reverse().map((item, index) => (
+                  <p key={`trust-read-${item.sourceId}-${index}`}>
+                    <img src={getCharacterImage(item.sourceId) ?? defaultCharacterImages[2]} alt="" />
+                    <strong>{item.sourceName}</strong>
+                    <span className="trust-tag">信頼</span>
+                    <small>{shortText(`${item.targetName}を信頼。${item.reason ?? ""}`, 52)}</small>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section className="story-column">
+          {warnings.length > 0 ? (
+            <section className="warning-banner" role="status">
+              <AlertTriangle size={19} />
+              <span>{warnings[warnings.length - 1].message}</span>
+            </section>
+          ) : null}
+
+          <section className="panel story-panel">
+            <div className={`novel-stage ${currentEvent ? "" : "empty"}`}>
+              {currentEvent ? (
+                (() => {
+                  const visibility = eventVisibility(currentEvent);
+                  const hidden = isEventRedactedForSpectator(currentEvent, spectatorMode);
+                  const tone = eventTone(currentEvent);
+                  const speakerName =
+                    currentEvent.playerName && !hidden
+                      ? currentEvent.playerName
+                      : currentEvent.type === "system"
+                        ? "システム"
+                        : "進行";
+                  return (
+                    <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
+                      <div className="chapel-backdrop" aria-hidden="true" />
+                      <div className="hero-cast" aria-hidden="true">
+                        {heroCastImages.slice(0, 6).map((image, index) => (
+                          <img src={image} alt="" key={`${image}-${index}`} />
+                        ))}
+                      </div>
+                      {activeSpeakerImage && !hidden ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
+                      <div className="story-copy">
+                        <div className="event-meta hero-meta">
+                          <span>R{currentEvent.round}</span>
+                          <span>{phaseLabel(currentEvent.phase, language)}</span>
+                          {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibilityLabel(visibility)}</span> : null}
+                          {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
+                            <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
+                          ) : null}
+                        </div>
+                        <div className="speaker-line">
+                          <span>{speakerName}</span>
+                          <small>
+                            発言中
+                            <span className="voice-wave" aria-hidden="true">
+                              <i />
+                              <i />
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          </small>
+                        </div>
+                        <p>{hidden ? villageRedactedMessage : formatMessage(currentEvent.message)}</p>
+                        {renderEventDetails(currentEvent, hidden)}
+                      </div>
+
+                      <div className="story-controls">
+                        <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
+                          <span>{storyButtonLabel}</span>
+                          <ChevronRight size={20} />
+                        </button>
+                        <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
+                          <span>一気に読む</span>
+                          <ChevronsRight size={19} />
+                        </button>
+                        <span className="queue-count">
+                          <ListChecks size={17} />
+                          未読 {queuedEvents.length}件
+                        </span>
+                        <div className="view-toggle view-toggle-inline">
+                          <button
+                            className={spectatorMode === "omniscient" ? "selected" : ""}
+                            onClick={() => setSpectatorMode("omniscient")}
+                            type="button"
+                            title="すべての役職と非公開イベントを表示"
+                          >
+                            <Eye size={15} />
+                            全情報
+                          </button>
+                          <button
+                            className={spectatorMode === "village" ? "selected" : ""}
+                            onClick={() => setSpectatorMode("village")}
+                            type="button"
+                            title="役職と夜の非公開イベントを隠す"
+                          >
+                            <EyeOff size={15} />
+                            村視点
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })()
+              ) : (
+                <article className="scene-card story-hero empty-hero">
+                  <div className="chapel-backdrop" aria-hidden="true" />
+                  <div className="hero-cast" aria-hidden="true">
+                    {heroCastImages.slice(0, 6).map((image, index) => (
+                      <img src={image} alt="" key={`${image}-${index}`} />
+                    ))}
+                  </div>
+                  <div className="pregame-layout">
+                    <div className="scene-placeholder">
+                      <strong>R0 待機中</strong>
+                      <p>設定を決めて対局を開始します。</p>
+                    </div>
+                    {renderSetupControls()}
+                  </div>
+                  <div className="story-controls">
+                    <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
+                      <span>{storyButtonLabel}</span>
+                      <ChevronRight size={20} />
+                    </button>
+                    <button className="icon-button story-read-all" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
+                      <span>一気に読む</span>
+                      <ChevronsRight size={19} />
+                    </button>
+                    <span className="queue-count">
+                      <ListChecks size={17} />
+                      未読 {queuedEvents.length}件
+                    </span>
+                    <div className="view-toggle view-toggle-inline">
+                      <button
+                        className={spectatorMode === "omniscient" ? "selected" : ""}
+                        onClick={() => setSpectatorMode("omniscient")}
+                        type="button"
+                      >
+                        <Eye size={15} />
+                        全情報
+                      </button>
+                      <button
+                        className={spectatorMode === "village" ? "selected" : ""}
+                        onClick={() => setSpectatorMode("village")}
+                        type="button"
+                      >
+                        <EyeOff size={15} />
+                        村視点
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )}
+            </div>
+          </section>
+        </section>
+
+        <aside className="panel controls-panel" hidden>
+          <div className="panel-heading">
+            <div className="heading-label">
+              <Settings size={18} />
+              <h2>設定・マッチコントロール</h2>
+            </div>
           </div>
 
           <div className="field">
@@ -725,9 +1166,8 @@ export function App() {
 
           <label className="field">
             <span>必ず起こしたいイベント</span>
-            <span className="field-desc">特にない場合は通常進行のままで進めます</span>
             <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">通常進行</option>
+              <option value="none">ランダム（おすすめ）</option>
               <option value="guard_success">護衛成功を再現</option>
               <option value="hunter_shot">ハンター発砲を再現</option>
             </select>
@@ -735,7 +1175,6 @@ export function App() {
 
           <label className="field">
             <span>言語</span>
-            <span className="field-desc">プレイヤーの発言とUIの言語</span>
             <select value={language} onChange={(event) => setLanguage(event.target.value)}>
               <option value="Japanese">日本語</option>
               <option value="English">英語</option>
@@ -744,276 +1183,157 @@ export function App() {
 
           <label className="field">
             <span>進行方法</span>
-            <span className="field-desc">手動はボタンで1場面ずつ、自動は一定間隔で送ります</span>
             <select value={progressMode} onChange={(event) => setProgressMode(event.target.value as "manual" | "auto")}>
-              <option value="manual">手動で進める</option>
+              <option value="manual">標準進行</option>
               <option value="auto">自動送り</option>
             </select>
           </label>
 
-          {progressMode === "auto" && (
-          <label className="field">
-            <span>表示速度</span>
-            <span className="field-desc">自動送りで次の場面を表示する間隔</span>
+          <label className="field speed-field">
+            <span>
+              <Gauge size={15} />
+              表示速度
+            </span>
+            <output>{speedScale}</output>
+            <div className="range-row">
+              <small>遅い</small>
             <input
               type="range"
               min="220"
               max="2200"
               step="80"
               value={speed}
+              disabled={progressMode !== "auto"}
               onChange={(event) => setSpeed(Number(event.target.value))}
             />
+              <small>速い</small>
+            </div>
           </label>
-          )}
         </aside>
+      </section>
 
-        <section className="panel story-panel">
+      <section className="insight-grid">
+        <section className="panel dashboard-card vote-panel">
           <div className="panel-heading">
-            <h2>シーン</h2>
-            <span>
-              {events.length} / {receivedTotal}
-              {running ? " 生成中" : ""}
-            </span>
+            <div className="heading-label">
+              <Vote size={17} />
+              <h2>投票マップ</h2>
+            </div>
+            <span>現在の疑い先</span>
           </div>
-
-          <div className={`novel-stage ${currentEvent ? "" : "empty"}`}>
-            {currentEvent ? (
-              (() => {
-                const visibility = eventVisibility(currentEvent);
-                const hidden = spectatorMode === "village" && isSecretEvent(currentEvent);
-                const tone = eventTone(currentEvent);
-                const charImg = getCharacterImage(currentEvent.playerId);
-                const speakerName =
-                  currentEvent.playerName && !hidden
-                    ? currentEvent.playerName
-                    : currentEvent.type === "system"
-                      ? "システム"
-                      : "進行";
-                return (
-                  <div className="scene-layout">
-                    {charImg && !hidden && (
-                      <div className="scene-character">
-                        <img src={charImg} alt={speakerName} />
-                      </div>
-                    )}
-                    <article className={`scene-card ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                      <div className="scene-icon">{eventIcon(currentEvent)}</div>
-                      <div className="scene-content">
-                        <div className="event-meta">
-                          <span>R{currentEvent.round}</span>
-                          <span>{phaseLabel(currentEvent.phase, language)}</span>
-                          {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibilityLabel(visibility)}</span> : null}
-                          {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
-                            <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
-                          ) : null}
-                        </div>
-                        <div className="speaker-line">{speakerName}</div>
-                        <p>{hidden ? "村視点では非公開情報です。" : formatMessage(currentEvent.message)}</p>
-                        {renderEventDetails(currentEvent, hidden)}
-                      </div>
-                    </article>
+          {voteMapSources.length > 0 || voteMapTargetId ? (
+            <div className="vote-diagram">
+              <div className="vote-column">
+                {voteMapSources.slice(0, 4).map((source) => (
+                  <div className="vote-node voting" key={`${source.id}-${source.name}`}>
+                    <img src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} alt="" />
+                    <strong>{source.name}</strong>
                   </div>
-                );
-              })()
-            ) : (
-              <div className="scene-placeholder">
-                <strong>対局を開始してください</strong>
-                <p>設定を選んで開始すると、ここに一場面ずつ表示されます。</p>
+                ))}
               </div>
-            )}
-          </div>
+              <div className="vote-focus">
+                {voteMapTargetImage ? <img src={voteMapTargetImage} alt={voteMapTargetName} /> : <UserRound size={48} />}
+                <strong>{voteMapTargetName}</strong>
+                <span>{voteMapCount}票</span>
+              </div>
+              <div className="vote-column quiet">
+                {voteMapQuietPlayers.map((player) => (
+                  <div className="vote-node" key={player.id}>
+                    <img src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} alt="" />
+                    <strong>{player.name}</strong>
+                    <span>0票</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="empty-note">投票データなし</p>
+          )}
+        </section>
 
-          <div className="story-controls">
-            <button
-              className="icon-button primary"
-              disabled={storyButtonDisabled}
-              onClick={advanceStory}
-              type="button"
-            >
-              <ChevronRight size={18} />
-              <span>{storyButtonLabel}</span>
-            </button>
-            <button className="icon-button" disabled={queuedEvents.length === 0} onClick={revealAll} type="button">
-              <span>一気に読む</span>
-            </button>
-            <span className="queue-count">未読 {queuedEvents.length}件</span>
-            <div className="view-toggle view-toggle-inline">
-              <button
-                className={spectatorMode === "omniscient" ? "selected" : ""}
-                onClick={() => setSpectatorMode("omniscient")}
-                type="button"
-                title="すべての役職と非公開イベントを表示"
-              >
-                <Eye size={14} />
-                全情報
-              </button>
-              <button
-                className={spectatorMode === "village" ? "selected" : ""}
-                onClick={() => setSpectatorMode("village")}
-                type="button"
-                title="役職と夜の非公開イベントを隠す"
-              >
-                <EyeOff size={14} />
-                村視点
-              </button>
+        <section className="panel dashboard-card summary-panel">
+          <div className="panel-heading">
+            <div className="heading-label">
+              <ListChecks size={17} />
+              <h2>ラウンド要約</h2>
             </div>
           </div>
+          {summaryEvents.length > 0 ? (
+            <>
+              <p className="summary-line featured">
+                <strong>R{summaryEvents.at(-1)?.round}</strong>
+                {summaryEvents.at(-1)?.message}
+              </p>
+              {leadingRead ? (
+                <div className="summary-highlight">
+                  最も疑われている：{leadingRead.targetName}（{leadingRead.count}票）
+                </div>
+              ) : null}
+              <ul className="check-list">
+                {suspectClusters.slice(0, 3).map((item) => (
+                  <li key={`summary-suspect-${item.targetId}`}>
+                    {item.sources.slice(0, 2).join("、")}が{item.targetName}を疑っています
+                  </li>
+                ))}
+                {trustClusters[0] ? (
+                  <li>{trustClusters[0].targetName}への信頼が{trustClusters[0].count}件あります</li>
+                ) : null}
+              </ul>
+            </>
+          ) : (
+            <p className="empty-note">要約は投票後に表示されます。</p>
+          )}
+        </section>
 
-          <div className="history-strip">
-            <h3>履歴</h3>
-            {visibleHistory.length > 0 ? (
-              visibleHistory.map((event) => (
-                <p key={event.id}>
-                  <strong>R{event.round}</strong>
-                  <span>{phaseLabel(event.phase, language)}</span>
-                  {event.message}
-                </p>
-              ))
+        <section className="panel dashboard-card history-panel">
+          <div className="panel-heading">
+            <div className="heading-label">
+              <History size={17} />
+              <h2>履歴</h2>
+            </div>
+            <span>最近の出来事</span>
+          </div>
+          <div className="timeline-list">
+            {recentHistory.length > 0 ? (
+              recentHistory.map((event) => {
+                const message = eventMessageForSpectator(event, spectatorMode);
+                return (
+                  <p key={event.id}>
+                    <span>R{event.round} {phaseLabel(event.phase, language)}</span>
+                    {shortText(message, 58)}
+                  </p>
+                );
+              })
             ) : (
-              <p>まだ履歴はありません。</p>
+              <p className="empty-note">履歴なし</p>
             )}
           </div>
         </section>
 
-        <aside className="panel roster-panel">
+        <section className="panel dashboard-card recent-panel">
           <div className="panel-heading">
-            <h2>プレイヤー</h2>
-            <span>
-              {spectatorMode === "omniscient"
-                ? `${snapshot?.werewolfCount ?? 0} / ${snapshot?.villageCount ?? 0}`
-                : `生存 ${snapshot?.aliveCount ?? 0}`}
-            </span>
-          </div>
-
-          <div className="roster">
-            {alivePlayers.map((player) => (
-              <div className="player-card" key={player.id}>
-                <div>
-                  <strong>{player.name}</strong>
-                  <span className="persona-line">{personaLabel(player.persona, language)}</span>
-                </div>
-                <div className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>
-                  {roleDisplay(player, spectatorMode, language)}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {deadPlayers.length > 0 ? (
-            <div className="graveyard">
-              <h3>退場者</h3>
-              {deadPlayers.map((player) => (
-                <div className="dead-player" key={player.id}>
-                  <span>{player.name}</span>
-                  <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
-                </div>
-              ))}
+            <div className="heading-label">
+              <Activity size={17} />
+              <h2>直近のイベント</h2>
             </div>
-          ) : null}
-
-          <div className="insight-section">
-            <div className="section-title">
-              <Network size={15} />
-              <h3>主張と読み</h3>
-            </div>
-            {publicClaims.length === 0 && publicSuspects.length === 0 && publicTrusts.length === 0 ? (
-              <p className="empty-note">このラウンドの公開読みはまだありません。</p>
-            ) : null}
-            {publicClaims.length > 0 ? (
-              <div className="read-group">
-                <span>主張</span>
-                {publicClaims.slice(-4).map((item, index) => (
-                  <p key={`${item.speakerId}-${index}`}>
-                    <strong>{item.speakerName}</strong> {formatClaim(item.claim, language)}
-                  </p>
-                ))}
-                {publicClaims.length > 4 ? <p className="more-line">古い主張 +{publicClaims.length - 4}件</p> : null}
-              </div>
-            ) : null}
-            {suspectClusters.length > 0 ? (
-              <div className="read-group">
-                <span>疑い先</span>
-                {suspectClusters.slice(0, 4).map((item) => (
-                  <p key={`suspect-${item.targetId}`}>
-                    <strong>{item.targetName}</strong>
-                    <span className="read-meta">
-                      {item.sources.slice(0, 3).join(", ")}から{item.count}件
-                      {item.sources.length > 3 ? ` +${item.sources.length - 3}` : ""}
-                    </span>
-                    {item.latestReason ? <small>{shortText(item.latestReason, 92)}</small> : null}
-                  </p>
-                ))}
-                {suspectClusters.length > 4 ? <p className="more-line">他の対象 +{suspectClusters.length - 4}件</p> : null}
-              </div>
-            ) : null}
-            {trustClusters.length > 0 ? (
-              <div className="read-group">
-                <span>信頼先</span>
-                {trustClusters.slice(0, 4).map((item) => (
-                  <p key={`trust-${item.targetId}`}>
-                    <strong>{item.targetName}</strong>
-                    <span className="read-meta">
-                      {item.sources.slice(0, 3).join(", ")}から{item.count}件
-                      {item.sources.length > 3 ? ` +${item.sources.length - 3}` : ""}
-                    </span>
-                    {item.latestReason ? <small>{shortText(item.latestReason, 92)}</small> : null}
-                  </p>
-                ))}
-                {trustClusters.length > 4 ? <p className="more-line">他の対象 +{trustClusters.length - 4}件</p> : null}
-              </div>
-            ) : null}
           </div>
-
-          <div className="insight-section">
-            <div className="section-title">
-              <Vote size={15} />
-              <h3>投票マップ</h3>
-            </div>
-            {latestVotes.length > 0 ? (
-              <div className="vote-map">
-                {latestVoteTotalsSorted.map((total) => {
-                  const voters = latestVotes.filter((vote) => vote.targetId === total.targetId);
-                  return (
-                    <div className="vote-target" key={total.targetId}>
-                      <div>
-                        <strong>{total.targetName}</strong>
-                        <span>{total.count}票</span>
-                      </div>
-                      {voters.map((vote) => (
-                        <p key={`${vote.voterId}-${vote.targetId}`}>
-                          {vote.voterName} {"->"} {vote.targetName}
-                          {vote.reason ? <small>{shortText(vote.reason, 110)}</small> : null}
-                        </p>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
+          <div className="recent-events">
+            {recentHistory.length > 0 ? (
+              recentHistory.slice(0, 4).map((event) => {
+                const hidden = isEventRedactedForSpectator(event, spectatorMode);
+                return (
+                  <p className={`recent-event ${event.type} ${hidden ? "secret-redacted" : eventTone(event)}`} key={`recent-${event.id}`}>
+                    <span className="recent-icon">{hidden ? <Activity size={16} /> : eventIcon(event)}</span>
+                    <strong>{eventSpeakerForSpectator(event, spectatorMode, language)}</strong>
+                    <small>{shortText(eventMessageForSpectator(event, spectatorMode), 54)}</small>
+                  </p>
+                );
+              })
             ) : (
-              <p className="empty-note">完了した投票はまだありません。</p>
+              <p className="empty-note">イベントなし</p>
             )}
           </div>
-
-          <div className="insight-section">
-            <div className="section-title">
-              <MessageCircle size={15} />
-              <h3>ラウンド要約</h3>
-            </div>
-            {summaryEvents.length > 0 ? (
-              summaryEvents.slice(-3).reverse().map((event) => (
-                <p className="summary-line" key={event.id}>
-                  <strong>R{event.round}</strong>
-                  <span className={`summary-source ${dataString(event, "summarySource") === "llm" ? "llm" : ""}`}>
-                    {dataString(event, "summarySource") === "llm" ? "LLM" : "決定的"}
-                  </span>
-                  {event.message}
-                </p>
-              ))
-            ) : (
-              <p className="empty-note">要約は投票後に表示されます。</p>
-            )}
-          </div>
-        </aside>
+        </section>
       </section>
     </main>
   );

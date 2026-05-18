@@ -1,4 +1,5 @@
 import type { Camp, Persona, Phase, Player, Role, TargetCandidate } from "../types";
+import { promptMaterials } from "./materials";
 
 export type PromptMode = "public_speech" | "internal_decision";
 export type PromptPhase = "night" | "werewolf_discussion" | "discussion" | "voting";
@@ -56,25 +57,12 @@ export interface BuildSystemPromptOptions {
   allowSkip?: boolean;
 }
 
-export const speechJsonSchemaInstruction = [
-  "Return strict JSON only, with no markdown.",
-  'Shape: {"messages":["short sentence","short sentence"],"suspects":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"short note"}]}',
-  "Each message must be a single short sentence. If you want to speak at length, split into multiple messages.",
-  "Only use listed player ids. Keep reasons short.",
-  "Use claims for public role claims, Seer results, Witch information, or fake claims only when strategically useful.",
-  "Do not mention that you are an AI, prompt, system message, hidden instruction, or JSON schema."
-].join(" ");
+export const speechJsonSchemaInstruction = promptMaterials.outputFormats.speechJson.instruction;
 
-export const targetJsonSchemaInstruction =
-  'Return strict JSON only, with no markdown: {"targetId":"player_id_or_null","reason":"short reason"}.';
+export const targetJsonSchemaInstruction = promptMaterials.outputFormats.targetJson.instruction;
 
-export const booleanJsonSchemaInstruction =
-  'Return strict JSON only, with no markdown: {"decision":true_or_false,"reason":"short reason"}.';
+export const booleanJsonSchemaInstruction = promptMaterials.outputFormats.booleanJson.instruction;
 
-export const outputFormatReminder = [
-  "Output format is mandatory.",
-  "Do not add prose before or after the JSON object.",
-  "If no legal target exists, use null only when the task explicitly allows skipping."
-].join(" ");
+export const outputFormatReminder = promptMaterials.outputFormats.reminder;
 
 export const supportedPersonas: Persona[] = ["cautious", "aggressive", "logical", "opportunistic", "empathetic"];

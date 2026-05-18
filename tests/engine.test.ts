@@ -315,6 +315,39 @@ test("Japanese demo first-day speech stays tentative and question-led", async ()
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
+test("Japanese demo speech is split into short sentence messages", async () => {
+  const originalRandom = Math.random;
+  Math.random = () => 0.4;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new DemoAgent("demo", "demo", "Japanese");
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "昼議論で発言してください。",
+      context: "Round: 1\n公開議論です。",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.ok(speech.messages.length > 1);
+    assert.ok(speech.messages.length <= 3);
+    for (const message of speech.messages) {
+      assert.ok(message.length <= 150);
+      assert.ok((message.match(/[。！？!?]/g)?.length ?? 0) <= 1);
+    }
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
 test("Japanese demo werewolf does not fake a black Seer result on quiet first day", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Werewolf" }]);
@@ -427,6 +460,49 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
   assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "カズ scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
+});
+
+test("split speech emits one event per message and records metadata once", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      targets: ["p2"],
+      speeches: [
+        {
+          messages: ["First short line.", "Second short line."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "late stance", weight: 0.6 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  const events = await collect(game.runDay());
+  const speechEvents = events.filter((event) => event.type === "player_speech" && event.playerId === players[0].id);
+
+  assert.deepEqual(
+    speechEvents.map((event) => event.message),
+    ["First short line.", "Second short line."]
+  );
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.speechIndex),
+    [0, 1]
+  );
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.speechCount),
+    [2, 2]
+  );
+  assert.equal((speechEvents[0].data?.suspects as unknown[]).length, 0);
+  assert.equal((speechEvents[1].data?.suspects as unknown[]).length, 1);
 });
 
 test("round summary carries claims, reads, and votes in deterministic data", async () => {
@@ -974,6 +1050,154 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
   } finally {
     globalThis.fetch = originalFetch;
     Math.random = originalRandom;
+  }
+});
+
+test("LLM speech messages are filtered, clamped, and capped", async () => {
+  const originalFetch = globalThis.fetch;
+  const longMessage = "x".repeat(180);
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: [longMessage, "   ", "Second short line.", "Third short line.", "Fourth short line."],
+              suspects: [{ targetId: "p2", reason: "late stance", weight: 0.6 }]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(speech.messages.length, 3);
+    assert.equal(speech.messages[0].length, 150);
+    assert.ok(speech.messages[0].endsWith("..."));
+    assert.deepEqual(speech.messages.slice(1), ["Second short line.", "Third short line."]);
+    assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM speech messages are auto-split into short sentence events", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["First short line. Second short line.", "Third short line. Fourth short line."],
+              trusts: [{ targetId: "p2", reason: "clear stance", weight: 0.5 }]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(speech.messages, ["First short line.", "Second short line.", "Third short line."]);
+    assert.equal(speech.metadata.trusts[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM speech JSON without messages uses fallback speech", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              suspects: [{ targetId: "p2", reason: "late stance", weight: 0.6 }]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(speech.messages.length, 1);
+    assert.doesNotMatch(speech.messages[0], /suspects|targetId/i);
+    assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

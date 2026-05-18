@@ -11,6 +11,7 @@ import type {
   Camp,
   ClaimMetadata,
   DebugScenario,
+  EventVisibility,
   GameConfig,
   GameEvent,
   GameSnapshot,
@@ -38,6 +39,29 @@ interface DiscussionRecord {
   playerName: string;
   message: string;
   metadata: SpeechMetadata;
+}
+
+function speechEventData(
+  speech: AgentSpeech,
+  message: string,
+  index: number,
+  visibility?: EventVisibility
+): Record<string, unknown> & { visibility?: EventVisibility } {
+  return {
+    ...(visibility ? { visibility } : {}),
+    speech: message,
+    speechIndex: index,
+    speechCount: speech.messages.length,
+    ...(index === speech.messages.length - 1 ? speech.metadata : emptySpeechMetadata())
+  };
+}
+
+function emptySpeechMetadata(): SpeechMetadata {
+  return {
+    suspects: [],
+    trusts: [],
+    claims: []
+  };
 }
 
 function roleCamp(role: Role): Camp {
@@ -362,8 +386,8 @@ export class WerewolfGame {
           context
         );
         this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
-        for (const message of speech.messages) {
-          yield this.emit("player_speech", message, { visibility: "werewolf", speech: message, ...speech.metadata }, wolf);
+        for (const [index, message] of speech.messages.entries()) {
+          yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
         }
       }
     }
@@ -688,8 +712,8 @@ export class WerewolfGame {
         message: speech.messages.join(" "),
         metadata: speech.metadata
       });
-      for (const message of speech.messages) {
-        yield this.emit("player_speech", message, { speech: message, ...speech.metadata }, player);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit("player_speech", message, speechEventData(speech, message, index), player);
       }
     }
 
