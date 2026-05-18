@@ -834,7 +834,7 @@ input[type="range"] {
   position: relative;
   z-index: 2;
   display: grid;
-  width: min(64%, 690px);
+  width: min(80%, 860px);
   max-height: calc(100% - 98px);
   align-content: start;
   gap: 14px;
@@ -843,7 +843,7 @@ input[type="range"] {
 }
 
 .story-hero:has(.hero-character) .story-copy {
-  width: min(49%, 520px);
+  width: min(62%, 680px);
 }
 
 .event-meta {
