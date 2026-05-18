@@ -20,7 +20,6 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   assert.match(html, /必ず起こしたいイベント/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
-  assert.match(html, /主張と読み/);
   assert.match(html, /info-bar-btn/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);

@@ -1020,44 +1020,6 @@ export function App() {
               </div>
             </>
           ) : null}
-
-          <div className="insight-section">
-            <div className="section-title">
-              <Network size={16} />
-              <h3>主張と読み（最新）</h3>
-              <span>{publicClaims.length + publicSuspects.length + publicTrusts.length}件</span>
-            </div>
-            {publicClaims.length === 0 && publicSuspects.length === 0 && publicTrusts.length === 0 ? (
-              <p className="empty-note">公開情報なし</p>
-            ) : (
-              <div className="mini-feed">
-                {publicClaims.slice(-3).reverse().map((item, index) => (
-                  <p key={`claim-${item.speakerId}-${index}`}>
-                    <img src={getCharacterImage(item.speakerId) ?? defaultCharacterImages[0]} alt="" />
-                    <strong>{item.speakerName}</strong>
-                    <span className="claim-tag">主張</span>
-                    <small>{shortText(formatClaim(item.claim, language), 46)}</small>
-                  </p>
-                ))}
-                {publicSuspects.slice(-3).reverse().map((item, index) => (
-                  <p key={`suspect-read-${item.sourceId}-${index}`}>
-                    <img src={getCharacterImage(item.sourceId) ?? defaultCharacterImages[1]} alt="" />
-                    <strong>{item.sourceName}</strong>
-                    <span className="read-tag">読み</span>
-                    <small>{shortText(`${item.targetName}が怪しい。${item.reason ?? ""}`, 52)}</small>
-                  </p>
-                ))}
-                {publicTrusts.slice(-2).reverse().map((item, index) => (
-                  <p key={`trust-read-${item.sourceId}-${index}`}>
-                    <img src={getCharacterImage(item.sourceId) ?? defaultCharacterImages[2]} alt="" />
-                    <strong>{item.sourceName}</strong>
-                    <span className="trust-tag">信頼</span>
-                    <small>{shortText(`${item.targetName}を信頼。${item.reason ?? ""}`, 52)}</small>
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
         </aside>
 
         <section className="story-column">
