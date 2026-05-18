@@ -2,8 +2,8 @@ import {
   Activity,
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  ChevronsRight,
   CircleDot,
   Crosshair,
   Eye,
@@ -22,7 +22,6 @@ import {
   Square,
   Sun,
   UserRound,
-  Users,
   Vote
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -367,13 +366,6 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest("button, input, select, textarea, [contenteditable='true']"));
 }
 
-export function storyRevealAllStatus(lastType: GameEvent["type"], streamRunning: boolean, streamDone: boolean): string {
-  if (lastType === "game_ended") {
-    return "完了";
-  }
-  return streamRunning || !streamDone ? "生成中" : "表示完了";
-}
-
 export function storyRunControlState(gameStarted: boolean, paused: boolean): {
   pauseLabel: "一時停止" | "再開";
   pauseDisabled: boolean;
@@ -384,6 +376,13 @@ export function storyRunControlState(gameStarted: boolean, paused: boolean): {
     pauseDisabled: !gameStarted,
     resetVisible: gameStarted && paused
   };
+}
+
+export function winnerLabelForRoster(winner: string | null | undefined, language = defaultLanguage): string | null {
+  if (!winner) {
+    return null;
+  }
+  return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${campLabel(winner, language)}`;
 }
 
 export function App() {
@@ -402,6 +401,7 @@ export function App() {
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
+  const revealFirstEventRef = useRef(false);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -506,6 +506,7 @@ export function App() {
     .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
     .slice(0, 2);
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
+  const winnerRosterText = winnerLabelForRoster(snapshot?.winner, language);
 
   function setGameStatus(nextStatus: string) {
     if (pausedRef.current) {
@@ -513,6 +514,25 @@ export function App() {
       return;
     }
     setStatus(nextStatus);
+  }
+
+  function statusForVisibleStory(lastEvent: GameEvent | undefined, remainingCount: number): string {
+    if (!lastEvent) {
+      if (remainingCount > 0) {
+        return running ? "生成中" : "進行中";
+      }
+      if (running) {
+        return "生成中";
+      }
+      return sourceDone ? "表示完了" : "待機中";
+    }
+    if (lastEvent.type === "game_ended") {
+      return "完了";
+    }
+    if (sourceDone && remainingCount === 0) {
+      return "表示完了";
+    }
+    return running ? "生成中" : "進行中";
   }
 
   function updateDebugScenario(nextScenario: DebugScenario) {
@@ -548,9 +568,10 @@ export function App() {
     setStatus(statusBeforePauseRef.current);
   }
 
-  function startGame() {
+  function startGame(options: { revealFirstEvent?: boolean } = {}) {
     closeGameStream();
     pausedRef.current = false;
+    revealFirstEventRef.current = Boolean(options.revealFirstEvent);
     setPaused(false);
     setEvents([]);
     queuedRef.current = [];
@@ -580,12 +601,22 @@ export function App() {
 
     source.addEventListener("game", (message) => {
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
+      if (revealFirstEventRef.current) {
+        revealFirstEventRef.current = false;
+        if (!pausedRef.current) {
+          setEvents([event]);
+          setSnapshot(event.snapshot);
+          setGameStatus(event.type === "game_ended" ? "完了" : "生成中");
+          return;
+        }
+      }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
     });
 
     source.addEventListener("done", () => {
+      revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
       setGameStatus("生成完了");
@@ -593,6 +624,7 @@ export function App() {
     });
 
     source.addEventListener("error", (message) => {
+      revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
       setGameStatus("エラー");
@@ -637,29 +669,26 @@ export function App() {
     setQueuedEvents(remaining);
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
-    if (next.type === "game_ended") {
-      setGameStatus("完了");
-    } else if (sourceDone && remaining.length === 0) {
-      setGameStatus("表示完了");
-    } else {
-      setGameStatus(running ? "生成中" : "進行中");
-    }
+    setGameStatus(statusForVisibleStory(next, remaining.length));
   }
 
-  function revealAll() {
+  function retreatStory() {
     if (paused) {
       return;
     }
-    const current = queuedRef.current;
-    if (current.length === 0) {
+    const restored = events.at(-1);
+    if (!restored) {
       return;
     }
-    const last = current[current.length - 1];
-    queuedRef.current = [];
-    setQueuedEvents([]);
-    setEvents((visible) => [...visible, ...current]);
-    setSnapshot(last.snapshot);
-    setGameStatus(storyRevealAllStatus(last.type, running, sourceDone));
+    const previousEvents = events.slice(0, -1);
+    const nextQueue = [restored, ...queuedRef.current];
+    const previousEvent = previousEvents.at(-1);
+
+    queuedRef.current = nextQueue;
+    setQueuedEvents(nextQueue);
+    setEvents(previousEvents);
+    setSnapshot(previousEvent?.snapshot ?? null);
+    setGameStatus(statusForVisibleStory(previousEvent, nextQueue.length));
   }
 
   function advanceStory() {
@@ -671,7 +700,7 @@ export function App() {
       return;
     }
     if (!running && events.length === 0) {
-      startGame();
+      startGame({ revealFirstEvent: true });
     }
   }
 
@@ -690,13 +719,20 @@ export function App() {
         event.ctrlKey ||
         event.altKey ||
         event.shiftKey ||
-        (event.key !== "Enter" && event.key !== "ArrowRight") ||
+        (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
         isEditableShortcutTarget(event.target)
       ) {
         return;
       }
 
-      const canAdvance = !paused && (queuedRef.current.length > 0 || (!running && events.length === 0));
+      const isBackKey = event.key === "ArrowLeft";
+      const canRetreat = !paused && events.length > 0;
+      const canAdvance = !paused && !isBackKey && (queuedRef.current.length > 0 || (!running && events.length === 0));
+      if (isBackKey && canRetreat) {
+        event.preventDefault();
+        retreatStory();
+        return;
+      }
       if (!canAdvance) {
         return;
       }
@@ -768,8 +804,8 @@ export function App() {
     );
   }
 
-  const storyButtonLabel = events.length === 0 && queuedEvents.length === 0 ? "開始" : "次へ";
-  const storyButtonDisabled = paused || (queuedEvents.length === 0 && (running || events.length > 0));
+  const storyBackDisabled = paused || events.length === 0;
+  const storyNextDisabled = paused || (queuedEvents.length === 0 && (running || events.length > 0));
   const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
   const runControlState = storyRunControlState(gameStarted, paused);
 
@@ -789,7 +825,7 @@ export function App() {
         {runControlState.resetVisible ? (
           <button
             className="icon-button story-run-button story-reset-button"
-            onClick={startGame}
+            onClick={() => startGame({ revealFirstEvent: true })}
             title="ゲームをリセットして最初から開始"
             type="button"
           >
@@ -900,34 +936,18 @@ export function App() {
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
         <aside className="panel intelligence-panel">
-          <div className="panel-heading">
-            <div className="heading-label">
-              <Users size={18} />
-              <h2>プレイヤー・インテリジェンス</h2>
-            </div>
-          </div>
-
-          <div className="roster-summary" aria-label="対局サマリー">
-            <div>
-              <Users size={16} />
-              <span>生存</span>
-              <strong>
-                {snapshot?.aliveCount ?? 0} / {effectivePlayerCount}
-              </strong>
-            </div>
-            <div>
-              <Shield size={16} />
-              <span>勝者</span>
-              <strong>{campLabel(snapshot?.winner, language)}</strong>
-            </div>
-          </div>
-
           <div className="player-section-title">
             <span>生存プレイヤー（{alivePlayers.length}人）</span>
             <ChevronDown size={16} />
           </div>
 
           <div className="roster">
+            {winnerRosterText ? (
+              <div className="winner-row" role="status">
+                <Shield size={16} />
+                <strong>{winnerRosterText}</strong>
+              </div>
+            ) : null}
             {alivePlayers.length > 0 ? (
               alivePlayers.map((player) => (
                 <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""}`} key={player.id}>
@@ -1080,13 +1100,19 @@ export function App() {
                       </div>
 
                       <div className="story-controls">
-                        <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
-                          <span>{storyButtonLabel}</span>
-                          <ChevronRight size={20} />
+                        <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                          <ChevronLeft size={20} />
+                          <span className="story-button-label">
+                            <span>戻る</span>
+                            <kbd>←</kbd>
+                          </span>
                         </button>
-                        <button className="icon-button story-read-all" disabled={paused || queuedEvents.length === 0} onClick={revealAll} type="button">
-                          <span>一気に読む</span>
-                          <ChevronsRight size={19} />
+                        <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                          <span className="story-button-label">
+                            <span>次へ</span>
+                            <kbd>Enter / →</kbd>
+                          </span>
+                          <ChevronRight size={20} />
                         </button>
                         {renderRunControls()}
                         <span className="queue-count">
@@ -1133,13 +1159,19 @@ export function App() {
                     {renderSetupControls()}
                   </div>
                   <div className="story-controls">
-                    <button className="icon-button primary story-next" disabled={storyButtonDisabled} onClick={advanceStory} type="button">
-                      <span>{storyButtonLabel}</span>
-                      <ChevronRight size={20} />
+                    <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                      <ChevronLeft size={20} />
+                      <span className="story-button-label">
+                        <span>戻る</span>
+                        <kbd>←</kbd>
+                      </span>
                     </button>
-                    <button className="icon-button story-read-all" disabled={paused || queuedEvents.length === 0} onClick={revealAll} type="button">
-                      <span>一気に読む</span>
-                      <ChevronsRight size={19} />
+                    <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                      <span className="story-button-label">
+                        <span>次へ</span>
+                        <kbd>Enter / →</kbd>
+                      </span>
+                      <ChevronRight size={20} />
                     </button>
                     {renderRunControls()}
                     <span className="queue-count">

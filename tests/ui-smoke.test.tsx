@@ -8,8 +8,8 @@ import {
   eventMessageForSpectator,
   eventSpeakerForSpectator,
   heroCastForStage,
-  storyRevealAllStatus,
-  storyRunControlState
+  storyRunControlState,
+  winnerLabelForRoster
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 
@@ -24,8 +24,14 @@ test("app shell renders spectator controls and insight panels", () => {
   assert.match(html, /投票マップ/);
   assert.match(html, /ラウンド要約/);
   assert.match(html, /story-run-controls/);
+  assert.match(html, /戻る/);
+  assert.match(html, /次へ/);
   assert.match(html, /一時停止/);
   assert.doesNotMatch(html, /topbar-actions/);
+  assert.doesNotMatch(html, /プレイヤー・インテリジェンス/);
+  assert.doesNotMatch(html, /roster-summary/);
+  assert.doesNotMatch(html, /対局サマリー/);
+  assert.doesNotMatch(html, /一気に読む/);
   assert.doesNotMatch(html, /ゲームをリセット/);
   assert.doesNotMatch(html, />停止</);
   assert.doesNotMatch(html, /言語/);
@@ -35,6 +41,12 @@ test("app shell renders spectator controls and insight panels", () => {
   assert.doesNotMatch(html, /進行方式/);
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
+});
+
+test("winner label appears only when a winner exists", () => {
+  assert.equal(winnerLabelForRoster(null, "Japanese"), null);
+  assert.equal(winnerLabelForRoster("village", "Japanese"), "勝者: 人間側");
+  assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
 });
 
 test("hero cast mirrors selected and active player counts", () => {
@@ -95,6 +107,8 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*14px/s);
+  assert.match(css, /\.story-back,\s*\.story-next\s*\{[^}]*min-width:\s*128px/s);
+  assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
 });
@@ -104,13 +118,25 @@ test("story can advance from keyboard shortcuts outside form controls", () => {
 
   assert.match(source, /event\.key !== "Enter"/);
   assert.match(source, /event\.key !== "ArrowRight"/);
+  assert.match(source, /event\.key !== "ArrowLeft"/);
+  assert.match(source, /retreatStory\(\)/);
   assert.match(source, /isEditableShortcutTarget/);
 });
 
-test("reveal all keeps generating status while stream is still open", () => {
-  assert.equal(storyRevealAllStatus("player_speech", true, false), "生成中");
-  assert.equal(storyRevealAllStatus("player_speech", false, true), "表示完了");
-  assert.equal(storyRevealAllStatus("game_ended", true, false), "完了");
+test("story controls expose back and next without read-all", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function retreatStory/);
+  assert.doesNotMatch(source, /function revealAll/);
+  assert.doesNotMatch(source, /story-read-all/);
+});
+
+test("first next click starts the game and reveals the first streamed event", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const revealFirstEventRef = useRef\(false\)/);
+  assert.match(source, /startGame\(\{ revealFirstEvent: true \}\)/);
+  assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
 test("village spectator history redacts secret event messages and speakers", () => {
