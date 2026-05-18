@@ -938,7 +938,7 @@ export function App() {
         <nav className="info-bar" aria-label="情報パネル切替">
           <button className={`info-bar-btn ${activeOverlay === "vote" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "vote" ? null : "vote")} type="button">
             <Vote size={16} />
-            <span>投票</span>
+            <span>投票結果</span>
           </button>
           <button className={`info-bar-btn ${activeOverlay === "history" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "history" ? null : "history")} type="button">
             <History size={16} />
