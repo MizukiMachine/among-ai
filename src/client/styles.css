@@ -785,7 +785,7 @@ input[type="range"] {
   bottom: 14%;
   z-index: -1;
   display: flex;
-  max-width: min(64%, 760px);
+  max-width: min(70%, 940px);
   align-items: end;
   justify-content: end;
   gap: 6px;
@@ -793,8 +793,8 @@ input[type="range"] {
 }
 
 .hero-cast img {
-  width: 74px;
-  height: 118px;
+  width: 92px;
+  height: 148px;
   border-radius: 8px;
   object-fit: cover;
   object-position: top center;
@@ -802,13 +802,13 @@ input[type="range"] {
 }
 
 .hero-cast.cast-medium img {
-  width: 64px;
-  height: 102px;
+  width: 80px;
+  height: 128px;
 }
 
 .hero-cast.cast-large img {
-  width: 56px;
-  height: 90px;
+  width: 70px;
+  height: 112px;
 }
 
 .hero-cast img.fallen {
