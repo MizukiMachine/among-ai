@@ -4,62 +4,56 @@ import { promptMaterials } from "./prompts/materials";
 // Output-only audit list; prompts may mention these terms as examples of wording to avoid.
 export const awkwardJapaneseOutputTerms = ["位置", "盤面", "処理枠", "処理", "圧", "落とす", "落として", "陣営の軸"];
 
-// Simplified Chinese characters and word patterns that should never appear in Japanese output.
-// These are common Chinese-only vocabulary items that LLMs occasionally mix into Japanese text.
+// Chinese-specific word patterns that should never appear in Japanese output.
+// Only includes patterns using simplified Chinese characters (简体字) that have
+// distinct Japanese equivalents, or Chinese-exclusive compound words.
+// Words that are identical in both Japanese and Chinese (e.g. 可能, 分析, 自己, 非常)
+// are intentionally excluded to avoid false positives.
 const chineseVocabularyPatterns: RegExp[] = [
-  /观望/,    // watch/observe (Chinese) - should be 様子を見る/傍観
-  /确实/,    // indeed (Chinese)
-  /应该/,    // should (Chinese)
-  /觉得/,    // feel/think (Chinese)
-  /知道/,    // know (Chinese)
-  /认为/,    // think/consider (Chinese)
-  /可能/,    // maybe (Chinese)
-  /但是/,    // but (Chinese)
-  /因为/,    // because (Chinese)
-  /所以/,    // therefore (Chinese)
-  /这个/,    // this (Chinese)
-  /那个/,    // that (Chinese)
-  /什么/,    // what (Chinese)
-  /怎么/,    // how (Chinese)
-  /已经/,    // already (Chinese)
-  /可以/,    // can (Chinese)
-  /需要/,    // need (Chinese)
-  /没有/,    // not have (Chinese)
-  /我们/,    // we (Chinese)
-  /他们/,    // they (Chinese)
-  /自己/,    // oneself (Chinese)
-  /如果/,    // if (Chinese)
-  /虽然/,    // although (Chinese)
-  /或者/,    // or (Chinese)
-  /还是/,    // still/or (Chinese)
-  /然后/,    // then (Chinese)
-  /非常/,    // very (Chinese)
-  /其实/,    // actually (Chinese)
-  /比较/,    // relatively (Chinese)
-  /感觉/,    // feel (Chinese)
-  /选择/,    // choose (Chinese)
-  /作为/,    // as (Chinese)
-  /为了/,    // in order to (Chinese)
-  /关于/,    // about (Chinese)
-  /通过/,    // through (Chinese)
-  /进行/,    // conduct (Chinese)
-  /分析/,    // analyze (Chinese)
-  /表现/,    // perform/show (Chinese)
-  /逻辑/,    // logic (Chinese)
-  /视角/,    // perspective (Chinese)
-  /情况/,    // situation (Chinese)
-  /发言者/,  // speaker (Chinese)
-  /明显/,    // obvious (Chinese)
-  /明显地/,  // obviously (Chinese)
-  /目前/,    // currently (Chinese)
-  /似乎/,    // seems (Chinese)
-  /看起来/,  // looks like (Chinese)
-  /问题/,    // problem (Chinese)
-  /来说/,    // for (Chinese)
-  /的话/,    // if (Chinese)
-  /大家/,    // everyone (Chinese)
-  /相信/,    // believe (Chinese)
-  /怀疑/,    // suspect (Chinese)
+  /观望/,    // Chinese: 様子を見る/傍観
+  /确实/,    // Chinese (简): 確実に
+  /应该/,    // Chinese (简): ～すべき
+  /觉得/,    // Chinese (简): ～と思う
+  /认为/,    // Chinese (简): ～と考える
+  /但是/,    // Chinese: しかし
+  /因为/,    // Chinese: なぜなら
+  /所以/,    // Chinese: だから
+  /这个/,    // Chinese (简): この
+  /那个/,    // Chinese (简): その/あの
+  /什么/,    // Chinese (简): 何
+  /怎么/,    // Chinese (简): どう
+  /已经/,    // Chinese: もう/すでに
+  /可以/,    // Chinese: できる
+  /没有/,    // Chinese (简): ～がない
+  /我们/,    // Chinese: 私たち
+  /他们/,    // Chinese (简): 彼ら
+  /如果/,    // Chinese: もし
+  /虽然/,    // Chinese: けれども
+  /或者/,    // Chinese: または
+  /还是/,    // Chinese: ～それとも
+  /然后/,    // Chinese: それから
+  /其实/,    // Chinese: 実は
+  /比较/,    // Chinese: 比較的
+  /感觉/,    // Chinese (简): 感じる
+  /选择/,    // Chinese (简): 選ぶ
+  /作为/,    // Chinese: ～として
+  /为了/,    // Chinese: ～のために
+  /关于/,    // Chinese (简): ～について
+  /通过/,    // Chinese (简): ～を通じて
+  /进行/,    // Chinese (简): 行う
+  /表现/,    // Chinese (简): 表れる
+  /逻辑/,    // Chinese (简): 論理
+  /视角/,    // Chinese (简): 視点
+  /情况/,    // Chinese (简): 状況
+  /发言者/,  // Chinese (简): 発言者
+  /明显/,    // Chinese (简): 明らか
+  /明显地/,  // Chinese (简): 明らかに
+  /似乎/,    // Chinese: ～のようだ
+  /看起来/,  // Chinese: ～に見える
+  /来说/,    // Chinese: ～について言えば
+  /的话/,    // Chinese: ～なら
+  /相信/,    // Chinese: 信じる
+  /怀疑/,    // Chinese (简): 疑う
 ];
 
 export function containsChineseVocabulary(text: string): boolean {
