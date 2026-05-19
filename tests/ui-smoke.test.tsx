@@ -13,16 +13,14 @@ import {
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 
-test("app shell renders spectator controls and insight panels", () => {
+test("app shell renders spectator controls and info overlay buttons", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /Among AI/);
   assert.match(html, /必ず起こしたいイベント/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
-  assert.match(html, /主張と読み/);
-  assert.match(html, /投票マップ/);
-  assert.match(html, /ラウンド要約/);
+  assert.match(html, /info-bar-btn/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
@@ -41,6 +39,7 @@ test("app shell renders spectator controls and insight panels", () => {
   assert.doesNotMatch(html, /進行方式/);
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
+  assert.doesNotMatch(html, /insight-grid/);
 });
 
 test("winner label appears only when a winner exists", () => {
@@ -91,7 +90,7 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(css, /@media \(max-width: 980px\)/);
-  assert.match(css, /\.workspace,\s*\.insight-grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
+  assert.match(css, /\.workspace\s*\{[^}]*grid-template-columns:\s*1fr/s);
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.story-column\s*\{[^}]*order:\s*1/s);
   assert.match(css, /\.controls-panel\s*\{[^}]*order:\s*3/s);

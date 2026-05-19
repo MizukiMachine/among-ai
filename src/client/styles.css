@@ -39,12 +39,12 @@ input:disabled {
 
 .app-shell {
   display: flex;
-  width: min(100%, 1720px);
+  width: min(96%, 2400px);
   min-height: 100vh;
   flex-direction: column;
   gap: 10px;
   margin: 0 auto;
-  padding: 0 16px 16px;
+  padding: 0 20px 20px;
 }
 
 .topbar {
@@ -52,10 +52,10 @@ input:disabled {
   top: 0;
   z-index: 20;
   display: grid;
-  min-height: 86px;
+  min-height: 92px;
   align-items: center;
   gap: 12px;
-  grid-template-columns: minmax(210px, 280px) minmax(420px, 620px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 300px) minmax(420px, 620px) minmax(0, 1fr);
   margin: 0;
   border-bottom: 1px solid rgba(16, 24, 40, 0.12);
   background: rgba(255, 255, 255, 0.92);
@@ -72,8 +72,8 @@ input:disabled {
 }
 
 .brand-mark {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   flex: 0 0 auto;
   background:
     radial-gradient(circle at 67% 33%, #d9fbe8 0 4px, transparent 5px),
@@ -85,7 +85,7 @@ input:disabled {
 .topbar h1 {
   margin: 0;
   color: #111827;
-  font-size: 31px;
+  font-size: 34px;
   font-weight: 760;
   line-height: 1.04;
   letter-spacing: 0;
@@ -139,7 +139,7 @@ input:disabled {
 .status-item {
   display: grid;
   min-width: 0;
-  min-height: 58px;
+  min-height: 62px;
   align-items: center;
   gap: 2px 9px;
   grid-template-columns: 22px minmax(0, 1fr);
@@ -168,7 +168,7 @@ input:disabled {
   min-width: 0;
   overflow: hidden;
   color: #111827;
-  font-size: 18px;
+  font-size: 19px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -177,16 +177,20 @@ input:disabled {
 .workspace {
   display: grid;
   width: 100%;
+  flex: 1;
   min-height: 0;
+  max-height: calc(100vh - 200px);
   align-self: stretch;
   gap: 12px;
-  grid-template-columns: minmax(248px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
 }
 
 .story-column {
-  display: grid;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  align-content: start;
+  min-height: 0;
   gap: 10px;
 }
 
@@ -203,7 +207,7 @@ input:disabled {
 
 .panel-heading {
   display: flex;
-  min-height: 54px;
+  min-height: 58px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -227,7 +231,7 @@ input:disabled {
   margin: 0;
   overflow: hidden;
   color: #111827;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0;
   text-overflow: ellipsis;
@@ -274,7 +278,7 @@ input:disabled {
   border-bottom: 1px solid #edf0f3;
   padding: 12px 18px 10px;
   color: #111827;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -320,10 +324,10 @@ input:disabled {
 .player-card {
   display: grid;
   min-width: 0;
-  min-height: 56px;
+  min-height: 62px;
   align-items: center;
   gap: 10px;
-  grid-template-columns: 46px minmax(0, 1fr) 30px;
+  grid-template-columns: 50px minmax(0, 1fr) 30px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: #ffffff;
@@ -338,8 +342,8 @@ input:disabled {
 }
 
 .player-avatar {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border: 1px solid #dce4eb;
   border-radius: 8px;
   background: #f2f4f7;
@@ -375,7 +379,7 @@ input:disabled {
 .player-name-row strong {
   overflow: hidden;
   color: #111827;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 820;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -715,7 +719,7 @@ input[type="range"] {
 }
 
 .story-panel {
-  height: clamp(620px, calc(100vh - 104px), 760px);
+  flex: 1;
   min-height: 620px;
 }
 
@@ -738,7 +742,7 @@ input[type="range"] {
   isolation: isolate;
   min-height: 100%;
   background:
-    linear-gradient(90deg, rgba(3, 10, 17, 0.95) 0%, rgba(5, 15, 23, 0.86) 42%, rgba(6, 19, 24, 0.3) 100%),
+    linear-gradient(90deg, rgba(3, 10, 17, 0.95) 0%, rgba(5, 15, 23, 0.88) 38%, rgba(6, 19, 24, 0.5) 70%, rgba(6, 19, 24, 0.3) 100%),
     #101820;
 }
 
@@ -781,7 +785,7 @@ input[type="range"] {
   bottom: 14%;
   z-index: -1;
   display: flex;
-  max-width: min(64%, 760px);
+  max-width: min(70%, 940px);
   align-items: end;
   justify-content: end;
   gap: 6px;
@@ -789,8 +793,8 @@ input[type="range"] {
 }
 
 .hero-cast img {
-  width: 74px;
-  height: 118px;
+  width: 92px;
+  height: 148px;
   border-radius: 8px;
   object-fit: cover;
   object-position: top center;
@@ -798,13 +802,13 @@ input[type="range"] {
 }
 
 .hero-cast.cast-medium img {
-  width: 64px;
-  height: 102px;
+  width: 80px;
+  height: 128px;
 }
 
 .hero-cast.cast-large img {
-  width: 56px;
-  height: 90px;
+  width: 70px;
+  height: 112px;
 }
 
 .hero-cast img.fallen {
@@ -821,9 +825,9 @@ input[type="range"] {
   z-index: 1;
   width: auto;
   height: 100%;
-  max-width: 66%;
-  object-fit: contain;
-  object-position: bottom center;
+  max-width: 48%;
+  object-fit: cover;
+  object-position: 30% 100%;
   mix-blend-mode: multiply;
   transform: none;
   filter: brightness(2.05) saturate(1.18) contrast(1.04) drop-shadow(0 18px 36px rgba(0, 0, 0, 0.44));
@@ -833,7 +837,7 @@ input[type="range"] {
   position: relative;
   z-index: 2;
   display: grid;
-  width: min(64%, 690px);
+  width: min(85%, 1000px);
   max-height: calc(100% - 98px);
   align-content: start;
   gap: 14px;
@@ -842,7 +846,7 @@ input[type="range"] {
 }
 
 .story-hero:has(.hero-character) .story-copy {
-  width: min(49%, 520px);
+  width: min(75%, 900px);
 }
 
 .event-meta {
@@ -877,7 +881,7 @@ input[type="range"] {
   align-items: center;
   gap: 12px;
   color: #ffffff;
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 850;
   line-height: 1.2;
 }
@@ -925,7 +929,7 @@ input[type="range"] {
   overflow: hidden;
   color: #ffffff;
   font-family: Georgia, "Yu Mincho", "Hiragino Mincho ProN", serif;
-  font-size: 31px;
+  font-size: 34px;
   font-weight: 760;
   line-height: 1.48;
   overflow-wrap: anywhere;
@@ -936,8 +940,9 @@ input[type="range"] {
 
 .event-details {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   margin-top: 4px;
 }
 
@@ -1361,16 +1366,136 @@ input[type="range"] {
   font-weight: 760;
 }
 
-.insight-grid {
-  display: grid;
-  width: 100%;
-  align-self: stretch;
-  gap: 12px;
-  grid-template-columns: minmax(280px, 1.18fr) minmax(240px, 0.88fr) minmax(240px, 0.88fr) minmax(260px, 1fr);
+.info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
-.dashboard-card {
-  min-height: 222px;
+.info-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #dfe5ec;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #475467;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.info-bar-btn:hover {
+  border-color: #079455;
+  color: #079455;
+  background: #f0fdf4;
+}
+
+.info-bar-btn.active {
+  border-color: #079455;
+  background: linear-gradient(180deg, #0ca864, #07864d);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(7, 148, 85, 0.25);
+}
+
+.overlay-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 340px;
+  max-width: 420px;
+  max-height: calc(100% - 32px);
+  border: 1px solid rgba(55, 65, 81, 0.4);
+  border-radius: 8px;
+  background: linear-gradient(rgba(82, 92, 107, 0.94), rgba(55, 65, 81, 0.94));
+  box-shadow:
+    0 18px 44px rgba(16, 24, 40, 0.2),
+    0 1px 2px rgba(16, 24, 40, 0.1);
+  animation: overlay-in 0.2s ease-out;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 54px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 13px 18px;
+}
+
+.overlay-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.overlay-title svg {
+  color: #34d399;
+}
+
+.overlay-title h2 {
+  margin: 0;
+  color: #f1f5f9;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.overlay-title span {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.overlay-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.overlay-close:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.overlay-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.overlay-body .empty-note {
+  color: #64748b;
+}
+
+.overlay-body strong {
+  color: #e2e8f0;
+}
+
+.overlay-body small {
+  color: #94a3b8;
 }
 
 .empty-note,
@@ -1486,10 +1611,6 @@ input[type="range"] {
   color: #d92d20;
   font-size: 15px;
   font-weight: 900;
-}
-
-.summary-panel {
-  padding-bottom: 14px;
 }
 
 .summary-line.featured {
@@ -1667,11 +1788,12 @@ input[type="range"] {
   }
 
   .workspace {
-    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   }
 
-  .insight-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .info-bar-btn {
+    padding: 5px 8px;
+    font-size: 11px;
   }
 }
 
@@ -1701,9 +1823,17 @@ input[type="range"] {
     border-top: 1px solid #e4e8ee;
   }
 
-  .workspace,
-  .insight-grid {
+  .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .info-bar {
+    justify-content: flex-start;
   }
 
   .story-column {
@@ -1729,7 +1859,8 @@ input[type="range"] {
   }
 
   .story-panel {
-    height: 620px;
+    flex: 1;
+    min-height: 620px;
   }
 
   .story-copy {
@@ -1791,8 +1922,8 @@ input[type="range"] {
   }
 
   .story-panel {
-    height: 650px;
-    min-height: 650px;
+    flex: 1;
+    min-height: 620px;
   }
 
   .story-copy {
@@ -1805,12 +1936,12 @@ input[type="range"] {
   }
 
   .story-copy > p {
-    font-size: 27px;
+    font-size: 29px;
     line-height: 1.5;
   }
 
   .speaker-line {
-    font-size: 21px;
+    font-size: 23px;
   }
 
   .story-controls {

@@ -1,6 +1,7 @@
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { getCharacterProfile } from "./characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
+import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
 import { sample, shuffle } from "./random";
 import type {
@@ -755,7 +756,7 @@ export class WerewolfGame {
       );
       yield this.emit(
         "vote_cast",
-        this.text(`${voter.name} votes for ${target.name}. ${decision.reason}`, `${voter.name}が${target.name}に投票しました。${decision.reason}`),
+        this.text(`${voter.name} votes for ${target.name}.`, `${voter.name}が${target.name}に投票しました。`),
         { reason: decision.reason },
         voter,
         target
@@ -901,7 +902,25 @@ export class WerewolfGame {
       privateHistory: player.memories
     };
     try {
-      return await agent.speak(input);
+      const speech = await agent.speak(input);
+
+      const review = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
+      if (!review.ok) {
+        console.warn(
+          `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
+        );
+        const retry = await agent.speak(input);
+        const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
+        if (retryReview.ok) {
+          return retry;
+        }
+        console.warn(
+          `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
+        );
+        return retry;
+      }
+
+      return speech;
     } catch (error) {
       player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
       return fallbackAgent.speak(input);
