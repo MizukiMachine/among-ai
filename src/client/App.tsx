@@ -13,7 +13,6 @@ import {
   ListChecks,
   MessageCircle,
   Moon,
-  Network,
   Play,
   RotateCcw,
   Settings,
@@ -106,12 +105,6 @@ interface VoteTotal {
   targetId: string;
   targetName: string;
   count: number;
-}
-
-interface ClaimDetail {
-  speakerId: string;
-  speakerName: string;
-  claim: ClaimMetadata;
 }
 
 interface ReadDetail {
@@ -430,17 +423,6 @@ export function App() {
       ),
     [events, latestDiscussionRound]
   );
-  const publicClaims = useMemo<ClaimDetail[]>(
-    () =>
-      currentDaySpeeches.flatMap((event) =>
-        dataArray<ClaimMetadata>(event, "claims").map((claim) => ({
-          speakerId: event.playerId ?? "",
-          speakerName: event.playerName ?? "不明",
-          claim
-        }))
-      ),
-    [currentDaySpeeches]
-  );
   const publicSuspects = useMemo<ReadDetail[]>(
     () =>
       currentDaySpeeches.flatMap((event) =>
@@ -455,23 +437,7 @@ export function App() {
       ),
     [currentDaySpeeches]
   );
-  const publicTrusts = useMemo<ReadDetail[]>(
-    () =>
-      currentDaySpeeches.flatMap((event) =>
-        dataArray<PlayerReadMetadata>(event, "trusts").map((read) => ({
-          sourceId: event.playerId ?? "",
-          sourceName: event.playerName ?? "不明",
-          targetId: read.targetId,
-          targetName: read.targetName ?? read.targetId,
-          reason: read.reason,
-          weight: read.weight
-        }))
-      ),
-    [currentDaySpeeches]
-  );
   const suspectClusters = useMemo(() => clusterReads(publicSuspects), [publicSuspects]);
-  const trustClusters = useMemo(() => clusterReads(publicTrusts), [publicTrusts]);
-  const summaryEvents = useMemo(() => events.filter((event) => event.type === "round_summary"), [events]);
   const latestVoteResult = useMemo(
     () => latestEvent(events, (event) => event.type === "vote_result" && dataArray<VoteDetail>(event, "votes").length > 0),
     [events]
