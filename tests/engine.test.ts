@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundWithLlm } from "../src/game/agents";
 import { WerewolfGame } from "../src/game/engine";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
-import { redactEventForVillage } from "../src/game/redaction";
+import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
 import type {
   Agent,
   AgentSpeech,
@@ -190,6 +190,22 @@ test("role distribution includes required special roles and scales werewolves", 
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
+});
+
+test("configured human player is forced onto the village camp", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 9,
+    debugScenario: "hunter_shot",
+    humanPlayerId: "p1"
+  });
+  const run = game.run();
+  const first = await run.next();
+  await run.return(undefined);
+
+  const human = first.value?.snapshot.players.find((player) => player.id === "p1");
+  assert.equal(human?.camp, "village");
+  assert.notEqual(human?.role, "Werewolf");
 });
 
 test("Japanese demo agents produce Japanese speech", async () => {
@@ -876,6 +892,65 @@ test("village redaction helper strips private event and snapshot role data", asy
   assert.equal(redacted.snapshot.werewolfCount, null);
   assert.equal(redacted.snapshot.villageCount, null);
   assert.ok(redacted.snapshot.players.every((player) => player.role === "Hidden" && player.camp === "hidden"));
+});
+
+test("player redaction reveals only the human player's role and private info", () => {
+  const snapshot = {
+    round: 1,
+    phase: "seer_action" as const,
+    winner: null,
+    players: [
+      {
+        id: "p1",
+        name: "カズ",
+        role: "Werewolf" as const,
+        camp: "werewolf" as const,
+        persona: "cautious" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p3",
+        name: "ミオ",
+        role: "Seer" as const,
+        camp: "village" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "human",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 2,
+    werewolfCount: 1,
+    villageCount: 1
+  };
+  const event: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-21T00:00:00.000Z",
+    round: 1,
+    phase: "seer_action",
+    type: "private_info",
+    message: "ミオはカズが狼陣営だと知りました。",
+    playerId: "p3",
+    playerName: "ミオ",
+    role: "Seer",
+    targetId: "p1",
+    targetName: "カズ",
+    data: { visibility: "private", visibleTo: "p3", action: "seer_check", result: "werewolf" },
+    snapshot
+  };
+
+  const humanView = redactEventForPlayer(event, "p3");
+  assert.equal(humanView.message, event.message);
+  assert.equal(humanView.data.result, "werewolf");
+  assert.equal(humanView.snapshot.players.find((player) => player.id === "p3")?.role, "Seer");
+  assert.equal(humanView.snapshot.players.find((player) => player.id === "p1")?.role, "Hidden");
+  assert.equal(humanView.snapshot.werewolfCount, null);
+
+  const otherView = redactEventForPlayer(event, "p2");
+  assert.equal(otherView.data.redacted, true);
+  assert.equal(otherView.playerId, undefined);
 });
 
 test("hunter gets one death shot after vote elimination", async () => {

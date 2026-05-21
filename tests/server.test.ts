@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp, parseStreamOptions } from "../src/server/app";
+import { HumanInputSession } from "../src/server/humanSessions";
 import type { GameEvent } from "../src/game/types";
 
 interface SseFrame {
@@ -41,6 +42,41 @@ test("stream options default to LLM provider and LLM summaries", () => {
   assert.equal(options.provider, "llm");
   assert.equal(options.summaryMode, "llm");
   assert.notEqual(options.model, "demo");
+});
+
+test("stream options accept a human player and player view", () => {
+  const options = parseStreamOptions(
+    new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&scenario=hunter_shot")
+  );
+
+  assert.equal(options.humanPlayerId, "p3");
+  assert.equal(options.view, "player");
+  assert.equal(options.debugScenario, "none");
+});
+
+test("human input session rejects responses that do not match the pending request", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const requestPromise = session.request({
+    kind: "target",
+    playerId: "p1",
+    playerName: "カズ",
+    phase: "voting",
+    role: "Villager",
+    action: "投票",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    candidates: [{ id: "p2", name: "カイ" }],
+    allowSkip: false
+  });
+
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { speech: "wrong shape" }), { ok: false, error: "invalid_input" });
+  assert.deepEqual(session.submit(requestId, { targetId: "p3" }), { ok: false, error: "invalid_input" });
+  assert.deepEqual(session.submit(requestId, { targetId: "p2", reason: "  盤面から判断  " }), { ok: true });
+  assert.deepEqual(await requestPromise, { targetId: "p2", reason: "盤面から判断" });
+  session.close();
 });
 
 test("village stream payload is redacted on the server before SSE delivery", async () => {
