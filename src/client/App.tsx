@@ -1,14 +1,17 @@
 import {
   Activity,
   AlertTriangle,
+  Bot,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Check,
   CircleDot,
   Crosshair,
   Eye,
   EyeOff,
   FlaskConical,
+  Gamepad2,
   History,
   ListChecks,
   MessageCircle,
@@ -20,6 +23,7 @@ import {
   Skull,
   Square,
   Sun,
+  Send,
   UserRound,
   Vote,
   X
@@ -32,6 +36,7 @@ import type {
   DebugScenario,
   GameEvent,
   GameSnapshot,
+  HumanInputRequest,
   PlayerReadMetadata,
   PlayerSnapshot,
   Role
@@ -51,6 +56,14 @@ const characterImageMap: Record<string, string> = {
 
 const defaultCharacterImages = Object.values(characterImageMap);
 const villageRedactedMessage = "人間視点では非公開情報です。";
+const characterNames = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
+
+interface StreamSystemPayload {
+  gameId?: string | null;
+  humanPlayerId?: string | null;
+  message?: string;
+  view?: SpectatorMode;
+}
 
 interface HeroCastItem {
   id: string;
@@ -61,6 +74,16 @@ interface HeroCastItem {
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
   return characterImageMap[playerId] ?? null;
+}
+
+function playerIndexFromId(playerId: string): number {
+  const match = playerId.match(/^p([1-9]\d*)$/);
+  return match ? Number(match[1]) - 1 : -1;
+}
+
+function characterName(playerId: string): string {
+  const index = playerIndexFromId(playerId);
+  return characterNames[index] ?? playerId;
 }
 
 export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
@@ -201,6 +224,12 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
 }
 
+function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, humanPlayerId: string): string {
+  const role = String(player.role);
+  const roleVisible = mode === "omniscient" || (mode === "player" && player.id === humanPlayerId && role !== "Hidden");
+  return roleVisible ? roleClassName(role) : "role-hidden";
+}
+
 function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
   const value = event?.data?.[key];
   return Array.isArray(value) ? (value as T[]) : [];
@@ -246,6 +275,9 @@ function shortText(text: string, maxLength: number): string {
 }
 
 export function isEventRedactedForSpectator(event: GameEvent, mode: SpectatorMode): boolean {
+  if (event.data?.redacted === true) {
+    return true;
+  }
   return mode === "village" && isSecretEvent(event);
 }
 
@@ -382,6 +414,8 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
+  const [humanEnabled, setHumanEnabled] = useState(false);
+  const [humanPlayerId, setHumanPlayerId] = useState("p1");
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
@@ -392,6 +426,13 @@ export function App() {
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const [activeOverlay, setActiveOverlay] = useState<"vote" | "history" | "recent" | null>(null);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
+  const [humanSpeech, setHumanSpeech] = useState("");
+  const [humanReason, setHumanReason] = useState("");
+  const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
+  const [humanSubmitting, setHumanSubmitting] = useState(false);
+  const [humanInputError, setHumanInputError] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
@@ -452,6 +493,10 @@ export function App() {
   const recentHistory = events.slice(-6).reverse();
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
+  const humanPlayerOptions = useMemo(
+    () => characterNames.slice(0, effectivePlayerCount).map((name, index) => ({ id: `p${index + 1}`, name })),
+    [effectivePlayerCount]
+  );
   const allPlayers = snapshot?.players ?? [];
   const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
   const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
@@ -475,6 +520,7 @@ export function App() {
     .slice(0, 2);
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winner, language);
+  const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
 
   function setGameStatus(nextStatus: string) {
     if (pausedRef.current) {
@@ -504,12 +550,39 @@ export function App() {
   }
 
   function updateDebugScenario(nextScenario: DebugScenario) {
+    if (humanEnabled) {
+      setDebugScenario("none");
+      return;
+    }
     setDebugScenario(nextScenario);
     setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
   }
 
   function updatePlayerCount(nextCount: number) {
-    setPlayerCount(Math.max(nextCount, scenarioMinimumPlayerCount));
+    const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
+    setPlayerCount(normalized);
+    if (playerIndexFromId(humanPlayerId) >= normalized) {
+      setHumanPlayerId(`p${normalized}`);
+    }
+  }
+
+  function updateHumanEnabled(nextEnabled: boolean) {
+    setHumanEnabled(nextEnabled);
+    if (nextEnabled) {
+      setDebugScenario("none");
+      setSpectatorMode("player");
+    } else {
+      setSpectatorMode("omniscient");
+    }
+  }
+
+  function resetHumanInputState() {
+    setPendingHumanInput(null);
+    setHumanSpeech("");
+    setHumanReason("");
+    setHumanTargetId(null);
+    setHumanSubmitting(false);
+    setHumanInputError("");
   }
 
   function closeGameStream() {
@@ -540,30 +613,41 @@ export function App() {
     closeGameStream();
     pausedRef.current = false;
     revealFirstEventRef.current = Boolean(options.revealFirstEvent);
+    resetHumanInputState();
     setPaused(false);
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
+    setGameId(null);
     setSourceDone(false);
     setRunning(true);
     statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
 
+    const streamView = humanEnabled ? "player" : spectatorMode;
     const params = new URLSearchParams({
       players: String(effectivePlayerCount),
       provider: "llm",
       summary: "llm",
-      scenario: debugScenario,
-      view: spectatorMode,
+      scenario: humanEnabled ? "none" : debugScenario,
+      view: streamView,
       speed: "0",
       language
     });
+    if (humanEnabled) {
+      params.set("human", humanPlayerId);
+    }
 
     const source = new EventSource(`/api/games/stream?${params.toString()}`);
     sourceRef.current = source;
 
-    source.addEventListener("system", () => {
+    source.addEventListener("system", (message) => {
+      const payload = JSON.parse((message as MessageEvent).data) as StreamSystemPayload;
+      setGameId(payload.gameId ?? null);
+      if (payload.humanPlayerId) {
+        setHumanPlayerId(payload.humanPlayerId);
+      }
       setGameStatus("生成中");
     });
 
@@ -581,6 +665,16 @@ export function App() {
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
+    });
+
+    source.addEventListener("human_input", (message) => {
+      const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
+      setPendingHumanInput(request);
+      setHumanSpeech("");
+      setHumanReason("");
+      setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
+      setHumanInputError("");
+      setGameStatus(queuedRef.current.length > 0 ? "入力待ちあり" : "入力待ち");
     });
 
     source.addEventListener("done", () => {
@@ -679,6 +773,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (pendingHumanInput && queuedEvents.length === 0 && !paused) {
+      setStatus("入力待ち");
+    }
+  }, [pendingHumanInput, paused, queuedEvents.length]);
+
+  useEffect(() => {
     function handleStoryShortcut(event: KeyboardEvent) {
       if (
         event.defaultPrevented ||
@@ -711,6 +811,191 @@ export function App() {
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
   }, [events.length, paused, running]);
+
+  async function submitHumanInput(payload: {
+    speech?: string;
+    targetId?: string | null;
+    reason?: string;
+    decision?: boolean;
+  }) {
+    if (!gameId || !pendingHumanInput || humanSubmitting) {
+      return;
+    }
+
+    setHumanSubmitting(true);
+    setHumanInputError("");
+    try {
+      const response = await fetch(`/api/games/${gameId}/input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestId: pendingHumanInput.id,
+          ...payload
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      resetHumanInputState();
+      setGameStatus("生成中");
+    } catch (error) {
+      setHumanInputError(error instanceof Error ? error.message : String(error));
+      setHumanSubmitting(false);
+    }
+  }
+
+  function renderHumanContextLines(title: string, lines: string[]) {
+    if (lines.length === 0) {
+      return null;
+    }
+    return (
+      <div className="human-context-section">
+        <span>{title}</span>
+        <ul>
+          {lines.map((line, index) => (
+            <li key={`${title}-${index}`}>{line}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  function renderHumanContext(prompt: HumanInputRequest) {
+    const { notes, privateHistory, publicHistory } = prompt.context;
+    const hasContext = notes.length > 0 || privateHistory.length > 0 || publicHistory.length > 0;
+    if (!hasContext) {
+      return null;
+    }
+
+    return (
+      <details className="human-context">
+        <summary>状況</summary>
+        <div className="human-context-body">
+          {renderHumanContextLines("今回の判断材料", notes)}
+          {renderHumanContextLines("自分だけの情報", privateHistory)}
+          {renderHumanContextLines("公開ログ", publicHistory)}
+        </div>
+      </details>
+    );
+  }
+
+  function renderHumanInputPanel(prompt: HumanInputRequest | null) {
+    if (!prompt) {
+      return null;
+    }
+
+    const role = displayRoleLabel(prompt.role, language);
+    const title = prompt.kind === "speech" ? "発言" : prompt.kind === "target" ? prompt.action : prompt.question;
+    const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
+
+    return (
+      <section className="human-input-panel" aria-label="操作入力">
+        <div className="human-input-header">
+          <div>
+            <span>{prompt.playerName}</span>
+            <strong>{title}</strong>
+          </div>
+          <small>{role}</small>
+        </div>
+
+        {renderHumanContext(prompt)}
+
+        {prompt.kind === "speech" ? (
+          <div className="human-speech-form">
+            <textarea
+              value={humanSpeech}
+              onChange={(event) => setHumanSpeech(event.target.value)}
+              maxLength={240}
+              placeholder="発言を入力"
+              rows={3}
+            />
+            <button
+              className="icon-button primary"
+              disabled={humanSubmitting || humanSpeech.trim().length === 0}
+              onClick={() => submitHumanInput({ speech: humanSpeech })}
+              type="button"
+            >
+              <Send size={16} />
+              <span>発言する</span>
+            </button>
+          </div>
+        ) : null}
+
+        {prompt.kind === "target" ? (
+          <div className="human-target-form">
+            <div className="human-target-grid">
+              {prompt.candidates.map((candidate) => (
+                <button
+                  className={humanTargetId === candidate.id ? "selected" : ""}
+                  key={candidate.id}
+                  onClick={() => setHumanTargetId(candidate.id)}
+                  type="button"
+                >
+                  {getCharacterImage(candidate.id) ? <img src={getCharacterImage(candidate.id) ?? ""} alt="" /> : <UserRound size={18} />}
+                  <span>{candidate.name}</span>
+                </button>
+              ))}
+            </div>
+            <input
+              value={humanReason}
+              onChange={(event) => setHumanReason(event.target.value)}
+              maxLength={120}
+              placeholder="理由"
+            />
+            <div className="human-action-row">
+              {prompt.allowSkip ? (
+                <button
+                  className="icon-button"
+                  disabled={humanSubmitting}
+                  onClick={() => submitHumanInput({ targetId: null, reason: humanReason })}
+                  type="button"
+                >
+                  <X size={16} />
+                  <span>見送る</span>
+                </button>
+              ) : null}
+              <button
+                className="icon-button primary"
+                disabled={humanSubmitting || !selectedTarget}
+                onClick={() => submitHumanInput({ targetId: humanTargetId, reason: humanReason })}
+                type="button"
+              >
+                <Check size={16} />
+                <span>{selectedTarget ? `${selectedTarget.name}を選ぶ` : "選ぶ"}</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {prompt.kind === "boolean" ? (
+          <div className="human-action-row human-boolean-row">
+            <button
+              className="icon-button"
+              disabled={humanSubmitting}
+              onClick={() => submitHumanInput({ decision: false })}
+              type="button"
+            >
+              <X size={16} />
+              <span>使わない</span>
+            </button>
+            <button
+              className="icon-button primary"
+              disabled={humanSubmitting}
+              onClick={() => submitHumanInput({ decision: true })}
+              type="button"
+            >
+              <Check size={16} />
+              <span>使う</span>
+            </button>
+          </div>
+        ) : null}
+
+        {humanInputError ? <p className="human-input-error">送信できませんでした: {humanInputError}</p> : null}
+      </section>
+    );
+  }
 
   function renderEventDetails(event: GameEvent, hidden: boolean) {
     const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
@@ -819,6 +1104,43 @@ export function App() {
         </div>
 
         <div className="setup-grid">
+          <div className="field setup-field participant-field">
+            <span>参加方式</span>
+            <div className="segments participant-mode">
+              <button
+                className={!humanEnabled ? "selected" : ""}
+                onClick={() => updateHumanEnabled(false)}
+                type="button"
+              >
+                <Bot size={15} />
+                AI観戦
+              </button>
+              <button
+                className={humanEnabled ? "selected" : ""}
+                onClick={() => updateHumanEnabled(true)}
+                type="button"
+              >
+                <Gamepad2 size={15} />
+                自分で参加
+              </button>
+            </div>
+            {humanEnabled ? (
+              <div className="human-seat-grid" aria-label="操作キャラクター">
+                {humanPlayerOptions.map((player) => (
+                  <button
+                    className={humanPlayerId === player.id ? "selected" : ""}
+                    key={player.id}
+                    onClick={() => setHumanPlayerId(player.id)}
+                    type="button"
+                  >
+                    {getCharacterImage(player.id) ? <img src={getCharacterImage(player.id) ?? ""} alt="" /> : <UserRound size={16} />}
+                    <span>{player.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <div className="field setup-field player-count-field">
             <span>人数</span>
             {scenarioMinimumPlayerCount > minPlayerCount ? (
@@ -859,14 +1181,16 @@ export function App() {
             </div>
           </div>
 
-          <label className="field setup-field scenario-field">
-            <span>必ず起こしたいイベント</span>
-            <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">ランダム（おすすめ）</option>
-              <option value="guard_success">護衛成功を再現</option>
-              <option value="hunter_shot">ハンター発砲を再現</option>
-            </select>
-          </label>
+          {!humanEnabled ? (
+            <label className="field setup-field scenario-field">
+              <span>必ず起こしたいイベント</span>
+              <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
+                <option value="none">ランダム（おすすめ）</option>
+                <option value="guard_success">護衛成功を再現</option>
+                <option value="hunter_shot">ハンター発砲を再現</option>
+              </select>
+            </label>
+          ) : null}
         </div>
       </div>
     );
@@ -946,7 +1270,7 @@ export function App() {
                       <strong>{player.name}</strong>
                       <span className="persona-pill">{personaLabel(player.persona, language)}</span>
                     </div>
-                    <span className={`role-chip ${spectatorMode === "omniscient" ? roleClassName(player.role) : "role-hidden"}`}>
+                    <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
                       {roleDisplay(player, spectatorMode, language)}
                     </span>
                   </div>
@@ -1044,6 +1368,7 @@ export function App() {
                         <p>{hidden ? villageRedactedMessage : formatMessage(currentEvent.message)}</p>
                         {renderEventDetails(currentEvent, hidden)}
                       </div>
+                      {renderHumanInputPanel(readyHumanInput)}
 
                       <div className="story-controls">
                         <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
@@ -1065,26 +1390,35 @@ export function App() {
                           <ListChecks size={17} />
                           未読 {queuedEvents.length}件
                         </span>
-                        <div className="view-toggle view-toggle-inline">
-                          <button
-                            className={spectatorMode === "omniscient" ? "selected" : ""}
-                            onClick={() => setSpectatorMode("omniscient")}
-                            type="button"
-                            title="すべての役職と非公開イベントを表示"
-                          >
-                            <Eye size={15} />
-                            全情報
-                          </button>
-                          <button
-                            className={spectatorMode === "village" ? "selected" : ""}
-                            onClick={() => setSpectatorMode("village")}
-                            type="button"
-                            title="役職と夜の非公開イベントを隠す"
-                          >
-                            <EyeOff size={15} />
-                            人間視点
-                          </button>
-                        </div>
+                        {humanEnabled ? (
+                          <div className="view-toggle view-toggle-inline player-view-lock">
+                            <button className="selected" type="button" title={`${characterName(humanPlayerId)}として表示`}>
+                              <Gamepad2 size={15} />
+                              自分視点
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="view-toggle view-toggle-inline">
+                            <button
+                              className={spectatorMode === "omniscient" ? "selected" : ""}
+                              onClick={() => setSpectatorMode("omniscient")}
+                              type="button"
+                              title="すべての役職と非公開イベントを表示"
+                            >
+                              <Eye size={15} />
+                              全情報
+                            </button>
+                            <button
+                              className={spectatorMode === "village" ? "selected" : ""}
+                              onClick={() => setSpectatorMode("village")}
+                              type="button"
+                              title="役職と夜の非公開イベントを隠す"
+                            >
+                              <EyeOff size={15} />
+                              人間視点
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </article>
                   );
@@ -1124,24 +1458,33 @@ export function App() {
                       <ListChecks size={17} />
                       未読 {queuedEvents.length}件
                     </span>
-                    <div className="view-toggle view-toggle-inline">
-                      <button
-                        className={spectatorMode === "omniscient" ? "selected" : ""}
-                        onClick={() => setSpectatorMode("omniscient")}
-                        type="button"
-                      >
-                        <Eye size={15} />
-                        全情報
-                      </button>
-                      <button
-                        className={spectatorMode === "village" ? "selected" : ""}
-                        onClick={() => setSpectatorMode("village")}
-                        type="button"
-                      >
-                        <EyeOff size={15} />
-                        人間視点
-                      </button>
-                    </div>
+                    {humanEnabled ? (
+                      <div className="view-toggle view-toggle-inline player-view-lock">
+                        <button className="selected" type="button">
+                          <Gamepad2 size={15} />
+                          自分視点
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="view-toggle view-toggle-inline">
+                        <button
+                          className={spectatorMode === "omniscient" ? "selected" : ""}
+                          onClick={() => setSpectatorMode("omniscient")}
+                          type="button"
+                        >
+                          <Eye size={15} />
+                          全情報
+                        </button>
+                        <button
+                          className={spectatorMode === "village" ? "selected" : ""}
+                          onClick={() => setSpectatorMode("village")}
+                          type="button"
+                        >
+                          <EyeOff size={15} />
+                          人間視点
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               )}

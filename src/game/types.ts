@@ -38,6 +38,7 @@ export type GameEventType =
 export type EventVisibility = "public" | "private" | "werewolf";
 export type SummaryMode = "deterministic" | "llm";
 export type DebugScenario = "none" | "guard_success" | "hunter_shot";
+export type HumanInputKind = "speech" | "target" | "boolean";
 
 export interface SeerClaimResult {
   targetId: string;
@@ -159,6 +160,7 @@ export interface GameConfig {
   maxRounds: number;
   summaryMode?: SummaryMode;
   debugScenario?: DebugScenario;
+  humanPlayerId?: string | null;
 }
 
 export interface TargetCandidate {
@@ -171,6 +173,7 @@ export interface AgentSpeechInput {
   phase: Phase;
   task: string;
   context: string;
+  uiContext?: string[];
   knownPlayers: TargetCandidate[];
   publicHistory: string[];
   privateHistory: string[];
@@ -181,8 +184,11 @@ export interface AgentTargetInput {
   phase: Phase;
   action: string;
   context: string;
+  uiContext?: string[];
   candidates: TargetCandidate[];
   allowSkip: boolean;
+  publicHistory?: string[];
+  privateHistory?: string[];
 }
 
 export interface AgentBooleanInput {
@@ -190,6 +196,9 @@ export interface AgentBooleanInput {
   phase: Phase;
   question: string;
   context: string;
+  uiContext?: string[];
+  publicHistory?: string[];
+  privateHistory?: string[];
 }
 
 export interface Agent {
@@ -198,6 +207,56 @@ export interface Agent {
   speak(input: AgentSpeechInput): Promise<AgentSpeech>;
   chooseTarget(input: AgentTargetInput): Promise<TargetDecision>;
   decide(input: AgentBooleanInput): Promise<boolean>;
+}
+
+export interface HumanInputRequestBase {
+  id: string;
+  kind: HumanInputKind;
+  playerId: string;
+  playerName: string;
+  phase: Phase;
+  role: Role;
+  context: HumanInputContext;
+}
+
+export interface HumanInputContext {
+  notes: string[];
+  publicHistory: string[];
+  privateHistory: string[];
+}
+
+export interface HumanSpeechInputRequest extends HumanInputRequestBase {
+  kind: "speech";
+  task: string;
+}
+
+export interface HumanTargetInputRequest extends HumanInputRequestBase {
+  kind: "target";
+  action: string;
+  candidates: TargetCandidate[];
+  allowSkip: boolean;
+}
+
+export interface HumanBooleanInputRequest extends HumanInputRequestBase {
+  kind: "boolean";
+  question: string;
+}
+
+export type HumanInputRequest = HumanSpeechInputRequest | HumanTargetInputRequest | HumanBooleanInputRequest;
+export type HumanInputRequestPayload =
+  | Omit<HumanSpeechInputRequest, "id">
+  | Omit<HumanTargetInputRequest, "id">
+  | Omit<HumanBooleanInputRequest, "id">;
+
+export interface HumanInputResponse {
+  speech?: string;
+  targetId?: string | null;
+  reason?: string;
+  decision?: boolean;
+}
+
+export interface HumanInputHandler {
+  request(input: HumanInputRequestPayload): Promise<HumanInputResponse>;
 }
 
 export interface VoteRecord {
