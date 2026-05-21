@@ -34,6 +34,7 @@ const personas: Persona[] = [
   "cautious", "aggressive", "logical", "opportunistic", "empathetic",
   "cautious", "logical", "aggressive", "empathetic"
 ];
+const dayDiscussionPasses = 2;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
@@ -44,6 +45,15 @@ interface DiscussionRecord {
   metadata: SpeechMetadata;
 }
 
+interface DiscussionReadDetail {
+  sourceId: string;
+  sourceName: string;
+  targetId: string;
+  targetName: string;
+  reason?: string;
+  weight?: number;
+}
+
 interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
 }
@@ -52,10 +62,12 @@ function speechEventData(
   speech: AgentSpeech,
   message: string,
   index: number,
-  visibility?: EventVisibility
+  visibility?: EventVisibility,
+  extra?: Record<string, unknown>
 ): Record<string, unknown> & { visibility?: EventVisibility } {
   return {
     ...(visibility ? { visibility } : {}),
+    ...(extra ?? {}),
     speech: message,
     speechIndex: index,
     speechCount: speech.messages.length,
@@ -755,27 +767,55 @@ export class WerewolfGame {
         : this.text(`Day ${this.round} begins. No one died last night.`, `第${this.round}昼が始まりました。昨夜は誰も死亡しませんでした。`)
     );
 
-    for (const player of this.alivePlayers()) {
-      const contextLines = [
-        deathNames.length > 0
-          ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
-          : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
-        this.text(
-          "Discuss suspicions, claims, or information with the whole table.",
-          "疑い、役職主張、情報を全体に向けて話してください。"
-        )
-      ];
-      const context = this.contextFor(player, contextLines);
-      const speech = await this.safeSpeak(player, this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。"), context, contextLines);
-      this.publicHistory.push(this.formatSpeechHistory(player, speech));
-      this.lastDiscussion.push({
-        playerId: player.id,
-        playerName: player.name,
-        message: speech.messages.join(" "),
-        metadata: speech.metadata
-      });
-      for (const [index, message] of speech.messages.entries()) {
-        yield this.emit("player_speech", message, speechEventData(speech, message, index), player);
+    for (let discussionPass = 1; discussionPass <= dayDiscussionPasses; discussionPass += 1) {
+      for (const player of this.alivePlayers()) {
+        const contextLines = [
+          deathNames.length > 0
+            ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
+            : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
+          this.text(
+            "Discuss suspicions, claims, or information with the whole table.",
+            "疑い、役職主張、情報を全体に向けて話してください。"
+          ),
+          this.text(
+            `Discussion pass ${discussionPass} of ${dayDiscussionPasses}.`,
+            `昼議論 ${discussionPass}巡目 / ${dayDiscussionPasses}巡。`
+          ),
+          discussionPass === 1
+            ? this.text(
+                "First pass: put one readable read, claim decision, or question on record so others can respond.",
+                "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つはっきり残してください。"
+              )
+            : this.text(
+                "Second pass: answer direct questions or suspicion aimed at you first, then update one read before voting.",
+                "2巡目: 自分への質問や疑いがあれば先に短く答え、その後に投票前の読みを一つ更新してください。"
+              )
+        ];
+        const context = this.contextFor(player, contextLines);
+        const speech = await this.safeSpeak(
+          player,
+          this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。"),
+          context,
+          contextLines
+        );
+        this.publicHistory.push(this.formatSpeechHistory(player, speech));
+        this.lastDiscussion.push({
+          playerId: player.id,
+          playerName: player.name,
+          message: speech.messages.join(" "),
+          metadata: speech.metadata
+        });
+        for (const [index, message] of speech.messages.entries()) {
+          yield this.emit(
+            "player_speech",
+            message,
+            speechEventData(speech, message, index, undefined, {
+              discussionPass,
+              discussionPasses: dayDiscussionPasses
+            }),
+            player
+          );
+        }
       }
     }
 
@@ -1235,24 +1275,23 @@ export class WerewolfGame {
     );
   }
 
-  private readDetails(kind: "suspects" | "trusts"): Array<{
-    sourceId: string;
-    sourceName: string;
-    targetId: string;
-    targetName: string;
-    reason?: string;
-    weight?: number;
-  }> {
-    return this.lastDiscussion.flatMap((record) =>
-      record.metadata[kind].map((read) => ({
-        sourceId: record.playerId,
-        sourceName: record.playerName,
-        targetId: read.targetId,
-        targetName: read.targetName ?? this.requirePlayer(read.targetId).name,
-        reason: read.reason,
-        weight: read.weight
-      }))
-    );
+  private readDetails(kind: "suspects" | "trusts"): DiscussionReadDetail[] {
+    const latestBySourceAndTarget = new Map<string, DiscussionReadDetail>();
+    for (const record of this.lastDiscussion) {
+      for (const read of record.metadata[kind]) {
+        const key = `${record.playerId}:${read.targetId}`;
+        latestBySourceAndTarget.delete(key);
+        latestBySourceAndTarget.set(key, {
+          sourceId: record.playerId,
+          sourceName: record.playerName,
+          targetId: read.targetId,
+          targetName: read.targetName ?? this.requirePlayer(read.targetId).name,
+          reason: read.reason,
+          weight: read.weight
+        });
+      }
+    }
+    return [...latestBySourceAndTarget.values()];
   }
 
   private voteDetails(votes: VoteRecord[]): Array<{

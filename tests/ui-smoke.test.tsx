@@ -5,6 +5,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   App,
+  clusterReads,
+  dedupeReadsBySourceTarget,
   eventMessageForSpectator,
   eventSpeakerForSpectator,
   heroCastForStage,
@@ -67,6 +69,28 @@ test("hero cast mirrors selected and active player counts", () => {
   assert.equal(cast.length, 9);
   assert.equal(cast.at(-1)?.id, "p9");
   assert.equal(cast.at(-1)?.alive, false);
+});
+
+test("read clusters count each source-target pair once", () => {
+  const reads = [
+    { sourceId: "p1", sourceName: "Ada", targetId: "p2", targetName: "Byron", reason: "first pass" },
+    { sourceId: "p3", sourceName: "Curie", targetId: "p2", targetName: "Byron", reason: "separate source" },
+    { sourceId: "p1", sourceName: "Ada", targetId: "p2", targetName: "Byron", reason: "second pass" }
+  ];
+
+  assert.deepEqual(dedupeReadsBySourceTarget(reads), [
+    { sourceId: "p3", sourceName: "Curie", targetId: "p2", targetName: "Byron", reason: "separate source" },
+    { sourceId: "p1", sourceName: "Ada", targetId: "p2", targetName: "Byron", reason: "second pass" }
+  ]);
+  assert.deepEqual(clusterReads(reads), [
+    {
+      targetId: "p2",
+      targetName: "Byron",
+      count: 2,
+      sources: ["Curie", "Ada"],
+      latestReason: "second pass"
+    }
+  ]);
 });
 
 test("story run controls switch between pause, resume, and reset", () => {

@@ -130,7 +130,7 @@ interface VoteTotal {
   count: number;
 }
 
-interface ReadDetail {
+export interface ReadDetail {
   sourceId: string;
   sourceName: string;
   targetId: string;
@@ -139,7 +139,7 @@ interface ReadDetail {
   weight?: number;
 }
 
-interface ReadCluster {
+export interface ReadCluster {
   targetId: string;
   targetName: string;
   count: number;
@@ -292,9 +292,19 @@ export function eventSpeakerForSpectator(event: GameEvent, mode: SpectatorMode, 
   return event.playerName ?? phaseLabel(event.phase, language);
 }
 
-function clusterReads(reads: ReadDetail[]): ReadCluster[] {
-  const clusters = new Map<string, ReadCluster>();
+export function dedupeReadsBySourceTarget(reads: ReadDetail[]): ReadDetail[] {
+  const latestBySourceAndTarget = new Map<string, ReadDetail>();
   for (const read of reads) {
+    const key = `${read.sourceId || read.sourceName}:${read.targetId}`;
+    latestBySourceAndTarget.delete(key);
+    latestBySourceAndTarget.set(key, read);
+  }
+  return [...latestBySourceAndTarget.values()];
+}
+
+export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
+  const clusters = new Map<string, ReadCluster>();
+  for (const read of dedupeReadsBySourceTarget(reads)) {
     const current = clusters.get(read.targetId) ?? {
       targetId: read.targetId,
       targetName: read.targetName,
@@ -465,8 +475,8 @@ export function App() {
     [events, latestDiscussionRound]
   );
   const publicSuspects = useMemo<ReadDetail[]>(
-    () =>
-      currentDaySpeeches.flatMap((event) =>
+    () => {
+      const reads = currentDaySpeeches.flatMap((event) =>
         dataArray<PlayerReadMetadata>(event, "suspects").map((read) => ({
           sourceId: event.playerId ?? "",
           sourceName: event.playerName ?? "不明",
@@ -475,7 +485,9 @@ export function App() {
           reason: read.reason,
           weight: read.weight
         }))
-      ),
+      );
+      return dedupeReadsBySourceTarget(reads);
+    },
     [currentDaySpeeches]
   );
   const suspectClusters = useMemo(() => clusterReads(publicSuspects), [publicSuspects]);

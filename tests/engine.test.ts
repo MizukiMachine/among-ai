@@ -8,6 +8,7 @@ import { redactEventForPlayer, redactEventForVillage } from "../src/game/redacti
 import type {
   Agent,
   AgentSpeech,
+  AgentSpeechInput,
   AgentTargetInput,
   Camp,
   GameConfig,
@@ -27,6 +28,7 @@ const baseConfig: GameConfig = {
 
 class ScriptedAgent implements Agent {
   readonly model = "scripted";
+  readonly speechInputs: AgentSpeechInput[] = [];
 
   constructor(
     readonly name: string,
@@ -35,7 +37,8 @@ class ScriptedAgent implements Agent {
     private readonly speeches: AgentSpeech[] = []
   ) {}
 
-  async speak(): Promise<AgentSpeech> {
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
     const scripted = this.speeches.shift();
     if (scripted) {
       return scripted;
@@ -518,6 +521,14 @@ test("split speech emits one event per message and records metadata once", async
             suspects: [{ targetId: "p2", targetName: "Byron", reason: "late stance", weight: 0.6 }],
             trusts: []
           }
+        },
+        {
+          messages: ["Reply line."],
+          metadata: {
+            claims: [],
+            suspects: [],
+            trusts: [{ targetId: "p3", targetName: "Curie", reason: "answered clearly", weight: 0.5 }]
+          }
         }
       ]
     },
@@ -530,21 +541,105 @@ test("split speech emits one event per message and records metadata once", async
 
   const events = await collect(game.runDay());
   const speechEvents = events.filter((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const firstPassEvents = speechEvents.filter((event) => event.data?.discussionPass === 1);
+  const secondPassEvents = speechEvents.filter((event) => event.data?.discussionPass === 2);
 
   assert.deepEqual(
-    speechEvents.map((event) => event.message),
+    firstPassEvents.map((event) => event.message),
     ["First short line.", "Second short line."]
   );
   assert.deepEqual(
-    speechEvents.map((event) => event.data?.speechIndex),
+    firstPassEvents.map((event) => event.data?.speechIndex),
     [0, 1]
   );
   assert.deepEqual(
-    speechEvents.map((event) => event.data?.speechCount),
+    firstPassEvents.map((event) => event.data?.speechCount),
     [2, 2]
   );
-  assert.equal((speechEvents[0].data?.suspects as unknown[]).length, 0);
-  assert.equal((speechEvents[1].data?.suspects as unknown[]).length, 1);
+  assert.equal((firstPassEvents[0].data?.suspects as unknown[]).length, 0);
+  assert.equal((firstPassEvents[1].data?.suspects as unknown[]).length, 1);
+  assert.deepEqual(secondPassEvents.map((event) => event.message), ["Reply line."]);
+  assert.equal((secondPassEvents[0].data?.trusts as unknown[]).length, 1);
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.discussionPass),
+    [1, 1, 2]
+  );
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.discussionPasses),
+    [2, 2, 2]
+  );
+});
+
+test("day discussion gives each living player a second response pass", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  const aliveIds = players.filter((player) => player.alive).map((player) => player.id);
+  const events = await collect(game.runDay());
+  const speechEvents = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+
+  assert.deepEqual(
+    speechEvents.filter((event) => event.data?.discussionPass === 1).map((event) => event.playerId),
+    aliveIds
+  );
+  assert.deepEqual(
+    speechEvents.filter((event) => event.data?.discussionPass === 2).map((event) => event.playerId),
+    aliveIds
+  );
+
+  const firstAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.equal(firstAgent.speechInputs.length, 2);
+  assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
+  assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
+  assert.match(firstAgent.speechInputs[1].context, /カイ speaks/);
+});
+
+test("round summary counts repeated reads from the same speaker once", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      targets: ["p2"],
+      speeches: [
+        {
+          messages: ["Byron needs pressure."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "first pass reason", weight: 0.5 }],
+            trusts: []
+          }
+        },
+        {
+          messages: ["Byron still needs pressure."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "second pass reason", weight: 0.7 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  const events = await collect(game.runDay());
+  const summary = events.find((event) => event.type === "round_summary");
+  const suspects = summary?.data?.suspects as Array<{ sourceId: string; targetId: string; reason?: string }> | undefined;
+
+  assert.deepEqual(suspects, [{ sourceId: players[0].id, sourceName: players[0].name, targetId: "p2", targetName: "Byron", reason: "second pass reason", weight: 0.7 }]);
+  assert.match(summary?.message ?? "", /Reads: suspects Byron; trusts none/);
+  assert.doesNotMatch(summary?.message ?? "", /Byron x2/);
 });
 
 test("day speech metadata ignores dead read targets", async () => {

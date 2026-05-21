@@ -154,6 +154,8 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /Never put JSON syntax/);
   assert.match(speech, /Public speech must not reveal/);
   assert.match(speech, /Legal living read target ids for suspects\/trusts/);
+  assert.match(speech, /two short table passes/);
+  assert.match(speech, /answer that before starting a new topic/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
   assert.match(target, /You must choose one listed target/);

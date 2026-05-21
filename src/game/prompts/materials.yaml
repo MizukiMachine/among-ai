@@ -1,5 +1,5 @@
 id: among_ai.game_prompt_materials
-version: 1
+version: 2
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
@@ -248,7 +248,9 @@ phases:
     publicSpeechBoundaryTitle: "Public speech boundary:"
     publicStatementGoalsTitle: "Public statement goals:"
     publicStatementGoals:
+      - Day discussion has two short table passes. The first pass opens reads and questions; the second pass answers pressure and updates reads before voting.
       - Say something other players can respond to.
+      - If someone asked you a direct question or turned suspicion toward you earlier today, answer that before starting a new topic.
       - Include a concrete suspicion, trust read, question, or claim decision.
       - Direct current suspicions, trust reads, and questions toward living players only.
       - Treat dead players as historical evidence, not as candidates to pressure today.
