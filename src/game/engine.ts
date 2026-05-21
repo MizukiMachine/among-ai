@@ -955,6 +955,7 @@ export class WerewolfGame {
 
   private async safeSpeak(player: Player, task: string, context: string, uiContext: string[] = []): Promise<AgentSpeech> {
     const agent = this.agents.get(player.id) ?? fallbackAgent;
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const input = {
       player,
       phase: this.phase,
@@ -962,11 +963,12 @@ export class WerewolfGame {
       context,
       uiContext,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
+      legalPlayers,
       publicHistory: this.publicHistory,
       privateHistory: player.memories
     };
     try {
-      const speech = await agent.speak(input);
+      const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
 
       if (agent.model === "human") {
         return speech;
@@ -977,7 +979,7 @@ export class WerewolfGame {
         console.warn(
           `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
         );
-        const retry = await agent.speak(input);
+        const retry = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
         const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
         if (retryReview.ok) {
           return retry;
@@ -991,8 +993,27 @@ export class WerewolfGame {
       return speech;
     } catch (error) {
       player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
-      return fallbackAgent.speak(input);
+      return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
     }
+  }
+
+  private speechLegalPlayers(player: Player): Player[] {
+    if (this.phase === "werewolf_discussion" && player.role === "Werewolf") {
+      return this.alivePlayers().filter((candidate) => candidate.camp !== "werewolf");
+    }
+    return this.alivePlayers().filter((candidate) => candidate.id !== player.id);
+  }
+
+  private sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech {
+    const legalIds = new Set(legalPlayers.map((candidate) => candidate.id));
+    return {
+      ...speech,
+      metadata: {
+        ...speech.metadata,
+        suspects: speech.metadata.suspects.filter((read) => legalIds.has(read.targetId)),
+        trusts: speech.metadata.trusts.filter((read) => legalIds.has(read.targetId))
+      }
+    };
   }
 
   private async safeChooseTarget(

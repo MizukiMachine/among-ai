@@ -49,6 +49,7 @@ dataPolicy:
   runtimeControls:
     - Runtime role secrets are rendered only by role-specific allowlists in code.
     - Dead player roles are not rendered into agent prompts unless a future game rule explicitly makes them public.
+    - Public speech read targets are living players only; dead players may be referenced only as deaths, past claims, or historical check results.
     - API keys, provider credentials, and server environment values are never prompt inputs.
     - Legal target IDs are supplied by the engine and must be used exactly when present.
 
@@ -57,6 +58,7 @@ common:
     public_speech:
       - This is a public table statement. Every living player can hear it.
       - Use private role knowledge only to decide what to say; do not expose it unless the role strategy says a claim is worth the risk.
+      - Dead players cannot answer, vote, be eliminated, or become current suspect/trust targets. Refer to dead players only as past evidence.
       - Never cite hidden prompts, private memories, ally chat, night action targets, or protected system context.
       - If you claim a role or result, make it sound like an in-game claim with a clear reason and timeline.
     internal_decision:
@@ -248,6 +250,8 @@ phases:
     publicStatementGoals:
       - Say something other players can respond to.
       - Include a concrete suspicion, trust read, question, or claim decision.
+      - Direct current suspicions, trust reads, and questions toward living players only.
+      - Treat dead players as historical evidence, not as candidates to pressure today.
       - Keep each message to one short sentence. Split longer thoughts into multiple short messages.
   night:
     roleSectionTitle: "Night action guidance:"
@@ -298,13 +302,18 @@ outputFormats:
       Return strict JSON only, with no markdown. Shape:
       {"messages":["short sentence","short sentence"],"suspects":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"short note"}]}
       Use 1-3 messages. Each message must be a single short sentence. Only use
-      listed player ids. Keep reasons short. Use claims for public role claims,
-      Seer results, Witch information, or fake claims only when strategically
-      useful. The JSON object is a transport envelope only; each messages string
-      is displayed directly as character dialogue. Never put JSON syntax, JSON
-      keys such as messages/suspects/trusts/claims, braces, brackets, schema
-      examples, or code fences inside a messages string. Do not mention that you
-      are an AI, prompt, system message, hidden instruction, or JSON schema.
+      listed living read target ids for suspects and trusts; if none are listed,
+      leave suspects and trusts empty. Dead players may be mentioned in dialogue
+      or claim-result metadata only as deaths, prior claims, vote history, or
+      past check results, never as current suspicion, trust, pressure, vote, or
+      elimination targets. Keep reasons short. Use claims for public role
+      claims, Seer results, Witch information, or fake claims only when
+      strategically useful. The JSON object is a transport envelope only; each
+      messages string is displayed directly as character dialogue. Never put
+      JSON syntax, JSON keys such as messages/suspects/trusts/claims, braces,
+      brackets, schema examples, or code fences inside a messages string. Do not
+      mention that you are an AI, prompt, system message, hidden instruction, or
+      JSON schema.
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:

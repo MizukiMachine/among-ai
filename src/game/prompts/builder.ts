@@ -141,6 +141,13 @@ function legalPlayerLine(players: TargetCandidate[] | undefined): string | null 
   return `Legal player ids: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`;
 }
 
+function legalReadTargetLine(players: TargetCandidate[] | undefined): string {
+  if (!players || players.length === 0) {
+    return "Legal living read target ids for suspects/trusts: none. Keep suspects and trusts empty.";
+  }
+  return `Legal living read target ids for suspects/trusts: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`;
+}
+
 export function getRoleStrategy(role: Role): string {
   return bulletList(getRolePromptProfile(role).roleStrategy);
 }
@@ -206,6 +213,12 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     deadPlayers.length > 0
       ? `Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
       : "Dead players: none.",
+    ...(mode === "public_speech"
+      ? [
+          `Current public read targets: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}.`,
+          "Dead players are historical evidence only, not current suspicion, trust, pressure, vote, or elimination targets."
+        ]
+      : []),
     "",
     "Role-visible private information:",
     ...roleVisiblePrivateInfo(player.role, secret, language),
@@ -280,7 +293,9 @@ function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, o
     lines.push("", "Public speech must not reveal:", bulletList(profile.publicSpeechMustNotReveal));
   }
 
-  if (legal) {
+  if (mode === "public_speech") {
+    lines.push("", legalReadTargetLine(options.legalPlayers));
+  } else if (legal) {
     lines.push("", legal);
   }
 

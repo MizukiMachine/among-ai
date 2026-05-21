@@ -45,6 +45,8 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.deepEqual(promptMaterialPlaceholders(), []);
   assert.deepEqual(Object.keys(promptMaterials.roles).sort(), ["Guard", "Hunter", "Seer", "Villager", "Werewolf", "Witch"]);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
+  assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
+  assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
 });
 
@@ -80,6 +82,7 @@ test("role prompts include phase strategy and public speech boundary", () => {
     assert.match(context, /Public discussion guidance:/);
     assert.match(context, /Public speech boundary:/);
     assert.match(context, /Role-visible private information:/);
+    assert.match(context, /Dead players are historical evidence only/);
     assert.doesNotMatch(context, /Edison \(Seer\)/);
   }
 });
@@ -150,6 +153,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /transport envelope only/);
   assert.match(speech, /Never put JSON syntax/);
   assert.match(speech, /Public speech must not reveal/);
+  assert.match(speech, /Legal living read target ids for suspects\/trusts/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
   assert.match(target, /You must choose one listed target/);

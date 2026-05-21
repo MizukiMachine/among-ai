@@ -175,6 +175,7 @@ export interface AgentSpeechInput {
   context: string;
   uiContext?: string[];
   knownPlayers: TargetCandidate[];
+  legalPlayers?: TargetCandidate[];
   publicHistory: string[];
   privateHistory: string[];
 }
