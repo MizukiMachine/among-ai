@@ -653,15 +653,23 @@ function normalizeClaim(value: unknown, candidates: TargetCandidate[]): ClaimMet
   };
 }
 
-function normalizeSpeechMetadata(parsed: Record<string, unknown>, candidates: TargetCandidate[]): SpeechMetadata {
+function normalizeSpeechMetadata(
+  parsed: Record<string, unknown>,
+  readCandidates: TargetCandidate[],
+  claimCandidates = readCandidates
+): SpeechMetadata {
   const suspects = Array.isArray(parsed.suspects)
-    ? parsed.suspects.map((item) => normalizeRead(item, candidates)).filter((item): item is PlayerReadMetadata => Boolean(item))
+    ? parsed.suspects
+        .map((item) => normalizeRead(item, readCandidates))
+        .filter((item): item is PlayerReadMetadata => Boolean(item))
     : [];
   const trusts = Array.isArray(parsed.trusts)
-    ? parsed.trusts.map((item) => normalizeRead(item, candidates)).filter((item): item is PlayerReadMetadata => Boolean(item))
+    ? parsed.trusts
+        .map((item) => normalizeRead(item, readCandidates))
+        .filter((item): item is PlayerReadMetadata => Boolean(item))
     : [];
   const claims = Array.isArray(parsed.claims)
-    ? parsed.claims.map((item) => normalizeClaim(item, candidates)).filter((item): item is ClaimMetadata => Boolean(item))
+    ? parsed.claims.map((item) => normalizeClaim(item, claimCandidates)).filter((item): item is ClaimMetadata => Boolean(item))
     : [];
 
   return {
@@ -671,7 +679,12 @@ function normalizeSpeechMetadata(parsed: Record<string, unknown>, candidates: Ta
   };
 }
 
-function parseSpeech(content: string, candidates: TargetCandidate[], fallback: string): AgentSpeech {
+function parseSpeech(
+  content: string,
+  readCandidates: TargetCandidate[],
+  fallback: string,
+  claimCandidates = readCandidates
+): AgentSpeech {
   const parsed = extractJsonObject(content);
   if (!parsed) {
     const recoveredMessages = isSpeechJsonLeak(content) ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback) : [];
@@ -693,7 +706,7 @@ function parseSpeech(content: string, candidates: TargetCandidate[], fallback: s
 
   return {
     messages: messages.length > 0 ? messages : [clampText(fallback, fallback)],
-    metadata: normalizeSpeechMetadata(parsed, candidates)
+    metadata: normalizeSpeechMetadata(parsed, readCandidates, claimCandidates)
   };
 }
 
@@ -866,7 +879,8 @@ function extractNamedPlayers(context: string, labels: string[], knownPlayers: Ta
 }
 
 function werewolfVictimCandidates(input: AgentSpeechInput): TargetCandidate[] {
-  const listedVictims = extractNamedPlayers(input.context, ["Possible victims", "襲撃候補"], input.knownPlayers);
+  const legalPlayers = input.legalPlayers ?? input.knownPlayers;
+  const listedVictims = extractNamedPlayers(input.context, ["Possible victims", "襲撃候補"], legalPlayers);
   if (listedVictims.length > 0) {
     return listedVictims;
   }
@@ -875,7 +889,7 @@ function werewolfVictimCandidates(input: AgentSpeechInput): TargetCandidate[] {
     extractNamedPlayers(input.context, ["Known werewolves", "把握している人狼"], input.knownPlayers).map((player) => player.id)
   );
   allies.add(input.player.id);
-  return input.knownPlayers.filter((candidate) => !allies.has(candidate.id));
+  return legalPlayers.filter((candidate) => !allies.has(candidate.id));
 }
 
 function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string): AgentSpeech {
@@ -1006,7 +1020,7 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
 function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech {
   const japanese = isJapaneseLanguage(language);
   const speechPool = japanese ? demoSpeechJa : demoSpeechEn;
-  const candidates = input.knownPlayers.filter((candidate) => candidate.id !== input.player.id);
+  const candidates = (input.legalPlayers ?? input.knownPlayers).filter((candidate) => candidate.id !== input.player.id);
 
   if (input.phase === "werewolf_discussion" && input.player.role === "Werewolf") {
     return buildDemoWerewolfDiscussion(input, language);
@@ -1310,11 +1324,12 @@ export class AnthropicAgent implements Agent {
   ) {}
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const legalPlayers = input.legalPlayers ?? input.knownPlayers;
     const system = buildSpeechSystemPrompt({
       player: input.player,
       phase: input.phase,
       language: this.language,
-      legalPlayers: input.knownPlayers
+      legalPlayers
     });
     const content = await this.complete(system, [
       {
@@ -1325,8 +1340,9 @@ export class AnthropicAgent implements Agent {
 
     return parseSpeech(
       content,
-      input.knownPlayers,
-      sample((isJapaneseLanguage(this.language) ? demoSpeechJa : demoSpeechEn)[input.player.role])
+      legalPlayers,
+      sample((isJapaneseLanguage(this.language) ? demoSpeechJa : demoSpeechEn)[input.player.role]),
+      input.knownPlayers
     );
   }
 

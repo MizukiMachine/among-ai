@@ -8,6 +8,7 @@ import { redactEventForPlayer, redactEventForVillage } from "../src/game/redacti
 import type {
   Agent,
   AgentSpeech,
+  AgentSpeechInput,
   AgentTargetInput,
   Camp,
   GameConfig,
@@ -27,6 +28,7 @@ const baseConfig: GameConfig = {
 
 class ScriptedAgent implements Agent {
   readonly model = "scripted";
+  readonly speechInputs: AgentSpeechInput[] = [];
 
   constructor(
     readonly name: string,
@@ -35,7 +37,8 @@ class ScriptedAgent implements Agent {
     private readonly speeches: AgentSpeech[] = []
   ) {}
 
-  async speak(): Promise<AgentSpeech> {
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
     const scripted = this.speeches.shift();
     if (scripted) {
       return scripted;
@@ -306,6 +309,32 @@ test("Japanese demo day speech and target reasons avoid translationese game term
   assert.equal(containsAwkwardJapaneseOutputTerm(decision.reason), false);
 });
 
+test("Japanese demo day speech uses legal living read targets instead of dead known players", async () => {
+  const game = createGame();
+  const [player] = setTable(game, [{ role: "Villager" }]);
+  const agent = new DemoAgent("demo", "demo", "Japanese");
+
+  const speech = await agent.speak({
+    player,
+    phase: "day_discussion",
+    task: "昼議論で発言してください。",
+    context: "Alive players: Ada (p1), Byron (p2). Dead players: Curie (p3).",
+    knownPlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" },
+      { id: "p3", name: "Curie" }
+    ],
+    legalPlayers: [{ id: "p2", name: "Byron" }],
+    publicHistory: [],
+    privateHistory: []
+  });
+
+  const messageText = speech.messages.join(" ");
+  assert.doesNotMatch(messageText, /Curie/);
+  assert.ok(speech.metadata.suspects.every((read) => read.targetId === "p2"));
+  assert.ok(speech.metadata.trusts.every((read) => read.targetId === "p2"));
+});
+
 test("Japanese demo first-day speech stays tentative and question-led", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Villager" }]);
@@ -492,6 +521,14 @@ test("split speech emits one event per message and records metadata once", async
             suspects: [{ targetId: "p2", targetName: "Byron", reason: "late stance", weight: 0.6 }],
             trusts: []
           }
+        },
+        {
+          messages: ["Reply line."],
+          metadata: {
+            claims: [],
+            suspects: [],
+            trusts: [{ targetId: "p3", targetName: "Curie", reason: "answered clearly", weight: 0.5 }]
+          }
         }
       ]
     },
@@ -504,21 +541,143 @@ test("split speech emits one event per message and records metadata once", async
 
   const events = await collect(game.runDay());
   const speechEvents = events.filter((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const firstPassEvents = speechEvents.filter((event) => event.data?.discussionPass === 1);
+  const secondPassEvents = speechEvents.filter((event) => event.data?.discussionPass === 2);
 
   assert.deepEqual(
-    speechEvents.map((event) => event.message),
+    firstPassEvents.map((event) => event.message),
     ["First short line.", "Second short line."]
   );
   assert.deepEqual(
-    speechEvents.map((event) => event.data?.speechIndex),
+    firstPassEvents.map((event) => event.data?.speechIndex),
     [0, 1]
   );
   assert.deepEqual(
-    speechEvents.map((event) => event.data?.speechCount),
+    firstPassEvents.map((event) => event.data?.speechCount),
     [2, 2]
   );
-  assert.equal((speechEvents[0].data?.suspects as unknown[]).length, 0);
-  assert.equal((speechEvents[1].data?.suspects as unknown[]).length, 1);
+  assert.equal((firstPassEvents[0].data?.suspects as unknown[]).length, 0);
+  assert.equal((firstPassEvents[1].data?.suspects as unknown[]).length, 1);
+  assert.deepEqual(secondPassEvents.map((event) => event.message), ["Reply line."]);
+  assert.equal((secondPassEvents[0].data?.trusts as unknown[]).length, 1);
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.discussionPass),
+    [1, 1, 2]
+  );
+  assert.deepEqual(
+    speechEvents.map((event) => event.data?.discussionPasses),
+    [2, 2, 2]
+  );
+});
+
+test("day discussion gives each living player a second response pass", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  const aliveIds = players.filter((player) => player.alive).map((player) => player.id);
+  const events = await collect(game.runDay());
+  const speechEvents = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+
+  assert.deepEqual(
+    speechEvents.filter((event) => event.data?.discussionPass === 1).map((event) => event.playerId),
+    aliveIds
+  );
+  assert.deepEqual(
+    speechEvents.filter((event) => event.data?.discussionPass === 2).map((event) => event.playerId),
+    aliveIds
+  );
+
+  const firstAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.equal(firstAgent.speechInputs.length, 2);
+  assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
+  assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
+  assert.match(firstAgent.speechInputs[1].context, /カイ speaks/);
+});
+
+test("round summary counts repeated reads from the same speaker once", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      targets: ["p2"],
+      speeches: [
+        {
+          messages: ["Byron needs pressure."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "first pass reason", weight: 0.5 }],
+            trusts: []
+          }
+        },
+        {
+          messages: ["Byron still needs pressure."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "second pass reason", weight: 0.7 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  const events = await collect(game.runDay());
+  const summary = events.find((event) => event.type === "round_summary");
+  const suspects = summary?.data?.suspects as Array<{ sourceId: string; targetId: string; reason?: string }> | undefined;
+
+  assert.deepEqual(suspects, [{ sourceId: players[0].id, sourceName: players[0].name, targetId: "p2", targetName: "Byron", reason: "second pass reason", weight: 0.7 }]);
+  assert.match(summary?.message ?? "", /Reads: suspects Byron; trusts none/);
+  assert.doesNotMatch(summary?.message ?? "", /Byron x2/);
+});
+
+test("day speech metadata ignores dead read targets", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["I am comparing yesterday's death with today's answers."],
+          metadata: {
+            claims: [],
+            suspects: [
+              { targetId: "p2", targetName: "Byron", reason: "already dead", weight: 0.9 },
+              { targetId: "p3", targetName: "Curie", reason: "answer is evasive", weight: 0.6 }
+            ],
+            trusts: [
+              { targetId: "p2", targetName: "Byron", reason: "already dead", weight: 0.4 },
+              { targetId: "p4", targetName: "Darwin", reason: "clear timeline", weight: 0.5 }
+            ]
+          }
+        }
+      ]
+    },
+    { role: "Villager", alive: false },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Witch" }
+  ]);
+
+  const events = await collect(game.runDay());
+  const speechEvent = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const suspects = speechEvent?.data?.suspects as Array<{ targetId: string }> | undefined;
+  const trusts = speechEvent?.data?.trusts as Array<{ targetId: string }> | undefined;
+
+  assert.deepEqual(suspects?.map((read) => read.targetId), ["p3"]);
+  assert.deepEqual(trusts?.map((read) => read.targetId), ["p4"]);
 });
 
 test("round summary carries claims, reads, and votes in deterministic data", async () => {
@@ -1175,6 +1334,70 @@ test("LLM speech messages are filtered, clamped, and capped", async () => {
     assert.ok(speech.messages[0].endsWith("..."));
     assert.deepEqual(speech.messages.slice(1), ["Second short line.", "Third short line."]);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM speech metadata keeps reads on legal living targets only", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["Curie is dead, so I will use that as history and press Byron today."],
+              suspects: [
+                { targetId: "p3", reason: "dead player should not be current pressure", weight: 0.8 },
+                { targetId: "p2", reason: "current answer is evasive", weight: 0.6 }
+              ],
+              claims: [
+                {
+                  type: "seer_result",
+                  result: { targetId: "p3", camp: "village", round: 1 },
+                  note: "historical check"
+                }
+              ]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Seer" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Alive players: Ada (p1), Byron (p2). Dead players: Curie (p3).",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" },
+        { id: "p3", name: "Curie" }
+      ],
+      legalPlayers: [{ id: "p2", name: "Byron" }],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(
+      speech.metadata.suspects.map((read) => read.targetId),
+      ["p2"]
+    );
+    assert.equal(typeof speech.metadata.claims[0]?.result, "object");
+    assert.equal(typeof speech.metadata.claims[0]?.result === "object" ? speech.metadata.claims[0].result.targetName : "", "Curie");
   } finally {
     globalThis.fetch = originalFetch;
   }
