@@ -1,6 +1,6 @@
-import type { EventVisibility, GameEvent, GameSnapshot, PlayerSnapshot } from "./types";
+import type { Camp, EventVisibility, GameEvent, GameSnapshot, PlayerSnapshot, Role } from "./types";
 
-export type SpectatorMode = "omniscient" | "village";
+export type SpectatorMode = "omniscient" | "village" | "player";
 
 export interface VillagePlayerSnapshot extends Omit<PlayerSnapshot, "camp" | "role" | "witch"> {
   camp: "hidden";
@@ -20,6 +20,26 @@ export interface VillageGameEvent extends Omit<GameEvent, "data" | "role" | "sna
   };
   role?: undefined;
   snapshot: VillageGameSnapshot;
+}
+
+export interface PlayerViewPlayerSnapshot extends Omit<PlayerSnapshot, "camp" | "role"> {
+  camp: Camp | "hidden";
+  role: Role | "Hidden";
+}
+
+export interface PlayerViewGameSnapshot extends Omit<GameSnapshot, "players" | "villageCount" | "werewolfCount"> {
+  players: PlayerViewPlayerSnapshot[];
+  villageCount: null;
+  werewolfCount: null;
+}
+
+export interface PlayerViewGameEvent extends Omit<GameEvent, "data" | "role" | "snapshot"> {
+  data: Record<string, unknown> & {
+    redacted?: boolean;
+    visibility?: EventVisibility;
+  };
+  role?: Role;
+  snapshot: PlayerViewGameSnapshot;
 }
 
 export function isVisibility(value: unknown): value is EventVisibility {
@@ -64,6 +84,29 @@ export function redactSnapshotForVillage(snapshot: GameSnapshot): VillageGameSna
   };
 }
 
+export function redactSnapshotForPlayer(snapshot: GameSnapshot, playerId: string): PlayerViewGameSnapshot {
+  return {
+    ...snapshot,
+    werewolfCount: null,
+    villageCount: null,
+    players: snapshot.players.map((player) => {
+      if (player.id === playerId) {
+        return player;
+      }
+      return {
+        id: player.id,
+        name: player.name,
+        alive: player.alive,
+        model: player.model,
+        memoryCount: player.memoryCount,
+        persona: player.persona,
+        camp: "hidden",
+        role: "Hidden"
+      };
+    })
+  };
+}
+
 export function redactEventDataForVillage(
   data: GameEvent["data"] = {},
   secret = false
@@ -98,6 +141,55 @@ export function redactEventForVillage(event: GameEvent): VillageGameEvent {
     data: redactEventDataForVillage(event.data, secret),
     role: undefined,
     snapshot: redactSnapshotForVillage(event.snapshot)
+  };
+  return redactedEvent;
+}
+
+function isEventVisibleToPlayer(event: GameEvent, playerId: string): boolean {
+  if (!isSecretEvent(event)) {
+    return true;
+  }
+  if (event.data?.visibleTo === playerId) {
+    return true;
+  }
+  return event.playerId === playerId && (event.data?.visibility === "private" || event.data?.visibility === "werewolf");
+}
+
+function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerViewGameEvent["data"] {
+  const secret = isSecretEvent(event);
+  const visible = isEventVisibleToPlayer(event, playerId);
+  if (secret && !visible) {
+    return {
+      visibility: isVisibility(event.data?.visibility) ? event.data.visibility : "private",
+      redacted: true
+    };
+  }
+
+  const publicData: Record<string, unknown> = { ...(event.data ?? {}) };
+  delete publicData.visibleTo;
+  if (!secret) {
+    delete publicData.targetRole;
+    delete publicData.result;
+  }
+  return publicData;
+}
+
+export function redactEventForPlayer(event: GameEvent, playerId: string): PlayerViewGameEvent {
+  const visible = isEventVisibleToPlayer(event, playerId);
+  const redactedEvent: PlayerViewGameEvent = {
+    id: event.id,
+    createdAt: event.createdAt,
+    round: event.round,
+    phase: event.phase,
+    type: event.type,
+    message: visible ? event.message : "人間視点では非公開情報です。",
+    playerId: visible ? event.playerId : undefined,
+    playerName: visible ? event.playerName : undefined,
+    targetId: visible ? event.targetId : undefined,
+    targetName: visible ? event.targetName : undefined,
+    data: redactEventDataForPlayer(event, playerId),
+    role: visible && event.playerId === playerId ? event.role : undefined,
+    snapshot: redactSnapshotForPlayer(event.snapshot, playerId)
   };
   return redactedEvent;
 }
