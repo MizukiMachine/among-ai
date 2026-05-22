@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import { WerewolfGame } from "../game/engine";
 import { defaultLanguage } from "../game/i18n";
-import { redactEventForPlayer, redactEventForVillage, type SpectatorMode } from "../game/redaction";
+import {
+  redactEventForPlayer,
+  redactEventForVillage,
+  redactProgressForPlayer,
+  redactProgressForVillage,
+  type SpectatorMode
+} from "../game/redaction";
 import type { DebugScenario, GameConfig, HumanInputResponse, SummaryMode } from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
 
@@ -12,6 +18,17 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function optionalIntParam(value: string | null, min: number, max: number): number | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
   }
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
@@ -75,6 +92,11 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
   const requestedSummaryMode = url.searchParams.get("summary");
   const playerCount = intParam(url.searchParams.get("players"), 7, 6, 20);
+  const prefetchConcurrency = optionalIntParam(
+    url.searchParams.get("prefetchConcurrency") ?? url.searchParams.get("concurrency"),
+    1,
+    20
+  );
   const humanPlayerId =
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);
@@ -88,6 +110,7 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
     summaryMode: requestedSummaryMode ? summaryModeParam(requestedSummaryMode) : provider === "llm" ? "llm" : "deterministic",
     debugScenario,
     humanPlayerId,
+    prefetchConcurrency,
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
   };
@@ -149,14 +172,26 @@ export function createApp(): Hono {
         const streamView = view === "player" && !config.humanPlayerId ? "village" : view;
         const game = new WerewolfGame(config, {
           ...(humanSession ? { humanInput: humanSession } : {}),
-          abortSignal: abortController.signal
+          abortSignal: abortController.signal,
+          onProgress: (progress) => {
+            if (!cancelled && !abortController.signal.aborted) {
+              const payload =
+                streamView === "player" && config.humanPlayerId
+                  ? redactProgressForPlayer(progress)
+                  : streamView === "village"
+                    ? redactProgressForVillage(progress)
+                    : progress;
+              controller.enqueue(sseFrame("progress", payload));
+            }
+          }
         });
         controller.enqueue(
           sseFrame("system", {
             message: "stream_opened",
             view: streamView,
             gameId: humanSession?.id ?? null,
-            humanPlayerId: config.humanPlayerId ?? null
+            humanPlayerId: config.humanPlayerId ?? null,
+            prefetchConcurrency: config.prefetchConcurrency ?? null
           })
         );
 

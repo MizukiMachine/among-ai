@@ -374,6 +374,48 @@ textarea:focus-visible {
   box-shadow: 0 8px 18px rgba(7, 148, 85, 0.1);
 }
 
+.large-roster .roster {
+  gap: 5px;
+  padding-inline: 12px;
+}
+
+.large-roster .player-card {
+  min-height: 50px;
+  grid-template-columns: 40px minmax(0, 1fr) 22px;
+  gap: 8px;
+  padding: 4px 7px 4px 4px;
+}
+
+.large-roster .player-avatar {
+  width: 38px;
+  height: 38px;
+}
+
+.large-roster .player-main {
+  gap: 4px;
+}
+
+.large-roster .player-name-row strong {
+  font-size: 13px;
+}
+
+.large-roster .persona-pill {
+  max-width: 70px;
+  padding-inline: 5px;
+  font-size: 10px;
+}
+
+.large-roster .role-chip {
+  min-height: 20px;
+  padding: 3px 7px;
+  font-size: 10px;
+}
+
+.large-roster .signal-bars {
+  transform: scale(0.82);
+  transform-origin: center;
+}
+
 .player-avatar {
   width: 48px;
   height: 48px;
@@ -838,6 +880,7 @@ input[type="range"] {
 .hero-cast img {
   width: 92px;
   height: 148px;
+  flex: 0 0 auto;
   border-radius: 8px;
   object-fit: cover;
   object-position: top center;
@@ -857,6 +900,37 @@ input[type="range"] {
 .hero-cast img.fallen {
   opacity: 0.48;
   filter: grayscale(0.72) saturate(0.45) brightness(0.58);
+}
+
+.hero-cast-token {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.52);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  overflow: hidden;
+  padding-inline: 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.hero-cast.cast-large .hero-cast-token {
+  width: 46px;
+  height: 46px;
+  font-size: 10px;
+}
+
+.hero-cast-token.fallen {
+  opacity: 0.44;
+  filter: grayscale(0.7);
 }
 
 .hero-character {
@@ -1101,6 +1175,15 @@ input[type="range"] {
   backdrop-filter: blur(18px);
 }
 
+.setup-card.mode-large,
+.setup-card.mode-long {
+  width: min(100%, 620px);
+}
+
+.setup-card.mode-long {
+  border-color: rgba(245, 189, 93, 0.42);
+}
+
 .setup-card-heading {
   display: flex;
   min-width: 0;
@@ -1204,7 +1287,7 @@ input[type="range"] {
 .human-seat-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .human-seat-grid button {
@@ -1340,8 +1423,57 @@ input[type="range"] {
   color: #9df2bf !important;
 }
 
+.setup-processing {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.setup-processing div {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 4px 7px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 8px;
+}
+
+.setup-processing svg {
+  grid-row: span 2;
+  color: #35d082;
+}
+
+.setup-processing span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-processing strong {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .player-count-field {
   grid-column: 1 / -1;
+}
+
+.concurrency-field {
+  grid-column: 1 / -1;
+}
+
+.concurrency-segments {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .scenario-field {
@@ -1505,6 +1637,10 @@ input[type="range"] {
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
 }
 
+.story-processing-hud:has(.processing-meter) {
+  grid-template-rows: minmax(38px, auto) 5px;
+}
+
 .story-processing-hud::after {
   position: absolute;
   right: 0;
@@ -1628,6 +1764,23 @@ input[type="range"] {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.processing-meter {
+  display: block;
+  grid-column: 1 / -1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.processing-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #35d082, #f5bd5d);
+  transition: width 0.2s ease;
 }
 
 @keyframes control-spin {
@@ -1852,6 +2005,10 @@ input[type="range"] {
   padding: 10px 9px;
   font-size: 12px;
   font-weight: 820;
+}
+
+.queue-count > span {
+  white-space: nowrap;
 }
 
 .queue-count small {
@@ -2499,7 +2656,11 @@ input[type="range"] {
   }
 
   .human-seat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .setup-processing {
+    grid-template-columns: 1fr;
   }
 
   .human-target-grid {

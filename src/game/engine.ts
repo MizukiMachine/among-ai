@@ -38,6 +38,8 @@ import type {
   GameConfig,
   GameEvent,
   GameSnapshot,
+  GenerationProgress,
+  GenerationProgressTask,
   HumanInputHandler,
   Persona,
   Phase,
@@ -78,6 +80,7 @@ const personas: Persona[] = [
 ];
 const dayDiscussionPasses = 2;
 const defaultAiPrefetchConcurrency = 3;
+const maxAiPrefetchConcurrency = 20;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
@@ -100,6 +103,7 @@ interface DiscussionReadDetail {
 interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
   abortSignal?: AbortSignal;
+  onProgress?: (progress: GenerationProgress) => void;
 }
 
 function speechEventData(
@@ -219,14 +223,28 @@ function positiveIntEnv(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function aiPrefetchConcurrency(): number {
-  return positiveIntEnv(process.env.ZAI_PREFETCH_CONCURRENCY ?? process.env.LLM_PREFETCH_CONCURRENCY, defaultAiPrefetchConcurrency);
+function normalizePrefetchConcurrency(value: number | undefined): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return defaultAiPrefetchConcurrency;
+  }
+  return Math.max(1, Math.min(maxAiPrefetchConcurrency, Math.floor(parsed)));
+}
+
+function aiPrefetchConcurrency(configured?: number): number {
+  if (configured !== undefined) {
+    return normalizePrefetchConcurrency(configured);
+  }
+  return normalizePrefetchConcurrency(
+    positiveIntEnv(process.env.ZAI_PREFETCH_CONCURRENCY ?? process.env.LLM_PREFETCH_CONCURRENCY, defaultAiPrefetchConcurrency)
+  );
 }
 
 async function* orderedConcurrentMap<T, R>(
   items: T[],
   concurrency: number,
-  run: (item: T, index: number) => Promise<R>
+  run: (item: T, index: number) => Promise<R>,
+  onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
 ): AsyncGenerator<R> {
   if (items.length === 0) {
     return;
@@ -236,17 +254,46 @@ async function* orderedConcurrentMap<T, R>(
   type Settled = { ok: true; value: R } | { ok: false; error: unknown };
   const pending = new Map<number, Promise<Settled>>();
   let nextIndex = 0;
+  let started = 0;
+  let completed = 0;
+  let active = 0;
+  const report = () => {
+    try {
+      onProgress?.({
+        total: items.length,
+        started,
+        completed,
+        active,
+        queued: Math.max(0, items.length - started),
+        concurrency: limit
+      });
+    } catch {
+      // Progress observers are best-effort and must not break game generation.
+    }
+  };
   const startNext = () => {
     if (nextIndex >= items.length) {
       return;
     }
     const currentIndex = nextIndex;
     nextIndex += 1;
+    started += 1;
+    active += 1;
     pending.set(
       currentIndex,
       run(items[currentIndex], currentIndex).then(
-        (value) => ({ ok: true, value }),
-        (error: unknown) => ({ ok: false, error })
+        (value) => {
+          completed += 1;
+          active -= 1;
+          report();
+          return { ok: true, value };
+        },
+        (error: unknown) => {
+          completed += 1;
+          active -= 1;
+          report();
+          return { ok: false, error };
+        }
       )
     );
   };
@@ -254,6 +301,7 @@ async function* orderedConcurrentMap<T, R>(
   for (let index = 0; index < limit; index += 1) {
     startNext();
   }
+  report();
 
   for (let index = 0; index < items.length; index += 1) {
     const promise = pending.get(index);
@@ -266,6 +314,7 @@ async function* orderedConcurrentMap<T, R>(
     if (!result.ok) {
       throw result.error;
     }
+    report();
     yield result.value;
   }
 }
@@ -277,6 +326,8 @@ export class WerewolfGame {
   private readonly wolfHistory: string[] = [];
   private readonly config: GameConfig;
   private readonly abortSignal?: AbortSignal;
+  private readonly onProgress?: (progress: GenerationProgress) => void;
+  private readonly prefetchConcurrency: number;
   private readonly startupWarnings: string[] = [];
   private readonly witchState = {
     savePotion: true,
@@ -303,8 +354,11 @@ export class WerewolfGame {
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.abortSignal = options.abortSignal;
+    this.onProgress = options.onProgress;
     const debugScenario = normalizeDebugScenario(config.debugScenario);
     const playerCount = normalizePlayerCount(Math.max(config.playerCount, minimumPlayerCountForScenario(debugScenario)));
+    const prefetchConcurrency = aiPrefetchConcurrency(config.prefetchConcurrency);
+    this.prefetchConcurrency = prefetchConcurrency;
     this.config = {
       ...config,
       language: config.language || defaultLanguage,
@@ -312,7 +366,8 @@ export class WerewolfGame {
       maxRounds: Math.max(3, config.maxRounds),
       summaryMode: normalizeSummaryMode(config.summaryMode),
       debugScenario,
-      humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount)
+      humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount),
+      prefetchConcurrency
     };
 
     if (this.config.provider === "llm" && !(process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY)) {
@@ -426,6 +481,65 @@ export class WerewolfGame {
     }
   }
 
+  private progressReporter(
+    task: GenerationProgressTask,
+    label: string,
+    extra: Partial<Pick<GenerationProgress, "pass" | "passes">> = {}
+  ): (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void {
+    return (progress) => {
+      this.onProgress?.({
+        createdAt: new Date().toISOString(),
+        round: this.round,
+        phase: this.phase,
+        task,
+        label,
+        ...progress,
+        ...extra
+      });
+    };
+  }
+
+  private async *orderedAiWithHumanBoundary<T, R>(
+    items: T[],
+    getPlayerId: (item: T) => string,
+    run: (item: T, index: number) => Promise<R>,
+    onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+  ): AsyncGenerator<R> {
+    const indexedItems = items.map((item, index) => ({ item, index }));
+    const humanIndex = this.config.humanPlayerId ? indexedItems.findIndex(({ item }) => getPlayerId(item) === this.config.humanPlayerId) : -1;
+
+    if (humanIndex === -1) {
+      for await (const result of orderedConcurrentMap(
+        indexedItems,
+        this.prefetchConcurrency,
+        ({ item, index }) => run(item, index),
+        onProgress
+      )) {
+        yield result;
+      }
+      return;
+    }
+
+    const runChunk = (chunk: typeof indexedItems) =>
+      orderedConcurrentMap(
+        chunk,
+        this.prefetchConcurrency,
+        ({ item, index }) => run(item, index),
+        onProgress
+      );
+
+    for await (const result of runChunk(indexedItems.slice(0, humanIndex))) {
+      yield result;
+    }
+
+    const humanItem = indexedItems[humanIndex];
+    yield await run(humanItem.item, humanItem.index);
+
+    for await (const result of runChunk(indexedItems.slice(humanIndex + 1))) {
+      yield result;
+    }
+  }
+
   async *run(): AsyncGenerator<GameEvent> {
     this.throwIfCancelled();
     yield this.emit("game_started", this.text("A new AI werewolf match has started.", "AI人狼の新しい対局を開始しました。"), {
@@ -434,7 +548,8 @@ export class WerewolfGame {
       playerCount: this.config.playerCount,
       summaryMode: this.config.summaryMode,
       debugScenario: this.config.debugScenario,
-      humanPlayerId: this.config.humanPlayerId
+      humanPlayerId: this.config.humanPlayerId,
+      prefetchConcurrency: this.prefetchConcurrency
     });
 
     for (const warning of this.startupWarnings) {
@@ -576,28 +691,33 @@ export class WerewolfGame {
     this.phase = "werewolf_discussion";
     yield this.emit("phase_changed", this.text("The werewolves open a private discussion.", "人狼たちが内通を始めました。"));
 
-    const wolfSpeeches = orderedConcurrentMap(werewolves, aiPrefetchConcurrency(), async (wolf) => {
-      const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
-      const contextLines = [
-        this.text(
-          `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
-          `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
-        ),
-        this.text(
-          `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
-          `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
-        ),
-        ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
-      ];
-      const context = this.contextFor(wolf, contextLines);
-      const speech = await this.safeSpeak(
-        wolf,
-        this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
-        context,
-        contextLines
-      );
-      return { wolf, speech };
-    });
+    const wolfSpeeches = orderedConcurrentMap(
+      werewolves,
+      this.prefetchConcurrency,
+      async (wolf) => {
+        const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
+        const contextLines = [
+          this.text(
+            `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
+            `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
+          ),
+          this.text(
+            `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
+            `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
+          ),
+          ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
+        ];
+        const context = this.contextFor(wolf, contextLines);
+        const speech = await this.safeSpeak(
+          wolf,
+          this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
+          context,
+          contextLines
+        );
+        return { wolf, speech };
+      },
+      this.progressReporter("werewolf_discussion", this.text("Werewolf private discussion", "人狼の内通"))
+    );
 
     for await (const { wolf, speech } of wolfSpeeches) {
       this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
@@ -684,7 +804,12 @@ export class WerewolfGame {
       return decision.targetId ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason } : null;
     };
 
-    for await (const vote of orderedConcurrentMap(werewolves, aiPrefetchConcurrency(), collectWolfVote)) {
+    for await (const vote of orderedConcurrentMap(
+      werewolves,
+      this.prefetchConcurrency,
+      collectWolfVote,
+      this.progressReporter("werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
+    )) {
       if (vote) {
         votes.push(vote);
       }
@@ -1006,18 +1131,17 @@ export class WerewolfGame {
         );
       };
 
-      if (this.config.humanPlayerId) {
-        for (const player of speakers) {
-          const { speech } = await generateSpeech(player);
-          for (const event of publishSpeech(player, speech)) {
-            yield event;
-          }
-        }
-      } else {
-        for await (const { player, speech } of orderedConcurrentMap(speakers, aiPrefetchConcurrency(), generateSpeech)) {
-          for (const event of publishSpeech(player, speech)) {
-            yield event;
-          }
+      for await (const { player, speech } of this.orderedAiWithHumanBoundary(
+        speakers,
+        (player) => player.id,
+        generateSpeech,
+        this.progressReporter("day_speech", this.text("Day discussion", "昼議論"), {
+          pass: discussionPass,
+          passes: dayDiscussionPasses
+        })
+      )) {
+        for (const event of publishSpeech(player, speech)) {
+          yield event;
         }
       }
     }
@@ -1052,15 +1176,12 @@ export class WerewolfGame {
       const decision = await this.safeChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines);
       return { voter, decision };
     };
-    const sequentialVotes = async function* (): AsyncGenerator<{ voter: Player; decision: TargetDecision } | null> {
-      for (const voter of voters) {
-        yield await collectVote(voter);
-      }
-    };
-
-    const voteResults = this.config.humanPlayerId
-      ? sequentialVotes()
-      : orderedConcurrentMap(voters, aiPrefetchConcurrency(), collectVote);
+    const voteResults = this.orderedAiWithHumanBoundary(
+      voters,
+      (voter) => voter.id,
+      collectVote,
+      this.progressReporter("day_vote", this.text("Day elimination vote", "昼の処刑投票"))
+    );
 
     for await (const result of voteResults) {
       const targetId = result?.decision.targetId;

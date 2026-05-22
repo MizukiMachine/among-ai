@@ -53,6 +53,13 @@ export type EventVisibility = "public" | "private" | "werewolf";
 export type SummaryMode = "deterministic" | "llm";
 export type DebugScenario = "none" | "guard_success" | "hunter_shot";
 export type HumanInputKind = "speech" | "target" | "boolean";
+export type GenerationProgressTask =
+  | "hidden"
+  | "werewolf_discussion"
+  | "werewolf_attack_vote"
+  | "day_speech"
+  | "day_vote"
+  | "round_summary";
 
 export interface SeerClaimResult {
   targetId: string;
@@ -168,6 +175,23 @@ export interface GameEvent {
   snapshot: GameSnapshot;
 }
 
+export interface GenerationProgress {
+  createdAt: string;
+  round: number;
+  phase: Phase;
+  task: GenerationProgressTask;
+  label: string;
+  total: number;
+  started: number;
+  completed: number;
+  active: number;
+  queued: number;
+  concurrency: number;
+  pass?: number;
+  passes?: number;
+  redacted?: boolean;
+}
+
 export interface GameConfig {
   playerCount: number;
   provider: "demo" | "llm";
@@ -177,6 +201,7 @@ export interface GameConfig {
   summaryMode?: SummaryMode;
   debugScenario?: DebugScenario;
   humanPlayerId?: string | null;
+  prefetchConcurrency?: number;
 }
 
 export interface TargetCandidate {

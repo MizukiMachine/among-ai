@@ -1,4 +1,4 @@
-import type { Camp, EventVisibility, GameEvent, GameSnapshot, PlayerSnapshot, Role } from "./types";
+import type { Camp, EventVisibility, GameEvent, GameSnapshot, GenerationProgress, PlayerSnapshot, Role } from "./types";
 
 export type SpectatorMode = "omniscient" | "village" | "player";
 
@@ -192,4 +192,26 @@ export function redactEventForPlayer(event: GameEvent, playerId: string): Player
     snapshot: redactSnapshotForPlayer(event.snapshot, playerId)
   };
   return redactedEvent;
+}
+
+function isSecretProgress(progress: GenerationProgress): boolean {
+  return progress.task === "werewolf_discussion" || progress.task === "werewolf_attack_vote" || progress.phase === "werewolf_discussion";
+}
+
+export function redactProgressForVillage(progress: GenerationProgress): GenerationProgress {
+  if (!isSecretProgress(progress)) {
+    return progress;
+  }
+
+  return {
+    ...progress,
+    phase: "night",
+    task: "hidden",
+    label: "夜の処理",
+    redacted: true
+  };
+}
+
+export function redactProgressForPlayer(progress: GenerationProgress): GenerationProgress {
+  return redactProgressForVillage(progress);
 }

@@ -37,6 +37,7 @@ import type {
   DebugScenario,
   GameEvent,
   GameSnapshot,
+  GenerationProgress,
   HumanInputRequest,
   PlayerReadMetadata,
   PlayerSnapshot,
@@ -57,18 +58,41 @@ const characterImageMap: Record<string, string> = {
 
 const defaultCharacterImages = Object.values(characterImageMap);
 const villageRedactedMessage = "人間視点では非公開情報です。";
-const characterNames = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
+const characterNames = [
+  "カズ",
+  "カイ",
+  "ミオ",
+  "レン",
+  "サキ",
+  "タカ",
+  "ユキ",
+  "ケン",
+  "リン",
+  "アオ",
+  "ナオ",
+  "ハル",
+  "リク",
+  "メイ",
+  "ソラ",
+  "エマ",
+  "シュン",
+  "ノア",
+  "ルイ",
+  "マナ"
+];
 
 interface StreamSystemPayload {
   gameId?: string | null;
   humanPlayerId?: string | null;
   message?: string;
+  prefetchConcurrency?: number | null;
   view?: SpectatorMode;
 }
 
 interface HeroCastItem {
   id: string;
-  image: string;
+  image: string | null;
+  label: string;
   alive: boolean;
 }
 
@@ -89,17 +113,18 @@ function characterName(playerId: string): string {
 
 export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
   if (players.length > 0) {
-    return players
-      .map((player) => {
-        const image = getCharacterImage(player.id);
-        return image ? { id: player.id, image, alive: player.alive } : null;
-      })
-      .filter((item): item is HeroCastItem => Boolean(item));
+    return players.map((player) => ({
+      id: player.id,
+      image: getCharacterImage(player.id),
+      label: characterName(player.id),
+      alive: player.alive
+    }));
   }
 
-  return defaultCharacterImages.slice(0, playerCount).map((image, index) => ({
+  return Array.from({ length: playerCount }, (_, index) => ({
     id: `pending-${index}`,
-    image,
+    image: defaultCharacterImages[index] ?? null,
+    label: characterNames[index] ?? `P${index + 1}`,
     alive: true
   }));
 }
@@ -332,9 +357,11 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
 }
 
 const playerCountOptions = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] as const;
+const generationConcurrencyOptions = [1, 2, 3, 4, 6, 8] as const;
 const minPlayerCount = playerCountOptions[0];
 const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
 const humanInputNoticeLeadCount = 2;
+const clientDayDiscussionPasses = 2;
 
 function normalizePlayerCount(count: number): number {
   if (!Number.isFinite(count)) {
@@ -413,6 +440,59 @@ function getRoleDistributionText(count: number, language: string): string {
   return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language, role === "Werewolf")).join(" ");
 }
 
+function roleCount(roleCounts: Array<[Role, number]>, role: Role): number {
+  return roleCounts.find(([candidate]) => candidate === role)?.[1] ?? 0;
+}
+
+function estimatedRoundLlmCalls(count: number): number {
+  const normalizedCount = normalizePlayerCount(count);
+  const roleCounts = getRoleDistributionItems(normalizedCount);
+  const werewolves =
+    roleCount(roleCounts, "Werewolf") + roleCount(roleCounts, "AlphaWolf") + roleCount(roleCounts, "WolfBeauty");
+  const daySpeechCalls = normalizedCount * clientDayDiscussionPasses;
+  const dayVoteCalls = normalizedCount;
+  const werewolfDiscussionCalls = werewolves > 1 ? werewolves : 0;
+  const werewolfAttackCalls = werewolves;
+  const nightAbilityCalls =
+    roleCount(roleCounts, "Guard") +
+    roleCount(roleCounts, "Seer") +
+    roleCount(roleCounts, "Raven") +
+    roleCount(roleCounts, "WolfBeauty") +
+    roleCount(roleCounts, "Witch") * 2;
+
+  return daySpeechCalls + dayVoteCalls + werewolfDiscussionCalls + werewolfAttackCalls + nightAbilityCalls;
+}
+
+function runModeLabel(count: number): string {
+  if (count >= 17) {
+    return "長時間";
+  }
+  if (count >= 13) {
+    return "大人数";
+  }
+  return "標準";
+}
+
+function runModeClass(count: number): string {
+  if (count >= 17) {
+    return "mode-long";
+  }
+  if (count >= 13) {
+    return "mode-large";
+  }
+  return "mode-standard";
+}
+
+function recommendedConcurrencyForPlayerCount(count: number): number {
+  if (count >= 17) {
+    return 6;
+  }
+  if (count >= 13) {
+    return 4;
+  }
+  return 3;
+}
+
 function getCampRatioText(count: number, language: string): string {
   const roleCounts = getRoleDistributionItems(count);
   const werewolves = roleCounts
@@ -454,6 +534,7 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
 
 export function App() {
   const [playerCount, setPlayerCount] = useState(7);
+  const [generationConcurrency, setGenerationConcurrency] = useState(recommendedConcurrencyForPlayerCount(7));
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
   const [humanEnabled, setHumanEnabled] = useState(false);
   const [humanPlayerId, setHumanPlayerId] = useState("p1");
@@ -461,6 +542,7 @@ export function App() {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -477,6 +559,7 @@ export function App() {
   const sourceRef = useRef<EventSource | null>(null);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
+  const concurrencyTouchedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
   const revealFirstEventRef = useRef(false);
 
@@ -536,8 +619,12 @@ export function App() {
   const recentHistory = events.slice(-6).reverse();
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
+  const recommendedConcurrency = recommendedConcurrencyForPlayerCount(effectivePlayerCount);
+  const estimatedRoundCalls = estimatedRoundLlmCalls(effectivePlayerCount);
+  const largeRunMode = effectivePlayerCount >= 13;
+  const longRunMode = effectivePlayerCount >= 17;
   const humanPlayerOptions = useMemo(
-    () => characterNames.slice(0, effectivePlayerCount).map((name, index) => ({ id: `p${index + 1}`, name })),
+    () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
   );
   const allPlayers = snapshot?.players ?? [];
@@ -607,15 +694,29 @@ export function App() {
       return;
     }
     setDebugScenario(nextScenario);
-    setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
+    setPlayerCount((current) => {
+      const nextCount = Math.max(current, minimumPlayerCountForScenario(nextScenario));
+      if (!concurrencyTouchedRef.current) {
+        setGenerationConcurrency(recommendedConcurrencyForPlayerCount(nextCount));
+      }
+      return nextCount;
+    });
   }
 
   function updatePlayerCount(nextCount: number) {
     const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
     setPlayerCount(normalized);
+    if (!concurrencyTouchedRef.current) {
+      setGenerationConcurrency(recommendedConcurrencyForPlayerCount(normalized));
+    }
     if (playerIndexFromId(humanPlayerId) >= normalized) {
       setHumanPlayerId(`p${normalized}`);
     }
+  }
+
+  function updateGenerationConcurrency(nextConcurrency: number) {
+    concurrencyTouchedRef.current = true;
+    setGenerationConcurrency(nextConcurrency);
   }
 
   function updateHumanEnabled(nextEnabled: boolean) {
@@ -671,6 +772,7 @@ export function App() {
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
+    setGenerationProgress(null);
     setGameId(null);
     setSourceDone(false);
     setRunning(true);
@@ -685,7 +787,8 @@ export function App() {
       scenario: humanEnabled ? "none" : debugScenario,
       view: streamView,
       speed: "0",
-      language
+      language,
+      concurrency: String(generationConcurrency)
     });
     if (humanEnabled) {
       params.set("human", humanPlayerId);
@@ -700,11 +803,21 @@ export function App() {
       if (payload.humanPlayerId) {
         setHumanPlayerId(payload.humanPlayerId);
       }
+      if (payload.prefetchConcurrency && !concurrencyTouchedRef.current) {
+        setGenerationConcurrency(payload.prefetchConcurrency);
+      }
+      setGameStatus("生成中");
+    });
+
+    source.addEventListener("progress", (message) => {
+      const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
+      setGenerationProgress(progress);
       setGameStatus("生成中");
     });
 
     source.addEventListener("game", (message) => {
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
+      setGenerationProgress(null);
       if (revealFirstEventRef.current) {
         revealFirstEventRef.current = false;
         if (!pausedRef.current) {
@@ -721,6 +834,7 @@ export function App() {
 
     source.addEventListener("human_input", (message) => {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
+      setGenerationProgress(null);
       setPendingHumanInput(request);
       setHumanSpeech("");
       setHumanReason("");
@@ -733,6 +847,7 @@ export function App() {
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
+      setGenerationProgress(null);
       setGameStatus("生成完了");
       source.close();
       if (sourceRef.current === source) {
@@ -744,6 +859,7 @@ export function App() {
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
+      setGenerationProgress(null);
       setGameStatus("エラー");
       if ("data" in message && typeof message.data === "string") {
         const payload = JSON.parse(message.data) as { message?: string };
@@ -1124,8 +1240,15 @@ export function App() {
       return null;
     }
 
-    const title = currentEvent ? "次の場面を準備中" : "対局を準備中";
-    const detail = currentEvent ? "AIプレイヤーが考えています" : "AIプレイヤーと最初の場面を準備しています";
+    const progress = generationProgress;
+    const title = progress ? progress.label : currentEvent ? "次の場面を準備中" : "対局を準備中";
+    const passText = progress?.pass && progress.passes ? ` ${progress.pass}/${progress.passes}巡目` : "";
+    const detail = progress
+      ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}`
+      : currentEvent
+        ? "AIプレイヤーが考えています"
+        : "AIプレイヤーと最初の場面を準備しています";
+    const progressPercent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
     return (
       <section className="story-processing-hud" role="status" aria-live="polite">
@@ -1136,6 +1259,11 @@ export function App() {
           <strong>{title}</strong>
           <span>{detail}</span>
         </span>
+        {progress ? (
+          <span className="processing-meter" aria-hidden="true">
+            <i style={{ width: `${progressPercent}%` }} />
+          </span>
+        ) : null}
       </section>
     );
   }
@@ -1189,17 +1317,60 @@ export function App() {
     );
   }
 
-  function renderSetupControls() {
-    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
+  function renderQueueStatus() {
+    const progress = generationProgress && running ? generationProgress : null;
 
     return (
-      <div className="setup-card">
+      <span className="queue-count">
+        <ListChecks size={17} />
+        <span>未読 {queuedEvents.length}件</span>
+        {progress ? <small>生成 {progress.completed}/{progress.total}</small> : null}
+      </span>
+    );
+  }
+
+  function renderHeroCast() {
+    const visibleCast =
+      heroCast.length > 12
+        ? [
+            ...heroCast.slice(0, 11),
+            {
+              id: "hero-cast-overflow",
+              image: null,
+              label: `+${heroCast.length - 11}`,
+              alive: true
+            }
+          ]
+        : heroCast;
+
+    return (
+      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+        {visibleCast.map((item) =>
+          item.image ? (
+            <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
+          ) : (
+            <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`} key={item.id}>
+              {item.label}
+            </span>
+          )
+        )}
+      </div>
+    );
+  }
+
+  function renderSetupControls() {
+    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
+    const modeClass = runModeClass(effectivePlayerCount);
+    const modeLabel = runModeLabel(effectivePlayerCount);
+
+    return (
+      <div className={`setup-card ${modeClass}`}>
         <div className="setup-card-heading">
           <div className="heading-label">
             <Settings size={18} />
             <h2>対局設定</h2>
           </div>
-          <span>開始前のみ</span>
+          <span>{longRunMode ? "長時間モード" : largeRunMode ? "大人数モード" : "開始前のみ"}</span>
         </div>
 
         <div className="setup-grid">
@@ -1278,6 +1449,42 @@ export function App() {
                 ))}
               </div>
             </div>
+
+            <div className="setup-processing" aria-label="処理量">
+              <div>
+                <Activity size={15} />
+                <span>モード</span>
+                <strong>{modeLabel}</strong>
+              </div>
+              <div>
+                <MessageCircle size={15} />
+                <span>推定1R</span>
+                <strong>{estimatedRoundCalls}件</strong>
+              </div>
+              <div>
+                <ListChecks size={15} />
+                <span>昼発言</span>
+                <strong>{effectivePlayerCount * clientDayDiscussionPasses}件</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="field setup-field concurrency-field">
+            <span>生成並列数</span>
+            <span className="field-desc">推奨 {recommendedConcurrency} / サーバー上限内で実行</span>
+            <div className="segments concurrency-segments" aria-label="生成並列数">
+              {generationConcurrencyOptions.map((count) => (
+                <button
+                  key={count}
+                  aria-pressed={generationConcurrency === count}
+                  className={generationConcurrency === count ? "selected" : ""}
+                  onClick={() => updateGenerationConcurrency(count)}
+                  type="button"
+                >
+                  {count}
+                </button>
+              ))}
+            </div>
           </div>
 
           {!humanEnabled ? (
@@ -1341,7 +1548,7 @@ export function App() {
       </header>
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
-        <aside className="panel intelligence-panel">
+        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""}`}>
           <div className="player-section-title">
             <span>生存プレイヤー（{alivePlayers.length}人）</span>
             <ChevronDown size={16} />
@@ -1436,11 +1643,7 @@ export function App() {
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       <div className="chapel-backdrop" aria-hidden="true" />
-                      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
-                        {heroCast.map((item) => (
-                          <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
-                        ))}
-                      </div>
+                      {renderHeroCast()}
                       {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
@@ -1494,10 +1697,7 @@ export function App() {
                           <ChevronRight className="story-next-chevron" size={20} />
                         </button>
                         {renderRunControls()}
-                        <span className="queue-count">
-                          <ListChecks size={17} />
-                          未読 {queuedEvents.length}件
-                        </span>
+                        {renderQueueStatus()}
                         {humanEnabled ? (
                           <div className="view-toggle view-toggle-inline player-view-lock">
                             <button className="selected" type="button" title={`${characterName(humanPlayerId)}として表示`}>
@@ -1534,11 +1734,7 @@ export function App() {
               ) : (
                 <article className="scene-card story-hero empty-hero">
                   <div className="chapel-backdrop" aria-hidden="true" />
-                  <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
-                    {heroCast.map((item) => (
-                      <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
-                    ))}
-                  </div>
+                  {renderHeroCast()}
                   <div className="pregame-layout">
                     <div className="scene-placeholder">
                       <strong>{storyWaitingForStream ? "対局準備中" : "R0 待機中"}</strong>
@@ -1571,10 +1767,7 @@ export function App() {
                       <ChevronRight className="story-next-chevron" size={20} />
                     </button>
                     {renderRunControls()}
-                    <span className="queue-count">
-                      <ListChecks size={17} />
-                      未読 {queuedEvents.length}件
-                    </span>
+                    {renderQueueStatus()}
                     {humanEnabled ? (
                       <div className="view-toggle view-toggle-inline player-view-lock">
                         <button className="selected" type="button">
