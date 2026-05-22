@@ -1,5 +1,13 @@
 import type { Camp } from "../types";
-import type { RulePlayer, RulePlayerState, RuleState, RuleStatus, RuleStatusEffect, RuleStatusKind } from "./types";
+import type {
+  RulePlayer,
+  RulePlayerState,
+  RuleState,
+  RuleStatus,
+  RuleStatusDuration,
+  RuleStatusEffect,
+  RuleStatusKind
+} from "./types";
 
 export function createRuleState(players: Array<Pick<RulePlayer, "id">>): RuleState {
   return {
@@ -42,6 +50,19 @@ export function applyStatusEffects(state: RuleState, effects: RuleStatusEffect[]
       statuses: [...current.statuses, ...(effect.addStatuses ?? [])]
     };
   }
+  return { players };
+}
+
+export function expireStatuses(state: RuleState, duration: RuleStatusDuration): RuleState {
+  const players = Object.fromEntries(
+    Object.entries(state.players).map(([playerId, playerState]) => [
+      playerId,
+      {
+        ...playerState,
+        statuses: playerState.statuses.filter((status) => status.duration !== duration)
+      }
+    ])
+  );
   return { players };
 }
 

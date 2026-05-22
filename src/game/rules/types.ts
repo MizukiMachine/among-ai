@@ -81,6 +81,8 @@ export interface RuleStatus {
   sourceId?: string;
   targetId?: string;
   duration?: RuleStatusDuration;
+  round?: number;
+  phase?: string;
   count?: number;
 }
 

@@ -5,7 +5,13 @@ import { resolveVoteElimination } from "../src/game/rules/elimination";
 import { createNightActionPlan } from "../src/game/rules/night";
 import { createRoles, normalizePlayerCount } from "../src/game/rules/presets";
 import { roleCamp, roleDeathTriggers } from "../src/game/rules/roles";
-import { applyStatusEffects, canUseAbilities, createCampAbilityDisableEffects, createRuleState } from "../src/game/rules/state";
+import {
+  applyStatusEffects,
+  canUseAbilities,
+  createCampAbilityDisableEffects,
+  createRuleState,
+  expireStatuses
+} from "../src/game/rules/state";
 import { filterEligibleVotes, resolveVote, voteModifiersFromRuleState } from "../src/game/rules/voting";
 import { checkStandardVictory } from "../src/game/rules/victory";
 import type { Player, Role, VoteRecord } from "../src/game/types";
@@ -41,14 +47,26 @@ test("role presets preserve the current 6-9 player distribution", () => {
 });
 
 test("night action plan is priority ordered and deduplicates team actions", () => {
-  const plan = createNightActionPlan(["Witch", "Werewolf", "Guard", "Seer", "Werewolf"]);
+  const plan = createNightActionPlan(["Witch", "Werewolf", "Guard", "Seer", "Seer", "Werewolf"]);
 
   assert.deepEqual(
     plan.map((step) => step.kind),
-    ["guard_protect", "werewolf_discussion", "werewolf_attack", "seer_check", "witch_action"]
+    ["guard_protect", "werewolf_discussion", "werewolf_attack", "seer_check", "seer_check", "witch_action"]
   );
   assert.equal(plan.filter((step) => step.kind === "werewolf_attack").length, 1);
   assert.equal(plan.find((step) => step.kind === "werewolf_attack")?.roles.length, 2);
+  assert.equal(plan.filter((step) => step.kind === "seer_check").length, 2);
+});
+
+test("night action plan keeps actor ids for grouped and individual actions", () => {
+  const plan = createNightActionPlan([
+    { role: "Werewolf", playerId: "p1" },
+    { role: "Werewolf", playerId: "p2" },
+    { role: "Seer", playerId: "p3" }
+  ]);
+
+  assert.deepEqual(plan.find((step) => step.kind === "werewolf_attack")?.actorIds, ["p1", "p2"]);
+  assert.deepEqual(plan.find((step) => step.kind === "seer_check")?.actorIds, ["p3"]);
 });
 
 test("night death records merge simultaneous causes and honor protection", () => {
@@ -123,6 +141,10 @@ test("rule state models Raven marks and no-vote status as vote modifiers", () =>
   const modifiers = voteModifiersFromRuleState(state);
   assert.deepEqual(modifiers, [{ targetId: "p3", count: 1, sourceId: "p1", reason: "raven_marked" }]);
   assert.equal(resolveVote(filterEligibleVotes(votes, state), modifiers).eliminatedId, null);
+
+  const nextRoundState = expireStatuses(state, "round");
+  assert.deepEqual(voteModifiersFromRuleState(nextRoundState), []);
+  assert.deepEqual(filterEligibleVotes(votes, nextRoundState), [{ voterId: "p1", targetId: "p2" }]);
 });
 
 test("vote elimination hook supports Idiot-style reveal instead of death", () => {
@@ -148,6 +170,11 @@ test("death resolver hook supports lover and WolfBeauty-style chains", () => {
     { playerId: "p1", cause: "vote" },
     { playerId: "p2", cause: "lover", sourceId: "p1" },
     { playerId: "p3", cause: "wolf_beauty_charm", sourceId: "p2" }
+  ]);
+
+  assert.deepEqual(createLinkedDeathRecords([{ playerId: "p1", cause: "vote" }], state, { isAlive: (id) => id !== "p3" }), [
+    { playerId: "p1", cause: "vote" },
+    { playerId: "p2", cause: "lover", sourceId: "p1" }
   ]);
 });
 

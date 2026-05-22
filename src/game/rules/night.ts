@@ -2,25 +2,47 @@ import type { Role } from "../types";
 import { roleNightActions } from "./roles";
 import type { NightActionDefinition } from "./types";
 
-export interface NightActionStep extends NightActionDefinition {
-  roles: Role[];
+export interface NightActionActor {
+  role: Role;
+  playerId?: string;
 }
 
-export function createNightActionPlan(roles: Role[]): NightActionStep[] {
-  const byKind = new Map<NightActionDefinition["kind"], NightActionStep>();
+export interface NightActionStep extends NightActionDefinition {
+  roles: Role[];
+  actorIds: string[];
+}
 
-  for (const role of roles) {
+function normalizeActor(input: Role | NightActionActor): NightActionActor {
+  return typeof input === "string" ? { role: input } : input;
+}
+
+export function createNightActionPlan(inputs: Array<Role | NightActionActor>): NightActionStep[] {
+  const steps: NightActionStep[] = [];
+  const teamActionsByKind = new Map<NightActionDefinition["kind"], NightActionStep>();
+
+  for (const input of inputs) {
+    const { role, playerId } = normalizeActor(input);
     for (const action of roleNightActions(role)) {
-      const existing = byKind.get(action.kind);
+      if (!action.teamAction) {
+        steps.push({ ...action, roles: [role], actorIds: playerId ? [playerId] : [] });
+        continue;
+      }
+
+      const existing = teamActionsByKind.get(action.kind);
       if (existing) {
         existing.roles.push(role);
+        if (playerId) {
+          existing.actorIds.push(playerId);
+        }
         existing.priority = Math.max(existing.priority, action.priority);
         existing.teamAction ||= action.teamAction;
         continue;
       }
-      byKind.set(action.kind, { ...action, roles: [role] });
+      const step = { ...action, roles: [role], actorIds: playerId ? [playerId] : [] };
+      teamActionsByKind.set(action.kind, step);
+      steps.push(step);
     }
   }
 
-  return [...byKind.values()].sort((a, b) => b.priority - a.priority || a.kind.localeCompare(b.kind));
+  return steps.sort((a, b) => b.priority - a.priority || a.kind.localeCompare(b.kind));
 }

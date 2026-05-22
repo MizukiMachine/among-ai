@@ -3,6 +3,10 @@ import { roleDeathTriggers } from "./roles";
 import { playerStatuses } from "./state";
 import type { DeathCause, DeathRecord, NightDeathInput, RuleState } from "./types";
 
+export interface LinkedDeathOptions {
+  isAlive?: (playerId: string) => boolean;
+}
+
 export function mergeDeathCause(existing: DeathCause | undefined, next: DeathCause): DeathCause {
   return existing && existing !== next ? "multiple" : next;
 }
@@ -41,12 +45,19 @@ export function markPlayerDead(player: Player): boolean {
   return true;
 }
 
-export function createLinkedDeathRecords(initialDeaths: DeathRecord[], state: RuleState): DeathRecord[] {
+export function createLinkedDeathRecords(
+  initialDeaths: DeathRecord[],
+  state: RuleState,
+  options: LinkedDeathOptions = {}
+): DeathRecord[] {
   const deaths = [...initialDeaths];
   const queued = [...initialDeaths];
   const dyingIds = new Set(initialDeaths.map((death) => death.playerId));
   const enqueue = (record: DeathRecord) => {
     if (dyingIds.has(record.playerId)) {
+      return;
+    }
+    if (options.isAlive && !options.isAlive(record.playerId)) {
       return;
     }
     dyingIds.add(record.playerId);
