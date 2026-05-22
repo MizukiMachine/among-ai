@@ -396,7 +396,10 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 | `ZAI_API_KEY` | LLM APIキー | — |
 | `ZAI_MODEL` | モデル名 | glm-5-turbo |
 | `ZAI_BASE_URL` | APIベースURL | https://api.z.ai/api/anthropic |
-| `ZAI_TIMEOUT_MS` | タイムアウト | 30000 |
+| `ZAI_TIMEOUT_MS` | タイムアウト | 120000 |
+| `ZAI_PREFETCH_CONCURRENCY` | AI発言・投票の先読み並列数 | 3 |
+| `ZAI_REQUEST_CONCURRENCY` | プロセス全体のLLMリクエスト同時数 | 3 |
+| `ZAI_REQUEST_MIN_INTERVAL_MS` | LLMリクエスト開始間隔 | 500 |
 
 ---
 

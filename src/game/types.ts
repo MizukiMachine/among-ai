@@ -178,6 +178,7 @@ export interface AgentSpeechInput {
   legalPlayers?: TargetCandidate[];
   publicHistory: string[];
   privateHistory: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface AgentTargetInput {
@@ -190,6 +191,7 @@ export interface AgentTargetInput {
   allowSkip: boolean;
   publicHistory?: string[];
   privateHistory?: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface AgentBooleanInput {
@@ -200,6 +202,7 @@ export interface AgentBooleanInput {
   uiContext?: string[];
   publicHistory?: string[];
   privateHistory?: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface Agent {

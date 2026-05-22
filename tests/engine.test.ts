@@ -822,6 +822,7 @@ test("LLM summary mode uses a short provider summary when available", async () =
     assert.equal(body.temperature, 0.35);
     assert.equal(body.model, "test-model");
     assert.equal(body.max_tokens, 512);
+    assert.deepEqual(body.thinking, { type: "disabled" });
     assert.match(body.system, /plain English for spectators/);
     assert.equal(body.messages[0].role, "user");
     return new Response(
@@ -876,8 +877,10 @@ test("LLM summary prompt switches to Japanese spectator style", async () => {
 
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.thinking, { type: "disabled" });
     assert.match(body.system, /natural Japanese for spectators/);
     assert.match(body.system, /Respond in Japanese/);
+    assert.equal(body.messages[0].role, "user");
     return new Response(
       JSON.stringify({
         content: [{ type: "text", text: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) }]

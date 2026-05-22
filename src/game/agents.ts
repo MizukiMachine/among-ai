@@ -26,10 +26,14 @@ import type {
   TargetDecision
 } from "./types";
 
-const defaultLlmTimeoutMs = 30_000;
-const defaultLlmMaxTokens = 1024;
+const defaultLlmTimeoutMs = 120_000;
+const defaultLlmMaxTokens = 384;
+const targetDecisionMaxTokens = 160;
+const booleanDecisionMaxTokens = 96;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
+const defaultLlmRequestConcurrency = 3;
+const defaultLlmRequestMinIntervalMs = 500;
 const llmRequestAttempts = 3;
 const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
@@ -724,6 +728,16 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function abortError(message = "LLM request cancelled."): Error {
+  return new Error(message);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw abortError();
+  }
+}
+
 function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: number): Anthropic {
   return new Anthropic({
     apiKey,
@@ -733,20 +747,115 @@ function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: numbe
   });
 }
 
+type LlmQueueEntry = {
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  abort: () => void;
+};
+
+const llmQueue: LlmQueueEntry[] = [];
+let activeLlmRequests = 0;
+let nextLlmStartAt = 0;
+let llmStartTimer: ReturnType<typeof setTimeout> | null = null;
+
+function llmRequestConcurrency(): number {
+  return positiveInt(process.env.ZAI_REQUEST_CONCURRENCY ?? process.env.LLM_REQUEST_CONCURRENCY, defaultLlmRequestConcurrency);
+}
+
+function llmRequestMinIntervalMs(): number {
+  const parsed = Number(process.env.ZAI_REQUEST_MIN_INTERVAL_MS ?? process.env.LLM_REQUEST_MIN_INTERVAL_MS);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultLlmRequestMinIntervalMs;
+}
+
+function scheduleLlmQueue(): void {
+  if (llmStartTimer) {
+    return;
+  }
+
+  const now = Date.now();
+  const delay = Math.max(0, nextLlmStartAt - now);
+  llmStartTimer = setTimeout(() => {
+    llmStartTimer = null;
+    drainLlmQueue();
+  }, delay);
+}
+
+function drainLlmQueue(): void {
+  while (activeLlmRequests < llmRequestConcurrency() && llmQueue.length > 0) {
+    const now = Date.now();
+    if (now < nextLlmStartAt) {
+      scheduleLlmQueue();
+      return;
+    }
+
+    const entry = llmQueue.shift();
+    if (!entry) {
+      return;
+    }
+    entry.signal?.removeEventListener("abort", entry.abort);
+    if (entry.signal?.aborted) {
+      entry.reject(abortError());
+      continue;
+    }
+
+    activeLlmRequests += 1;
+    nextLlmStartAt = now + llmRequestMinIntervalMs();
+    entry.resolve();
+  }
+}
+
+async function acquireLlmSlot(signal?: AbortSignal): Promise<() => void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const entry: LlmQueueEntry = {
+      resolve,
+      reject,
+      signal,
+      abort: () => {
+        const index = llmQueue.indexOf(entry);
+        if (index !== -1) {
+          llmQueue.splice(index, 1);
+        }
+        reject(abortError());
+      }
+    };
+    signal?.addEventListener("abort", entry.abort, { once: true });
+    llmQueue.push(entry);
+    drainLlmQueue();
+  });
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    activeLlmRequests = Math.max(0, activeLlmRequests - 1);
+    drainLlmQueue();
+  };
+}
+
 function isRetryableAnthropicError(error: unknown): boolean {
   if (error instanceof APIConnectionTimeoutError) {
-    return true;
+    return false;
   }
   if (error instanceof APIError) {
     const status = error.status ?? 0;
-    return status === 429 || status >= 500;
+    return status >= 500;
   }
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
-    return (
+    if (
       error.name === "AbortError" ||
       message.includes("timeout") ||
       message.includes("aborted") ||
+      message.includes("rate limit") ||
+      message.includes("429")
+    ) {
+      return false;
+    }
+    return (
       message.includes("econnreset") ||
       message.includes("rate limit")
     );
@@ -1229,13 +1338,22 @@ async function completeAnthropic(
   system: string,
   messages: MessageParam[],
   maxTokens: number,
-  temperature: number
+  temperature: number,
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= llmRequestAttempts; attempt += 1) {
     try {
-      const abortTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
+      throwIfAborted(signal);
+      const releaseSlot = await acquireLlmSlot(signal);
+      const configuredTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
+      const abortTimeoutMs = timeoutMs ?? configuredTimeoutMs;
       const controller = new AbortController();
+      const abortFromExternalSignal = () => {
+        controller.abort();
+      };
+      signal?.addEventListener("abort", abortFromExternalSignal, { once: true });
       const timeout = setTimeout(() => {
         controller.abort();
       }, abortTimeoutMs);
@@ -1246,6 +1364,7 @@ async function completeAnthropic(
             system,
             messages,
             max_tokens: maxTokens,
+            thinking: { type: "disabled" },
             temperature
           },
           { signal: controller.signal }
@@ -1254,6 +1373,8 @@ async function completeAnthropic(
         return textBlock?.text ?? "";
       } finally {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", abortFromExternalSignal);
+        releaseSlot();
       }
     } catch (error) {
       lastError = error;
@@ -1272,17 +1393,13 @@ export async function summarizeRoundWithLlm(input: {
   model: string;
   language: string;
   data: Record<string, unknown>;
+  abortSignal?: AbortSignal;
 }): Promise<string | null> {
   const apiKey = process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return null;
   }
 
-  const client = createAnthropicClient(
-    apiKey,
-    process.env.ZAI_BASE_URL ?? defaultZaiBaseUrl,
-    positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
-  );
   const system = [
     promptMaterials.roundSummary.systemPreamble,
     promptMaterials.roundSummary.jsonInstruction,
@@ -1302,25 +1419,33 @@ export async function summarizeRoundWithLlm(input: {
       ].join("\n")
     }
   ];
-  const content = await completeAnthropic(
-    client,
-    input.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel,
-    system,
-    messages,
-    512,
-    0.35
+  const model = input.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel;
+  const client = createAnthropicClient(
+    apiKey,
+    process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
+    positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
   );
+  const content = await completeAnthropic(client, model, system, messages, 512, 0.35, undefined, input.abortSignal);
 
   return normalizeLlmSummary(content);
 }
 
-export class AnthropicAgent implements Agent {
+type CompleteRequest = (
+  system: string,
+  messages: MessageParam[],
+  maxTokens: number,
+  temperature: number,
+  timeoutMs?: number,
+  signal?: AbortSignal
+) => Promise<string>;
+
+class LlmAgent implements Agent {
   constructor(
     public readonly name: string,
-    private readonly client: Anthropic,
     public readonly model: string,
     private readonly language: string,
-    private readonly maxTokens = defaultLlmMaxTokens
+    private readonly maxTokens: number,
+    private readonly completeRequest: CompleteRequest
   ) {}
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
@@ -1331,12 +1456,17 @@ export class AnthropicAgent implements Agent {
       language: this.language,
       legalPlayers
     });
-    const content = await this.complete(system, [
-      {
-        role: "user",
-        content: [input.context, "", `Task: ${input.task}`].join("\n")
-      }
-    ]);
+    const content = await this.complete(
+      system,
+      [
+        {
+          role: "user",
+          content: [input.context, "", `Task: ${input.task}`].join("\n")
+        }
+      ],
+      this.maxTokens,
+      input.abortSignal
+    );
 
     return parseSpeech(
       content,
@@ -1375,7 +1505,7 @@ export class AnthropicAgent implements Agent {
     ];
 
     for (let attempt = 0; attempt < targetSelectionAttempts; attempt += 1) {
-      const content = await this.complete(system, messages);
+      const content = await this.complete(system, messages, targetDecisionMaxTokens, input.abortSignal);
       const selection = parseTargetSelection(content, input.candidates, input.allowSkip);
       if (selection.valid) {
         return selection.decision;
@@ -1419,7 +1549,7 @@ export class AnthropicAgent implements Agent {
     ];
 
     for (let attempt = 0; attempt < booleanDecisionAttempts; attempt += 1) {
-      const content = await this.complete(system, messages);
+      const content = await this.complete(system, messages, booleanDecisionMaxTokens, input.abortSignal);
       const decision = parseBooleanDecision(content);
       if (decision.valid) {
         return decision.decision;
@@ -1442,8 +1572,22 @@ export class AnthropicAgent implements Agent {
     return false;
   }
 
-  private async complete(system: string, messages: MessageParam[]): Promise<string> {
-    return completeAnthropic(this.client, this.model, system, messages, this.maxTokens, 0.8);
+  private async complete(system: string, messages: MessageParam[], maxTokens = this.maxTokens, signal?: AbortSignal): Promise<string> {
+    return this.completeRequest(system, messages, maxTokens, 0.8, undefined, signal);
+  }
+}
+
+export class AnthropicAgent extends LlmAgent {
+  constructor(
+    name: string,
+    client: Anthropic,
+    model: string,
+    language: string,
+    maxTokens = defaultLlmMaxTokens
+  ) {
+    super(name, model, language, maxTokens, (system, messages, requestMaxTokens, temperature, timeoutMs, signal) =>
+      completeAnthropic(client, model, system, messages, requestMaxTokens, temperature, timeoutMs, signal)
+    );
   }
 }
 
@@ -1455,17 +1599,17 @@ export function createAgentFactory(options: {
   const apiKey = process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY;
   const configuredModel = options.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel;
   const maxTokens = positiveInt(process.env.ZAI_MAX_TOKENS ?? process.env.LLM_MAX_TOKENS, defaultLlmMaxTokens);
-  const client = apiKey
+  const anthropicCompatibleClient = apiKey
     ? createAnthropicClient(
         apiKey,
-        process.env.ZAI_BASE_URL ?? defaultZaiBaseUrl,
+        process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
         positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
       )
     : null;
 
   return (name: string) => {
-    if (options.provider === "llm" && client) {
-      return new AnthropicAgent(name, client, configuredModel, options.language, maxTokens);
+    if (options.provider === "llm" && anthropicCompatibleClient) {
+      return new AnthropicAgent(name, anthropicCompatibleClient, configuredModel, options.language, maxTokens);
     }
     return new DemoAgent(name, options.provider === "llm" ? "demo-fallback" : "demo", options.language);
   };
