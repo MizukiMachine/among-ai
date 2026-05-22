@@ -188,6 +188,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /Legal living read target ids for suspects\/trusts/);
   assert.match(speech, /two short table passes/);
   assert.match(speech, /answer that before starting a new topic/);
+  assert.match(speech, /Evaluate another player's statements/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
   assert.match(target, /You must choose one listed target/);
@@ -235,8 +236,11 @@ test("first-day discussion prompts keep reads tentative and question-led", () =>
   assert.match(context, /強い断定を避ける/);
   assert.match(context, /質問する/);
   assert.match(context, /発言量/);
-  assert.match(context, /誰が誰の疑いに乗ったか/);
+  assert.match(context, /実際に誰かが疑いに乗った後/);
   assert.match(context, /仮説として軽く疑う/);
+  assert.match(context, /No prior public statements are included/);
+  assert.match(context, /vagueness as observed evidence yet/);
+  assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
 

@@ -247,7 +247,14 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     lines.push("", "Your private memory:", ...recentLines(privateHistory, 12));
   }
 
-  if (publicHistory.length > 0) {
+  if (mode === "public_speech" && publicHistory.length === 0) {
+    lines.push(
+      "",
+      "Visible public discussion so far:",
+      "- No prior public statements are included in your visible context.",
+      "- Do not describe any specific player's earlier statement, reaction, contradiction, speaking volume, or vagueness as observed evidence yet."
+    );
+  } else if (publicHistory.length > 0) {
     lines.push("", "Recent public discussion:", ...recentLines(publicHistory, 18));
   }
 

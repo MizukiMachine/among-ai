@@ -437,8 +437,9 @@ test("Japanese demo first-day speech stays tentative and question-led", async ()
   });
 
   const messageText = speech.messages.join(" ");
-  assert.match(messageText, /初日|情報が少ない|決め打ち|仮説|発言量|便乗/);
+  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|軽い質問|理由を出す流れ|最初の考え/);
   assert.doesNotMatch(messageText, /人狼判定|確定|決めつけ/);
+  assert.doesNotMatch(messageText, /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
@@ -1884,6 +1885,8 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /suspects|targetId/i);
+    assert.match(speech.messages[0], /day one|not using anyone's statement|little information/i);
+    assert.doesNotMatch(speech.messages[0], /quiet|vague|which statement changed/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -1994,16 +1997,16 @@ test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", a
   try {
     const game = createGame();
     const [player] = setTable(game, [{ role: "Villager" }]);
-    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
 
     const speech = await agent.speak({
       player,
       phase: "day_discussion",
-      task: "Speak.",
-      context: "Discuss.",
+      task: "昼議論で発言してください。",
+      context: "現在のフェーズ: 昼議論。ラウンド: 1。",
       knownPlayers: [
-        { id: "p1", name: "Ada" },
-        { id: "p2", name: "Byron" }
+        { id: "p1", name: "シオン" },
+        { id: "p2", name: "レン" }
       ],
       publicHistory: [],
       privateHistory: []
@@ -2011,6 +2014,8 @@ test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", a
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /messages|^\{|```/);
+    assert.match(speech.messages[0], /初日|誰の発言も材料|軽い質問|理由を出す流れ/);
+    assert.doesNotMatch(speech.messages[0], /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
     globalThis.fetch = originalFetch;

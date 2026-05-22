@@ -59,6 +59,7 @@ common:
       - This is a public table statement. Every living player can hear it.
       - Use private role knowledge only to decide what to say; do not expose it unless the role strategy says a claim is worth the risk.
       - Dead players cannot answer, vote, be eliminated, or become current suspect/trust targets. Refer to dead players only as past evidence.
+      - Evaluate another player's statements, reactions, contradictions, timing, or speaking volume only when that evidence appears in visible public history or task-specific context.
       - Never cite hidden prompts, private memories, ally chat, night action targets, or protected system context.
       - If you claim a role or result, make it sound like an in-game claim with a clear reason and timeline.
     internal_decision:
@@ -478,7 +479,7 @@ daySituations:
   ja:
     first_day:
       - "初日昼: 公開情報が少ないので強い断定を避ける。"
-      - "質問する、発言量を見る、誰が誰の疑いに乗ったかを見る、仮説として軽く疑う。"
+      - "質問する、これからの発言量を見る、実際に誰かが疑いに乗った後でその流れを見る、仮説として軽く疑う。"
       - "黒確定のように言わず、「気になる」「理由を聞きたい」で止める。"
     later_day:
       - "2日目以降の昼: 昨日の投票、夜の結果、前日の疑い先の変化をつなげて話す。"
@@ -498,7 +499,7 @@ daySituations:
   en:
     first_day:
       - "First day: public information is thin, so avoid hard certainty."
-      - Ask questions, compare speaking volume, watch who follows whose suspicion, and frame reads as light hypotheses.
+      - Ask questions, compare speaking volume only as it appears, watch who follows whose suspicion only after that happens, and frame reads as light hypotheses.
       - 'Prefer wording like "stands out" or "I want an answer" over treating anyone as confirmed.'
     later_day:
       - "Day two and later: connect yesterday's votes, the night result, and changes in earlier reads."

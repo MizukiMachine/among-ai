@@ -176,6 +176,18 @@ const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   ]
 };
 
+const demoOpeningDaySituationSpeechEn = [
+  "It is day one, so I am not locking anyone in. I want each person to give one early reason.",
+  "I am not using anyone's statement as evidence yet. I want to start with a light question.",
+  "With so little information, I want us to build a record of reasons first."
+];
+
+const demoOpeningDaySituationSpeechJa = [
+  "初日なので決め打ちはしません。まず一人ずつ、気になる相手と理由を聞きたいです。",
+  "まだ誰の発言も材料にしません。最初は軽い質問から始めます。",
+  "今は情報が少ないので、理由を出す流れを作りたいです。"
+];
+
 const personaReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
     "their stance has been careful but not testable",
@@ -348,13 +360,101 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
   ]
 };
 
+const openingFirstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
+  cautious: [
+    "I want one concrete opening thought",
+    "an early read will be easier to compare later",
+    "starting with a small question keeps the table readable"
+  ],
+  aggressive: [
+    "I want them to give their own view from the start",
+    "early pressure should create useful answers",
+    "someone needs to open with a clear stance"
+  ],
+  logical: [
+    "I want material we can compare later",
+    "an opening reason gives the table a baseline",
+    "the first answer helps structure later votes"
+  ],
+  opportunistic: [
+    "an early stance is useful to revisit later",
+    "hearing them now makes later movement easier to judge",
+    "the table needs a first point to test"
+  ],
+  empathetic: [
+    "I want to hear their reason before reading them strongly",
+    "a light question should make the start easier",
+    "their first thought will help me understand them"
+  ],
+  trickster: [
+    "I want to see how they handle a weird first question",
+    "opening with something odd can reveal useful reactions",
+    "safe starts are boring and hard to read"
+  ],
+  stoic: [
+    "even a short first word is useful",
+    "I need one answer before judging",
+    "observation starts with the first response"
+  ],
+  passionate: [
+    "I want to see their conviction early",
+    "the first answer should carry some heart",
+    "I want a reason I can believe in later"
+  ]
+};
+
+const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> = {
+  cautious: [
+    "最初の考えを一つ聞きたい",
+    "後で比べやすいように早めの読みを残してほしい",
+    "小さい質問から始める方が整理しやすい"
+  ],
+  aggressive: [
+    "最初から自分の見方を出してほしい",
+    "早めに理由を聞く方が答えを見やすい",
+    "誰かがはっきりした立場を開くべき"
+  ],
+  logical: [
+    "後で比べられる材料を作りたい",
+    "最初の理由があると流れを追いやすい",
+    "最初の答えが投票前の基準になる"
+  ],
+  opportunistic: [
+    "早めの立場は後で見返しやすい",
+    "今聞くと後の動きが比べやすい",
+    "最初に確かめる点を一つ作りたい"
+  ],
+  empathetic: [
+    "強く読む前に本人の理由を聞きたい",
+    "軽い質問の方が話し始めやすい",
+    "最初の考えを聞くと相手を見やすい"
+  ],
+  trickster: [
+    "変な最初の質問にどう答えるか見たい",
+    "少し変な始まりの方が反応を見やすい",
+    "安全な始まりだけだと読みにくい"
+  ],
+  stoic: [
+    "短くても最初の一言は材料になる",
+    "判断する前に一つ答えがほしい",
+    "観察は最初の返答から始まる"
+  ],
+  passionate: [
+    "早めに覚悟を見たい",
+    "最初の答えにも熱があるか見たい",
+    "後で信じられる理由がほしい"
+  ]
+};
+
 export function listJapaneseDemoCopySamples(): string[] {
   const name = "シオン";
   return [
     ...Object.values(demoSpeechJa).flatMap((lines) => lines ?? []),
     ...Object.values(demoDaySituationSpeechJa).flat(),
+    ...demoOpeningDaySituationSpeechJa,
     ...Object.values(personaReasonsJa).flat(),
     ...Object.values(firstDayReasonsJa).flat(),
+    ...Object.values(openingFirstDayReasonsJa).flat(),
     "発言と投票の理由が一貫している",
     "夜の状況に関わる薬の情報があります。",
     "私の護衛先が夜の結果を説明できるかもしれません。",
@@ -1101,10 +1201,18 @@ function buildDemoDaySituationSpeech(input: AgentSpeechInput, language: string):
     return null;
   }
 
+  if (situation === "first_day" && input.publicHistory.length === 0) {
+    return sample(isJapaneseLanguage(language) ? demoOpeningDaySituationSpeechJa : demoOpeningDaySituationSpeechEn);
+  }
+
   return sample((isJapaneseLanguage(language) ? demoDaySituationSpeechJa : demoDaySituationSpeechEn)[situation]);
 }
 
-function demoSpeechReasonPool(input: AgentSpeechInput, situations: DaySituation[], language: string): string[] {
+function demoSpeechReasonPool(input: AgentSpeechInput, situations: DaySituation[], language: string, openingFirstDay = false): string[] {
+  if (openingFirstDay) {
+    return (isJapaneseLanguage(language) ? openingFirstDayReasonsJa : openingFirstDayReasonsEn)[input.player.persona];
+  }
+
   const firstDayOnly =
     input.phase === "day_discussion" &&
     situations.includes("first_day") &&
@@ -1114,6 +1222,14 @@ function demoSpeechReasonPool(input: AgentSpeechInput, situations: DaySituation[
     return (isJapaneseLanguage(language) ? firstDayReasonsJa : firstDayReasonsEn)[input.player.persona];
   }
   return (isJapaneseLanguage(language) ? personaReasonsJa : personaReasonsEn)[input.player.persona];
+}
+
+function buildLlmSpeechFallback(input: AgentSpeechInput, language: string): string {
+  if (input.phase === "day_discussion" && input.publicHistory.length === 0) {
+    return sample(isJapaneseLanguage(language) ? demoOpeningDaySituationSpeechJa : demoOpeningDaySituationSpeechEn);
+  }
+
+  return sample(demoSpeechForRole(isJapaneseLanguage(language) ? demoSpeechJa : demoSpeechEn, input.player.role));
 }
 
 function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate, language: string): string | null {
@@ -1172,12 +1288,13 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   }
 
   const situations = detectSpeechDaySituations(input, language);
-  const reasonPool = demoSpeechReasonPool(input, situations, language);
   const firstDaySoft =
     input.phase === "day_discussion" &&
     situations.includes("first_day") &&
     !situations.includes("seer_claim") &&
     !situations.includes("black_result");
+  const openingFirstDay = firstDaySoft && input.publicHistory.length === 0;
+  const reasonPool = demoSpeechReasonPool(input, situations, language, openingFirstDay);
   const fallback = buildDemoDaySituationSpeech(input, language) ?? sample(demoSpeechForRole(speechPool, input.player.role));
   const metadata = emptySpeechMetadata();
   const suspect = candidates.length > 0 ? sample(candidates) : null;
@@ -1185,7 +1302,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   const trusted = trustPool.length > 0 ? sample(trustPool) : null;
   const personaReason = sample(reasonPool);
 
-  if (suspect) {
+  if (suspect && !openingFirstDay) {
     metadata.suspects.push({
       targetId: suspect.id,
       targetName: suspect.name,
@@ -1194,7 +1311,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     });
   }
 
-  if (trusted && input.player.persona !== "aggressive") {
+  if (trusted && !openingFirstDay && input.player.persona !== "aggressive") {
     metadata.trusts.push({
       targetId: trusted.id,
       targetName: trusted.name,
@@ -1301,7 +1418,15 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
       [
         flavor ?? fallback,
         flavor ? fallback : "",
-        suspect ? (japanese ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}` : `${suspect.name} stands out because ${personaReason}.`) : ""
+        suspect
+          ? openingFirstDay
+            ? japanese
+              ? `${suspect.name}にも最初の考えを聞きたいです。${japaneseReasonSentence(personaReason)}`
+              : `${suspect.name}, I want your opening read too because ${personaReason}.`
+            : japanese
+              ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`
+              : `${suspect.name} stands out because ${personaReason}.`
+          : ""
       ],
       language
     ),
@@ -1509,7 +1634,7 @@ class LlmAgent implements Agent {
     return parseSpeech(
       content,
       legalPlayers,
-      sample(demoSpeechForRole(isJapaneseLanguage(this.language) ? demoSpeechJa : demoSpeechEn, input.player.role)),
+      buildLlmSpeechFallback(input, this.language),
       input.knownPlayers
     );
   }
