@@ -109,9 +109,10 @@
 | 設定項目 | コントロール | 選択肢/範囲 | デフォルト |
 |---------|-------------|------------|-----------|
 | プレイヤー数 | セレクトボックス | 6〜20 | 7 |
+| 生成並列数 | セグメントボタン | 1 / 2 / 3 / 4 / 6 / 8 | 人数に応じた推奨値 |
 | 必ず起こしたいイベント | セレクトボックス | 通常進行 / 護衛成功を再現 / ハンター発砲を再現 | 通常進行 |
 | 観戦モード | セレクトボックス | 全知全能 / 人間視点 | 全知全能 |
-| 進捗バー | プログレスバー | イベント消化率を表示 | — |
+| 進捗バー | プログレスバー | 生成中のLLMジョブ進捗を表示 | — |
 
 ### 4-5. STORY PANEL（中央カラム）
 
@@ -396,6 +397,7 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 | `scenario` | string | none / guard_success / hunter_shot | none |
 | `speed` | number | 0-3000 | 650 |
 | `view` | string | omniscient / village | omniscient |
+| `concurrency` / `prefetchConcurrency` | number | 1-20 | `ZAI_PREFETCH_CONCURRENCY` |
 
 ### 環境変数
 
@@ -424,6 +426,7 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 ```
 event: system   →  ストリーム開始
 event: game     →  ゲームイベント（GameEventオブジェクト）
+event: progress →  LLM生成バッチの進捗（GenerationProgressオブジェクト）
 event: done     →  ストリーム終了
 event: error    →  エラー発生
 ```
