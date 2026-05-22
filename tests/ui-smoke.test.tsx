@@ -53,8 +53,9 @@ test("winner label appears only when a winner exists", () => {
 
 test("hero cast mirrors selected and active player counts", () => {
   assert.equal(heroCastForStage([], 9).length, 9);
+  assert.equal(heroCastForStage([], 20).length, 20);
 
-  const players: PlayerSnapshot[] = Array.from({ length: 9 }, (_, index) => ({
+  const players: PlayerSnapshot[] = Array.from({ length: 20 }, (_, index) => ({
     id: `p${index + 1}`,
     name: `Player ${index + 1}`,
     role: "Villager",
@@ -64,11 +65,13 @@ test("hero cast mirrors selected and active player counts", () => {
     model: "demo",
     memoryCount: 0
   }));
-  const cast = heroCastForStage(players, 9);
+  const cast = heroCastForStage(players, 20);
 
-  assert.equal(cast.length, 9);
-  assert.equal(cast.at(-1)?.id, "p9");
-  assert.equal(cast.at(-1)?.alive, false);
+  assert.equal(cast.length, 20);
+  assert.equal(cast.at(-1)?.id, "p20");
+  assert.equal(cast.at(-1)?.image, null);
+  assert.equal(cast.at(-1)?.alive, true);
+  assert.equal(cast[8].alive, false);
 });
 
 test("read clusters count each source-target pair once", () => {

@@ -17,8 +17,10 @@ import type {
   CampId,
   GameConfig,
   GameEvent,
+  GenerationProgress,
   Player,
   Role,
+  HumanInputHandler,
   TargetDecision
 } from "../src/game/types";
 
@@ -729,6 +731,60 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
   assert.match(firstAgent.speechInputs[1].context, /カイ speaks/);
+});
+
+test("human participation still reports batched progress for AI day work", async () => {
+  const progressEvents: GenerationProgress[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech") {
+        return { speech: "I will give my read after hearing everyone." };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      playerCount: 6,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 2
+    },
+    {
+      humanInput,
+      onProgress: (progress) => progressEvents.push(progress)
+    }
+  ) as TestableGame;
+
+  const events = await collect(game.runDay());
+
+  assert.ok(events.some((event) => event.type === "player_speech" && event.playerId === "p3"));
+  assert.ok(progressEvents.some((progress) => progress.task === "day_speech"));
+  assert.ok(progressEvents.some((progress) => progress.task === "day_vote"));
+  assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));
+});
+
+test("progress observer failures do not abort game generation", async () => {
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      playerCount: 6,
+      prefetchConcurrency: 2
+    },
+    {
+      onProgress: () => {
+        throw new Error("progress observer failed");
+      }
+    }
+  ) as TestableGame;
+
+  const events = await collect(game.runDay());
+
+  assert.ok(events.some((event) => event.type === "player_speech"));
+  assert.ok(events.some((event) => event.type === "round_summary"));
 });
 
 test("round summary counts repeated reads from the same speaker once", async () => {

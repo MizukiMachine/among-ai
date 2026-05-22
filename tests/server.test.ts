@@ -49,6 +49,12 @@ test("stream options accept expanded player counts up to 20", () => {
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=21")).playerCount, 20);
 });
 
+test("stream options accept bounded generation concurrency", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20&concurrency=8")).prefetchConcurrency, 8);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20&prefetchConcurrency=50")).prefetchConcurrency, 20);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20&concurrency=bad")).prefetchConcurrency, undefined);
+});
+
 test("stream options accept a human player and player view", () => {
   const options = parseStreamOptions(
     new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&scenario=hunter_shot")
@@ -57,6 +63,33 @@ test("stream options accept a human player and player view", () => {
   assert.equal(options.humanPlayerId, "p3");
   assert.equal(options.view, "player");
   assert.equal(options.debugScenario, "none");
+});
+
+test("stream emits progress frames for batched AI generation", async () => {
+  const app = createApp();
+  const response = await app.request(
+    "/api/games/stream?players=8&provider=demo&summary=deterministic&speed=0&concurrency=2&scenario=guard_success&maxRounds=3"
+  );
+  const frames = parseSse(await response.text());
+  const progressFrames = frames.filter((frame) => frame.event === "progress");
+
+  assert.ok(progressFrames.some((frame) => (frame.data as { task?: string }).task === "day_speech"));
+  assert.ok(progressFrames.every((frame) => ((frame.data as { concurrency?: number }).concurrency ?? 0) <= 2));
+});
+
+test("village stream redacts secret werewolf progress frames", async () => {
+  const app = createApp();
+  const response = await app.request(
+    "/api/games/stream?players=8&provider=demo&summary=deterministic&speed=0&view=village&scenario=guard_success&maxRounds=3"
+  );
+  const frames = parseSse(await response.text());
+  const progressFrames = frames.filter((frame) => frame.event === "progress");
+  const progressPayloads = progressFrames.map((frame) => frame.data as { task?: string; label?: string; phase?: string; redacted?: boolean });
+
+  assert.ok(progressPayloads.some((progress) => progress.redacted === true && progress.task === "hidden"));
+  assert.ok(progressPayloads.every((progress) => !String(progress.task).startsWith("werewolf")));
+  assert.ok(progressPayloads.every((progress) => !String(progress.label).includes("人狼")));
+  assert.ok(progressPayloads.every((progress) => progress.phase !== "werewolf_discussion"));
 });
 
 test("human input session rejects responses that do not match the pending request", async () => {
