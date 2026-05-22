@@ -30,6 +30,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
 import type {
@@ -58,28 +59,6 @@ const characterImageMap: Record<string, string> = {
 
 const defaultCharacterImages = Object.values(characterImageMap);
 const villageRedactedMessage = "人間視点では非公開情報です。";
-const characterNames = [
-  "カズ",
-  "カイ",
-  "ミオ",
-  "レン",
-  "サキ",
-  "タカ",
-  "ユキ",
-  "ケン",
-  "リン",
-  "アオ",
-  "ナオ",
-  "ハル",
-  "リク",
-  "メイ",
-  "ソラ",
-  "エマ",
-  "シュン",
-  "ノア",
-  "ルイ",
-  "マナ"
-];
 
 interface StreamSystemPayload {
   gameId?: string | null;

@@ -100,12 +100,12 @@ test("human input session rejects responses that do not match the pending reques
   const requestPromise = session.request({
     kind: "target",
     playerId: "p1",
-    playerName: "カズ",
+    playerName: "シオン",
     phase: "voting",
     role: "Villager",
     action: "投票",
     context: { notes: [], publicHistory: [], privateHistory: [] },
-    candidates: [{ id: "p2", name: "カイ" }],
+    candidates: [{ id: "p2", name: "ガク" }],
     allowSkip: false
   });
 

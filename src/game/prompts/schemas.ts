@@ -65,4 +65,13 @@ export const booleanJsonSchemaInstruction = promptMaterials.outputFormats.boolea
 
 export const outputFormatReminder = promptMaterials.outputFormats.reminder;
 
-export const supportedPersonas: Persona[] = ["cautious", "aggressive", "logical", "opportunistic", "empathetic"];
+export const supportedPersonas: Persona[] = [
+  "cautious",
+  "aggressive",
+  "logical",
+  "opportunistic",
+  "empathetic",
+  "trickster",
+  "stoic",
+  "passionate"
+];

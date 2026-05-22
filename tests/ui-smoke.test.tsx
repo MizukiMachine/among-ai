@@ -197,7 +197,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     type: "player_speech",
     message: "人狼だけに見える相談内容",
     playerId: "p1",
-    playerName: "カズ",
+    playerName: "シオン",
     role: "Werewolf",
     data: { visibility: "werewolf" },
     snapshot: {
@@ -214,5 +214,5 @@ test("village spectator history redacts secret event messages and speakers", () 
   assert.equal(eventMessageForSpectator(event, "village"), "人間視点では非公開情報です。");
   assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
-  assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "カズ");
+  assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
 });

@@ -1,5 +1,5 @@
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
-import { getCharacterProfile } from "./characters";
+import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
@@ -52,31 +52,15 @@ import type {
   VoteRecord
 } from "./types";
 
-const names = [
-  "カズ",
-  "カイ",
-  "ミオ",
-  "レン",
-  "サキ",
-  "タカ",
-  "ユキ",
-  "ケン",
-  "リン",
-  "アオ",
-  "ナオ",
-  "ハル",
-  "リク",
-  "メイ",
-  "ソラ",
-  "エマ",
-  "シュン",
-  "ノア",
-  "ルイ",
-  "マナ"
-];
-const personas: Persona[] = [
-  "cautious", "aggressive", "logical", "opportunistic", "empathetic",
-  "cautious", "logical", "aggressive", "empathetic"
+const fallbackPersonas: Persona[] = [
+  "cautious",
+  "aggressive",
+  "logical",
+  "opportunistic",
+  "empathetic",
+  "trickster",
+  "stoic",
+  "passionate"
 ];
 const dayDiscussionPasses = 2;
 const defaultAiPrefetchConcurrency = 3;
@@ -404,8 +388,6 @@ export class WerewolfGame {
         : createScenarioRoles(activeDebugScenario, this.config.playerCount),
       this.config.humanPlayerId ?? null
     );
-    const personaPool = Array.from({ length: this.config.playerCount }, (_, index) => personas[index % personas.length]);
-    const assignedPersonas = activeDebugScenario === "none" ? shuffle(personaPool) : personaPool;
     const createAgent = createAgentFactory({
       provider: this.config.provider,
       model: this.config.model,
@@ -413,21 +395,22 @@ export class WerewolfGame {
     });
 
     this.players = roles.map((role, index) => {
-      const name = names[index];
       const playerId = `p${index + 1}`;
+      const profile = getCharacterProfile(playerId);
+      const name = profile?.nameJa ?? characterNames[index] ?? `P${index + 1}`;
       const agent =
         playerId === this.config.humanPlayerId && options.humanInput
           ? new HumanInputAgent(name, options.humanInput, this.config.language)
           : activeDebugScenario === "none"
           ? createAgent(name)
           : this.createScenarioAgent(name, activeDebugScenario, index);
-      const profile = getCharacterProfile(playerId);
+      const persona = getPersonaForPlayer(playerId) ?? fallbackPersonas[index % fallbackPersonas.length];
       const player: Player = {
         id: playerId,
         name,
         role,
         camp: roleCamp(role),
-        persona: assignedPersonas[index],
+        persona,
         alive: true,
         model: agent.model,
         memories: [],

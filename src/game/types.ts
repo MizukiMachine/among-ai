@@ -105,6 +105,7 @@ export interface CharacterProfile {
   playerId: string;
   nameJa: string;
   gender: "male" | "female";
+  persona: Persona;
   tagline: string;
   speechStyle: string;
   values: string;

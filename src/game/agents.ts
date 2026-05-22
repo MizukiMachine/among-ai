@@ -349,7 +349,7 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
 };
 
 export function listJapaneseDemoCopySamples(): string[] {
-  const name = "カズ";
+  const name = "シオン";
   return [
     ...Object.values(demoSpeechJa).flatMap((lines) => lines ?? []),
     ...Object.values(demoDaySituationSpeechJa).flat(),

@@ -153,10 +153,10 @@
 
 - 勝利陣営バナー（終了時のみ）
 - 各プレイヤーカードに表示:
-  - プレイヤー名（例: Ada, Byron, Claude...）
+  - プレイヤー名（例: シオン, ガク, アカネ...）
   - 役職（全知全能モード）/ "非公開"（人間視点モード）
   - 陣営（人間側/狼陣営 / 非公開）
-  - ペルソナ（慎重/強気/論理派/機を見る/共感型）
+  - ペルソナ（慎重/強気/論理派/機を見る/共感型/攪乱/沈黙/熱血）
   - 生存状態アイコン
 
 #### 墓地
@@ -354,19 +354,31 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 
 ## 9. プレイヤー名
 
-固定の名前リストから選ばれる（7人時の例）:
+固定のキャラクターリストから選ばれる。20人卓まで名前、公開ペルソナ、口調設定を持つ。
+名前の長さは2文字8名、3文字8名、4文字4名にする:
 
-| ID | 名前 |
-|----|------|
-| p1 | Ada |
-| p2 | Byron |
-| p3 | Claude |
-| p4 | Dana |
-| p5 | Elon |
-| p6 | Frida |
-| p7 | Grace |
-| p8 | Hans（8人時） |
-| p9 | Iris（9人時） |
+| ID | 名前 | ペルソナ |
+|----|------|----------|
+| p1 | シオン | 慎重 |
+| p2 | ガク | 強気 |
+| p3 | アカネ | 論理派 |
+| p4 | サク | 機を見る |
+| p5 | ナギサ | 共感型 |
+| p6 | ユウ | 沈黙 |
+| p7 | キリエ | 論理派 |
+| p8 | リク | 熱血 |
+| p9 | イオリ | 攪乱 |
+| p10 | カオルコ | 強気 |
+| p11 | ハク | 慎重 |
+| p12 | コハル | 共感型 |
+| p13 | ジン | 機を見る |
+| p14 | ノゾミ | 論理派 |
+| p15 | アキヒト | 熱血 |
+| p16 | セナ | 沈黙 |
+| p17 | マヒロ | 攪乱 |
+| p18 | ソラ | 慎重 |
+| p19 | コトノハ | 強気 |
+| p20 | サクラコ | 共感型 |
 
 ---
 
@@ -377,7 +389,7 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 | 役職 | 人狼 / 占い師 / 魔女 / 騎士 / ハンター / 人間 | Werewolf / Seer / Witch / Guard / Hunter / Villager |
 | フェーズ | 準備 / 夜 / 人狼相談 / 護衛 / 占い / 魔女 / 昼議論 / 投票 / 終了 | Setup / Night / Wolf Discussion / Guard / Seer / Witch / Discussion / Voting / Ended |
 | 陣営 | 狼陣営 / 人間側 / 非公開 | Werewolf Camp / Village Camp / Hidden |
-| ペルソナ | 慎重 / 強気 / 論理派 / 機を見る / 共感型 | Cautious / Aggressive / Logical / Opportunistic / Empathetic |
+| ペルソナ | 慎重 / 強気 / 論理派 / 機を見る / 共感型 / 攪乱 / 沈黙 / 熱血 | Cautious / Aggressive / Logical / Opportunistic / Empathetic / Trickster / Stoic / Passionate |
 | UI | 戻る / 次へ / 一時停止 / 再開 / ゲームをリセット | Back / Next / Pause / Resume / Reset Game |
 
 ---
@@ -442,10 +454,10 @@ event: error    →  エラー発生
   "type": "player_speech",
   "message": "発言内容...",
   "playerId": "p3",
-  "playerName": "Claude",
+  "playerName": "アカネ",
   "role": "seer",
   "targetId": "p5",
-  "targetName": "Elon",
+  "targetName": "ナギサ",
   "data": {
     "claims": [...],
     "suspects": [...],

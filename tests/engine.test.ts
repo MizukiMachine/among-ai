@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundWithLlm } from "../src/game/agents";
+import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
@@ -241,6 +242,35 @@ test("large role distribution supports 15-20 players with advanced roles", async
     assert.ok(roles.includes("Elder"));
     assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 16 ? 2 : 0);
     assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 18 ? 1 : 0);
+  }
+});
+
+test("character roster covers all 20 player slots with fixed names and personas", () => {
+  assert.equal(characterProfiles.length, 20);
+  assert.deepEqual(characterNames, characterProfiles.map((profile) => profile.nameJa));
+  const nameLengths = characterNames.reduce<Record<number, number>>((counts, name) => {
+    const length = Array.from(name).length;
+    counts[length] = (counts[length] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  assert.deepEqual(nameLengths, { 2: 8, 3: 8, 4: 4 });
+  const incomingRelations = Object.fromEntries(characterProfiles.map((profile) => [profile.playerId, 0]));
+  for (const profile of characterProfiles) {
+    for (const relatedPlayerId of Object.keys(profile.relations)) {
+      incomingRelations[relatedPlayerId] = (incomingRelations[relatedPlayerId] ?? 0) + 1;
+    }
+  }
+  assert.ok(characterProfiles.every((profile) => incomingRelations[profile.playerId] > 0));
+
+  const game = new WerewolfGame({ ...baseConfig, playerCount: 20 }) as TestableGame;
+
+  for (const [index, player] of game.players.entries()) {
+    const profile = characterProfiles[index];
+    assert.equal(player.id, profile.playerId);
+    assert.equal(player.name, profile.nameJa);
+    assert.equal(player.persona, profile.persona);
+    assert.equal(player.characterProfile, profile);
   }
 });
 
@@ -552,7 +582,7 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.equal(players[3].alive, false);
   assert.ok(events.some((event) => event.type === "vote_result"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
-  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "カズ scripted reason"));
+  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "シオン scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
 });
 
@@ -730,7 +760,7 @@ test("day discussion gives each living player a second response pass", async () 
   assert.equal(firstAgent.speechInputs.length, 2);
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
-  assert.match(firstAgent.speechInputs[1].context, /カイ speaks/);
+  assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
 test("human participation still reports batched progress for AI day work", async () => {
@@ -1250,7 +1280,7 @@ test("player redaction reveals only the human player's role and private info", (
     players: [
       {
         id: "p1",
-        name: "カズ",
+        name: "シオン",
         role: "Werewolf" as const,
         camp: "werewolf" as const,
         persona: "cautious" as const,
@@ -1260,7 +1290,7 @@ test("player redaction reveals only the human player's role and private info", (
       },
       {
         id: "p3",
-        name: "ミオ",
+        name: "アカネ",
         role: "Seer" as const,
         camp: "village" as const,
         persona: "logical" as const,
@@ -1279,12 +1309,12 @@ test("player redaction reveals only the human player's role and private info", (
     round: 1,
     phase: "seer_action",
     type: "private_info",
-    message: "ミオはカズが狼陣営だと知りました。",
+    message: "アカネはシオンが狼陣営だと知りました。",
     playerId: "p3",
-    playerName: "ミオ",
+    playerName: "アカネ",
     role: "Seer",
     targetId: "p1",
-    targetName: "カズ",
+    targetName: "シオン",
     data: { visibility: "private", visibleTo: "p3", action: "seer_check", result: "werewolf" },
     snapshot
   };
@@ -1864,7 +1894,7 @@ test("LLM truncated speech JSON recovers dialogue without leaking JSON syntax", 
         content: [
           {
             type: "text",
-            text: "{\"messages\":[\"カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ\",\"でも、誰か占"
+            text: "{\"messages\":[\"シオンの言う通り、初日は情報が少ないから無理に決めない方がいいだろ\",\"でも、誰か占"
           }
         ]
       }),
@@ -1886,14 +1916,14 @@ test("LLM truncated speech JSON recovers dialogue without leaking JSON syntax", 
       task: "昼議論で発言してください。",
       context: "議論してください。",
       knownPlayers: [
-        { id: "p1", name: "カズ" },
-        { id: "p2", name: "ミオ" }
+        { id: "p1", name: "シオン" },
+        { id: "p2", name: "ガク" }
       ],
       publicHistory: [],
       privateHistory: []
     });
 
-    assert.deepEqual(speech.messages, ["カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ"]);
+    assert.deepEqual(speech.messages, ["シオンの言う通り、初日は情報が少ないから無理に決めない方がいいだろ"]);
     assert.doesNotMatch(speech.messages.join(" "), /messages|^\{|```/);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
