@@ -569,6 +569,7 @@ function isRole(value: unknown): value is Role {
     value === "Idiot" ||
     value === "Elder" ||
     value === "Lover" ||
+    value === "Jester" ||
     value === "Villager"
   );
 }

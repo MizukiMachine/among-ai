@@ -1,4 +1,5 @@
 import type { Camp } from "../types";
+import { getRoleDefinition } from "./roles";
 import type {
   RulePlayer,
   RulePlayerState,
@@ -6,11 +7,13 @@ import type {
   RuleStatus,
   RuleStatusDuration,
   RuleStatusEffect,
-  RuleStatusKind
+  RuleStatusKind,
+  RuleVictoryClaim
 } from "./types";
 
 export function createRuleState(players: Array<Pick<RulePlayer, "id">>): RuleState {
   return {
+    victoryClaims: [],
     players: Object.fromEntries(
       players.map((player) => [
         player.id,
@@ -85,7 +88,7 @@ export function applyStatusEffects(state: RuleState, effects: RuleStatusEffect[]
       statuses: [...current.statuses, ...(effect.addStatuses ?? [])]
     };
   }
-  return { players };
+  return { ...state, players };
 }
 
 export function expireStatuses(state: RuleState, duration: RuleStatusDuration): RuleState {
@@ -98,7 +101,17 @@ export function expireStatuses(state: RuleState, duration: RuleStatusDuration): 
       }
     ])
   );
-  return { players };
+  return { ...state, players };
+}
+
+export function addVictoryClaims(state: RuleState, claims: RuleVictoryClaim[]): RuleState {
+  if (claims.length === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    victoryClaims: [...(state.victoryClaims ?? []), ...claims]
+  };
 }
 
 export function createCampAbilityDisableEffects(
@@ -107,7 +120,13 @@ export function createCampAbilityDisableEffects(
   sourceId?: string
 ): RuleStatusEffect[] {
   return players
-    .filter((player) => player.alive && player.camp === camp && player.role !== "Villager")
+    .filter(
+      (player) =>
+        player.alive &&
+        player.camp === camp &&
+        player.role !== "Villager" &&
+        getRoleDefinition(player.role).standardCampVictory !== false
+    )
     .map((player) => ({
       playerId: player.id,
       addStatuses: [{ kind: "abilities_disabled", sourceId, duration: "game" }]

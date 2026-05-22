@@ -4,6 +4,7 @@ export type { CampId };
 export type RoleTag =
   | "werewolf"
   | "village"
+  | "neutral"
   | "night_action"
   | "team_action"
   | "investigative"
@@ -36,16 +37,30 @@ export interface DeathTriggerDefinition {
   once: boolean;
 }
 
+export type DeathCause = "werewolf" | "poison" | "vote" | "hunter" | "multiple" | string;
+
+export type VictoryReason =
+  | "all_werewolves_eliminated"
+  | "werewolf_parity"
+  | "only_lovers_alive"
+  | "neutral_role_condition";
+
+export interface DeathVictoryConditionDefinition {
+  cause: DeathCause;
+  camp: "neutral";
+  reason: VictoryReason;
+}
+
 export interface RoleDefinition {
   role: Role;
   camp: Camp;
   victoryCamp?: CampId;
+  standardCampVictory?: boolean;
   tags: RoleTag[];
   nightActions: NightActionDefinition[];
   deathTriggers: DeathTriggerDefinition[];
+  deathVictoryConditions?: DeathVictoryConditionDefinition[];
 }
-
-export type DeathCause = "werewolf" | "poison" | "vote" | "hunter" | "multiple" | string;
 
 export interface DeathRecord {
   playerId: string;
@@ -63,7 +78,7 @@ export interface NightDeathInput {
 export interface VictoryCheckResult {
   camp: CampId;
   fallbackCamp: Camp;
-  reason: "all_werewolves_eliminated" | "werewolf_parity" | "only_lovers_alive";
+  reason: VictoryReason;
   counts: Record<Camp, number>;
   winnerIds: string[];
 }
@@ -100,10 +115,18 @@ export interface RulePlayerState {
 
 export interface RuleState {
   players: Record<string, RulePlayerState>;
+  victoryClaims?: RuleVictoryClaim[];
 }
 
 export interface RuleStatusEffect {
   playerId: string;
   addStatuses?: RuleStatus[];
   setState?: Partial<Omit<RulePlayerState, "playerId" | "statuses">>;
+}
+
+export interface RuleVictoryClaim {
+  camp: CampId;
+  reason: VictoryReason;
+  winnerIds: string[];
+  sourceId?: string;
 }

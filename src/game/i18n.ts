@@ -18,6 +18,7 @@ const roleJa: Record<Role | "Hidden", string> = {
   Idiot: "愚者",
   Elder: "長老",
   Lover: "恋人",
+  Jester: "道化師",
   Villager: "人間",
   Hidden: "非公開"
 };

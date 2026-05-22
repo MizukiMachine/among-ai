@@ -10,6 +10,7 @@ export type Role =
   | "Idiot"
   | "Elder"
   | "Lover"
+  | "Jester"
   | "Villager";
 export type Camp = "werewolf" | "village";
 export type CampId = Camp | "neutral" | "lover";

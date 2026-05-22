@@ -112,6 +112,7 @@ const expectedRoles = [
   "Idiot",
   "Elder",
   "Lover",
+  "Jester",
   "Villager"
 ] as const satisfies readonly Role[];
 const expectedPromptModes = ["public_speech", "internal_decision"] as const satisfies readonly PromptMode[];

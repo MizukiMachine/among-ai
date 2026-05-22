@@ -4,7 +4,13 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
-import { canUseDeathTrigger, createLinkedDeathRecords, createNightDeathRecords, markPlayerDead } from "./rules/deaths";
+import {
+  canUseDeathTrigger,
+  createDeathResolutionEffects,
+  createLinkedDeathRecords,
+  createNightDeathRecords,
+  markPlayerDead
+} from "./rules/deaths";
 import { resolveVoteElimination } from "./rules/elimination";
 import type { DeathRecord, RuleState } from "./rules/types";
 import { createNightActionPlan } from "./rules/night";
@@ -15,9 +21,9 @@ import {
   normalizePlayerCount
 } from "./rules/presets";
 import { roleCamp } from "./rules/roles";
-import { applyStatusEffects, canUseAbilities, createCampAbilityDisableEffects, createInitialRuleState, expireStatuses } from "./rules/state";
+import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses } from "./rules/state";
 import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
-import { adjudicateStandardVictory, checkLoverVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
+import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
 import { sample, shuffle } from "./random";
 import type {
   Agent,
@@ -1159,16 +1165,36 @@ export class WerewolfGame {
         this.lastNightDeaths.push(death.playerId);
       }
       yield this.emit("death", this.deathMessage(player, death), this.deathEventData(player, death, chainDepth), undefined, player);
-      if (death.cause === "vote" && player.role === "Elder") {
-        this.ruleState = applyStatusEffects(this.ruleState, createCampAbilityDisableEffects(this.players, "village", player.id));
-        yield this.emit(
-          "system",
-          this.text(
-            `${player.name}'s execution disabled the remaining village special abilities.`,
-            `${player.name}の処刑により、残った人間側の特殊能力が無効化されました。`
-          ),
-          { action: "elder_penalty", elderId: player.id, elderName: player.name }
-        );
+      const deathEffects = createDeathResolutionEffects(death, player, this.players);
+      for (const effect of deathEffects) {
+        this.ruleState = applyStatusEffects(this.ruleState, effect.statusEffects);
+        this.ruleState = addVictoryClaims(this.ruleState, effect.victoryClaims);
+        if (effect.kind === "elder_penalty") {
+          yield this.emit(
+            "system",
+            this.text(
+              `${player.name}'s execution disabled the remaining village special abilities.`,
+              `${player.name}の処刑により、残った人間側の特殊能力が無効化されました。`
+            ),
+            { action: "elder_penalty", elderId: player.id, elderName: player.name }
+          );
+        }
+        if (effect.kind === "neutral_victory_claim") {
+          yield this.emit(
+            "system",
+            this.text(
+              `${player.name}'s vote elimination fulfilled their neutral win condition.`,
+              `${player.name}は投票処刑で中立勝利条件を満たしました。`
+            ),
+            {
+              action: "neutral_victory_claim",
+              winnerCamp: "neutral",
+              winnerIds: effect.victoryClaims.flatMap((claim) => claim.winnerIds),
+              sourceId: player.id,
+              sourceName: player.name
+            }
+          );
+        }
       }
       yield* this.runHunterShot(player, blocked, chainDepth);
     }
@@ -1268,6 +1294,16 @@ export class WerewolfGame {
         winnerCamp: loverResult.camp,
         winnerIds: loverResult.winnerIds,
         reason: this.text("Only the lovers remain alive.", "恋人だけが生存しています。")
+      };
+    }
+
+    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    if (neutralResult) {
+      return {
+        camp: neutralResult.fallbackCamp,
+        winnerCamp: neutralResult.camp,
+        winnerIds: neutralResult.winnerIds,
+        reason: this.text("A neutral role fulfilled its victory condition.", "中立役職が勝利条件を満たしました。")
       };
     }
 

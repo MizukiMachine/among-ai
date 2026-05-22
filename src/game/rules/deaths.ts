@@ -1,10 +1,16 @@
 import type { Player } from "../types";
-import { roleDeathTriggers } from "./roles";
-import { playerStatuses } from "./state";
-import type { DeathCause, DeathRecord, NightDeathInput, RuleState } from "./types";
+import { getRoleDefinition, roleDeathTriggers } from "./roles";
+import { createCampAbilityDisableEffects, playerStatuses } from "./state";
+import type { DeathCause, DeathRecord, NightDeathInput, RulePlayer, RuleState, RuleStatusEffect, RuleVictoryClaim } from "./types";
 
 export interface LinkedDeathOptions {
   isAlive?: (playerId: string) => boolean;
+}
+
+export interface DeathResolutionEffect {
+  kind: "elder_penalty" | "neutral_victory_claim";
+  statusEffects: RuleStatusEffect[];
+  victoryClaims: RuleVictoryClaim[];
 }
 
 export function mergeDeathCause(existing: DeathCause | undefined, next: DeathCause): DeathCause {
@@ -80,4 +86,40 @@ export function createLinkedDeathRecords(
   }
 
   return deaths;
+}
+
+export function createDeathResolutionEffects(
+  death: DeathRecord,
+  player: RulePlayer,
+  players: RulePlayer[]
+): DeathResolutionEffect[] {
+  const effects: DeathResolutionEffect[] = [];
+
+  if (death.cause === "vote" && player.role === "Elder") {
+    effects.push({
+      kind: "elder_penalty",
+      statusEffects: createCampAbilityDisableEffects(players, "village", player.id),
+      victoryClaims: []
+    });
+  }
+
+  const deathVictoryClaims = (getRoleDefinition(player.role).deathVictoryConditions ?? []).filter(
+    (condition) => condition.cause === death.cause
+  );
+  for (const condition of deathVictoryClaims) {
+    effects.push({
+      kind: "neutral_victory_claim",
+      statusEffects: [],
+      victoryClaims: [
+        {
+          camp: condition.camp,
+          reason: condition.reason,
+          winnerIds: [player.id],
+          sourceId: player.id
+        }
+      ]
+    });
+  }
+
+  return effects;
 }

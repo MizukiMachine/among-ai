@@ -85,6 +85,16 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
     nightActions: [],
     deathTriggers: []
   },
+  Jester: {
+    role: "Jester",
+    camp: "village",
+    victoryCamp: "neutral",
+    standardCampVictory: false,
+    tags: ["neutral"],
+    nightActions: [],
+    deathTriggers: [],
+    deathVictoryConditions: [{ cause: "vote", camp: "neutral", reason: "neutral_role_condition" }]
+  },
   Villager: {
     role: "Villager",
     camp: "village",
