@@ -19,6 +19,7 @@ export interface WitchPrivateState {
 
 export interface RoleSecretContext {
   werewolfAllies?: Array<TargetCandidate & { alive?: boolean }>;
+  loverPartner?: TargetCandidate & { alive?: boolean };
   seerResults?: SeerPrivateResult[];
   witch?: WitchPrivateState;
 }

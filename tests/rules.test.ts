@@ -59,6 +59,7 @@ test("large role presets enable 15-20 player tables with advanced roles", () => 
     assert.ok(roles.includes("Elder"));
     assert.equal(roles.filter((role) => role === "Lover").length, count >= 16 ? 2 : 0);
     assert.equal(roles.filter((role) => role === "WolfBeauty").length, count >= 18 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Jester").length, count >= 20 ? 1 : 0);
   }
 });
 

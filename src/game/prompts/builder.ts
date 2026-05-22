@@ -108,8 +108,20 @@ function formatWitchState(witch: WitchPrivateState | undefined): string[] {
   ];
 }
 
+function isWerewolfRole(role: Role): boolean {
+  return role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty";
+}
+
+function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+  if (!partner) {
+    return ["- Lover partner: none known."];
+  }
+  const status = partner.alive === undefined ? "" : partner.alive ? " alive" : " dead";
+  return [`- Lover partner: ${partner.name} (${partner.id})${status}.`];
+}
+
 function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
-  if (role === "Werewolf") {
+  if (isWerewolfRole(role)) {
     const allies = secret?.werewolfAllies ?? [];
     return [
       "- Known werewolf allies:",
@@ -125,6 +137,10 @@ function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefine
 
   if (role === "Witch") {
     return formatWitchState(secret?.witch);
+  }
+
+  if (role === "Lover") {
+    return formatLoverPartner(secret?.loverPartner);
   }
 
   if (role === "Villager") {

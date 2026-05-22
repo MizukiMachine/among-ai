@@ -404,6 +404,9 @@ function getRoleDistributionItems(count: number): Array<[Role, number]> {
   if (normalizedCount >= 16) {
     roleCounts.push(["Lover", 2]);
   }
+  if (normalizedCount >= 20) {
+    roleCounts.push(["Jester", 1]);
+  }
 
   const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
   const villagers = Math.max(0, normalizedCount - assignedRoles);

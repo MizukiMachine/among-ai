@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundWithLlm } from "../src/game/agents";
 import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
+import { HumanInputAgent } from "../src/game/humanAgent";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
 import { roleCamp } from "../src/game/rules/roles";
@@ -22,6 +23,7 @@ import type {
   Player,
   Role,
   HumanInputHandler,
+  HumanInputRequestPayload,
   TargetDecision
 } from "../src/game/types";
 
@@ -242,6 +244,7 @@ test("large role distribution supports 15-20 players with advanced roles", async
     assert.ok(roles.includes("Elder"));
     assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 16 ? 2 : 0);
     assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 18 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Jester").length, playerCount >= 20 ? 1 : 0);
   }
 });
 
@@ -598,6 +601,9 @@ test("Raven mark adds a vote modifier to the next execution vote", async () => {
   ]);
 
   await collect(game.runRavenAction(players[0]));
+  const ravenAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.ok(ravenAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[0].id));
+
   const events = await collect(game.runVoting());
   const totals = events.find((event) => event.type === "vote_result" && Array.isArray(event.data?.totals));
 
@@ -795,6 +801,39 @@ test("human participation still reports batched progress for AI day work", async
   assert.ok(progressEvents.some((progress) => progress.task === "day_speech"));
   assert.ok(progressEvents.some((progress) => progress.task === "day_vote"));
   assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));
+});
+
+test("human Lover receives partner info in private input context", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech") {
+        return { speech: "相方の生存も見ながら話します。" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[3].id, new HumanInputAgent(players[3].name, humanInput, "Japanese"));
+  players[3].model = "human";
+
+  await collect(game.runDay());
+
+  const speechRequest = requests.find((request) => request.kind === "speech");
+  assert.ok(speechRequest);
+  assert.ok(speechRequest.context.privateHistory.some((line) => line.includes(`恋人の相方は${players[4].name}`)));
 });
 
 test("progress observer failures do not abort game generation", async () => {
@@ -1441,9 +1480,11 @@ test("Lover role links paired lovers and resolves heartbreak deaths", async () =
     { role: "Lover", targets: ["p4"] },
     { role: "Villager", targets: ["p4"] }
   ]);
+  const context = (game as unknown as { contextFor(player: Player, extra?: string[]): string }).contextFor(players[3]);
 
   const events = await collect(game.runVoting());
 
+  assert.match(context, new RegExp(`Lover partner: ${players[4].name}`));
   assert.equal(players[3].alive, false);
   assert.equal(players[4].alive, false);
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover"));
@@ -1453,7 +1494,7 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
   const game = createGame();
   const players = setTable(game, [
     { role: "WolfBeauty", targets: ["p4", "p2"] },
-    { role: "Seer", targets: ["p1"] },
+    { role: "Werewolf", targets: ["p1"] },
     { role: "Witch", targets: ["p1"] },
     { role: "Villager", targets: ["p1"] },
     { role: "Villager", targets: ["p1"] },
@@ -1461,6 +1502,10 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
   ]);
 
   await collect(game.runWolfBeautyCharmAction(players[0]));
+  const wolfBeautyAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.ok(wolfBeautyAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[0].id));
+  assert.ok(wolfBeautyAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[1].id));
+
   const events = await collect(game.runVoting());
 
   assert.equal(players[0].alive, false);

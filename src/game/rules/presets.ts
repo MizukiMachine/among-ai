@@ -32,6 +32,9 @@ export function createRoles(playerCount: number): Role[] {
   if (playerCount >= 16) {
     fixed.push("Lover", "Lover");
   }
+  if (playerCount >= 20) {
+    fixed.push("Jester");
+  }
   return [...fixed, ...Array.from<Role>({ length: playerCount - fixed.length }).fill("Villager")];
 }
 

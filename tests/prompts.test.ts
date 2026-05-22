@@ -12,7 +12,7 @@ import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, val
 import type { Camp, Persona, Player, Role } from "../src/game/types";
 
 function player(role: Role, id = "p1", name = "Ada", persona: Persona = "logical"): Player {
-  const camp: Camp = role === "Werewolf" ? "werewolf" : "village";
+  const camp: Camp = role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty" ? "werewolf" : "village";
   return {
     id,
     name,
@@ -78,6 +78,7 @@ function contextFor(role: Role) {
     language: "English",
     secret: {
       werewolfAllies: [{ id: "secret-wolf", name: "SecretWolf" }],
+      loverPartner: { id: "secret-lover", name: "SecretLover", alive: true },
       seerResults: [{ targetId: "secret-check", targetName: "SecretCheck", camp: "werewolf", round: 1 }],
       witch: {
         savePotion: true,
@@ -107,6 +108,16 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
+  const alphaWolf = contextFor("AlphaWolf");
+  assert.match(alphaWolf, /SecretWolf/);
+  assert.doesNotMatch(alphaWolf, /SecretCheck/);
+  assert.doesNotMatch(alphaWolf, /SecretVictim/);
+
+  const wolfBeauty = contextFor("WolfBeauty");
+  assert.match(wolfBeauty, /SecretWolf/);
+  assert.doesNotMatch(wolfBeauty, /SecretCheck/);
+  assert.doesNotMatch(wolfBeauty, /SecretVictim/);
+
   const seer = contextFor("Seer");
   assert.match(seer, /SecretCheck/);
   assert.doesNotMatch(seer, /SecretWolf/);
@@ -118,11 +129,18 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(witch, /SecretWolf/);
   assert.doesNotMatch(witch, /SecretCheck/);
 
+  const lover = contextFor("Lover");
+  assert.match(lover, /SecretLover/);
+  assert.doesNotMatch(lover, /SecretWolf/);
+  assert.doesNotMatch(lover, /SecretCheck/);
+  assert.doesNotMatch(lover, /SecretVictim/);
+
   const villager = contextFor("Villager");
   assert.match(villager, /No private role information/);
   assert.doesNotMatch(villager, /SecretWolf/);
   assert.doesNotMatch(villager, /SecretCheck/);
   assert.doesNotMatch(villager, /SecretVictim/);
+  assert.doesNotMatch(villager, /SecretLover/);
   assert.doesNotMatch(villager, /Save potion remaining/);
 });
 

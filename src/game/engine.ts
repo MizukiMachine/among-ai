@@ -21,7 +21,7 @@ import {
   normalizePlayerCount
 } from "./rules/presets";
 import { roleCamp } from "./rules/roles";
-import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses } from "./rules/state";
+import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses, playerStatuses } from "./rules/state";
 import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
 import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
 import { sample, shuffle } from "./random";
@@ -939,7 +939,7 @@ export class WerewolfGame {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => player.id !== wolfBeauty.id);
+    const targets = this.alivePlayers().filter((player) => player.id !== wolfBeauty.id && player.camp !== "werewolf");
     if (targets.length === 0) {
       return;
     }
@@ -1000,7 +1000,7 @@ export class WerewolfGame {
       return;
     }
 
-    const targets = this.alivePlayers();
+    const targets = this.alivePlayers().filter((player) => player.id !== raven.id);
     if (targets.length === 0) {
       return;
     }
@@ -1447,10 +1447,39 @@ export class WerewolfGame {
     });
   }
 
+  private humanVisiblePrivateHistory(player: Player): string[] {
+    const roleNotes: string[] = [];
+
+    if (player.role === "Lover") {
+      const partnerStatus = playerStatuses(this.ruleState, player.id, "lover").find((status) => status.targetId);
+      if (partnerStatus?.targetId) {
+        const partner = this.requirePlayer(partnerStatus.targetId);
+        roleNotes.push(
+          this.text(
+            `Private role info: Lover partner is ${partner.name} (${partner.alive ? "alive" : "dead"}).`,
+            `自分だけの役職情報: 恋人の相方は${partner.name}です（${partner.alive ? "生存" : "死亡"}）。`
+          )
+        );
+      }
+    }
+
+    if (player.role === "Jester") {
+      roleNotes.push(
+        this.text(
+          "Private role info: You are the Jester. You win alone if the day vote executes you.",
+          "自分だけの役職情報: あなたは道化師です。昼の投票で処刑されると単独勝利です。"
+        )
+      );
+    }
+
+    return roleNotes.length > 0 ? [...player.memories, ...roleNotes] : player.memories;
+  }
+
   private async safeSpeak(player: Player, task: string, context: string, uiContext: string[] = []): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
     const input = {
       player,
       phase: this.phase,
@@ -1460,7 +1489,7 @@ export class WerewolfGame {
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
       legalPlayers,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories,
+      privateHistory,
       abortSignal: this.abortSignal
     };
     try {
@@ -1531,6 +1560,7 @@ export class WerewolfGame {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const targetCandidates: TargetCandidate[] = candidates.map(({ id, name }) => ({ id, name }));
+    const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
     const input = {
       player,
       phase: this.phase,
@@ -1540,7 +1570,7 @@ export class WerewolfGame {
       candidates: targetCandidates,
       allowSkip,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories,
+      privateHistory,
       abortSignal: this.abortSignal
     };
     try {
@@ -1561,6 +1591,7 @@ export class WerewolfGame {
   private async safeDecide(player: Player, question: string, context: string, uiContext: string[] = []): Promise<boolean> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
+    const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
     const input = {
       player,
       phase: this.phase,
@@ -1568,7 +1599,7 @@ export class WerewolfGame {
       context,
       uiContext,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories,
+      privateHistory,
       abortSignal: this.abortSignal
     };
     try {
@@ -1865,6 +1896,18 @@ export class WerewolfGame {
         savePotion: this.witchState.savePotion,
         poisonPotion: this.witchState.poisonPotion
       };
+    }
+
+    if (player.role === "Lover") {
+      const partnerStatus = playerStatuses(this.ruleState, player.id, "lover").find((status) => status.targetId);
+      if (partnerStatus?.targetId) {
+        const partner = this.requirePlayer(partnerStatus.targetId);
+        base.loverPartner = {
+          id: partner.id,
+          name: partner.name,
+          alive: partner.alive
+        };
+      }
     }
 
     const witch = base.witch && override.witch ? { ...base.witch, ...override.witch } : (override.witch ?? base.witch);
