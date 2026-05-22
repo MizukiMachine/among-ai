@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNightDeathRecords } from "../src/game/rules/deaths";
+import { createLinkedDeathRecords, createNightDeathRecords } from "../src/game/rules/deaths";
+import { resolveVoteElimination } from "../src/game/rules/elimination";
 import { createNightActionPlan } from "../src/game/rules/night";
 import { createRoles, normalizePlayerCount } from "../src/game/rules/presets";
 import { roleCamp, roleDeathTriggers } from "../src/game/rules/roles";
-import { resolveVote } from "../src/game/rules/voting";
+import { applyStatusEffects, canUseAbilities, createCampAbilityDisableEffects, createRuleState } from "../src/game/rules/state";
+import { filterEligibleVotes, resolveVote, voteModifiersFromRuleState } from "../src/game/rules/voting";
 import { checkStandardVictory } from "../src/game/rules/victory";
 import type { Player, Role, VoteRecord } from "../src/game/types";
 
@@ -104,4 +106,62 @@ test("standard victory checker keeps current village and werewolf win rules", ()
 test("role registry exposes death triggers without engine conditionals", () => {
   assert.deepEqual(roleDeathTriggers("Hunter"), [{ kind: "hunter_shot", once: true }]);
   assert.deepEqual(roleDeathTriggers("Villager"), []);
+});
+
+test("rule state models Raven marks and no-vote status as vote modifiers", () => {
+  const state = applyStatusEffects(createRuleState([{ id: "p1" }, { id: "p2" }, { id: "p3" }]), [
+    { playerId: "p3", addStatuses: [{ kind: "raven_marked", sourceId: "p1", duration: "round" }] },
+    { playerId: "p2", addStatuses: [{ kind: "no_vote", sourceId: "p3", duration: "game" }] }
+  ]);
+  const votes: VoteRecord[] = [
+    { voterId: "p1", targetId: "p2" },
+    { voterId: "p2", targetId: "p3" }
+  ];
+
+  assert.deepEqual(filterEligibleVotes(votes, state), [{ voterId: "p1", targetId: "p2" }]);
+
+  const modifiers = voteModifiersFromRuleState(state);
+  assert.deepEqual(modifiers, [{ targetId: "p3", count: 1, sourceId: "p1", reason: "raven_marked" }]);
+  assert.equal(resolveVote(filterEligibleVotes(votes, state), modifiers).eliminatedId, null);
+});
+
+test("vote elimination hook supports Idiot-style reveal instead of death", () => {
+  const state = applyStatusEffects(createRuleState([{ id: "p1" }]), [
+    { playerId: "p1", addStatuses: [{ kind: "execution_escape", sourceId: "role", duration: "game" }] }
+  ]);
+
+  const first = resolveVoteElimination("p1", state);
+  assert.equal(first.eliminated, false);
+  assert.equal(first.cancelledBy, "execution_escape");
+
+  const updated = applyStatusEffects(state, first.effects);
+  assert.equal(resolveVoteElimination("p1", updated).eliminated, true);
+});
+
+test("death resolver hook supports lover and WolfBeauty-style chains", () => {
+  const state = applyStatusEffects(createRuleState([{ id: "p1" }, { id: "p2" }, { id: "p3" }]), [
+    { playerId: "p1", addStatuses: [{ kind: "lover", targetId: "p2", duration: "game" }] },
+    { playerId: "p2", addStatuses: [{ kind: "charm_anchor", targetId: "p3", duration: "game" }] }
+  ]);
+
+  assert.deepEqual(createLinkedDeathRecords([{ playerId: "p1", cause: "vote" }], state), [
+    { playerId: "p1", cause: "vote" },
+    { playerId: "p2", cause: "lover", sourceId: "p1" },
+    { playerId: "p3", cause: "wolf_beauty_charm", sourceId: "p2" }
+  ]);
+});
+
+test("ability disable effects can model Elder-style village penalty", () => {
+  const players = [
+    rulePlayer("p1", "Seer"),
+    rulePlayer("p2", "Villager"),
+    rulePlayer("p3", "Werewolf"),
+    rulePlayer("p4", "Witch", false)
+  ];
+  const state = applyStatusEffects(createRuleState(players), createCampAbilityDisableEffects(players, "village", "elder"));
+
+  assert.equal(canUseAbilities(state, "p1"), false);
+  assert.equal(canUseAbilities(state, "p2"), true);
+  assert.equal(canUseAbilities(state, "p3"), true);
+  assert.equal(canUseAbilities(state, "p4"), true);
 });

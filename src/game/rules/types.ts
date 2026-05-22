@@ -63,3 +63,39 @@ export interface VictoryCheckResult {
 }
 
 export type RulePlayer = Pick<Player, "id" | "role" | "camp" | "alive">;
+
+export type RuleStatusKind =
+  | "raven_marked"
+  | "no_vote"
+  | "revealed"
+  | "abilities_disabled"
+  | "execution_escape"
+  | "lover"
+  | "charm_anchor"
+  | "charmed";
+
+export type RuleStatusDuration = "phase" | "round" | "game";
+
+export interface RuleStatus {
+  kind: RuleStatusKind;
+  sourceId?: string;
+  targetId?: string;
+  duration?: RuleStatusDuration;
+  count?: number;
+}
+
+export interface RulePlayerState {
+  playerId: string;
+  statuses: RuleStatus[];
+  executionEscapeUsed?: boolean;
+}
+
+export interface RuleState {
+  players: Record<string, RulePlayerState>;
+}
+
+export interface RuleStatusEffect {
+  playerId: string;
+  addStatuses?: RuleStatus[];
+  setState?: Partial<Omit<RulePlayerState, "playerId" | "statuses">>;
+}

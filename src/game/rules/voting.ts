@@ -1,4 +1,6 @@
 import type { VoteRecord } from "../types";
+import { hasStatus, playerStatuses } from "./state";
+import type { RuleState } from "./types";
 
 export interface VoteModifier {
   targetId: string;
@@ -50,4 +52,23 @@ export function resolveVote(votes: VoteRecord[], modifiers: VoteModifier[] = [])
     totals: [...counts.entries()].map(([targetId, count]) => ({ targetId, count })),
     tied
   };
+}
+
+export function canPlayerVote(state: RuleState, playerId: string): boolean {
+  return !hasStatus(state, playerId, "no_vote");
+}
+
+export function filterEligibleVotes(votes: VoteRecord[], state: RuleState): VoteRecord[] {
+  return votes.filter((vote) => canPlayerVote(state, vote.voterId));
+}
+
+export function voteModifiersFromRuleState(state: RuleState): VoteModifier[] {
+  return Object.values(state.players).flatMap((playerState) =>
+    playerStatuses(state, playerState.playerId, "raven_marked").map((status) => ({
+      targetId: playerState.playerId,
+      count: status.count ?? 1,
+      sourceId: status.sourceId,
+      reason: "raven_marked"
+    }))
+  );
 }

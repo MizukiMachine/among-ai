@@ -1,6 +1,7 @@
 import type { Player } from "../types";
 import { roleDeathTriggers } from "./roles";
-import type { DeathCause, DeathRecord, NightDeathInput } from "./types";
+import { playerStatuses } from "./state";
+import type { DeathCause, DeathRecord, NightDeathInput, RuleState } from "./types";
 
 export function mergeDeathCause(existing: DeathCause | undefined, next: DeathCause): DeathCause {
   return existing && existing !== next ? "multiple" : next;
@@ -38,4 +39,34 @@ export function markPlayerDead(player: Player): boolean {
   }
   player.alive = false;
   return true;
+}
+
+export function createLinkedDeathRecords(initialDeaths: DeathRecord[], state: RuleState): DeathRecord[] {
+  const deaths = [...initialDeaths];
+  const queued = [...initialDeaths];
+  const dyingIds = new Set(initialDeaths.map((death) => death.playerId));
+  const enqueue = (record: DeathRecord) => {
+    if (dyingIds.has(record.playerId)) {
+      return;
+    }
+    dyingIds.add(record.playerId);
+    deaths.push(record);
+    queued.push(record);
+  };
+
+  for (let index = 0; index < queued.length; index += 1) {
+    const death = queued[index];
+    for (const status of playerStatuses(state, death.playerId, "lover")) {
+      if (status.targetId) {
+        enqueue({ playerId: status.targetId, cause: "lover", sourceId: death.playerId });
+      }
+    }
+    for (const status of playerStatuses(state, death.playerId, "charm_anchor")) {
+      if (status.targetId) {
+        enqueue({ playerId: status.targetId, cause: "wolf_beauty_charm", sourceId: death.playerId });
+      }
+    }
+  }
+
+  return deaths;
 }
