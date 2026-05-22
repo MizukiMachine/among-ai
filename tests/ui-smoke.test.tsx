@@ -163,6 +163,27 @@ test("first next click starts the game and reveals the first streamed event", ()
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
+test("human input waits behind unread story events with a visible notice", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const readyHumanInput = pendingHumanInput && queuedEvents\.length === 0 \? pendingHumanInput : null;/);
+  assert.match(source, /const humanInputNoticeLeadCount = 2;/);
+  assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? pendingHumanInput : null;/);
+  assert.doesNotMatch(source, /const visibleBeforeInput = queuedRef\.current;/);
+  assert.match(source, /入力前確認/);
+  assert.match(source, /function statusForPendingHumanInput\(remainingCount: number\)/);
+  assert.match(source, /setGameStatus\(statusForPendingHumanInput\(queuedRef\.current\.length\)\);/);
+  assert.match(source, /setGameStatus\(pendingHumanInput \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)\);/);
+  assert.match(source, /function renderPendingHumanInputNotice/);
+  assert.match(source, /次へで入力前の会話を確認してください/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(pendingHumanInput\)/);
+  assert.match(source, /const storyNextDisabled = paused \|\| Boolean\(readyHumanInput\)/);
+  assert.match(source, /const canRetreat = !paused && !pendingHumanInput/);
+  assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
+  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running\]\);/);
+  assert.doesNotMatch(source, /入力待ちあり/);
+});
+
 test("village spectator history redacts secret event messages and speakers", () => {
   const event: GameEvent = {
     id: 1,
