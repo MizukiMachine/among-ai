@@ -14,6 +14,20 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
     nightActions: werewolfNightActions,
     deathTriggers: []
   },
+  AlphaWolf: {
+    role: "AlphaWolf",
+    camp: "werewolf",
+    tags: ["werewolf", "night_action", "team_action", "death_trigger", "single_use"],
+    nightActions: werewolfNightActions,
+    deathTriggers: [{ kind: "alpha_wolf_shot", once: true }]
+  },
+  WolfBeauty: {
+    role: "WolfBeauty",
+    camp: "werewolf",
+    tags: ["werewolf", "night_action", "team_action", "linked_death", "single_use"],
+    nightActions: [...werewolfNightActions, { kind: "wolf_beauty_charm", priority: 75 }],
+    deathTriggers: []
+  },
   Seer: {
     role: "Seer",
     camp: "village",
@@ -41,6 +55,35 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
     tags: ["village", "death_trigger", "single_use"],
     nightActions: [],
     deathTriggers: [{ kind: "hunter_shot", once: true }]
+  },
+  Raven: {
+    role: "Raven",
+    camp: "village",
+    tags: ["village", "night_action", "vote_modifier"],
+    nightActions: [{ kind: "raven_mark", priority: 40 }],
+    deathTriggers: []
+  },
+  Idiot: {
+    role: "Idiot",
+    camp: "village",
+    tags: ["village", "execution_escape"],
+    nightActions: [],
+    deathTriggers: []
+  },
+  Elder: {
+    role: "Elder",
+    camp: "village",
+    tags: ["village"],
+    nightActions: [],
+    deathTriggers: []
+  },
+  Lover: {
+    role: "Lover",
+    camp: "village",
+    victoryCamp: "lover",
+    tags: ["village", "linked_death"],
+    nightActions: [],
+    deathTriggers: []
   },
   Villager: {
     role: "Villager",

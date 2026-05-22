@@ -1,6 +1,5 @@
-import type { Camp, Player, Role } from "../types";
-
-export type CampId = Camp | "neutral" | "lover";
+import type { Camp, CampId, Player, Role } from "../types";
+export type { CampId };
 
 export type RoleTag =
   | "werewolf"
@@ -10,14 +9,19 @@ export type RoleTag =
   | "investigative"
   | "protective"
   | "death_trigger"
-  | "single_use";
+  | "single_use"
+  | "vote_modifier"
+  | "execution_escape"
+  | "linked_death";
 
 export type NightActionKind =
   | "guard_protect"
   | "werewolf_discussion"
   | "werewolf_attack"
   | "seer_check"
-  | "witch_action";
+  | "witch_action"
+  | "raven_mark"
+  | "wolf_beauty_charm";
 
 export interface NightActionDefinition {
   kind: NightActionKind;
@@ -25,7 +29,7 @@ export interface NightActionDefinition {
   teamAction?: boolean;
 }
 
-export type DeathTriggerKind = "hunter_shot";
+export type DeathTriggerKind = "hunter_shot" | "alpha_wolf_shot";
 
 export interface DeathTriggerDefinition {
   kind: DeathTriggerKind;
@@ -35,6 +39,7 @@ export interface DeathTriggerDefinition {
 export interface RoleDefinition {
   role: Role;
   camp: Camp;
+  victoryCamp?: CampId;
   tags: RoleTag[];
   nightActions: NightActionDefinition[];
   deathTriggers: DeathTriggerDefinition[];
@@ -56,8 +61,9 @@ export interface NightDeathInput {
 }
 
 export interface VictoryCheckResult {
-  camp: Camp;
-  reason: "all_werewolves_eliminated" | "werewolf_parity";
+  camp: CampId;
+  fallbackCamp: Camp;
+  reason: "all_werewolves_eliminated" | "werewolf_parity" | "only_lovers_alive";
   counts: Record<Camp, number>;
   winnerIds: string[];
 }

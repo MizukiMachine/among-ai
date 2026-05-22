@@ -1,5 +1,18 @@
-export type Role = "Werewolf" | "Seer" | "Witch" | "Guard" | "Hunter" | "Villager";
+export type Role =
+  | "Werewolf"
+  | "AlphaWolf"
+  | "WolfBeauty"
+  | "Seer"
+  | "Witch"
+  | "Guard"
+  | "Hunter"
+  | "Raven"
+  | "Idiot"
+  | "Elder"
+  | "Lover"
+  | "Villager";
 export type Camp = "werewolf" | "village";
+export type CampId = Camp | "neutral" | "lover";
 export type Persona =
   | "cautious"
   | "aggressive"
@@ -128,6 +141,8 @@ export interface GameSnapshot {
   round: number;
   phase: Phase;
   winner: Camp | null;
+  winnerCamp?: CampId | null;
+  winnerIds?: string[];
   players: PlayerSnapshot[];
   aliveCount: number;
   werewolfCount: number;

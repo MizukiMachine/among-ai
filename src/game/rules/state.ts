@@ -23,6 +23,41 @@ export function createRuleState(players: Array<Pick<RulePlayer, "id">>): RuleSta
   };
 }
 
+export function createInitialRuleState(players: RulePlayer[]): RuleState {
+  let state = createRuleState(players);
+  const effects: RuleStatusEffect[] = [];
+
+  for (const player of players) {
+    if (player.role === "Idiot") {
+      effects.push({
+        playerId: player.id,
+        addStatuses: [{ kind: "execution_escape", sourceId: "role", duration: "game" }]
+      });
+    }
+  }
+
+  const lovers = players.filter((player) => player.role === "Lover");
+  for (let index = 0; index + 1 < lovers.length; index += 2) {
+    const first = lovers[index];
+    const second = lovers[index + 1];
+    effects.push(
+      {
+        playerId: first.id,
+        addStatuses: [{ kind: "lover", sourceId: "role", targetId: second.id, duration: "game" }]
+      },
+      {
+        playerId: second.id,
+        addStatuses: [{ kind: "lover", sourceId: "role", targetId: first.id, duration: "game" }]
+      }
+    );
+  }
+
+  if (effects.length > 0) {
+    state = applyStatusEffects(state, effects);
+  }
+  return state;
+}
+
 export function playerRuleState(state: RuleState, playerId: string): RulePlayerState {
   return state.players[playerId] ?? { playerId, statuses: [] };
 }

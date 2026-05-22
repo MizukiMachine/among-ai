@@ -74,7 +74,7 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
   const provider = url.searchParams.get("provider") === "demo" ? "demo" : "llm";
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
   const requestedSummaryMode = url.searchParams.get("summary");
-  const playerCount = intParam(url.searchParams.get("players"), 7, 6, 9);
+  const playerCount = intParam(url.searchParams.get("players"), 7, 6, 20);
   const humanPlayerId =
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);

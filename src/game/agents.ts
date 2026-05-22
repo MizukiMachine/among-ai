@@ -40,7 +40,7 @@ const targetSelectionAttempts = 2;
 const booleanDecisionAttempts = 2;
 const maxSpeechMessages = 3;
 
-const demoSpeechEn: Record<Role, string[]> = {
+const demoSpeechEn: Partial<Record<Role, string[]>> = {
   Werewolf: [
     "I do not like how quickly the suspicion moved without evidence. We should pressure the quiet players before committing.",
     "That claim feels convenient, especially after the night result. I want to hear a timeline before we trust it.",
@@ -73,7 +73,7 @@ const demoSpeechEn: Record<Role, string[]> = {
   ]
 };
 
-const demoSpeechJa: Record<Role, string[]> = {
+const demoSpeechJa: Partial<Record<Role, string[]>> = {
   Werewolf: [
     "まだ根拠が薄いので、発言の少ない人に理由を聞いてみたいです。",
     "その主張は夜の結果を見てから出したように見えます。信用する前に、時系列を確認したいです。",
@@ -105,6 +105,10 @@ const demoSpeechJa: Record<Role, string[]> = {
     "広い疑いだけでは納得できません。どの発言で考えが変わったのか一つ挙げてください。"
   ]
 };
+
+function demoSpeechForRole(pool: Partial<Record<Role, string[]>>, role: Role): string[] {
+  return pool[role] ?? (role === "AlphaWolf" || role === "WolfBeauty" ? pool.Werewolf : pool.Villager) ?? [];
+}
 
 const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
   first_day: [
@@ -347,7 +351,7 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
 export function listJapaneseDemoCopySamples(): string[] {
   const name = "カズ";
   return [
-    ...Object.values(demoSpeechJa).flat(),
+    ...Object.values(demoSpeechJa).flatMap((lines) => lines ?? []),
     ...Object.values(demoDaySituationSpeechJa).flat(),
     ...Object.values(personaReasonsJa).flat(),
     ...Object.values(firstDayReasonsJa).flat(),
@@ -555,10 +559,16 @@ function candidateById(candidates: TargetCandidate[]): Map<string, TargetCandida
 function isRole(value: unknown): value is Role {
   return (
     value === "Werewolf" ||
+    value === "AlphaWolf" ||
+    value === "WolfBeauty" ||
     value === "Seer" ||
     value === "Witch" ||
     value === "Guard" ||
     value === "Hunter" ||
+    value === "Raven" ||
+    value === "Idiot" ||
+    value === "Elder" ||
+    value === "Lover" ||
     value === "Villager"
   );
 }
@@ -1131,7 +1141,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   const speechPool = japanese ? demoSpeechJa : demoSpeechEn;
   const candidates = (input.legalPlayers ?? input.knownPlayers).filter((candidate) => candidate.id !== input.player.id);
 
-  if (input.phase === "werewolf_discussion" && input.player.role === "Werewolf") {
+  if (input.phase === "werewolf_discussion" && input.player.camp === "werewolf") {
     return buildDemoWerewolfDiscussion(input, language);
   }
 
@@ -1142,7 +1152,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     situations.includes("first_day") &&
     !situations.includes("seer_claim") &&
     !situations.includes("black_result");
-  const fallback = buildDemoDaySituationSpeech(input, language) ?? sample(speechPool[input.player.role]);
+  const fallback = buildDemoDaySituationSpeech(input, language) ?? sample(demoSpeechForRole(speechPool, input.player.role));
   const metadata = emptySpeechMetadata();
   const suspect = candidates.length > 0 ? sample(candidates) : null;
   const trustPool = suspect ? candidates.filter((candidate) => candidate.id !== suspect.id) : candidates;
@@ -1234,7 +1244,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   }
 
   const fakeClaimChance = situations.includes("seer_claim") || situations.includes("black_result") ? 0.3 : 0.18;
-  if (input.player.role === "Werewolf" && suspect && !firstDaySoft && weightedChance(fakeClaimChance)) {
+  if (input.player.camp === "werewolf" && suspect && !firstDaySoft && weightedChance(fakeClaimChance)) {
     metadata.claims.push({
       type: "role_claim",
       role: "Seer",
@@ -1471,7 +1481,7 @@ class LlmAgent implements Agent {
     return parseSpeech(
       content,
       legalPlayers,
-      sample((isJapaneseLanguage(this.language) ? demoSpeechJa : demoSpeechEn)[input.player.role]),
+      sample(demoSpeechForRole(isJapaneseLanguage(this.language) ? demoSpeechJa : demoSpeechEn, input.player.role)),
       input.knownPlayers
     );
   }
