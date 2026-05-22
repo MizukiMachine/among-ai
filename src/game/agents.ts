@@ -962,6 +962,31 @@ function naturalizeDemoReason(text: string, language: string): string {
   return sanitizeDemoJapaneseGameText(clampReason(text, text), language);
 }
 
+function punctuateJapaneseSentence(text: string): string {
+  return /[。！？!?]$/.test(text) ? text : `${text}。`;
+}
+
+function japaneseReasonSentence(reason: string): string {
+  const compact = reason.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "理由はまだ整理中です。";
+  }
+  if (/[。！？!?]$/.test(compact)) {
+    return compact;
+  }
+  if (compact.endsWith("から") || compact.endsWith("ため") || compact.endsWith("だけ")) {
+    return `理由は${compact}です。`;
+  }
+  return punctuateJapaneseSentence(compact);
+}
+
+function demoCharacterFlavorLine(input: AgentSpeechInput, language: string): string | null {
+  if (!isJapaneseLanguage(language) || input.phase !== "day_discussion" || !input.player.characterProfile || !weightedChance(0.35)) {
+    return null;
+  }
+  return punctuateJapaneseSentence(input.player.characterProfile.tagline);
+}
+
 function finalizeDemoSpeech(speech: AgentSpeech, language: string): AgentSpeech {
   return {
     messages: speech.messages.map((msg) => naturalizeDemoText(msg, language)),
@@ -1203,7 +1228,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
               : `I am claiming Seer now: ${name} checked as ${camp}.`,
             suspect
               ? japanese
-                ? `${suspect.name}は${personaReason}ので、まだ理由を聞きたいです。`
+                ? `${suspect.name}にも理由を聞きたいです。${japaneseReasonSentence(personaReason)}`
                 : `${suspect.name} still needs pressure because ${personaReason}.`
               : fallback
           ],
@@ -1244,7 +1269,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     });
   }
 
-  const fakeClaimChance = situations.includes("seer_claim") || situations.includes("black_result") ? 0.3 : 0.18;
+  const fakeClaimChance = situations.includes("seer_claim") || situations.includes("black_result") ? 0.16 : 0.06;
   if (input.player.camp === "werewolf" && suspect && !firstDaySoft && weightedChance(fakeClaimChance)) {
     metadata.claims.push({
       type: "role_claim",
@@ -1270,11 +1295,13 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     };
   }
 
+  const flavor = demoCharacterFlavorLine(input, language);
   return {
     messages: buildDemoSpeechMessages(
       [
-        fallback,
-        suspect ? (japanese ? `${suspect.name}が気になります。理由は${personaReason}からです。` : `${suspect.name} stands out because ${personaReason}.`) : ""
+        flavor ?? fallback,
+        flavor ? fallback : "",
+        suspect ? (japanese ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}` : `${suspect.name} stands out because ${personaReason}.`) : ""
       ],
       language
     ),

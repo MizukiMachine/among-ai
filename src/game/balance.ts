@@ -1,11 +1,13 @@
 import { WerewolfGame } from "./engine";
-import type { Camp, GameConfig, GameEvent } from "./types";
+import type { CampId, GameConfig, GameEvent } from "./types";
 
 export interface BalanceBucket {
   playerCount: number;
   runs: number;
   villageWins: number;
   werewolfWins: number;
+  loverWins: number;
+  neutralWins: number;
   earlyEndings: number;
   averageEndRound: number;
   minEndRound: number;
@@ -54,12 +56,16 @@ async function collectEvents(game: WerewolfGame): Promise<GameEvent[]> {
   return events;
 }
 
-function winnerFrom(event: GameEvent | undefined): Camp | null {
-  return event?.data?.winner === "village" || event?.data?.winner === "werewolf" ? event.data.winner : null;
+function campIdFrom(value: unknown): CampId | null {
+  return value === "village" || value === "werewolf" || value === "lover" || value === "neutral" ? value : null;
+}
+
+function winnerCampFrom(event: GameEvent | undefined): CampId | null {
+  return campIdFrom(event?.data?.winnerCamp) ?? campIdFrom(event?.data?.winner);
 }
 
 export async function runBalanceReport(options: BalanceReportOptions = {}): Promise<BalanceBucket[]> {
-  const playerCounts = options.playerCounts ?? [6, 7, 8, 9];
+  const playerCounts = options.playerCounts ?? Array.from({ length: 15 }, (_, index) => index + 6);
   const runs = Math.max(1, Math.floor(options.runs ?? 20));
   const maxRounds = Math.max(3, Math.floor(options.maxRounds ?? 8));
   const seed = options.seed ?? "among-ai-balance";
@@ -68,6 +74,8 @@ export async function runBalanceReport(options: BalanceReportOptions = {}): Prom
   for (const playerCount of playerCounts) {
     let villageWins = 0;
     let werewolfWins = 0;
+    let loverWins = 0;
+    let neutralWins = 0;
     let earlyEndings = 0;
     let totalEndRound = 0;
     let minEndRound = Number.POSITIVE_INFINITY;
@@ -88,12 +96,18 @@ export async function runBalanceReport(options: BalanceReportOptions = {}): Prom
       });
 
       const ended = events.find((event) => event.type === "game_ended");
-      const winner = winnerFrom(ended);
+      const winner = winnerCampFrom(ended);
       if (winner === "village") {
         villageWins += 1;
       }
       if (winner === "werewolf") {
         werewolfWins += 1;
+      }
+      if (winner === "lover") {
+        loverWins += 1;
+      }
+      if (winner === "neutral") {
+        neutralWins += 1;
       }
 
       const sawDay = events.some((event) => event.phase === "day_discussion");
@@ -112,6 +126,8 @@ export async function runBalanceReport(options: BalanceReportOptions = {}): Prom
       runs,
       villageWins,
       werewolfWins,
+      loverWins,
+      neutralWins,
       earlyEndings,
       averageEndRound: Number((totalEndRound / runs).toFixed(2)),
       minEndRound,

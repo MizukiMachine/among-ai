@@ -4,6 +4,7 @@ import { runBalanceReport } from "../src/game/balance";
 
 test("seeded balance smoke covers 6-9 player tables without pre-day endings", async () => {
   const report = await runBalanceReport({
+    playerCounts: [6, 7, 8, 9],
     runs: 8,
     maxRounds: 5,
     seed: "test-balance"
@@ -15,7 +16,7 @@ test("seeded balance smoke covers 6-9 player tables without pre-day endings", as
   );
 
   for (const bucket of report) {
-    assert.equal(bucket.villageWins + bucket.werewolfWins, bucket.runs);
+    assert.equal(bucket.villageWins + bucket.werewolfWins + bucket.loverWins + bucket.neutralWins, bucket.runs);
     assert.equal(bucket.earlyEndings, 0);
     assert.ok(bucket.averageEndRound >= 1);
     assert.ok(bucket.averageEndRound <= 5);
@@ -38,7 +39,7 @@ test("seeded balance smoke covers 15-20 player tables without pre-day endings", 
   );
 
   for (const bucket of report) {
-    assert.equal(bucket.villageWins + bucket.werewolfWins, bucket.runs);
+    assert.equal(bucket.villageWins + bucket.werewolfWins + bucket.loverWins + bucket.neutralWins, bucket.runs);
     assert.equal(bucket.earlyEndings, 0);
     assert.ok(bucket.averageEndRound >= 1);
     assert.ok(bucket.averageEndRound <= 5);
