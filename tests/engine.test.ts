@@ -32,7 +32,8 @@ const baseConfig: GameConfig = {
   provider: "demo",
   model: "demo",
   language: "English",
-  maxRounds: 3
+  maxRounds: 3,
+  prefetchConcurrency: 1
 };
 
 class ScriptedAgent implements Agent {
@@ -95,6 +96,101 @@ class PreferTargetAgent extends ScriptedAgent {
       targetId: target?.id ?? null,
       reason: `${this.name} preferred ${this.preferredTargetId}`
     };
+  }
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(new Error("aborted"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+class DelayedSpeechAgent implements Agent {
+  readonly model = "delayed";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  private calls = 0;
+
+  constructor(
+    readonly name: string,
+    private readonly delays: number[],
+    private readonly message: (input: AgentSpeechInput, call: number) => string
+  ) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const call = this.calls;
+    this.calls += 1;
+    this.speechInputs.push(input);
+    await sleepWithAbort(this.delays[call] ?? this.delays.at(-1) ?? 0, input.abortSignal);
+    return {
+      messages: [this.message(input, call)],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} delayed target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
+class FailOnceSpeechAgent implements Agent {
+  readonly model = "fail-once";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  private failed = false;
+
+  constructor(readonly name: string) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
+    if (!this.failed) {
+      this.failed = true;
+      throw new Error(`${this.name} failed speculative speech`);
+    }
+    return {
+      messages: [`${this.name} recovered after speculative failure.`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} fail-once target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
   }
 }
 
@@ -770,6 +866,206 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
+test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 6 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [50], () => "slow first candidate"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "FAST marker"));
+  game.agents.set(
+    players[2].id,
+    new DelayedSpeechAgent(players[2].name, [30, 1], (input) =>
+      input.context.includes("FAST marker") ? "saw FAST marker" : "missed FAST marker"
+    )
+  );
+  for (const player of players.slice(3)) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [50], () => `${player.name} slow`));
+  }
+
+  const events = await collect(game.runDay());
+  const firstPassEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 1);
+
+  assert.equal(firstPassEvents[0].playerId, players[1].id);
+  assert.equal(firstPassEvents[0].message, "FAST marker");
+  assert.equal(firstPassEvents[1].playerId, players[2].id);
+  assert.equal(firstPassEvents[1].message, "saw FAST marker");
+});
+
+test("discarded speculative speech failures do not write player memories", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 2 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new FailOnceSpeechAgent(players[0].name));
+  for (const player of players.slice(1)) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [20], () => `${player.name} speaks after failure`));
+  }
+
+  await collect(game.runDay());
+
+  assert.equal(players[0].memories.some((memory) => memory.includes("LLM error") || memory.includes("発言生成中")), false);
+});
+
+test("day discussion adds focused follow-up speakers after regular passes", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Byron needs to answer this first."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "unclear stance", weight: 0.8 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf" },
+    {
+      role: "Seer",
+      speeches: [
+        {
+          messages: ["Byron is still my main concern."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "dodged pressure", weight: 0.7 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    {
+      role: "Witch",
+      speeches: [
+        {
+          messages: ["Edison also needs a final answer."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p5", targetName: "Edison", reason: "late shift", weight: 0.4 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    [players[1].id, players[4].id]
+  );
+  assert.ok(followUpEvents.every((event) => event.data?.discussionFollowUp === true));
+
+  const pressuredAgent = game.agents.get(players[1].id) as ScriptedAgent;
+  assert.equal(pressuredAgent.speechInputs.length, 3);
+  assert.match(pressuredAgent.speechInputs[2].context, /Follow-up pass for selected speakers/);
+});
+
+test("human follow-up speaker is placed after AI follow-up speakers", async () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech") {
+        return { speech: "Human follow-up answer." };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Curie and Edison both need final answers."],
+          metadata: {
+            claims: [],
+            suspects: [
+              { targetId: "p3", targetName: "Curie", reason: "human pressure", weight: 0.9 },
+              { targetId: "p5", targetName: "Edison", reason: "AI pressure", weight: 0.8 }
+            ],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    [players[4].id, players[2].id]
+  );
+});
+
+test("day discussion scales follow-up speaker count on large tables", async () => {
+  const game = new WerewolfGame({ ...baseConfig, playerCount: 20 }) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Several players need final answers."],
+          metadata: {
+            claims: [],
+            suspects: ["p2", "p3", "p4", "p5", "p6", "p7", "p8"].map((targetId) => ({
+              targetId,
+              targetName: targetId,
+              reason: "needs follow-up",
+              weight: 0.5
+            })),
+            trusts: []
+          }
+        }
+      ]
+    },
+    ...Array.from({ length: 19 }, () => ({ role: "Villager" as const }))
+  ]);
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    players.slice(1, 7).map((player) => player.id)
+  );
+});
+
 test("human participation still reports batched progress for AI day work", async () => {
   const progressEvents: GenerationProgress[] = [];
   const humanInput: HumanInputHandler = {
@@ -797,8 +1093,11 @@ test("human participation still reports batched progress for AI day work", async
   ) as TestableGame;
 
   const events = await collect(game.runDay());
+  const speechEvents = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
 
   assert.ok(events.some((event) => event.type === "player_speech" && event.playerId === "p3"));
+  assert.equal(speechEvents.filter((event) => event.data?.discussionPass === 1).at(-1)?.playerId, "p3");
+  assert.equal(speechEvents.filter((event) => event.data?.discussionPass === 2).at(-1)?.playerId, "p3");
   assert.ok(progressEvents.some((progress) => progress.task === "day_speech"));
   assert.ok(progressEvents.some((progress) => progress.task === "day_vote"));
   assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));

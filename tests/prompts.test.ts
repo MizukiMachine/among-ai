@@ -187,6 +187,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /Public speech must not reveal/);
   assert.match(speech, /Legal living read target ids for suspects\/trusts/);
   assert.match(speech, /two short table passes/);
+  assert.match(speech, /follow-up statements/);
   assert.match(speech, /answer that before starting a new topic/);
   assert.match(speech, /Evaluate another player's statements/);
   assert.match(target, /Return strict JSON only/);

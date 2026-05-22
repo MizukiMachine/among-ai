@@ -31,4 +31,4 @@ ZAI_REQUEST_CONCURRENCY=3
 ZAI_REQUEST_MIN_INTERVAL_MS=500
 ```
 
-`ZAI_PREFETCH_CONCURRENCY` controls how many player-level game jobs are started in a phase. The browser can also pass `concurrency` / `prefetchConcurrency` on `/api/games/stream`; the process-wide request cap remains `ZAI_REQUEST_CONCURRENCY`.
+`ZAI_PREFETCH_CONCURRENCY` controls how many player-level game jobs are started in phases that can be safely prefetched. Day discussion speeches use a speculative race: several AI speakers are generated in parallel, the first completed speech is published, and the remaining stale generations are cancelled or ignored before the next race starts from the updated public history. The browser can also pass `concurrency` / `prefetchConcurrency` on `/api/games/stream`; the process-wide request cap remains `ZAI_REQUEST_CONCURRENCY`.

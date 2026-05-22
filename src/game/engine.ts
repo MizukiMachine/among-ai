@@ -62,7 +62,11 @@ const fallbackPersonas: Persona[] = [
   "stoic",
   "passionate"
 ];
-const dayDiscussionPasses = 2;
+const regularDayDiscussionPasses = 2;
+const followUpDayDiscussionPass = regularDayDiscussionPasses + 1;
+const followUpDayDiscussionSpeakerRatio = 0.3;
+const minFollowUpDayDiscussionSpeakers = 2;
+const maxFollowUpDayDiscussionSpeakers = 6;
 const defaultAiPrefetchConcurrency = 3;
 const maxAiPrefetchConcurrency = 20;
 
@@ -303,6 +307,32 @@ async function* orderedConcurrentMap<T, R>(
   }
 }
 
+function mergeAbortSignals(a?: AbortSignal, b?: AbortSignal): { signal?: AbortSignal; cleanup: () => void } {
+  if (!a) {
+    return { signal: b, cleanup: () => undefined };
+  }
+  if (!b || a === b) {
+    return { signal: a, cleanup: () => undefined };
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (a.aborted || b.aborted) {
+    abort();
+    return { signal: controller.signal, cleanup: () => undefined };
+  }
+
+  a.addEventListener("abort", abort, { once: true });
+  b.addEventListener("abort", abort, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      a.removeEventListener("abort", abort);
+      b.removeEventListener("abort", abort);
+    }
+  };
+}
+
 export class WerewolfGame {
   private readonly players: Player[];
   private readonly agents = new Map<string, Agent>();
@@ -521,6 +551,97 @@ export class WerewolfGame {
     for await (const result of runChunk(indexedItems.slice(humanIndex + 1))) {
       yield result;
     }
+  }
+
+  private async *raceAiWithHumanLast<R>(
+    players: Player[],
+    run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>,
+    onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+  ): AsyncGenerator<R> {
+    const aiPlayers = players.filter((player) => !this.isHumanControlledPlayer(player));
+    const humanPlayers = players.filter((player) => this.isHumanControlledPlayer(player));
+    const total = players.length;
+    const limit = Math.max(1, Math.min(this.prefetchConcurrency, Math.max(1, aiPlayers.length)));
+    let accepted = 0;
+    let active = 0;
+    const report = () => {
+      try {
+        onProgress?.({
+          total,
+          started: Math.min(total, accepted + active),
+          completed: accepted,
+          active,
+          queued: Math.max(0, total - accepted - active),
+          concurrency: limit
+        });
+      } catch {
+        // Progress observers are best-effort and must not break game generation.
+      }
+    };
+    const remainingAi = [...aiPlayers];
+
+    while (remainingAi.length > 0) {
+      const racers = limit === 1 ? [remainingAi[0]] : shuffle(remainingAi).slice(0, Math.min(limit, remainingAi.length));
+      active = racers.length;
+      report();
+      const result = await this.firstFinishedSpeechRace(racers, run);
+      const acceptedIndex = remainingAi.findIndex((player) => player.id === result.player.id);
+      if (acceptedIndex !== -1) {
+        remainingAi.splice(acceptedIndex, 1);
+      }
+      accepted += 1;
+      active = 0;
+      report();
+      yield result.value;
+    }
+
+    for (const human of humanPlayers) {
+      active = 1;
+      report();
+      const result = await run(human);
+      accepted += 1;
+      active = 0;
+      report();
+      yield result;
+    }
+  }
+
+  private async firstFinishedSpeechRace<R>(
+    players: Player[],
+    run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>
+  ): Promise<{ player: Player; value: R }> {
+    type RaceResult =
+      | { ok: true; player: Player; value: R; controller: AbortController }
+      | { ok: false; player: Player; error: unknown; controller: AbortController };
+    const active = new Map<string, Promise<RaceResult>>();
+    const controllers = new Map<string, AbortController>();
+    let lastError: unknown;
+
+    for (const player of players) {
+      const controller = new AbortController();
+      controllers.set(player.id, controller);
+      const promise = run(player, { signal: controller.signal, speculative: true }).then(
+        (value) => ({ ok: true, player, value, controller }) as RaceResult,
+        (error: unknown) => ({ ok: false, player, error, controller }) as RaceResult
+      );
+      active.set(player.id, promise);
+    }
+
+    while (active.size > 0) {
+      const result = await Promise.race(active.values());
+      active.delete(result.player.id);
+      controllers.delete(result.player.id);
+      if (result.ok) {
+        for (const controller of controllers.values()) {
+          controller.abort();
+        }
+        return { player: result.player, value: result.value };
+      }
+      result.controller.abort();
+      lastError = result.error;
+    }
+
+    throw lastError;
   }
 
   async *run(): AsyncGenerator<GameEvent> {
@@ -1059,71 +1180,105 @@ export class WerewolfGame {
         : this.text(`Day ${this.round} begins. No one died last night.`, `第${this.round}昼が始まりました。昨夜は誰も死亡しませんでした。`)
     );
 
-    for (let discussionPass = 1; discussionPass <= dayDiscussionPasses; discussionPass += 1) {
-      const speakers = this.alivePlayers();
-      const generateSpeech = async (player: Player): Promise<{ player: Player; speech: AgentSpeech }> => {
-        const contextLines = [
-          deathNames.length > 0
-            ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
-            : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
-          this.text(
-            "Discuss suspicions, claims, or information with the whole table.",
-            "疑い、役職主張、情報を全体に向けて話してください。"
-          ),
-          this.text(
-            `Discussion pass ${discussionPass} of ${dayDiscussionPasses}.`,
-            `昼議論 ${discussionPass}巡目 / ${dayDiscussionPasses}巡。`
-          ),
-          discussionPass === 1
-            ? this.text(
-                "First pass: put one readable read, claim decision, or question on record so others can respond.",
-                "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つはっきり残してください。"
-              )
-            : this.text(
-                "Second pass: answer direct questions or suspicion aimed at you first, then update one read before voting.",
-                "2巡目: 自分への質問や疑いがあれば先に短く答え、その後に投票前の読みを一つ更新してください。"
-              )
-        ];
-        const context = this.contextFor(player, contextLines);
-        const speech = await this.safeSpeak(
-          player,
-          this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。"),
-          context,
-          contextLines
-        );
-        return { player, speech };
-      };
-      const publishSpeech = (player: Player, speech: AgentSpeech): GameEvent[] => {
-        this.publicHistory.push(this.formatSpeechHistory(player, speech));
-        this.lastDiscussion.push({
-          playerId: player.id,
-          playerName: player.name,
-          message: speech.messages.join(" "),
-          metadata: speech.metadata
-        });
-        return speech.messages.map((message, index) =>
-          this.emit(
-            "player_speech",
-            message,
-            speechEventData(speech, message, index, undefined, {
-              discussionPass,
-              discussionPasses: dayDiscussionPasses
-            }),
-            player
-          )
-        );
-      };
+    const speakers = this.daySpeakerOrder();
+    const generateSpeech = async (
+      player: Player,
+      discussionPass: number,
+      options: { signal?: AbortSignal; speculative?: boolean } = {}
+    ): Promise<{ player: Player; speech: AgentSpeech }> => {
+      const contextLines = [
+        deathNames.length > 0
+          ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
+          : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
+        this.text(
+          "Discuss suspicions, claims, or information with the whole table.",
+          "疑い、役職主張、情報を全体に向けて話してください。"
+        ),
+        discussionPass <= regularDayDiscussionPasses
+          ? this.text(
+              `Discussion pass ${discussionPass} of ${regularDayDiscussionPasses}.`,
+              `昼議論 ${discussionPass}巡目 / ${regularDayDiscussionPasses}巡。`
+            )
+          : this.text(
+              "Follow-up pass for selected speakers after the two table passes.",
+              "2巡後に必要な人だけが行う追加発言です。"
+            ),
+        discussionPass === 1
+          ? this.text(
+              "First pass: put one readable read, claim decision, or question on record so others can respond.",
+              "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つはっきり残してください。"
+            )
+          : discussionPass === 2
+          ? this.text(
+              "Second pass: answer direct questions or suspicion aimed at you first, then update one read before voting.",
+              "2巡目: 自分への質問や疑いがあれば先に短く答え、その後に投票前の読みを一つ更新してください。"
+            )
+          : this.text(
+              "Final follow-up: answer the strongest pressure or claim question involving you, then give one voting-ready read.",
+              "追加発言: 自分に向いた一番強い疑いや主張への確認に答え、投票前の読みを一つだけ出してください。"
+            )
+      ];
+      const context = this.contextFor(player, contextLines);
+      const speech = await this.safeSpeak(
+        player,
+        discussionPass <= regularDayDiscussionPasses
+          ? this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。")
+          : this.text("Make a short public follow-up statement.", "短い追加の公開発言をしてください。"),
+        context,
+        contextLines,
+        options.signal,
+        { suppressMemorySideEffects: Boolean(options.speculative) }
+      );
+      return { player, speech };
+    };
+    const publishSpeech = (player: Player, speech: AgentSpeech, discussionPass: number, discussionPasses: number): GameEvent[] => {
+      this.publicHistory.push(this.formatSpeechHistory(player, speech));
+      this.lastDiscussion.push({
+        playerId: player.id,
+        playerName: player.name,
+        message: speech.messages.join(" "),
+        metadata: speech.metadata
+      });
+      return speech.messages.map((message, index) =>
+        this.emit(
+          "player_speech",
+          message,
+          speechEventData(speech, message, index, undefined, {
+            discussionPass,
+            discussionPasses,
+            ...(discussionPass > regularDayDiscussionPasses ? { discussionFollowUp: true } : {})
+          }),
+          player
+        )
+      );
+    };
 
-      for await (const { player, speech } of this.orderedAiWithHumanBoundary(
+    for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
+      for await (const { player, speech } of this.raceAiWithHumanLast(
         speakers,
-        (player) => player.id,
-        generateSpeech,
+        (player, options) => generateSpeech(player, discussionPass, options),
         this.progressReporter("day_speech", this.text("Day discussion", "昼議論"), {
           pass: discussionPass,
-          passes: dayDiscussionPasses
+          passes: regularDayDiscussionPasses
         })
       )) {
-        for (const event of publishSpeech(player, speech)) {
+        for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+          yield event;
+        }
+      }
+    }
+
+    const followUpSpeakers = this.dayDiscussionFollowUpSpeakers(speakers);
+    if (followUpSpeakers.length > 0) {
+      for await (const { player, speech } of this.raceAiWithHumanLast(
+        followUpSpeakers,
+        (player, options) => generateSpeech(player, followUpDayDiscussionPass, options),
+        this.progressReporter("day_speech", this.text("Day discussion follow-up", "昼議論の追加発言"), {
+          pass: followUpDayDiscussionPass,
+          passes: followUpDayDiscussionPass
+        })
+      )) {
+        for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
           yield event;
         }
       }
@@ -1475,11 +1630,20 @@ export class WerewolfGame {
     return roleNotes.length > 0 ? [...player.memories, ...roleNotes] : player.memories;
   }
 
-  private async safeSpeak(player: Player, task: string, context: string, uiContext: string[] = []): Promise<AgentSpeech> {
+  private async safeSpeak(
+    player: Player,
+    task: string,
+    context: string,
+    uiContext: string[] = [],
+    abortSignal?: AbortSignal,
+    options: { suppressMemorySideEffects?: boolean } = {}
+  ): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
+    const requestAbortSignal = requestAbort.signal;
     const input = {
       player,
       phase: this.phase,
@@ -1490,10 +1654,13 @@ export class WerewolfGame {
       legalPlayers,
       publicHistory: this.publicHistory,
       privateHistory,
-      abortSignal: this.abortSignal
+      abortSignal: requestAbortSignal
     };
     try {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
+      if (requestAbortSignal?.aborted) {
+        throw new Error("Speech request cancelled.");
+      }
 
       if (agent.model === "human") {
         return speech;
@@ -1501,32 +1668,46 @@ export class WerewolfGame {
 
       const review = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
       if (!review.ok) {
-        console.warn(
-          `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
-        );
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
+          );
+        }
         this.throwIfCancelled();
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
         const retry = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
         const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
         if (retryReview.ok) {
           return retry;
         }
-        console.warn(
-          `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
-        );
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
+          );
+        }
         return retry;
       }
 
       return speech;
     } catch (error) {
-      if (this.abortSignal?.aborted) {
+      if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
         throw error;
       }
-      console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-      player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
+      if (!options.suppressMemorySideEffects) {
+        console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
+        player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
+      }
       if (shouldRethrowLlmError(agent)) {
         throw error;
       }
       return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
+    } finally {
+      requestAbort.cleanup();
     }
   }
 
@@ -1917,6 +2098,63 @@ export class WerewolfGame {
       ...override,
       witch
     };
+  }
+
+  private daySpeakerOrder(): Player[] {
+    const speakers = this.alivePlayers();
+    if (speakers.length <= 1) {
+      return speakers;
+    }
+    const offset = this.round > 1 ? (this.round - 1) % speakers.length : 0;
+    return [...speakers.slice(offset), ...speakers.slice(0, offset)];
+  }
+
+  private isHumanControlledPlayer(player: Player): boolean {
+    return player.model === "human";
+  }
+
+  private dayDiscussionFollowUpLimit(speakerCount: number): number {
+    return Math.min(
+      maxFollowUpDayDiscussionSpeakers,
+      Math.max(minFollowUpDayDiscussionSpeakers, Math.ceil(speakerCount * followUpDayDiscussionSpeakerRatio))
+    );
+  }
+
+  private dayDiscussionFollowUpSpeakers(speakers: Player[]): Player[] {
+    const speakerOrder = new Map(speakers.map((player, index) => [player.id, index]));
+    const scores = new Map<string, number>();
+    const addScore = (playerId: string | undefined, amount: number) => {
+      if (!playerId || !speakerOrder.has(playerId)) {
+        return;
+      }
+      scores.set(playerId, (scores.get(playerId) ?? 0) + amount);
+    };
+
+    for (const record of this.lastDiscussion) {
+      for (const read of record.metadata.suspects) {
+        const weight = typeof read.weight === "number" && Number.isFinite(read.weight) ? Math.max(0, read.weight) : 0;
+        addScore(read.targetId, 2 + weight);
+      }
+      for (const claim of record.metadata.claims) {
+        if (claim.type !== "generic") {
+          addScore(record.playerId, 1);
+        }
+        addScore(claim.targetId, 1);
+        const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+        addScore(result?.targetId, 1);
+      }
+    }
+
+    return speakers
+      .map((player) => ({
+        player,
+        score: scores.get(player.id) ?? 0,
+        order: speakerOrder.get(player.id) ?? Number.MAX_SAFE_INTEGER
+      }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || a.order - b.order)
+      .slice(0, this.dayDiscussionFollowUpLimit(speakers.length))
+      .map(({ player }) => player);
   }
 
   private alivePlayers(): Player[] {
