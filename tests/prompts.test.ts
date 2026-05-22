@@ -49,6 +49,7 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
     "Guard",
     "Hunter",
     "Idiot",
+    "Jester",
     "Lover",
     "Raven",
     "Seer",

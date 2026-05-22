@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLinkedDeathRecords, createNightDeathRecords } from "../src/game/rules/deaths";
+import { createDeathResolutionEffects, createLinkedDeathRecords, createNightDeathRecords } from "../src/game/rules/deaths";
 import { resolveVoteElimination } from "../src/game/rules/elimination";
 import { createNightActionPlan } from "../src/game/rules/night";
 import { createRoles, normalizePlayerCount } from "../src/game/rules/presets";
-import { roleCamp, roleDeathTriggers } from "../src/game/rules/roles";
+import { getRoleDefinition, roleCamp, roleDeathTriggers } from "../src/game/rules/roles";
 import {
+  addVictoryClaims,
   applyStatusEffects,
   canUseAbilities,
   createCampAbilityDisableEffects,
@@ -14,7 +15,7 @@ import {
   expireStatuses
 } from "../src/game/rules/state";
 import { filterEligibleVotes, resolveVote, voteModifiersFromRuleState } from "../src/game/rules/voting";
-import { checkLoverVictory, checkStandardVictory } from "../src/game/rules/victory";
+import { checkLoverVictory, checkNeutralVictory, checkStandardVictory } from "../src/game/rules/victory";
 import type { Player, Role, VoteRecord } from "../src/game/types";
 
 function rulePlayer(id: string, role: Role, alive = true): Pick<Player, "id" | "role" | "camp" | "alive"> {
@@ -134,6 +135,15 @@ test("standard victory checker keeps current village and werewolf win rules", ()
     ])?.reason,
     "werewolf_parity"
   );
+
+  assert.deepEqual(
+    checkStandardVictory([
+      rulePlayer("p1", "Werewolf", false),
+      rulePlayer("p2", "Jester"),
+      rulePlayer("p3", "Villager")
+    ])?.winnerIds,
+    ["p3"]
+  );
 });
 
 test("lover victory checker reports lover camp without changing standard camp fallback", () => {
@@ -150,6 +160,17 @@ test("role registry exposes death triggers without engine conditionals", () => {
   assert.deepEqual(roleDeathTriggers("Hunter"), [{ kind: "hunter_shot", once: true }]);
   assert.deepEqual(roleDeathTriggers("AlphaWolf"), [{ kind: "alpha_wolf_shot", once: true }]);
   assert.deepEqual(roleDeathTriggers("Villager"), []);
+});
+
+test("role registry models Jester as a neutral victory role without changing standard counts", () => {
+  const definition = getRoleDefinition("Jester");
+
+  assert.equal(definition.camp, "village");
+  assert.equal(definition.victoryCamp, "neutral");
+  assert.equal(definition.standardCampVictory, false);
+  assert.deepEqual(definition.deathVictoryConditions, [{ cause: "vote", camp: "neutral", reason: "neutral_role_condition" }]);
+  assert.ok(definition.tags.includes("neutral"));
+  assert.equal(roleCamp("Jester"), "village");
 });
 
 test("rule state models Raven marks and no-vote status as vote modifiers", () => {
@@ -209,7 +230,8 @@ test("ability disable effects can model Elder-style village penalty", () => {
     rulePlayer("p1", "Seer"),
     rulePlayer("p2", "Villager"),
     rulePlayer("p3", "Werewolf"),
-    rulePlayer("p4", "Witch", false)
+    rulePlayer("p4", "Witch", false),
+    rulePlayer("p5", "Jester")
   ];
   const state = applyStatusEffects(createRuleState(players), createCampAbilityDisableEffects(players, "village", "elder"));
 
@@ -217,4 +239,36 @@ test("ability disable effects can model Elder-style village penalty", () => {
   assert.equal(canUseAbilities(state, "p2"), true);
   assert.equal(canUseAbilities(state, "p3"), true);
   assert.equal(canUseAbilities(state, "p4"), true);
+  assert.equal(canUseAbilities(state, "p5"), true);
+});
+
+test("death resolution effects can create neutral victory claims from vote death", () => {
+  const players = [
+    rulePlayer("p1", "Jester", false),
+    rulePlayer("p2", "Werewolf"),
+    rulePlayer("p3", "Villager")
+  ];
+  const effects = createDeathResolutionEffects({ playerId: "p1", cause: "vote" }, players[0], players);
+
+  assert.deepEqual(effects, [
+    {
+      kind: "neutral_victory_claim",
+      statusEffects: [],
+      victoryClaims: [
+        {
+          camp: "neutral",
+          reason: "neutral_role_condition",
+          winnerIds: ["p1"],
+          sourceId: "p1"
+        }
+      ]
+    }
+  ]);
+
+  const state = addVictoryClaims(createRuleState(players), effects.flatMap((effect) => effect.victoryClaims));
+  const result = checkNeutralVictory(players, state);
+
+  assert.equal(result?.camp, "neutral");
+  assert.equal(result?.fallbackCamp, "werewolf");
+  assert.deepEqual(result?.winnerIds, ["p1"]);
 });

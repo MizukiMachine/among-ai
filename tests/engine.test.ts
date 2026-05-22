@@ -96,6 +96,7 @@ class PreferTargetAgent extends ScriptedAgent {
 type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
   checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
+  finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
   players: Player[];
   ruleState: RuleState;
   runDay(): AsyncGenerator<GameEvent>;
@@ -1397,6 +1398,35 @@ test("lover victory is exposed as winnerCamp while keeping winner fallback compa
   assert.equal(result?.winnerCamp, "lover");
   assert.equal(result?.camp, "village");
   assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+});
+
+test("Jester vote death ends as neutral winner while keeping winner fallback compatible", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Jester", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p2"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+  const result = game.checkVictory();
+
+  assert.equal(players[3].alive, false);
+  assert.ok(events.some((event) => event.type === "system" && event.data?.action === "neutral_victory_claim"));
+  assert.equal(result?.winnerCamp, "neutral");
+  assert.equal(result?.camp, "village");
+  assert.deepEqual(result?.winnerIds, ["p4"]);
+
+  const ended = game.finishGame(result!);
+  assert.equal(ended.data?.winner, "village");
+  assert.equal(ended.data?.winnerCamp, "neutral");
+  assert.deepEqual(ended.data?.winnerIds, ["p4"]);
+  assert.equal(ended.snapshot.winner, "village");
+  assert.equal(ended.snapshot.winnerCamp, "neutral");
+  assert.deepEqual(ended.snapshot.winnerIds, ["p4"]);
 });
 
 test("guard success debug scenario forces an observable protected night", async () => {
