@@ -652,7 +652,7 @@ export function App() {
     const params = new URLSearchParams({
       players: String(effectivePlayerCount),
       provider: "llm",
-      summary: "llm",
+      summary: "deterministic",
       scenario: humanEnabled ? "none" : debugScenario,
       view: streamView,
       speed: "0",
@@ -706,6 +706,9 @@ export function App() {
       setSourceDone(true);
       setGameStatus("生成完了");
       source.close();
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+      }
     });
 
     source.addEventListener("error", (message) => {
@@ -738,6 +741,9 @@ export function App() {
         setQueuedEvents(nextQueue);
       }
       source.close();
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+      }
     });
   }
 
@@ -784,15 +790,13 @@ export function App() {
       revealNext();
       return;
     }
-    if (!running && events.length === 0) {
+    if (!running && events.length === 0 && !sourceRef.current) {
       startGame({ revealFirstEvent: true });
     }
   }
 
   useEffect(() => {
-    return () => {
-      sourceRef.current?.close();
-    };
+    return closeGameStream;
   }, []);
 
   useEffect(() => {
