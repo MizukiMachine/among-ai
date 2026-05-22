@@ -8,10 +8,17 @@ export function isJapaneseLanguage(language = defaultLanguage): boolean {
 
 const roleJa: Record<Role | "Hidden", string> = {
   Werewolf: "人狼",
+  AlphaWolf: "アルファ人狼",
+  WolfBeauty: "美女狼",
   Seer: "占い師",
   Witch: "魔女",
   Guard: "騎士",
   Hunter: "ハンター",
+  Raven: "鴉",
+  Idiot: "愚者",
+  Elder: "長老",
+  Lover: "恋人",
+  Jester: "道化師",
   Villager: "人間",
   Hidden: "非公開"
 };
@@ -76,6 +83,12 @@ export function campLabel(camp: string | null | undefined, language = defaultLan
   }
   if (camp === "hidden") {
     return "非公開";
+  }
+  if (camp === "lover") {
+    return "恋人陣営";
+  }
+  if (camp === "neutral") {
+    return "中立";
   }
   return camp;
 }

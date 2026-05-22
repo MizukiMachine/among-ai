@@ -23,3 +23,24 @@ test("seeded balance smoke covers 6-9 player tables without pre-day endings", as
     assert.ok(bucket.maxEndRound <= 5);
   }
 });
+
+test("seeded balance smoke covers 15-20 player tables without pre-day endings", async () => {
+  const report = await runBalanceReport({
+    playerCounts: [15, 16, 17, 18, 19, 20],
+    runs: 2,
+    maxRounds: 5,
+    seed: "test-large-balance"
+  });
+
+  assert.deepEqual(
+    report.map((bucket) => bucket.playerCount),
+    [15, 16, 17, 18, 19, 20]
+  );
+
+  for (const bucket of report) {
+    assert.equal(bucket.villageWins + bucket.werewolfWins, bucket.runs);
+    assert.equal(bucket.earlyEndings, 0);
+    assert.ok(bucket.averageEndRound >= 1);
+    assert.ok(bucket.averageEndRound <= 5);
+  }
+});

@@ -74,7 +74,7 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
   const provider = url.searchParams.get("provider") === "demo" ? "demo" : "llm";
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
   const requestedSummaryMode = url.searchParams.get("summary");
-  const playerCount = intParam(url.searchParams.get("players"), 7, 6, 9);
+  const playerCount = intParam(url.searchParams.get("players"), 7, 6, 20);
   const humanPlayerId =
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);
@@ -133,6 +133,7 @@ export function createApp(): Hono {
     const { speed, view, ...config } = parseStreamOptions(url);
     let cancelled = false;
     let humanSession: HumanInputSession | null = null;
+    const abortController = new AbortController();
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -146,7 +147,10 @@ export function createApp(): Hono {
         }
 
         const streamView = view === "player" && !config.humanPlayerId ? "village" : view;
-        const game = new WerewolfGame(config, humanSession ? { humanInput: humanSession } : {});
+        const game = new WerewolfGame(config, {
+          ...(humanSession ? { humanInput: humanSession } : {}),
+          abortSignal: abortController.signal
+        });
         controller.enqueue(
           sseFrame("system", {
             message: "stream_opened",
@@ -170,23 +174,32 @@ export function createApp(): Hono {
             controller.enqueue(sseFrame("game", payload));
             await wait(speed);
           }
-          controller.enqueue(sseFrame("done", { message: "game_complete" }));
+          if (!cancelled && !abortController.signal.aborted) {
+            controller.enqueue(sseFrame("done", { message: "game_complete" }));
+          }
         } catch (error) {
-          controller.enqueue(
-            sseFrame("error", {
-              message: error instanceof Error ? error.message : String(error)
-            })
-          );
+          if (!cancelled && !abortController.signal.aborted) {
+            controller.enqueue(
+              sseFrame("error", {
+                message: error instanceof Error ? error.message : String(error)
+              })
+            );
+          }
         } finally {
           if (humanSession) {
             unregisterHumanInputSession(humanSession.id);
             humanSession = null;
           }
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // The browser may have already closed the EventSource connection.
+          }
         }
       },
       cancel() {
         cancelled = true;
+        abortController.abort();
         if (humanSession) {
           unregisterHumanInputSession(humanSession.id);
           humanSession = null;

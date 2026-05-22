@@ -5,12 +5,16 @@ import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundW
 import { WerewolfGame } from "../src/game/engine";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
+import { roleCamp } from "../src/game/rules/roles";
+import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
+import type { RuleState } from "../src/game/rules/types";
 import type {
   Agent,
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
   Camp,
+  CampId,
   GameConfig,
   GameEvent,
   Player,
@@ -29,6 +33,7 @@ const baseConfig: GameConfig = {
 class ScriptedAgent implements Agent {
   readonly model = "scripted";
   readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
 
   constructor(
     readonly name: string,
@@ -54,6 +59,7 @@ class ScriptedAgent implements Agent {
   }
 
   async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
     if (this.targets.length > 0) {
       return {
         targetId: this.targets.shift() ?? null,
@@ -71,16 +77,36 @@ class ScriptedAgent implements Agent {
   }
 }
 
+class PreferTargetAgent extends ScriptedAgent {
+  constructor(name: string, private readonly preferredTargetId: string) {
+    super(name);
+  }
+
+  override async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    const preferred = input.candidates.find((candidate) => candidate.id === this.preferredTargetId);
+    const target = preferred ?? input.candidates[0] ?? null;
+    return {
+      targetId: target?.id ?? null,
+      reason: `${this.name} preferred ${this.preferredTargetId}`
+    };
+  }
+}
+
 type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
-  checkVictory(): { camp: Camp; reason: string } | null;
+  checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
+  finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
   players: Player[];
+  ruleState: RuleState;
   runDay(): AsyncGenerator<GameEvent>;
   runGuardAction(): AsyncGenerator<GameEvent>;
   runHunterShot(hunter: Player, blockedTargetIds?: Set<string>, chainDepth?: number): AsyncGenerator<GameEvent>;
   runNight(): AsyncGenerator<GameEvent>;
+  runRavenAction(raven: Player): AsyncGenerator<GameEvent>;
   runSeerAction(): AsyncGenerator<GameEvent>;
   runVoting(): AsyncGenerator<GameEvent>;
+  runWolfBeautyCharmAction(wolfBeauty: Player): AsyncGenerator<GameEvent>;
   runWitchAction(killTarget: Player | null): AsyncGenerator<GameEvent, string | null>;
   witchState: {
     savePotion: boolean;
@@ -111,10 +137,10 @@ function setTable(
   game.guardState.lastProtectedTargetId = null;
   game.hunterShotsUsed.clear();
 
-  return game.players.map((player, index) => {
+  const players = game.players.map((player, index) => {
     const spec = specs[index] ?? { role: "Villager" as const };
     player.role = spec.role;
-    player.camp = spec.role === "Werewolf" ? "werewolf" : "village";
+    player.camp = roleCamp(spec.role);
     player.alive = spec.alive ?? true;
     player.memories = [];
     player.seerResults = {};
@@ -126,6 +152,8 @@ function setTable(
     game.agents.set(player.id, new ScriptedAgent(player.name, spec.targets, spec.decisions, spec.speeches));
     return player;
   });
+  game.ruleState = createInitialRuleState(game.players);
+  return players;
 }
 
 async function collect(generator: AsyncGenerator<GameEvent>): Promise<GameEvent[]> {
@@ -192,6 +220,25 @@ test("role distribution includes required special roles and scales werewolves", 
     assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 7 ? 2 : 1);
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
+  }
+});
+
+test("large role distribution supports 15-20 players with advanced roles", async () => {
+  for (const playerCount of [15, 16, 17, 18, 19, 20]) {
+    const game = new WerewolfGame({ ...baseConfig, playerCount });
+    const run = game.run();
+    const first = await run.next();
+    await run.return(undefined);
+
+    assert.equal(first.done, false);
+    const roles = first.value.snapshot.players.map((player) => player.role);
+    assert.equal(roles.length, playerCount);
+    assert.ok(roles.includes("AlphaWolf"));
+    assert.ok(roles.includes("Raven"));
+    assert.ok(roles.includes("Idiot"));
+    assert.ok(roles.includes("Elder"));
+    assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 16 ? 2 : 0);
+    assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 18 ? 1 : 0);
   }
 });
 
@@ -505,6 +552,89 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
   assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "カズ scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
+});
+
+test("Raven mark adds a vote modifier to the next execution vote", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Raven", targets: ["p5", "p6"] },
+    { role: "Villager", targets: ["p6"] },
+    { role: "Villager", targets: ["p5"] },
+    { role: "Villager", targets: ["p5"] },
+    { role: "Villager", targets: ["p6"] },
+    { role: "Werewolf", targets: ["p5"] }
+  ]);
+
+  await collect(game.runRavenAction(players[0]));
+  const events = await collect(game.runVoting());
+  const totals = events.find((event) => event.type === "vote_result" && Array.isArray(event.data?.totals));
+
+  assert.equal(players[4].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "vote"));
+  assert.ok((totals?.data?.modifiers as unknown[]).some((modifier) => (modifier as { reason?: string }).reason === "raven_marked"));
+});
+
+test("Idiot survives first vote execution and loses future voting rights", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Idiot", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[3].alive, true);
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p4"));
+  assert.ok(events.some((event) => event.type === "vote_result" && event.data?.action === "idiot_revealed"));
+});
+
+test("revealed Idiot cannot vote but can still be targeted by later votes", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Idiot", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  await collect(game.runVoting());
+  assert.equal(players[3].alive, true);
+
+  for (const player of players) {
+    game.agents.set(player.id, new PreferTargetAgent(player.name, "p4"));
+  }
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[3].alive, false);
+  assert.ok(!events.some((event) => event.type === "vote_cast" && event.playerId === "p4"));
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "vote"));
+});
+
+test("Elder vote death disables remaining village special abilities", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4", "p1"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Elder", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const voteEvents = await collect(game.runVoting());
+  const seerEvents = await collect(game.runSeerAction());
+
+  assert.equal(players[3].alive, false);
+  assert.ok(voteEvents.some((event) => event.type === "system" && event.data?.action === "elder_penalty"));
+  assert.equal(players[1].seerResults.p1, undefined);
+  assert.equal(seerEvents.length, 0);
 });
 
 test("split speech emits one event per message and records metadata once", async () => {
@@ -822,6 +952,7 @@ test("LLM summary mode uses a short provider summary when available", async () =
     assert.equal(body.temperature, 0.35);
     assert.equal(body.model, "test-model");
     assert.equal(body.max_tokens, 512);
+    assert.deepEqual(body.thinking, { type: "disabled" });
     assert.match(body.system, /plain English for spectators/);
     assert.equal(body.messages[0].role, "user");
     return new Response(
@@ -876,8 +1007,10 @@ test("LLM summary prompt switches to Japanese spectator style", async () => {
 
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.thinking, { type: "disabled" });
     assert.match(body.system, /natural Japanese for spectators/);
     assert.match(body.system, /Respond in Japanese/);
+    assert.equal(body.messages[0].role, "user");
     return new Response(
       JSON.stringify({
         content: [{ type: "text", text: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) }]
@@ -1167,6 +1300,133 @@ test("hunter shot cannot overwrite a simultaneous night death target", async () 
   assert.equal(players[3].alive, false);
   assert.ok(!events.some((event) => event.data?.cause === "hunter" && event.targetId === "p4"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "poison"));
+});
+
+test("linked deaths from a death shot cannot overwrite a simultaneous pending death target", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Witch", decisions: [false], targets: ["p4"] },
+    { role: "Hunter", targets: ["p5"] },
+    { role: "Villager" },
+    { role: "WolfBeauty", targets: ["p3"] },
+    { role: "Villager" }
+  ]);
+  game.ruleState = applyStatusEffects(game.ruleState, [
+    { playerId: "p5", addStatuses: [{ kind: "charm_anchor", sourceId: "p5", targetId: "p4", duration: "game" }] }
+  ]);
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[2].alive, false);
+  assert.equal(players[3].alive, false);
+  assert.equal(players[4].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "hunter"));
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "poison"));
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm"));
+});
+
+test("AlphaWolf gets the same death-shot path with its own public cause", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "AlphaWolf", targets: ["p1", "p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[3].alive, false);
+  assert.equal(players[0].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "alpha_wolf"));
+  assert.ok((game.agents.get("p4") as ScriptedAgent).targetInputs.some((input) => input.action === "Alpha Wolf death shot"));
+});
+
+test("Lover role links paired lovers and resolves heartbreak deaths", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Lover", targets: ["p1"] },
+    { role: "Lover", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[3].alive, false);
+  assert.equal(players[4].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover"));
+});
+
+test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "WolfBeauty", targets: ["p4", "p2"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  await collect(game.runWolfBeautyCharmAction(players[0]));
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[0].alive, false);
+  assert.equal(players[3].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm"));
+});
+
+test("lover victory is exposed as winnerCamp while keeping winner fallback compatible", () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf", alive: false },
+    { role: "Villager", alive: false },
+    { role: "Seer", alive: false },
+    { role: "Witch", alive: false }
+  ]);
+
+  const result = game.checkVictory();
+
+  assert.equal(result?.winnerCamp, "lover");
+  assert.equal(result?.camp, "village");
+  assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+});
+
+test("Jester vote death ends as neutral winner while keeping winner fallback compatible", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Jester", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p2"] }
+  ]);
+
+  const events = await collect(game.runVoting());
+  const result = game.checkVictory();
+
+  assert.equal(players[3].alive, false);
+  assert.ok(events.some((event) => event.type === "system" && event.data?.action === "neutral_victory_claim"));
+  assert.equal(result?.winnerCamp, "neutral");
+  assert.equal(result?.camp, "village");
+  assert.deepEqual(result?.winnerIds, ["p4"]);
+
+  const ended = game.finishGame(result!);
+  assert.equal(ended.data?.winner, "village");
+  assert.equal(ended.data?.winnerCamp, "neutral");
+  assert.deepEqual(ended.data?.winnerIds, ["p4"]);
+  assert.equal(ended.snapshot.winner, "village");
+  assert.equal(ended.snapshot.winnerCamp, "neutral");
+  assert.deepEqual(ended.snapshot.winnerIds, ["p4"]);
 });
 
 test("guard success debug scenario forces an observable protected night", async () => {

@@ -160,6 +160,7 @@ test("first next click starts the game and reveals the first streamed event", ()
 
   assert.match(source, /const revealFirstEventRef = useRef\(false\)/);
   assert.match(source, /startGame\(\{ revealFirstEvent: true \}\)/);
+  assert.match(source, /summary: "deterministic"/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 

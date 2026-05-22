@@ -43,7 +43,21 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.ok(getPromptMaterialPath().endsWith("materials.yaml"));
   assert.doesNotThrow(() => validatePromptMaterials());
   assert.deepEqual(promptMaterialPlaceholders(), []);
-  assert.deepEqual(Object.keys(promptMaterials.roles).sort(), ["Guard", "Hunter", "Seer", "Villager", "Werewolf", "Witch"]);
+  assert.deepEqual(Object.keys(promptMaterials.roles).sort(), [
+    "AlphaWolf",
+    "Elder",
+    "Guard",
+    "Hunter",
+    "Idiot",
+    "Jester",
+    "Lover",
+    "Raven",
+    "Seer",
+    "Villager",
+    "Werewolf",
+    "Witch",
+    "WolfBeauty"
+  ]);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);

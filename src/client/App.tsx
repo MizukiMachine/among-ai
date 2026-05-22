@@ -104,12 +104,19 @@ export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[]
   }));
 }
 
-const roleClass: Record<Role, string> = {
+const roleClass: Partial<Record<Role, string>> = {
   Werewolf: "role-werewolf",
+  AlphaWolf: "role-werewolf",
+  WolfBeauty: "role-werewolf",
   Seer: "role-seer",
   Witch: "role-witch",
   Guard: "role-guard",
   Hunter: "role-hunter",
+  Raven: "role-villager",
+  Idiot: "role-villager",
+  Elder: "role-villager",
+  Lover: "role-villager",
+  Jester: "role-villager",
   Villager: "role-villager"
 };
 
@@ -324,7 +331,7 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
-const playerCountOptions = [6, 7, 8, 9] as const;
+const playerCountOptions = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] as const;
 const minPlayerCount = playerCountOptions[0];
 const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
 const humanInputNoticeLeadCount = 2;
@@ -360,16 +367,36 @@ function formatRoleCount(role: Role, count: number, language: string, forceCount
 
 function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
-  const roleCounts: Array<[Role, number]> = [
-    ["Werewolf", normalizedCount >= 7 ? 2 : 1],
-    ["Seer", 1],
-    ["Witch", 1]
-  ];
+  const roleCounts: Array<[Role, number]> = [];
+  if (normalizedCount <= 6) {
+    roleCounts.push(["Werewolf", 1]);
+  } else if (normalizedCount <= 10) {
+    roleCounts.push(["Werewolf", 2]);
+  } else if (normalizedCount <= 14) {
+    roleCounts.push(["Werewolf", 2], ["AlphaWolf", 1]);
+  } else if (normalizedCount <= 17) {
+    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1]);
+  } else {
+    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1], ["WolfBeauty", 1]);
+  }
+  roleCounts.push(["Seer", 1], ["Witch", 1]);
   if (normalizedCount >= 8) {
     roleCounts.push(["Guard", 1]);
   }
   if (normalizedCount >= 9) {
     roleCounts.push(["Hunter", 1]);
+  }
+  if (normalizedCount >= 10) {
+    roleCounts.push(["Raven", 1]);
+  }
+  if (normalizedCount >= 13) {
+    roleCounts.push(["Idiot", 1]);
+  }
+  if (normalizedCount >= 15) {
+    roleCounts.push(["Elder", 1]);
+  }
+  if (normalizedCount >= 16) {
+    roleCounts.push(["Lover", 2]);
   }
 
   const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
@@ -388,7 +415,9 @@ function getRoleDistributionText(count: number, language: string): string {
 
 function getCampRatioText(count: number, language: string): string {
   const roleCounts = getRoleDistributionItems(count);
-  const werewolves = roleCounts.find(([role]) => role === "Werewolf")?.[1] ?? 0;
+  const werewolves = roleCounts
+    .filter(([role]) => role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty")
+    .reduce((total, [, roleCount]) => total + roleCount, 0);
   const villagers = normalizePlayerCount(count) - werewolves;
 
   if (isJapaneseLanguage(language)) {
@@ -533,7 +562,7 @@ export function App() {
     .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
     .slice(0, 2);
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
-  const winnerRosterText = winnerLabelForRoster(snapshot?.winner, language);
+  const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
   const pendingHumanInputNotice =
     pendingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? pendingHumanInput : null;
@@ -652,7 +681,7 @@ export function App() {
     const params = new URLSearchParams({
       players: String(effectivePlayerCount),
       provider: "llm",
-      summary: "llm",
+      summary: "deterministic",
       scenario: humanEnabled ? "none" : debugScenario,
       view: streamView,
       speed: "0",
@@ -706,6 +735,9 @@ export function App() {
       setSourceDone(true);
       setGameStatus("生成完了");
       source.close();
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+      }
     });
 
     source.addEventListener("error", (message) => {
@@ -738,6 +770,9 @@ export function App() {
         setQueuedEvents(nextQueue);
       }
       source.close();
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+      }
     });
   }
 
@@ -784,15 +819,13 @@ export function App() {
       revealNext();
       return;
     }
-    if (!running && events.length === 0) {
+    if (!running && events.length === 0 && !sourceRef.current) {
       startGame({ revealFirstEvent: true });
     }
   }
 
   useEffect(() => {
-    return () => {
-      sourceRef.current?.close();
-    };
+    return closeGameStream;
   }, []);
 
   useEffect(() => {

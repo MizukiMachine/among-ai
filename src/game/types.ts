@@ -1,5 +1,19 @@
-export type Role = "Werewolf" | "Seer" | "Witch" | "Guard" | "Hunter" | "Villager";
+export type Role =
+  | "Werewolf"
+  | "AlphaWolf"
+  | "WolfBeauty"
+  | "Seer"
+  | "Witch"
+  | "Guard"
+  | "Hunter"
+  | "Raven"
+  | "Idiot"
+  | "Elder"
+  | "Lover"
+  | "Jester"
+  | "Villager";
 export type Camp = "werewolf" | "village";
+export type CampId = Camp | "neutral" | "lover";
 export type Persona =
   | "cautious"
   | "aggressive"
@@ -128,6 +142,8 @@ export interface GameSnapshot {
   round: number;
   phase: Phase;
   winner: Camp | null;
+  winnerCamp?: CampId | null;
+  winnerIds?: string[];
   players: PlayerSnapshot[];
   aliveCount: number;
   werewolfCount: number;
@@ -178,6 +194,7 @@ export interface AgentSpeechInput {
   legalPlayers?: TargetCandidate[];
   publicHistory: string[];
   privateHistory: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface AgentTargetInput {
@@ -190,6 +207,7 @@ export interface AgentTargetInput {
   allowSkip: boolean;
   publicHistory?: string[];
   privateHistory?: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface AgentBooleanInput {
@@ -200,6 +218,7 @@ export interface AgentBooleanInput {
   uiContext?: string[];
   publicHistory?: string[];
   privateHistory?: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface Agent {

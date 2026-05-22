@@ -100,7 +100,21 @@ type RoleProfileBody = Omit<RolePromptProfile, "role">;
 type RawRoleProfile = Partial<RoleProfileBody> & { extends?: string };
 
 const promptMaterialUrl = new URL("./materials.yaml", import.meta.url);
-const expectedRoles = ["Werewolf", "Seer", "Witch", "Guard", "Hunter", "Villager"] as const satisfies readonly Role[];
+const expectedRoles = [
+  "Werewolf",
+  "AlphaWolf",
+  "WolfBeauty",
+  "Seer",
+  "Witch",
+  "Guard",
+  "Hunter",
+  "Raven",
+  "Idiot",
+  "Elder",
+  "Lover",
+  "Jester",
+  "Villager"
+] as const satisfies readonly Role[];
 const expectedPromptModes = ["public_speech", "internal_decision"] as const satisfies readonly PromptMode[];
 const expectedPromptPhases = ["night", "werewolf_discussion", "discussion", "voting"] as const satisfies readonly PromptPhase[];
 const expectedPersonas = [

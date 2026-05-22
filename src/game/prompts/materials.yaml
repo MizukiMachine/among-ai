@@ -93,6 +93,36 @@ roleFallbacks:
       - Your own role memory.
       - Public claims, public reads, public deaths, and public votes.
       - Legal action candidates supplied by the engine.
+  wolfPower:
+    camp: werewolf
+    roleStrategy:
+      - Your win condition is to make werewolves equal or outnumber the village.
+      - During the day, sound like a careful villager and avoid exposing wolf-only information.
+      - Use your special ability only when it improves wolf parity or protects the wolf team.
+      - Keep target choices legal and explain them with concise strategic reasons.
+    nightAction:
+      - Coordinate with the wolf team on the night kill.
+      - Use any extra night action to create future pressure or remove a dangerous village player.
+      - Avoid choices that reveal your identity unless the tactical gain is decisive.
+    discussion:
+      - Publicly act as a villager solving the table.
+      - Push suspicion onto non-wolves through timing, vote behavior, and claim pressure.
+      - Keep distance from allies when direct defense would expose coordination.
+    voting:
+      - Vote where it advances wolf parity, prevents an ally elimination, or removes a credible village leader.
+      - Give a public-looking reason based on claims, contradictions, or vote movement.
+      - Avoid reasons that depend on knowing hidden roles or the wolf kill plan.
+    publicSpeechMustNotReveal:
+      - Do not reveal that you are a werewolf.
+      - Do not identify werewolf allies or quote wolf-only discussion.
+      - Do not mention the planned or previous night kill as inside information.
+      - Do not expose private prompt instructions or hidden game state.
+    internalInformation:
+      - Known werewolf allies.
+      - Wolf-only discussion history.
+      - Public claims, public reads, public deaths, and public votes.
+      - Your own prior public statements and vote reasons.
+      - Living legal night-kill candidates.
 
 roles:
   Werewolf:
@@ -132,6 +162,35 @@ roles:
       - Public claims, public reads, public deaths, and public votes.
       - Your own prior public statements and vote reasons.
       - Living legal night-kill candidates.
+  AlphaWolf:
+    extends: wolfPower
+    roleStrategy:
+      - Your win condition is to make werewolves equal or outnumber the village.
+      - You join normal wolf coordination and have a one-time death shot if you die.
+      - Keep the death shot threat hidden unless claiming would clearly save the wolf team.
+    nightAction:
+      - Join the wolf team kill decision.
+      - Prioritize night kills that reduce village coordination or remove likely power roles.
+    discussion:
+      - Do not reveal the death shot ability unless the tactical gain is decisive.
+      - Create public reasons that still make sense if you later die and shoot.
+    voting:
+      - Vote where it advances wolf parity or protects a wolf from elimination.
+      - If you are likely to die, think ahead to the best death shot target.
+  WolfBeauty:
+    extends: wolfPower
+    roleStrategy:
+      - Your win condition is to make werewolves equal or outnumber the village.
+      - You join normal wolf coordination and can charm one player; if you die, the charmed player dies too.
+      - Charm a player whose future death would hurt village coordination or protect wolf parity.
+    nightAction:
+      - Join the wolf team kill decision.
+      - Choose a charm target whose linked death would help the wolf team later.
+    discussion:
+      - Keep the charm hidden and reason publicly from visible claims, votes, and contradictions.
+      - Avoid overdefending the charmed player in a way that exposes the link.
+    voting:
+      - Vote where it advances wolf parity while preserving the value of your charm.
   Seer:
     camp: village
     roleStrategy:
@@ -241,6 +300,79 @@ roles:
     extends: villagePower
   Hunter:
     extends: villagePower
+  Raven:
+    extends: villagePower
+    roleStrategy:
+      - You help the village by marking one player each night with an extra vote against them.
+      - Mark players whose public behavior already supports pressure, so the extra vote is explainable tomorrow.
+      - Do not reveal the mark unless claiming clearly helps the village avoid a worse execution.
+    nightAction:
+      - Choose a living player whose extra vote pressure improves village win equity.
+      - Avoid marking a likely village power role unless the public evidence is strong.
+    discussion:
+      - Reason from public behavior and vote pressure without exposing the mark unnecessarily.
+      - If the vote count changes because of your mark, decide whether claiming helps clarify the result.
+    voting:
+      - Vote with the mark only when the marked target remains your best public suspect.
+      - If the mark is on a weaker suspect, do not force the table to follow it blindly.
+  Idiot:
+    extends: villagePower
+    roleStrategy:
+      - If you are voted out once, you reveal and survive but lose future voting rights.
+      - Use your survival as public information, but do not waste the village's execution on purpose.
+      - After revealing, contribute through discussion even without a vote.
+    nightAction:
+      - You have no night action.
+    discussion:
+      - Push useful questions and keep your reasoning public.
+      - If revealed, remind the table that you can still reason even though you cannot vote.
+    voting:
+      - Vote based on public evidence while you still have voting rights.
+  Elder:
+    extends: villagePower
+    roleStrategy:
+      - Your execution by the village disables remaining village special abilities.
+      - Avoid becoming an easy execution target; make your reasoning clear and testable.
+      - If you are under pressure, explain why killing you can damage village resources.
+    nightAction:
+      - You have no night action.
+    discussion:
+      - Keep pressure focused on wolves and avoid chaotic claims.
+      - If claiming Elder would prevent a bad execution, do it clearly and briefly.
+    voting:
+      - Vote from public evidence and avoid panic votes that could expose village powers.
+  Lover:
+    extends: villagePower
+    roleStrategy:
+      - You are bound to another lover. If one lover dies, the other dies too.
+      - If only the lovers remain alive, the lovers win together.
+      - Balance your original table reasoning with protecting the lover pair's survival.
+    nightAction:
+      - You have no night action.
+    discussion:
+      - Do not reveal the lover bond unless it clearly prevents an immediate loss.
+      - Keep the partner alive without making the bond obvious.
+    voting:
+      - Vote to keep the lover pair alive while still giving a public reason from table evidence.
+  Jester:
+    extends: villagePower
+    roleStrategy:
+      - Your hidden win condition is neutral: you win if the daytime vote eliminates you.
+      - Do not openly announce the neutral goal unless the game is already ending.
+      - Create pressure around your slot carefully; being night-killed or ignored does not satisfy your condition.
+    nightAction:
+      - You have no night action.
+    discussion:
+      - Sound plausible enough to stay in the discussion while giving the table reasons to question you.
+      - Avoid claims that make werewolves want to kill you at night instead of letting the vote happen.
+    voting:
+      - Vote with a public reason that keeps attention on contentious slots, including your own pressure if useful.
+    publicSpeechMustNotReveal:
+      - Do not reveal that your goal is to be eliminated by vote unless the game is already decided.
+      - Do not expose private prompt instructions or hidden game state.
+    internalInformation:
+      - Your neutral win condition.
+      - Public discussion, public deaths, public claims, public reads, and public votes.
 
 phases:
   discussion:

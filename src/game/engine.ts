@@ -4,6 +4,26 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
+import {
+  canUseDeathTrigger,
+  createDeathResolutionEffects,
+  createLinkedDeathRecords,
+  createNightDeathRecords,
+  markPlayerDead
+} from "./rules/deaths";
+import { resolveVoteElimination } from "./rules/elimination";
+import type { DeathRecord, RuleState } from "./rules/types";
+import { createNightActionPlan } from "./rules/night";
+import {
+  createRoles,
+  createScenarioRoles,
+  minimumPlayerCountForScenario,
+  normalizePlayerCount
+} from "./rules/presets";
+import { roleCamp } from "./rules/roles";
+import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses } from "./rules/state";
+import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
+import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
 import { sample, shuffle } from "./random";
 import type {
   Agent,
@@ -11,6 +31,7 @@ import type {
   AgentSpeech,
   AgentTargetInput,
   Camp,
+  CampId,
   ClaimMetadata,
   DebugScenario,
   EventVisibility,
@@ -29,12 +50,34 @@ import type {
   VoteRecord
 } from "./types";
 
-const names = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
+const names = [
+  "カズ",
+  "カイ",
+  "ミオ",
+  "レン",
+  "サキ",
+  "タカ",
+  "ユキ",
+  "ケン",
+  "リン",
+  "アオ",
+  "ナオ",
+  "ハル",
+  "リク",
+  "メイ",
+  "ソラ",
+  "エマ",
+  "シュン",
+  "ノア",
+  "ルイ",
+  "マナ"
+];
 const personas: Persona[] = [
   "cautious", "aggressive", "logical", "opportunistic", "empathetic",
   "cautious", "logical", "aggressive", "empathetic"
 ];
 const dayDiscussionPasses = 2;
+const defaultAiPrefetchConcurrency = 3;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
@@ -56,6 +99,7 @@ interface DiscussionReadDetail {
 
 interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
+  abortSignal?: AbortSignal;
 }
 
 function speechEventData(
@@ -81,33 +125,6 @@ function emptySpeechMetadata(): SpeechMetadata {
     trusts: [],
     claims: []
   };
-}
-
-function roleCamp(role: Role): Camp {
-  return role === "Werewolf" ? "werewolf" : "village";
-}
-
-function normalizePlayerCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 7;
-  }
-  return Math.min(9, Math.max(6, Math.floor(count)));
-}
-
-function createRoles(playerCount: number): Role[] {
-  const werewolves = playerCount >= 7 ? 2 : 1;
-  const fixed: Role[] = [
-    ...Array.from<Role>({ length: werewolves }).fill("Werewolf"),
-    "Seer",
-    "Witch"
-  ];
-  if (playerCount >= 8) {
-    fixed.push("Guard");
-  }
-  if (playerCount >= 9) {
-    fixed.push("Hunter");
-  }
-  return [...fixed, ...Array.from<Role>({ length: playerCount - fixed.length }).fill("Villager")];
 }
 
 function playerIdIndex(playerId: string | null | undefined, playerCount: number): number | null {
@@ -146,28 +163,6 @@ function normalizeSummaryMode(mode: SummaryMode | undefined): SummaryMode {
 
 function normalizeDebugScenario(scenario: DebugScenario | undefined): DebugScenario {
   return scenario === "guard_success" || scenario === "hunter_shot" ? scenario : "none";
-}
-
-function minimumPlayerCountForScenario(scenario: DebugScenario): number {
-  if (scenario === "guard_success") {
-    return 8;
-  }
-  if (scenario === "hunter_shot") {
-    return 9;
-  }
-  return 6;
-}
-
-function createScenarioRoles(scenario: DebugScenario, playerCount: number): Role[] {
-  if (scenario === "guard_success") {
-    const roles: Role[] = ["Guard", "Werewolf", "Villager", "Seer", "Witch", "Werewolf", "Villager", "Villager"];
-    return [...roles, ...Array.from<Role>({ length: playerCount - roles.length }).fill("Hunter")];
-  }
-  if (scenario === "hunter_shot") {
-    const roles: Role[] = ["Werewolf", "Werewolf", "Hunter", "Witch", "Guard", "Seer", "Villager", "Villager", "Villager"];
-    return roles.slice(0, playerCount);
-  }
-  return createRoles(playerCount);
 }
 
 class ScenarioAgent extends DemoAgent {
@@ -215,17 +210,64 @@ class ScenarioAgent extends DemoAgent {
   }
 }
 
-function tallyVotes(votes: VoteRecord[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const vote of votes) {
-    counts.set(vote.targetId, (counts.get(vote.targetId) ?? 0) + 1);
-  }
-  return counts;
+function shouldRethrowLlmError(agent: Agent): boolean {
+  return agent.model !== "demo" && agent.model !== "demo-fallback" && agent.model !== "debug-demo" && agent.model !== "human";
 }
 
-function topVoted(counts: Map<string, number>): string[] {
-  const max = Math.max(...counts.values());
-  return [...counts.entries()].filter(([, count]) => count === max).map(([id]) => id);
+function positiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function aiPrefetchConcurrency(): number {
+  return positiveIntEnv(process.env.ZAI_PREFETCH_CONCURRENCY ?? process.env.LLM_PREFETCH_CONCURRENCY, defaultAiPrefetchConcurrency);
+}
+
+async function* orderedConcurrentMap<T, R>(
+  items: T[],
+  concurrency: number,
+  run: (item: T, index: number) => Promise<R>
+): AsyncGenerator<R> {
+  if (items.length === 0) {
+    return;
+  }
+
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  type Settled = { ok: true; value: R } | { ok: false; error: unknown };
+  const pending = new Map<number, Promise<Settled>>();
+  let nextIndex = 0;
+  const startNext = () => {
+    if (nextIndex >= items.length) {
+      return;
+    }
+    const currentIndex = nextIndex;
+    nextIndex += 1;
+    pending.set(
+      currentIndex,
+      run(items[currentIndex], currentIndex).then(
+        (value) => ({ ok: true, value }),
+        (error: unknown) => ({ ok: false, error })
+      )
+    );
+  };
+
+  for (let index = 0; index < limit; index += 1) {
+    startNext();
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const promise = pending.get(index);
+    if (!promise) {
+      throw new Error(`Missing queued task at index ${index}`);
+    }
+    const result = await promise;
+    pending.delete(index);
+    startNext();
+    if (!result.ok) {
+      throw result.error;
+    }
+    yield result.value;
+  }
 }
 
 export class WerewolfGame {
@@ -234,6 +276,7 @@ export class WerewolfGame {
   private readonly publicHistory: string[] = [];
   private readonly wolfHistory: string[] = [];
   private readonly config: GameConfig;
+  private readonly abortSignal?: AbortSignal;
   private readonly startupWarnings: string[] = [];
   private readonly witchState = {
     savePotion: true,
@@ -246,15 +289,20 @@ export class WerewolfGame {
     lastProtectedTargetId: null as string | null
   };
   private readonly hunterShotsUsed = new Set<string>();
+  private ruleState: RuleState = { players: {} };
   private eventId = 0;
   private round = 0;
   private phase: Phase = "setup";
   private winner: Camp | null = null;
+  private winnerCamp: CampId | null = null;
+  private winnerIds: string[] = [];
   private lastNightDeaths: string[] = [];
   private lastDiscussion: DiscussionRecord[] = [];
   private lastVotes: VoteRecord[] = [];
+  private lastVoteModifiers: VoteModifier[] = [];
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
+    this.abortSignal = options.abortSignal;
     const debugScenario = normalizeDebugScenario(config.debugScenario);
     const playerCount = normalizePlayerCount(Math.max(config.playerCount, minimumPlayerCountForScenario(debugScenario)));
     this.config = {
@@ -339,6 +387,7 @@ export class WerewolfGame {
       this.agents.set(player.id, agent);
       return player;
     });
+    this.ruleState = createInitialRuleState(this.players);
   }
 
   private createScenarioAgent(name: string, scenario: DebugScenario, index: number): Agent {
@@ -363,7 +412,7 @@ export class WerewolfGame {
     return this.isJapanese() ? japanese : english;
   }
 
-  private campText(camp: Camp): string {
+  private campText(camp: CampId): string {
     return campLabel(camp, this.config.language);
   }
 
@@ -371,7 +420,14 @@ export class WerewolfGame {
     return roleLabel(role, this.config.language);
   }
 
+  private throwIfCancelled(): void {
+    if (this.abortSignal?.aborted) {
+      throw new Error("Game stream cancelled.");
+    }
+  }
+
   async *run(): AsyncGenerator<GameEvent> {
+    this.throwIfCancelled();
     yield this.emit("game_started", this.text("A new AI werewolf match has started.", "AI人狼の新しい対局を開始しました。"), {
       provider: this.config.provider,
       model: this.config.model || "demo",
@@ -389,9 +445,11 @@ export class WerewolfGame {
     }
 
     while (!this.winner && this.round < this.config.maxRounds) {
+      this.throwIfCancelled();
       this.round += 1;
 
       yield* this.runNight();
+      this.throwIfCancelled();
       const nightWinner = this.checkVictory();
       if (nightWinner) {
         yield this.finishGame(nightWinner);
@@ -399,6 +457,7 @@ export class WerewolfGame {
       }
 
       yield* this.runDay();
+      this.throwIfCancelled();
       const dayWinner = this.checkVictory();
       if (dayWinner) {
         yield this.finishGame(dayWinner);
@@ -406,7 +465,7 @@ export class WerewolfGame {
       }
     }
 
-    const adjudicated = this.countAlive("werewolf") >= this.countAlive("village") ? "werewolf" : "village";
+    const adjudicated = adjudicateStandardVictory(this.players);
     yield this.finishGame({
       camp: adjudicated,
       reason: this.text(
@@ -419,60 +478,55 @@ export class WerewolfGame {
   private async *runNight(): AsyncGenerator<GameEvent> {
     this.lastNightDeaths = [];
     this.lastVotes = [];
+    this.lastVoteModifiers = [];
     this.witchState.savedTargetId = null;
     this.witchState.poisonTargetId = null;
     this.guardState.protectedTargetId = null;
     this.phase = "night";
     yield this.emit("phase_changed", this.text(`Night ${this.round} begins.`, `第${this.round}夜が始まりました。`));
 
-    yield* this.runGuardAction();
+    const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
+    let killTarget: Player | null = null;
+    let savedTarget: string | null = null;
 
-    const werewolves = this.alivePlayers().filter((player) => player.role === "Werewolf");
-    if (werewolves.length > 1) {
-      this.phase = "werewolf_discussion";
-      yield this.emit("phase_changed", this.text("The werewolves open a private discussion.", "人狼たちが内通を始めました。"));
-
-      for (const wolf of werewolves) {
-        const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
-        const contextLines = [
-          this.text(
-            `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
-            `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
-          ),
-          this.text(
-            `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
-            `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
-          ),
-          ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
-        ];
-        const context = this.contextFor(wolf, contextLines);
-        const speech = await this.safeSpeak(
-          wolf,
-          this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
-          context,
-          contextLines
-        );
-        this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
-        for (const [index, message] of speech.messages.entries()) {
-          yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
+    for (const step of createNightActionPlan(this.alivePlayers().map((player) => ({ role: player.role, playerId: player.id })))) {
+      if (step.kind === "guard_protect") {
+        yield* this.runGuardAction();
+      }
+      if (step.kind === "werewolf_discussion") {
+        yield* this.runWerewolfDiscussion(werewolves);
+      }
+      if (step.kind === "werewolf_attack") {
+        this.phase = "night";
+        killTarget = await this.resolveWerewolfAttack(werewolves);
+        if (killTarget) {
+          yield this.emit(
+            "night_action",
+            this.text("The werewolves selected a victim.", "人狼は襲撃先を選びました。"),
+            { visibility: "private", action: "werewolf_attack" },
+            undefined,
+            killTarget
+          );
+        }
+      }
+      if (step.kind === "seer_check") {
+        yield* this.runSeerAction();
+      }
+      if (step.kind === "witch_action") {
+        savedTarget = yield* this.runWitchAction(killTarget);
+      }
+      if (step.kind === "wolf_beauty_charm") {
+        for (const actorId of step.actorIds) {
+          yield* this.runWolfBeautyCharmAction(this.requirePlayer(actorId));
+        }
+      }
+      if (step.kind === "raven_mark") {
+        for (const actorId of step.actorIds) {
+          yield* this.runRavenAction(this.requirePlayer(actorId));
         }
       }
     }
 
-    this.phase = "night";
-    const killTarget = await this.resolveWerewolfAttack(werewolves);
-    if (killTarget) {
-      yield this.emit(
-        "night_action",
-        this.text("The werewolves selected a victim.", "人狼は襲撃先を選びました。"),
-        { visibility: "private", action: "werewolf_attack" },
-        undefined,
-        killTarget
-      );
-    }
-
-    yield* this.runSeerAction();
-    const savedTarget = yield* this.runWitchAction(killTarget);
     const guardBlockedAttack = Boolean(
       killTarget && savedTarget !== killTarget.id && this.guardState.protectedTargetId === killTarget.id
     );
@@ -499,51 +553,63 @@ export class WerewolfGame {
       }
     }
 
-    const deaths = new Map<string, string>();
-    const addNightDeath = (playerId: string, cause: string) => {
-      const existing = deaths.get(playerId);
-      deaths.set(playerId, existing && existing !== cause ? "multiple" : cause);
-    };
+    const deaths = createNightDeathRecords({
+      werewolfTargetId: killTarget?.id,
+      savedTargetId: savedTarget,
+      protectedTargetId: this.guardState.protectedTargetId,
+      poisonTargetId: this.witchState.poisonTargetId
+    });
 
-    if (killTarget && savedTarget !== killTarget.id && this.guardState.protectedTargetId !== killTarget.id) {
-      addNightDeath(killTarget.id, "werewolf");
-    }
-
-    const poisonTarget = this.witchState.poisonTargetId
-      ? this.requirePlayer(this.witchState.poisonTargetId)
-      : null;
-    if (poisonTarget) {
-      addNightDeath(poisonTarget.id, "poison");
-    }
-
-    if (deaths.size === 0) {
+    if (deaths.length === 0) {
       yield this.emit("death", this.text("No one died during the night.", "昨夜は誰も死亡しませんでした。"), { cause: "no_death" });
       return;
     }
 
-    const pendingDeaths = new Set(deaths.keys());
-    for (const [id, cause] of deaths) {
-      const player = this.requirePlayer(id);
-      if (!player.alive) {
-        continue;
-      }
-      player.alive = false;
-      this.lastNightDeaths.push(id);
-      pendingDeaths.delete(id);
-      yield this.emit(
-        "death",
-        this.text(`${player.name} died during the night.`, `${player.name}が夜の間に死亡しました。`),
-        { cause, targetRole: player.role },
-        undefined,
-        player
+    yield* this.resolveDeaths(deaths);
+  }
+
+  private async *runWerewolfDiscussion(werewolves: Player[]): AsyncGenerator<GameEvent> {
+    if (werewolves.length <= 1) {
+      return;
+    }
+
+    this.phase = "werewolf_discussion";
+    yield this.emit("phase_changed", this.text("The werewolves open a private discussion.", "人狼たちが内通を始めました。"));
+
+    const wolfSpeeches = orderedConcurrentMap(werewolves, aiPrefetchConcurrency(), async (wolf) => {
+      const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
+      const contextLines = [
+        this.text(
+          `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
+          `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
+        ),
+        this.text(
+          `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
+          `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
+        ),
+        ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
+      ];
+      const context = this.contextFor(wolf, contextLines);
+      const speech = await this.safeSpeak(
+        wolf,
+        this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
+        context,
+        contextLines
       );
-      yield* this.runHunterShot(player, pendingDeaths);
+      return { wolf, speech };
+    });
+
+    for await (const { wolf, speech } of wolfSpeeches) {
+      this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
+      }
     }
   }
 
   private async *runGuardAction(): AsyncGenerator<GameEvent> {
     const guard = this.alivePlayers().find((player) => player.role === "Guard");
-    if (!guard) {
+    if (!guard || !canUseAbilities(this.ruleState, guard.id)) {
       return;
     }
 
@@ -605,7 +671,7 @@ export class WerewolfGame {
     }
 
     const votes: VoteRecord[] = [];
-    for (const wolf of werewolves) {
+    const collectWolfVote = async (wolf: Player): Promise<VoteRecord | null> => {
       const contextLines = [
         this.text(
           `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
@@ -615,8 +681,12 @@ export class WerewolfGame {
       ];
       const context = this.contextFor(wolf, contextLines);
       const decision = await this.safeChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines);
-      if (decision.targetId) {
-        votes.push({ voterId: wolf.id, targetId: decision.targetId, reason: decision.reason });
+      return decision.targetId ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason } : null;
+    };
+
+    for await (const vote of orderedConcurrentMap(werewolves, aiPrefetchConcurrency(), collectWolfVote)) {
+      if (vote) {
+        votes.push(vote);
       }
     }
 
@@ -630,7 +700,7 @@ export class WerewolfGame {
 
   private async *runSeerAction(): AsyncGenerator<GameEvent> {
     const seer = this.alivePlayers().find((player) => player.role === "Seer");
-    if (!seer) {
+    if (!seer || !canUseAbilities(this.ruleState, seer.id)) {
       return;
     }
 
@@ -675,7 +745,7 @@ export class WerewolfGame {
 
   private async *runWitchAction(killTarget: Player | null): AsyncGenerator<GameEvent, string | null> {
     const witch = this.alivePlayers().find((player) => player.role === "Witch");
-    if (!witch) {
+    if (!witch || !canUseAbilities(this.ruleState, witch.id)) {
       return null;
     }
 
@@ -753,6 +823,120 @@ export class WerewolfGame {
     return savedTarget;
   }
 
+  private async *runWolfBeautyCharmAction(wolfBeauty: Player): AsyncGenerator<GameEvent> {
+    if (!wolfBeauty.alive || wolfBeauty.role !== "WolfBeauty" || !canUseAbilities(this.ruleState, wolfBeauty.id)) {
+      return;
+    }
+    if ((this.ruleState.players[wolfBeauty.id]?.statuses ?? []).some((status) => status.kind === "charm_anchor")) {
+      return;
+    }
+
+    const targets = this.alivePlayers().filter((player) => player.id !== wolfBeauty.id);
+    if (targets.length === 0) {
+      return;
+    }
+
+    const contextLines = [
+      this.text(
+        "Choose one living player to charm. If you die, that player dies with you.",
+        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。"
+      )
+    ];
+    const context = this.contextFor(wolfBeauty, contextLines);
+    const decision = await this.safeChooseTarget(
+      wolfBeauty,
+      this.text("Wolf Beauty charm", "美女狼の魅了"),
+      context,
+      targets,
+      false,
+      contextLines
+    );
+    if (!decision.targetId) {
+      return;
+    }
+
+    const target = this.requirePlayer(decision.targetId);
+    this.ruleState = applyStatusEffects(this.ruleState, [
+      {
+        playerId: wolfBeauty.id,
+        addStatuses: [{ kind: "charm_anchor", sourceId: wolfBeauty.id, targetId: target.id, duration: "game" }]
+      },
+      {
+        playerId: target.id,
+        addStatuses: [{ kind: "charmed", sourceId: wolfBeauty.id, duration: "game" }]
+      }
+    ]);
+    wolfBeauty.memories.push(
+      this.text(
+        `Round ${this.round}: charmed ${target.name}. Reason: ${decision.reason}`,
+        `第${this.round}ラウンド: ${target.name}を魅了。理由: ${decision.reason}`
+      )
+    );
+    yield this.emit(
+      "night_action",
+      this.text(`${wolfBeauty.name} charmed ${target.name}.`, `${wolfBeauty.name}が${target.name}を魅了しました。`),
+      {
+        visibility: "private",
+        action: "wolf_beauty_charm",
+        charmedTargetId: target.id,
+        charmedTargetName: target.name,
+        reason: decision.reason
+      },
+      wolfBeauty,
+      target
+    );
+  }
+
+  private async *runRavenAction(raven: Player): AsyncGenerator<GameEvent> {
+    if (!raven.alive || raven.role !== "Raven" || !canUseAbilities(this.ruleState, raven.id)) {
+      return;
+    }
+
+    const targets = this.alivePlayers();
+    if (targets.length === 0) {
+      return;
+    }
+
+    const contextLines = [
+      this.text(
+        "Choose one living player to mark. The mark adds one vote against them in today's vote.",
+        "印を付ける生存者を一人選んでください。今日の投票で、その相手に1票が加算されます。"
+      )
+    ];
+    const context = this.contextFor(raven, contextLines);
+    const decision = await this.safeChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, false, contextLines);
+    if (!decision.targetId) {
+      return;
+    }
+
+    const target = this.requirePlayer(decision.targetId);
+    this.ruleState = applyStatusEffects(this.ruleState, [
+      {
+        playerId: target.id,
+        addStatuses: [{ kind: "raven_marked", sourceId: raven.id, duration: "round", count: 1 }]
+      }
+    ]);
+    raven.memories.push(
+      this.text(
+        `Round ${this.round}: marked ${target.name}. Reason: ${decision.reason}`,
+        `第${this.round}ラウンド: ${target.name}に印。理由: ${decision.reason}`
+      )
+    );
+    yield this.emit(
+      "night_action",
+      this.text(`${raven.name} marked ${target.name}.`, `${raven.name}が${target.name}に印を付けました。`),
+      {
+        visibility: "private",
+        action: "raven_mark",
+        markedTargetId: target.id,
+        markedTargetName: target.name,
+        reason: decision.reason
+      },
+      raven,
+      target
+    );
+  }
+
   private async *runDay(): AsyncGenerator<GameEvent> {
     this.phase = "day_discussion";
     this.lastDiscussion = [];
@@ -768,7 +952,8 @@ export class WerewolfGame {
     );
 
     for (let discussionPass = 1; discussionPass <= dayDiscussionPasses; discussionPass += 1) {
-      for (const player of this.alivePlayers()) {
+      const speakers = this.alivePlayers();
+      const generateSpeech = async (player: Player): Promise<{ player: Player; speech: AgentSpeech }> => {
         const contextLines = [
           deathNames.length > 0
             ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
@@ -798,6 +983,9 @@ export class WerewolfGame {
           context,
           contextLines
         );
+        return { player, speech };
+      };
+      const publishSpeech = (player: Player, speech: AgentSpeech): GameEvent[] => {
         this.publicHistory.push(this.formatSpeechHistory(player, speech));
         this.lastDiscussion.push({
           playerId: player.id,
@@ -805,8 +993,8 @@ export class WerewolfGame {
           message: speech.messages.join(" "),
           metadata: speech.metadata
         });
-        for (const [index, message] of speech.messages.entries()) {
-          yield this.emit(
+        return speech.messages.map((message, index) =>
+          this.emit(
             "player_speech",
             message,
             speechEventData(speech, message, index, undefined, {
@@ -814,7 +1002,22 @@ export class WerewolfGame {
               discussionPasses: dayDiscussionPasses
             }),
             player
-          );
+          )
+        );
+      };
+
+      if (this.config.humanPlayerId) {
+        for (const player of speakers) {
+          const { speech } = await generateSpeech(player);
+          for (const event of publishSpeech(player, speech)) {
+            yield event;
+          }
+        }
+      } else {
+        for await (const { player, speech } of orderedConcurrentMap(speakers, aiPrefetchConcurrency(), generateSpeech)) {
+          for (const event of publishSpeech(player, speech)) {
+            yield event;
+          }
         }
       }
     }
@@ -828,10 +1031,12 @@ export class WerewolfGame {
 
     const votes: VoteRecord[] = [];
     const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
-    for (const voter of this.alivePlayers()) {
-      const targets = this.alivePlayers().filter((player) => player.id !== voter.id);
+    const livingPlayers = this.alivePlayers();
+    const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
+    const collectVote = async (voter: Player): Promise<{ voter: Player; decision: TargetDecision } | null> => {
+      const targets = livingPlayers.filter((player) => player.id !== voter.id);
       if (targets.length === 0) {
-        continue;
+        return null;
       }
       const contextLines = [
         deathNames.length > 0
@@ -845,11 +1050,26 @@ export class WerewolfGame {
       ];
       const context = this.contextFor(voter, contextLines);
       const decision = await this.safeChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines);
-      if (!decision.targetId) {
+      return { voter, decision };
+    };
+    const sequentialVotes = async function* (): AsyncGenerator<{ voter: Player; decision: TargetDecision } | null> {
+      for (const voter of voters) {
+        yield await collectVote(voter);
+      }
+    };
+
+    const voteResults = this.config.humanPlayerId
+      ? sequentialVotes()
+      : orderedConcurrentMap(voters, aiPrefetchConcurrency(), collectVote);
+
+    for await (const result of voteResults) {
+      const targetId = result?.decision.targetId;
+      if (!result || !targetId) {
         continue;
       }
-      votes.push({ voterId: voter.id, targetId: decision.targetId, reason: decision.reason });
-      const target = this.requirePlayer(decision.targetId);
+      const { voter, decision } = result;
+      votes.push({ voterId: voter.id, targetId, reason: decision.reason });
+      const target = this.requirePlayer(targetId);
       voter.memories.push(
         this.text(
           `Round ${this.round}: voted for ${target.name}. Reason: ${decision.reason}`,
@@ -865,45 +1085,164 @@ export class WerewolfGame {
       );
     }
 
-    this.lastVotes = votes;
-    if (votes.length === 0) {
+    const eligibleVotes = filterEligibleVotes(votes, this.ruleState);
+    const voteModifiers = voteModifiersFromRuleState(this.ruleState);
+    this.lastVotes = eligibleVotes;
+    this.lastVoteModifiers = voteModifiers;
+    if (eligibleVotes.length === 0 && voteModifiers.length === 0) {
       yield this.emit("vote_result", this.text("No votes were cast.", "投票はありませんでした。"), { votes: [] });
       yield await this.emitRoundSummary();
+      this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
 
-    const counts = tallyVotes(votes);
-    const candidates = topVoted(counts);
+    const voteResolution = resolveVote(eligibleVotes, voteModifiers);
     yield this.emit("vote_result", this.text("Vote totals are in.", "投票結果が出ました。"), {
-      votes: this.voteDetails(votes),
-      totals: [...counts.entries()].map(([targetId, count]) => ({
+      votes: this.voteDetails(eligibleVotes),
+      modifiers: voteModifiers.map((modifier) => ({
+        targetId: modifier.targetId,
+        targetName: this.requirePlayer(modifier.targetId).name,
+        count: modifier.count,
+        sourceId: modifier.sourceId,
+        sourceName: modifier.sourceId ? this.requirePlayer(modifier.sourceId).name : undefined,
+        reason: modifier.reason
+      })),
+      totals: voteResolution.totals.map(({ targetId, count }) => ({
         targetId,
         targetName: this.requirePlayer(targetId).name,
         count
       }))
     });
 
-    if (candidates.length !== 1) {
+    if (!voteResolution.eliminatedId) {
       yield this.emit("vote_result", this.text("The vote is tied, so no one is eliminated.", "投票が同数のため、処刑は行われません。"));
       yield await this.emitRoundSummary();
+      this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
 
-    const eliminated = this.requirePlayer(candidates[0]);
-    eliminated.alive = false;
-    yield this.emit(
-      "death",
-      this.text(`${eliminated.name} was eliminated by vote.`, `${eliminated.name}が投票で処刑されました。`),
-      { cause: "vote", targetRole: eliminated.role },
-      undefined,
-      eliminated
-    );
-    yield* this.runHunterShot(eliminated);
+    const eliminated = this.requirePlayer(voteResolution.eliminatedId);
+    const elimination = resolveVoteElimination(eliminated.id, this.ruleState);
+    this.ruleState = applyStatusEffects(this.ruleState, elimination.effects);
+    if (!elimination.eliminated) {
+      yield this.emit(
+        "vote_result",
+        this.text(
+          `${eliminated.name} revealed as the Idiot and survived the vote.`,
+          `${eliminated.name}は愚者として正体を明かし、処刑を免れました。`
+        ),
+        { action: "idiot_revealed", targetRole: eliminated.role, cancelledBy: elimination.cancelledBy },
+        undefined,
+        eliminated
+      );
+      yield await this.emitRoundSummary();
+      this.ruleState = expireStatuses(this.ruleState, "round");
+      return;
+    }
+
+    yield* this.resolveDeaths([{ playerId: eliminated.id, cause: "vote" }]);
     yield await this.emitRoundSummary();
+    this.ruleState = expireStatuses(this.ruleState, "round");
+  }
+
+  private async *resolveDeaths(
+    initialDeaths: DeathRecord[],
+    blockedTargetIds = new Set<string>(),
+    chainDepth = 0
+  ): AsyncGenerator<GameEvent> {
+    const deaths = createLinkedDeathRecords(initialDeaths, this.ruleState, {
+      isAlive: (playerId) => this.requirePlayer(playerId).alive && !blockedTargetIds.has(playerId)
+    });
+    const blocked = new Set([...blockedTargetIds, ...deaths.map((death) => death.playerId)]);
+
+    for (const death of deaths) {
+      const player = this.requirePlayer(death.playerId);
+      blocked.delete(death.playerId);
+      if (!markPlayerDead(player)) {
+        continue;
+      }
+      if (this.phase !== "voting") {
+        this.lastNightDeaths.push(death.playerId);
+      }
+      yield this.emit("death", this.deathMessage(player, death), this.deathEventData(player, death, chainDepth), undefined, player);
+      const deathEffects = createDeathResolutionEffects(death, player, this.players);
+      for (const effect of deathEffects) {
+        this.ruleState = applyStatusEffects(this.ruleState, effect.statusEffects);
+        this.ruleState = addVictoryClaims(this.ruleState, effect.victoryClaims);
+        if (effect.kind === "elder_penalty") {
+          yield this.emit(
+            "system",
+            this.text(
+              `${player.name}'s execution disabled the remaining village special abilities.`,
+              `${player.name}の処刑により、残った人間側の特殊能力が無効化されました。`
+            ),
+            { action: "elder_penalty", elderId: player.id, elderName: player.name }
+          );
+        }
+        if (effect.kind === "neutral_victory_claim") {
+          yield this.emit(
+            "system",
+            this.text(
+              `${player.name}'s vote elimination fulfilled their neutral win condition.`,
+              `${player.name}は投票処刑で中立勝利条件を満たしました。`
+            ),
+            {
+              action: "neutral_victory_claim",
+              winnerCamp: "neutral",
+              winnerIds: effect.victoryClaims.flatMap((claim) => claim.winnerIds),
+              sourceId: player.id,
+              sourceName: player.name
+            }
+          );
+        }
+      }
+      yield* this.runHunterShot(player, blocked, chainDepth);
+    }
+  }
+
+  private deathMessage(player: Player, death: DeathRecord): string {
+    if (death.cause === "vote") {
+      return this.text(`${player.name} was eliminated by vote.`, `${player.name}が投票で処刑されました。`);
+    }
+    if (death.cause === "hunter") {
+      const hunter = death.sourceId ? this.requirePlayer(death.sourceId) : null;
+      return hunter
+        ? this.text(`${player.name} was shot by Hunter ${hunter.name}.`, `${player.name}はハンターの${hunter.name}に撃たれました。`)
+        : this.text(`${player.name} was shot by the Hunter.`, `${player.name}はハンターに撃たれました。`);
+    }
+    if (death.cause === "alpha_wolf") {
+      const alpha = death.sourceId ? this.requirePlayer(death.sourceId) : null;
+      return alpha
+        ? this.text(`${player.name} was shot by Alpha Wolf ${alpha.name}.`, `${player.name}はアルファ人狼の${alpha.name}に撃たれました。`)
+        : this.text(`${player.name} was shot by the Alpha Wolf.`, `${player.name}はアルファ人狼に撃たれました。`);
+    }
+    if (death.cause === "lover") {
+      return this.text(`${player.name} died of heartbreak.`, `${player.name}は恋人の後を追って死亡しました。`);
+    }
+    if (death.cause === "wolf_beauty_charm") {
+      return this.text(`${player.name} died from Wolf Beauty's charm.`, `${player.name}は美女狼の魅了により死亡しました。`);
+    }
+    return this.text(`${player.name} died during the night.`, `${player.name}が夜の間に死亡しました。`);
+  }
+
+  private deathEventData(player: Player, death: DeathRecord, chainDepth: number): Record<string, unknown> {
+    const source = death.sourceId ? this.requirePlayer(death.sourceId) : null;
+    return {
+      cause: death.cause,
+      targetRole: player.role,
+      sourceId: source?.id,
+      sourceName: source?.name,
+      hunterId: death.cause === "hunter" ? source?.id : undefined,
+      hunterName: death.cause === "hunter" ? source?.name : undefined,
+      alphaWolfId: death.cause === "alpha_wolf" ? source?.id : undefined,
+      alphaWolfName: death.cause === "alpha_wolf" ? source?.name : undefined,
+      chainDepth
+    };
   }
 
   private async *runHunterShot(hunter: Player, blockedTargetIds = new Set<string>(), chainDepth = 0): AsyncGenerator<GameEvent> {
-    if (hunter.role !== "Hunter" || this.hunterShotsUsed.has(hunter.id)) {
+    const triggerKind = hunter.role === "AlphaWolf" ? "alpha_wolf_shot" : "hunter_shot";
+    if (!canUseAbilities(this.ruleState, hunter.id) || !canUseDeathTrigger(hunter, this.hunterShotsUsed, triggerKind)) {
       return;
     }
 
@@ -914,10 +1253,11 @@ export class WerewolfGame {
 
     this.hunterShotsUsed.add(hunter.id);
     const legalTargetIds = new Set(targets.map((player) => player.id));
+    const deathShotRole = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf", "アルファ人狼") : this.text("Hunter", "ハンター");
     const contextLines = [
       this.text(
-        "You died as the Hunter and may shoot one living player before leaving the game.",
-        "あなたはハンターとして死亡しました。退場前に生存者を一人撃てます。"
+        `You died as the ${deathShotRole} and may shoot one living player before leaving the game.`,
+        `あなたは${deathShotRole}として死亡しました。退場前に生存者を一人撃てます。`
       ),
       this.text(
         `Legal shot targets: ${targets.map((player) => player.name).join(", ")}.`,
@@ -925,7 +1265,8 @@ export class WerewolfGame {
       )
     ];
     const context = this.contextFor(hunter, contextLines);
-    const decision = await this.safeChooseTarget(hunter, this.text("Hunter death shot", "ハンターの道連れ"), context, targets, false, contextLines);
+    const action = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf death shot", "アルファ人狼の道連れ") : this.text("Hunter death shot", "ハンターの道連れ");
+    const decision = await this.safeChooseTarget(hunter, action, context, targets, false, contextLines);
     if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
@@ -935,65 +1276,75 @@ export class WerewolfGame {
       return;
     }
 
-    target.alive = false;
-    if (this.phase !== "voting") {
-      this.lastNightDeaths.push(target.id);
-    }
+    const cause = hunter.role === "AlphaWolf" ? "alpha_wolf" : "hunter";
     hunter.memories.push(
       this.text(
         `Round ${this.round}: shot ${target.name}. Reason: ${decision.reason}`,
         `第${this.round}ラウンド: ${target.name}を撃ちました。理由: ${decision.reason}`
       )
     );
-    yield this.emit(
-      "death",
-      this.text(`${target.name} was shot by Hunter ${hunter.name}.`, `${target.name}はハンターの${hunter.name}に撃たれました。`),
-      {
-        cause: "hunter",
-        hunterId: hunter.id,
-        hunterName: hunter.name,
-        targetRole: target.role,
-        reason: decision.reason,
-        chainDepth
-      },
-      hunter,
-      target
-    );
-    yield* this.runHunterShot(target, blockedTargetIds, chainDepth + 1);
+    yield* this.resolveDeaths([{ playerId: target.id, cause, sourceId: hunter.id }], blockedTargetIds, chainDepth + 1);
   }
 
-  private checkVictory(): { camp: Camp; reason: string } | null {
-    const werewolves = this.countAlive("werewolf");
-    const village = this.countAlive("village");
+  private checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null {
+    const loverResult = checkLoverVictory(this.players, this.ruleState);
+    if (loverResult) {
+      return {
+        camp: loverResult.fallbackCamp,
+        winnerCamp: loverResult.camp,
+        winnerIds: loverResult.winnerIds,
+        reason: this.text("Only the lovers remain alive.", "恋人だけが生存しています。")
+      };
+    }
 
-    if (werewolves === 0) {
+    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    if (neutralResult) {
+      return {
+        camp: neutralResult.fallbackCamp,
+        winnerCamp: neutralResult.camp,
+        winnerIds: neutralResult.winnerIds,
+        reason: this.text("A neutral role fulfilled its victory condition.", "中立役職が勝利条件を満たしました。")
+      };
+    }
+
+    const result = checkStandardVictory(this.players);
+    if (!result) {
+      return null;
+    }
+    if (result.reason === "all_werewolves_eliminated") {
       return {
         camp: "village",
+        winnerCamp: "village",
+        winnerIds: result.winnerIds,
         reason: this.text("All werewolves have been eliminated.", "すべての人狼が排除されました。")
       };
     }
-    if (werewolves >= village) {
-      return {
-        camp: "werewolf",
-        reason: this.text(
-          `Werewolves (${werewolves}) equal or outnumber villagers (${village}).`,
-          `狼陣営の人数(${werewolves})が人間側の人数(${village})以上になりました。`
-        )
-      };
-    }
-    return null;
+    return {
+      camp: "werewolf",
+      winnerCamp: "werewolf",
+      winnerIds: result.winnerIds,
+      reason: this.text(
+        `Werewolves (${result.counts.werewolf}) equal or outnumber villagers (${result.counts.village}).`,
+        `狼陣営の人数(${result.counts.werewolf})が人間側の人数(${result.counts.village})以上になりました。`
+      )
+    };
   }
 
-  private finishGame(result: { camp: Camp; reason: string }): GameEvent {
+  private finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent {
     this.winner = result.camp;
+    this.winnerCamp = result.winnerCamp ?? result.camp;
+    this.winnerIds = result.winnerIds ?? this.alivePlayers().filter((player) => player.camp === result.camp).map((player) => player.id);
     this.phase = "ended";
-    return this.emit("game_ended", this.text(`${result.camp} wins. ${result.reason}`, `${this.campText(result.camp)}の勝利です。${result.reason}`), {
+    return this.emit("game_ended", this.text(`${this.winnerCamp} wins. ${result.reason}`, `${this.campText(this.winnerCamp)}の勝利です。${result.reason}`), {
       winner: result.camp,
+      winnerCamp: this.winnerCamp,
+      winnerIds: this.winnerIds,
       reason: result.reason
     });
   }
 
   private async safeSpeak(player: Player, task: string, context: string, uiContext: string[] = []): Promise<AgentSpeech> {
+    this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const input = {
@@ -1005,7 +1356,8 @@ export class WerewolfGame {
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
       legalPlayers,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories
+      privateHistory: player.memories,
+      abortSignal: this.abortSignal
     };
     try {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
@@ -1019,6 +1371,7 @@ export class WerewolfGame {
         console.warn(
           `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
         );
+        this.throwIfCancelled();
         const retry = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
         const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
         if (retryReview.ok) {
@@ -1032,13 +1385,20 @@ export class WerewolfGame {
 
       return speech;
     } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
       player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
+      if (shouldRethrowLlmError(agent)) {
+        throw error;
+      }
       return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
     }
   }
 
   private speechLegalPlayers(player: Player): Player[] {
-    if (this.phase === "werewolf_discussion" && player.role === "Werewolf") {
+    if (this.phase === "werewolf_discussion" && player.camp === "werewolf") {
       return this.alivePlayers().filter((candidate) => candidate.camp !== "werewolf");
     }
     return this.alivePlayers().filter((candidate) => candidate.id !== player.id);
@@ -1064,6 +1424,7 @@ export class WerewolfGame {
     allowSkip: boolean,
     uiContext: string[] = []
   ): Promise<TargetDecision> {
+    this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const targetCandidates: TargetCandidate[] = candidates.map(({ id, name }) => ({ id, name }));
     const input = {
@@ -1075,17 +1436,26 @@ export class WerewolfGame {
       candidates: targetCandidates,
       allowSkip,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories
+      privateHistory: player.memories,
+      abortSignal: this.abortSignal
     };
     try {
       return await agent.chooseTarget(input);
     } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(`[llm-error] target ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
       player.memories.push(this.text(`LLM error during target choice: ${String(error)}`, `対象選択中のLLMエラー: ${String(error)}`));
+      if (shouldRethrowLlmError(agent)) {
+        throw error;
+      }
       return fallbackAgent.chooseTarget(input);
     }
   }
 
   private async safeDecide(player: Player, question: string, context: string, uiContext: string[] = []): Promise<boolean> {
+    this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const input = {
       player,
@@ -1094,12 +1464,20 @@ export class WerewolfGame {
       context,
       uiContext,
       publicHistory: this.publicHistory,
-      privateHistory: player.memories
+      privateHistory: player.memories,
+      abortSignal: this.abortSignal
     };
     try {
       return await agent.decide(input);
     } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(`[llm-error] decision ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
       player.memories.push(this.text(`LLM error during decision: ${String(error)}`, `判断中のLLMエラー: ${String(error)}`));
+      if (shouldRethrowLlmError(agent)) {
+        throw error;
+      }
       return fallbackAgent.decide(input);
     }
   }
@@ -1153,7 +1531,8 @@ export class WerewolfGame {
           round: this.round,
           model: this.config.model,
           language: this.config.language,
-          data: summary.data
+          data: summary.data,
+          abortSignal: this.abortSignal
         });
         if (llmSummary) {
           message = llmSummary;
@@ -1193,8 +1572,8 @@ export class WerewolfGame {
     const trusts = this.readDetails("trusts");
     const votes = this.voteDetails(this.lastVotes);
     const totals =
-      this.lastVotes.length > 0
-        ? [...tallyVotes(this.lastVotes).entries()].map(([targetId, count]) => ({
+      this.lastVotes.length > 0 || this.lastVoteModifiers.length > 0
+        ? [...tallyVotes(this.lastVotes, this.lastVoteModifiers).entries()].map(([targetId, count]) => ({
             targetId,
             targetName: this.requirePlayer(targetId).name,
             count
@@ -1359,9 +1738,9 @@ export class WerewolfGame {
   private secretContextFor(player: Player, override: RoleSecretContext = {}): RoleSecretContext {
     const base: RoleSecretContext = {};
 
-    if (player.role === "Werewolf") {
+    if (player.camp === "werewolf") {
       base.werewolfAllies = this.players
-        .filter((candidate) => candidate.role === "Werewolf")
+        .filter((candidate) => candidate.camp === "werewolf")
         .map(({ id, name, alive }) => ({ id, name, alive }));
     }
 
@@ -1398,7 +1777,7 @@ export class WerewolfGame {
   }
 
   private countAlive(camp: Camp): number {
-    return this.players.filter((player) => player.alive && player.camp === camp).length;
+    return countAliveByCamp(this.players, camp);
   }
 
   private requirePlayer(id: string): Player {
@@ -1439,6 +1818,8 @@ export class WerewolfGame {
       round: this.round,
       phase: this.phase,
       winner: this.winner,
+      winnerCamp: this.winnerCamp,
+      winnerIds: this.winnerIds,
       aliveCount: this.alivePlayers().length,
       werewolfCount: this.countAlive("werewolf"),
       villageCount: this.countAlive("village"),
