@@ -14,6 +14,7 @@ import {
   Gamepad2,
   History,
   ListChecks,
+  LoaderCircle,
   MessageCircle,
   Moon,
   Play,
@@ -326,6 +327,7 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
 const playerCountOptions = [6, 7, 8, 9] as const;
 const minPlayerCount = playerCountOptions[0];
 const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
+const humanInputNoticeLeadCount = 2;
 
 function normalizePlayerCount(count: number): number {
   if (!Number.isFinite(count)) {
@@ -533,6 +535,8 @@ export function App() {
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winner, language);
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
+  const pendingHumanInputNotice =
+    pendingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? pendingHumanInput : null;
 
   function setGameStatus(nextStatus: string) {
     if (pausedRef.current) {
@@ -559,6 +563,13 @@ export function App() {
       return "表示完了";
     }
     return running ? "生成中" : "進行中";
+  }
+
+  function statusForPendingHumanInput(remainingCount: number): string {
+    if (remainingCount === 0) {
+      return "入力待ち";
+    }
+    return remainingCount <= humanInputNoticeLeadCount ? "入力前確認" : "進行中";
   }
 
   function updateDebugScenario(nextScenario: DebugScenario) {
@@ -686,7 +697,7 @@ export function App() {
       setHumanReason("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
-      setGameStatus(queuedRef.current.length > 0 ? "入力待ちあり" : "入力待ち");
+      setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
     });
 
     source.addEventListener("done", () => {
@@ -743,7 +754,7 @@ export function App() {
     setQueuedEvents(remaining);
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
-    setGameStatus(statusForVisibleStory(next, remaining.length));
+    setGameStatus(pendingHumanInput ? statusForPendingHumanInput(remaining.length) : statusForVisibleStory(next, remaining.length));
   }
 
   function retreatStory() {
@@ -806,8 +817,8 @@ export function App() {
       }
 
       const isBackKey = event.key === "ArrowLeft";
-      const canRetreat = !paused && events.length > 0;
-      const canAdvance = !paused && !isBackKey && (queuedRef.current.length > 0 || (!running && events.length === 0));
+      const canRetreat = !paused && !pendingHumanInput && events.length > 0;
+      const canAdvance = !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || (!running && events.length === 0));
       if (isBackKey && canRetreat) {
         event.preventDefault();
         retreatStory();
@@ -822,7 +833,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, paused, running]);
+  }, [events.length, paused, pendingHumanInput, readyHumanInput, running]);
 
   async function submitHumanInput(payload: {
     speech?: string;
@@ -1069,10 +1080,53 @@ export function App() {
     );
   }
 
-  const storyBackDisabled = paused || events.length === 0;
-  const storyNextDisabled = paused || (queuedEvents.length === 0 && (running || events.length > 0));
+  const storyBackDisabled = paused || Boolean(pendingHumanInput) || events.length === 0;
+  const storyNextDisabled = paused || Boolean(readyHumanInput) || (queuedEvents.length === 0 && (running || events.length > 0));
+  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
   const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
   const runControlState = storyRunControlState(gameStarted, paused);
+
+  function renderStoryProcessingHud() {
+    if (!storyWaitingForStream) {
+      return null;
+    }
+
+    const title = currentEvent ? "次の場面を準備中" : "対局を準備中";
+    const detail = currentEvent ? "AIプレイヤーが考えています" : "AIプレイヤーと最初の場面を準備しています";
+
+    return (
+      <section className="story-processing-hud" role="status" aria-live="polite">
+        <span className="processing-icon" aria-hidden="true">
+          <LoaderCircle size={18} />
+        </span>
+        <span className="processing-copy">
+          <strong>{title}</strong>
+          <span>{detail}</span>
+        </span>
+      </section>
+    );
+  }
+
+  function renderPendingHumanInputNotice() {
+    if (!pendingHumanInputNotice) {
+      return null;
+    }
+
+    const title = pendingHumanInputNotice.kind === "speech" ? "あなたの発言が近づいています" : "あなたの判断が近づいています";
+
+    return (
+      <section className="story-pending-input-hud" role="status" aria-live="polite">
+        <span className="pending-input-icon" aria-hidden="true">
+          <Gamepad2 size={18} />
+        </span>
+        <span className="pending-input-copy">
+          <strong>{title}</strong>
+          <span>次へで入力前の会話を確認してください</span>
+        </span>
+        <span className="pending-input-count">未読 {queuedEvents.length}件</span>
+      </section>
+    );
+  }
 
   function renderRunControls() {
     return (
@@ -1215,13 +1269,13 @@ export function App() {
           <div className="brand-mark" aria-hidden="true" />
           <div>
             <h1>Among AI</h1>
-            <p>LLM人狼アリーナ</p>
+            <p>AI人狼アリーナ</p>
           </div>
         </div>
 
         <section className="status-strip" aria-label="ゲーム状態">
           <div className="status-item">
-            <CircleDot size={18} />
+            {storyWaitingForStream ? <LoaderCircle className="status-spinner" size={18} /> : <CircleDot size={18} />}
             <span>状態</span>
             <strong>{status}</strong>
           </div>
@@ -1381,6 +1435,8 @@ export function App() {
                         {renderEventDetails(currentEvent, hidden)}
                       </div>
                       {renderHumanInputPanel(readyHumanInput)}
+                      {renderPendingHumanInputNotice()}
+                      {renderStoryProcessingHud()}
 
                       <div className="story-controls">
                         <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
@@ -1390,12 +1446,19 @@ export function App() {
                             <kbd>←</kbd>
                           </span>
                         </button>
-                        <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                        <button
+                          className={`icon-button primary story-next ${storyWaitingForStream ? "is-loading" : ""}`}
+                          disabled={storyNextDisabled}
+                          onClick={advanceStory}
+                          aria-busy={storyWaitingForStream}
+                          type="button"
+                        >
+                          {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
                           <span className="story-button-label">
-                            <span>次へ</span>
-                            <kbd>Enter / →</kbd>
+                            <span>{storyWaitingForStream ? "処理中" : "次へ"}</span>
+                            <kbd>{storyWaitingForStream ? "思考中" : "Enter / →"}</kbd>
                           </span>
-                          <ChevronRight size={20} />
+                          <ChevronRight className="story-next-chevron" size={20} />
                         </button>
                         {renderRunControls()}
                         <span className="queue-count">
@@ -1445,11 +1508,13 @@ export function App() {
                   </div>
                   <div className="pregame-layout">
                     <div className="scene-placeholder">
-                      <strong>R0 待機中</strong>
-                      <p>設定を決めて対局を開始します。</p>
+                      <strong>{storyWaitingForStream ? "対局準備中" : "R0 待機中"}</strong>
+                      <p>{storyWaitingForStream ? "AIプレイヤーと最初の場面を準備しています。" : "設定を決めて対局を開始します。"}</p>
                     </div>
-                    {renderSetupControls()}
+                    {storyWaitingForStream ? null : renderSetupControls()}
                   </div>
+                  {renderPendingHumanInputNotice()}
+                  {renderStoryProcessingHud()}
                   <div className="story-controls">
                     <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
                       <ChevronLeft size={20} />
@@ -1458,12 +1523,19 @@ export function App() {
                         <kbd>←</kbd>
                       </span>
                     </button>
-                    <button className="icon-button primary story-next" disabled={storyNextDisabled} onClick={advanceStory} type="button">
+                    <button
+                      className={`icon-button primary story-next ${storyWaitingForStream ? "is-loading" : ""}`}
+                      disabled={storyNextDisabled}
+                      onClick={advanceStory}
+                      aria-busy={storyWaitingForStream}
+                      type="button"
+                    >
+                      {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
                       <span className="story-button-label">
-                        <span>次へ</span>
-                        <kbd>Enter / →</kbd>
+                        <span>{storyWaitingForStream ? "処理中" : "次へ"}</span>
+                        <kbd>{storyWaitingForStream ? "思考中" : "Enter / →"}</kbd>
                       </span>
-                      <ChevronRight size={20} />
+                      <ChevronRight className="story-next-chevron" size={20} />
                     </button>
                     {renderRunControls()}
                     <span className="queue-count">
