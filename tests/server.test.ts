@@ -44,6 +44,11 @@ test("stream options default to LLM provider and LLM summaries", () => {
   assert.notEqual(options.model, "demo");
 });
 
+test("stream options accept expanded player counts up to 20", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20")).playerCount, 20);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=21")).playerCount, 20);
+});
+
 test("stream options accept a human player and player view", () => {
   const options = parseStreamOptions(
     new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&scenario=hunter_shot")

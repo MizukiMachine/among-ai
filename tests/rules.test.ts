@@ -9,11 +9,12 @@ import {
   applyStatusEffects,
   canUseAbilities,
   createCampAbilityDisableEffects,
+  createInitialRuleState,
   createRuleState,
   expireStatuses
 } from "../src/game/rules/state";
 import { filterEligibleVotes, resolveVote, voteModifiersFromRuleState } from "../src/game/rules/voting";
-import { checkStandardVictory } from "../src/game/rules/victory";
+import { checkLoverVictory, checkStandardVictory } from "../src/game/rules/victory";
 import type { Player, Role, VoteRecord } from "../src/game/types";
 
 function rulePlayer(id: string, role: Role, alive = true): Pick<Player, "id" | "role" | "camp" | "alive"> {
@@ -27,7 +28,8 @@ function rulePlayer(id: string, role: Role, alive = true): Pick<Player, "id" | "
 
 test("role presets preserve the current 6-9 player distribution", () => {
   assert.equal(normalizePlayerCount(5), 6);
-  assert.equal(normalizePlayerCount(20), 9);
+  assert.equal(normalizePlayerCount(20), 20);
+  assert.equal(normalizePlayerCount(21), 20);
   assert.equal(normalizePlayerCount(Number.NaN), 7);
 
   const expected = new Map<number, Partial<Record<Role, number>>>([
@@ -43,6 +45,19 @@ test("role presets preserve the current 6-9 player distribution", () => {
     for (const [role, roleCount] of Object.entries(roleCounts)) {
       assert.equal(roles.filter((item) => item === role).length, roleCount);
     }
+  }
+});
+
+test("large role presets enable 15-20 player tables with advanced roles", () => {
+  for (const count of [15, 16, 17, 18, 19, 20]) {
+    const roles = createRoles(count);
+    assert.equal(roles.length, count);
+    assert.ok(roles.includes("AlphaWolf"));
+    assert.ok(roles.includes("Raven"));
+    assert.ok(roles.includes("Idiot"));
+    assert.ok(roles.includes("Elder"));
+    assert.equal(roles.filter((role) => role === "Lover").length, count >= 16 ? 2 : 0);
+    assert.equal(roles.filter((role) => role === "WolfBeauty").length, count >= 18 ? 1 : 0);
   }
 });
 
@@ -121,8 +136,19 @@ test("standard victory checker keeps current village and werewolf win rules", ()
   );
 });
 
+test("lover victory checker reports lover camp without changing standard camp fallback", () => {
+  const players = [rulePlayer("p1", "Lover"), rulePlayer("p2", "Lover"), rulePlayer("p3", "Werewolf", false)];
+  const state = createInitialRuleState(players);
+  const result = checkLoverVictory(players, state);
+
+  assert.equal(result?.camp, "lover");
+  assert.equal(result?.fallbackCamp, "village");
+  assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+});
+
 test("role registry exposes death triggers without engine conditionals", () => {
   assert.deepEqual(roleDeathTriggers("Hunter"), [{ kind: "hunter_shot", once: true }]);
+  assert.deepEqual(roleDeathTriggers("AlphaWolf"), [{ kind: "alpha_wolf_shot", once: true }]);
   assert.deepEqual(roleDeathTriggers("Villager"), []);
 });
 
