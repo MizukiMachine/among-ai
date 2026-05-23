@@ -19,7 +19,6 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /Among AI/);
-  assert.match(html, /必ず起こしたいイベント/);
   assert.match(html, /自分も参加してプレイ/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
@@ -33,6 +32,7 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   assert.doesNotMatch(html, /roster-summary/);
   assert.doesNotMatch(html, /対局サマリー/);
   assert.doesNotMatch(html, /一気に読む/);
+  assert.doesNotMatch(html, /必ず起こしたいイベント/);
   assert.doesNotMatch(html, /ゲームをリセット/);
   assert.doesNotMatch(html, />停止</);
   assert.doesNotMatch(html, /言語/);

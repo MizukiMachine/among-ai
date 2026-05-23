@@ -30,6 +30,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
@@ -37,24 +38,29 @@ import type {
   ClaimMetadata,
   DebugScenario,
   GameEvent,
+  GameEventType,
   GameSnapshot,
   GenerationProgress,
   HumanInputRequest,
+  Phase,
   PlayerReadMetadata,
   PlayerSnapshot,
   Role
 } from "../game/types";
 
+const BASE_URL = import.meta.env?.BASE_URL ?? "/";
+const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
+
 const characterImageMap: Record<string, string> = {
-  p1: new URL("../../assets/characters/kazu_final.png", import.meta.url).href,
-  p2: new URL("../../assets/characters/kai_final.png", import.meta.url).href,
-  p3: new URL("../../assets/characters/mio_final.png", import.meta.url).href,
-  p4: new URL("../../assets/characters/ren_final.png", import.meta.url).href,
-  p5: new URL("../../assets/characters/saki_final.png", import.meta.url).href,
-  p6: new URL("../../assets/characters/taka_final.png", import.meta.url).href,
-  p7: new URL("../../assets/characters/yuki_final.png", import.meta.url).href,
-  p8: new URL("../../assets/characters/ken_final.png", import.meta.url).href,
-  p9: new URL("../../assets/characters/rin_final.png", import.meta.url).href
+  p1: `${CHARACTER_ASSET_ROOT}/kazu_final.png`,
+  p2: `${CHARACTER_ASSET_ROOT}/kai_final.png`,
+  p3: `${CHARACTER_ASSET_ROOT}/mio_final.png`,
+  p4: `${CHARACTER_ASSET_ROOT}/ren_final.png`,
+  p5: `${CHARACTER_ASSET_ROOT}/saki_final.png`,
+  p6: `${CHARACTER_ASSET_ROOT}/taka_final.png`,
+  p7: `${CHARACTER_ASSET_ROOT}/yuki_final.png`,
+  p8: `${CHARACTER_ASSET_ROOT}/ken_final.png`,
+  p9: `${CHARACTER_ASSET_ROOT}/rin_final.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
@@ -232,6 +238,10 @@ function eventTone(event: GameEvent): string {
     return "guard-action";
   }
   return "";
+}
+
+function renderStageBackdrop(phase: Phase | undefined, eventType?: GameEventType, secret?: boolean) {
+  return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} />;
 }
 
 function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
@@ -634,17 +644,6 @@ export function App() {
       return "入力待ち";
     }
     return remainingCount <= humanInputNoticeLeadCount ? "入力前確認" : "進行中";
-  }
-
-  function updateDebugScenario(nextScenario: DebugScenario) {
-    if (humanEnabled) {
-      setDebugScenario("none");
-      return;
-    }
-    setDebugScenario(nextScenario);
-    setPlayerCount((current) => {
-      return Math.max(current, minimumPlayerCountForScenario(nextScenario));
-    });
   }
 
   function updatePlayerCount(nextCount: number) {
@@ -1535,11 +1534,11 @@ export function App() {
                 );
               })}
             </div>
-            {humanEnabled ? (
-              <span className="player-count-note" role="note">
-                観戦モードでない場合は、10人以上は認知負荷が大きいため9人以下でのプレイを推奨します。
-              </span>
-            ) : null}
+            <span className="player-count-note" role="note">
+              ・10人以上はルール確認などの観戦モード推奨
+              <br />
+              ・10人以上は認知負荷が大きいためプレイする場合は、9人以下を推奨
+            </span>
 
             <div className="setup-breakdown" aria-label="役職内訳">
               <div className="setup-ratio">
@@ -1557,16 +1556,6 @@ export function App() {
             </div>
           </div>
 
-          {!humanEnabled ? (
-            <label className="field setup-field scenario-field">
-              <span>必ず起こしたいイベント</span>
-              <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-                <option value="none">ランダム（おすすめ）</option>
-                <option value="guard_success">護衛成功を再現</option>
-                <option value="hunter_shot">ハンター発砲を再現</option>
-              </select>
-            </label>
-          ) : null}
         </div>
 
         <div className="setup-card-footer">
@@ -1732,7 +1721,7 @@ export function App() {
                         : "進行";
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                      <div className="chapel-backdrop" aria-hidden="true" />
+                      {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden)}
                       {renderHeroCast()}
                       {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
                       <div className="story-copy">
@@ -1823,7 +1812,7 @@ export function App() {
                 })()
               ) : (
                 <article className="scene-card story-hero empty-hero">
-                  <div className="chapel-backdrop" aria-hidden="true" />
+                  {renderStageBackdrop("setup")}
                   {renderHeroCast()}
                   <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
                     {settingsConfirmed ? (
@@ -2010,14 +1999,6 @@ export function App() {
             <span className="role-distribution">{getRoleDistributionText(effectivePlayerCount, language)}</span>
           </div>
 
-          <label className="field">
-            <span>必ず起こしたいイベント</span>
-            <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">ランダム（おすすめ）</option>
-              <option value="guard_success">護衛成功を再現</option>
-              <option value="hunter_shot">ハンター発砲を再現</option>
-            </select>
-          </label>
         </aside>
       </section>
     </main>
