@@ -32,8 +32,8 @@ const targetDecisionMaxTokens = 160;
 const booleanDecisionMaxTokens = 96;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
-const defaultLlmRequestConcurrency = 3;
-const defaultLlmRequestMinIntervalMs = 500;
+const fixedLlmRequestConcurrency = 6;
+const fixedLlmRequestMinIntervalMs = 0;
 const llmRequestAttempts = 3;
 const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
@@ -871,12 +871,11 @@ let nextLlmStartAt = 0;
 let llmStartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function llmRequestConcurrency(): number {
-  return positiveInt(process.env.ZAI_REQUEST_CONCURRENCY ?? process.env.LLM_REQUEST_CONCURRENCY, defaultLlmRequestConcurrency);
+  return fixedLlmRequestConcurrency;
 }
 
 function llmRequestMinIntervalMs(): number {
-  const parsed = Number(process.env.ZAI_REQUEST_MIN_INTERVAL_MS ?? process.env.LLM_REQUEST_MIN_INTERVAL_MS);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultLlmRequestMinIntervalMs;
+  return fixedLlmRequestMinIntervalMs;
 }
 
 function scheduleLlmQueue(): void {

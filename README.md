@@ -26,9 +26,6 @@ ZAI_API_KEY=...
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
 ZAI_MODEL=glm-5-turbo
 ZAI_TIMEOUT_MS=120000
-ZAI_PREFETCH_CONCURRENCY=3
-ZAI_REQUEST_CONCURRENCY=3
-ZAI_REQUEST_MIN_INTERVAL_MS=500
 ```
 
-`ZAI_PREFETCH_CONCURRENCY` controls how many player-level game jobs are started in phases that can be safely prefetched. Day discussion speeches use a speculative race: several AI speakers are generated in parallel, the first completed speech is published, and the remaining stale generations are cancelled or ignored before the next race starts from the updated public history. The browser can also pass `concurrency` / `prefetchConcurrency` on `/api/games/stream`; the process-wide request cap remains `ZAI_REQUEST_CONCURRENCY`.
+The app locks generation and LLM request concurrency to 6. Day discussion speeches use a speculative race: several AI speakers are generated in parallel, the first completed speech is published, and the remaining stale generations are cancelled or ignored before the next race starts from the updated public history.

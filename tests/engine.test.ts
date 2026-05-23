@@ -157,6 +157,44 @@ class DelayedSpeechAgent implements Agent {
   }
 }
 
+class DelayedNightActionAgent implements Agent {
+  readonly model = "delayed-night-action";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+
+  constructor(
+    readonly name: string,
+    private readonly speechDelayMs: number,
+    private readonly targetDelayMs: number
+  ) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
+    await sleepWithAbort(this.speechDelayMs, input.abortSignal);
+    return {
+      messages: [`${this.name} slow night discussion.`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    await sleepWithAbort(this.targetDelayMs, input.abortSignal);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} delayed night target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
 class FailOnceSpeechAgent implements Agent {
   readonly model = "fail-once";
   readonly speechInputs: AgentSpeechInput[] = [];
@@ -1484,6 +1522,37 @@ test("seer records a private camp result for the chosen living target", async ()
   assert.equal(players[0].seerResultRounds.p2, 1);
   assert.ok(players[0].memories.some((memory) => memory.includes("checked as werewolf")));
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
+});
+
+test("werewolf attack target generation is prefetched while private discussion waits in the queue", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const firstWolf = new DelayedNightActionAgent(players[0].name, 120, 20);
+  const secondWolf = new DelayedNightActionAgent(players[1].name, 120, 20);
+  game.agents.set(players[0].id, firstWolf);
+  game.agents.set(players[1].id, secondWolf);
+
+  const run = game.runNight();
+  const nightStart = await run.next();
+  const discussionStart = await run.next();
+
+  assert.equal(nightStart.value?.type, "phase_changed");
+  assert.equal(discussionStart.value?.type, "phase_changed");
+  assert.equal(discussionStart.value?.phase, "werewolf_discussion");
+
+  await sleepWithAbort(60);
+  const targetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
+  assert.ok(targetInputs.length >= 2);
+  assert.ok(targetInputs.every((input) => input.phase === "night"));
+
+  await run.return(undefined);
 });
 
 test("witch save potion prevents the werewolf kill and consumes explicit engine state", async () => {
