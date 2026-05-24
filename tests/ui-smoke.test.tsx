@@ -12,6 +12,7 @@ import {
   heroCastForStage,
   storyRunControlState,
   streamErrorMessageFromData,
+  voteResultHasVisibleData,
   winnerLabelForRoster
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
@@ -19,7 +20,7 @@ import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 test("app shell renders spectator controls and info overlay buttons", () => {
   const html = renderToStaticMarkup(createElement(App));
 
-  assert.match(html, /Among AI/);
+  assert.match(html, /among ai/);
   assert.match(html, /自分も参加してプレイ/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
@@ -70,7 +71,7 @@ test("hero cast mirrors selected and active player counts", () => {
 
   assert.equal(cast.length, 15);
   assert.equal(cast.at(-1)?.id, "p15");
-  assert.equal(cast.at(-1)?.image, null);
+  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akihito\.png$/);
   assert.equal(cast.at(-1)?.alive, true);
   assert.equal(cast[8].alive, false);
 });
@@ -95,6 +96,37 @@ test("read clusters count each source-target pair once", () => {
       latestReason: "second pass"
     }
   ]);
+});
+
+test("vote result data is visible from either individual votes or totals", () => {
+  const baseEvent: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-24T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "vote_result",
+    message: "投票結果が出ました。",
+    data: {},
+    snapshot: {
+      round: 1,
+      phase: "voting",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(voteResultHasVisibleData(baseEvent), false);
+  assert.equal(voteResultHasVisibleData({ ...baseEvent, data: { totals: [{ targetId: "p1", targetName: "シオン", count: 2 }] } }), true);
+  assert.equal(
+    voteResultHasVisibleData({
+      ...baseEvent,
+      data: { votes: [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }] }
+    }),
+    true
+  );
 });
 
 test("story run controls switch between pause, resume, and reset", () => {
@@ -141,6 +173,15 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+});
+
+test("player roster scrolls inside the fixed gameplay panel", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /className="player-list-scroll"/);
+  assert.match(css, /\.intelligence-panel\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0[^}]*flex-direction:\s*column/s);
+  assert.match(css, /\.player-list-scroll\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
 });
 
 test("story can advance from keyboard shortcuts outside form controls", () => {

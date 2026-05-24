@@ -19,4 +19,4 @@ serve({
   port
 });
 
-console.log(`Among AI API listening on http://localhost:${port}`);
+console.log(`among ai API listening on http://localhost:${port}`);

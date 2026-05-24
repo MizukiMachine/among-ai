@@ -1,4 +1,4 @@
-# Among AI
+# among ai
 
 AI players run a real-time werewolf match in the browser.
 

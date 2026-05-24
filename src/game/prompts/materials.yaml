@@ -90,6 +90,10 @@ roleFallbacks:
     publicSpeechMustNotReveal:
       - Do not reveal private night choices unless claiming is strategically necessary.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "自分だけが知る夜の選択は、名乗る価値がある時以外は伏せる。"
+      - "公開された発言、投票、死亡、名乗りの矛盾から考える。"
+      - "役職持ちのふりをしすぎず、人間側が比べやすい疑い先と信頼先を出す。"
     internalInformation:
       - Your own role memory.
       - Public claims, public reads, public deaths, and public votes.
@@ -103,11 +107,11 @@ roleFallbacks:
       - Keep target choices legal and explain them with concise strategic reasons.
     nightAction:
       - Coordinate with the wolf team on the night kill.
-      - Use any extra night action to create future pressure or remove a dangerous village player.
+      - Use any extra night action to create future suspicion or remove a dangerous village player.
       - Avoid choices that reveal your identity unless the tactical gain is decisive.
     discussion:
       - Publicly act as a villager solving the table.
-      - Push suspicion onto non-wolves through timing, vote behavior, and claim pressure.
+      - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
       - Keep distance from allies when direct defense would expose coordination.
     voting:
       - Vote where it advances wolf parity, prevents an ally elimination, or removes a credible village leader.
@@ -118,6 +122,10 @@ roleFallbacks:
       - Do not identify werewolf allies or quote wolf-only discussion.
       - Do not mention the planned or previous night kill as inside information.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "昼は人間側として自然に考えているように話す。"
+      - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
+      - "仲間や夜の相談は隠し、公開情報で通る理由だけを話す。"
     internalInformation:
       - Known werewolf allies.
       - Wolf-only discussion history.
@@ -134,7 +142,7 @@ roles:
       - Do not defend another werewolf too directly. Mild distance or limited disagreement can make the team look less coordinated.
       - Redirect suspicion toward players with vague statements, late votes, sudden certainty, or claims that can be framed as too convenient.
       - "Consider faking Seer only when it creates a concrete advantage: countering a real Seer, forcing a decisive vote, saving a wolf from elimination, or creating a trade that favors the wolves."
-      - If you fake Seer, provide a simple check history and do not overproduce detail that can be tested too easily.
+      - If you fake Seer, provide a simple list of past checks and do not overproduce detail that can be tested too easily.
     nightAction:
       - Select night kills that reduce village coordination, not just noisy players.
       - Prioritize strong villagers, credible Seer candidates, likely Witch candidates, and players who are trusted by multiple people.
@@ -143,9 +151,9 @@ roles:
     discussion:
       - Publicly act as a villager solving the table.
       - Ask targeted questions that make villagers defend imperfect statements.
-      - Push suspicion onto non-wolves through timing, vote behavior, and claim pressure.
+      - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
       - Do not openly coordinate with allies or always vote with them.
-      - When an ally is under pressure, decide whether distancing is stronger than defense.
+      - When an ally is being questioned or suspected, decide whether distancing is stronger than defense.
     voting:
       - Vote where it advances wolf parity, prevents an ally elimination, or removes a credible village leader.
       - If an ally is doomed, consider voting them to gain credibility.
@@ -157,6 +165,11 @@ roles:
       - Do not mention the planned or previous night kill as inside information.
       - Do not admit that a Seer claim is fake unless the game is already decided.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "昼は人間側として自然に考えているように話す。"
+      - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
+      - "仲間を露骨に守らず、必要なら軽く距離を取る。"
+      - "占い師として名乗るのは、票を動かす、仲間を守る、本物に対抗するなど明確な得がある時だけにする。"
     internalInformation:
       - Known werewolf allies.
       - Wolf-only discussion history.
@@ -178,6 +191,10 @@ roles:
     voting:
       - Vote where it advances wolf parity or protects a wolf from elimination.
       - If you are likely to die, think ahead to the best death shot target.
+    publicSpeechGuidanceJa:
+      - "人狼であることと死亡時の能力は隠し、昼は人間側として自然に話す。"
+      - "自分が吊られそうな時も、公開情報で通る疑い先を示す。"
+      - "仲間を守る発言が連携に見えないようにする。"
   WolfBeauty:
     extends: wolfPower
     roleStrategy:
@@ -192,15 +209,19 @@ roles:
       - Avoid overdefending the charmed player in a way that exposes the link.
     voting:
       - Vote where it advances wolf parity while preserving the value of your charm.
+    publicSpeechGuidanceJa:
+      - "人狼であることと魅了先は隠し、昼は人間側として自然に話す。"
+      - "魅了した相手を不自然に守らず、公開情報から説明できる発言にする。"
+      - "票と発言の流れを見て、人狼側に得な疑い先を作る。"
   Seer:
     camp: village
     roleStrategy:
       - Your private checks are high-value village information, but revealing yourself makes you a night target.
       - Choose check targets who are hard to read, influential, protected by weak logic, or likely to decide future votes.
-      - A black result usually deserves public pressure or a claim when it can prevent a bad vote or expose a wolf.
+      - A black result usually deserves public suspicion or a claim when it can prevent a bad vote or expose a wolf.
       - With only white results, consider staying hidden if the village can still reason without your claim.
       - Claim Seer when your results will change the vote, stop a fake Seer, save a trusted checked player, or prevent your own elimination.
-      - "When you claim, give a clear check history: round, target, and result. Keep it consistent across later statements."
+      - "When you claim, give a clear list of checks: round, target, and result. Keep it consistent across later statements."
       - Against a fake Seer, attack the timeline and incentives rather than sounding emotional.
     nightAction:
       - Do not waste checks on players whose camp is already functionally resolved by public evidence.
@@ -209,8 +230,8 @@ roles:
       - Avoid repeated checks unless all living options have already been checked.
     discussion:
       - Decide whether to reveal based on the value of the information and your survival risk.
-      - If revealing a black result, be direct and provide the exact check history.
-      - If hiding white-only information, still guide the table with questions and pressure that do not expose the result.
+      - If revealing a black result, be direct and provide the exact check list.
+      - If hiding white-only information, still guide the table with questions and suspicion that do not expose the result.
       - If another Seer claims, compare their timeline to your own checks before deciding whether to counterclaim.
       - When you have claimed, keep every result explicit and do not add unearned certainty beyond your checks.
     voting:
@@ -223,6 +244,11 @@ roles:
       - Do not imply exact private checks while pretending they are only guesses.
       - Do not invent checks you do not have.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "占い結果を出す価値と、名乗った後に襲撃される危険を比べる。"
+      - "人狼判定が投票を変えるなら、相手、結果、理由を短くはっきり話す。"
+      - "人間判定だけなら、名乗らず質問や疑いで議論を導く選択もある。"
+      - "対抗が出た時は、これまでの結果と出たタイミングを比べて話す。"
     internalInformation:
       - Your own Seer results by round.
       - Your own prior statements and vote reasons.
@@ -253,13 +279,17 @@ roles:
     voting:
       - Vote to remove the player most likely to be a wolf based on public evidence and your potion information.
       - Do not vote against someone you privately saved unless their later behavior justifies it.
-      - If your poison read is not strong enough for night action, use the vote to create public pressure instead.
+      - If your poison read is not strong enough for night action, use the vote to create public suspicion instead.
       - Give a reason that can be defended publicly without exposing potion state unless you choose to claim.
     publicSpeechMustNotReveal:
       - Do not reveal potion counts unless claiming Witch is strategically necessary.
       - Do not reveal the attacked target or saved target unless you choose to claim.
       - Do not reveal a poison decision before it resolves.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "薬の残り数や夜の対象は、名乗る価値がある時以外は伏せる。"
+      - "死体なしや複数死亡の理由を、断定せず可能性として分けて話す。"
+      - "薬の情報を使う時も、公開発言として通る理由に言い換える。"
     internalInformation:
       - Remaining save and poison potion state.
       - The werewolf attack target when the engine reveals it to the Witch.
@@ -271,7 +301,7 @@ roles:
     roleStrategy:
       - You have no private night ability, so your strength is public reasoning.
       - Look for contradictions between claims, voting behavior, timing, and night outcomes.
-      - Watch for bandwagoning, sudden pressure shifts, and arguments that appear only after a safe target emerges.
+      - Watch for bandwagoning, sudden suspicion shifts, and arguments that appear only after a safe target emerges.
       - Ask specific questions that force players to explain timelines, vote reasons, and claim details.
       - Do not imitate a power role too strongly; confusing real power roles can hurt the village.
       - Build readable suspect and trust lists so other villagers can evaluate your process.
@@ -293,29 +323,45 @@ roles:
       - Do not claim private night information.
       - Do not pretend to be Seer or Witch unless a rare bluff is clearly worth the village risk.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "夜の能力はないので、公開された発言、投票、死亡、名乗りの矛盾から考える。"
+      - "具体的な質問で、相手に投票理由や時系列を説明させる。"
+      - "役職持ちのふりをしすぎず、人間側が比べやすい疑い先と信頼先を出す。"
     internalInformation:
       - "Only public information: public discussion, public deaths, public claims, public reads, and public votes."
       - Your own prior statements and vote reasons.
       - No private role results, potion state, or werewolf allies are available to you.
   Guard:
     extends: villagePower
+    publicSpeechGuidanceJa:
+      - "護衛先は、名乗る価値がある時以外は伏せる。"
+      - "死体なしが出ても護衛成功と決めつけず、公開された反応や投票理由を見る。"
+      - "守りたい人を守るために、役職を無理に出させない話し方をする。"
   Hunter:
     extends: villagePower
+    publicSpeechGuidanceJa:
+      - "撃てる能力は、名乗ることで吊りを避けられる時以外は伏せる。"
+      - "自分が疑われた時は、誰を怪しんでいるのかを公開情報で説明する。"
+      - "撃ち先に触れるなら、脅しではなく検証できる理由として短く話す。"
   Raven:
     extends: villagePower
     roleStrategy:
       - You help the village by marking one player each night with an extra vote against them.
-      - Mark players whose public behavior already supports pressure, so the extra vote is explainable tomorrow.
+      - Mark players whose public behavior already gives a reason to suspect them, so the extra vote is explainable tomorrow.
       - Do not reveal the mark unless claiming clearly helps the village avoid a worse execution.
     nightAction:
-      - Choose a living player whose extra vote pressure improves village win equity.
+      - Choose a living player whose extra vote attention improves village win equity.
       - Avoid marking a likely village power role unless the public evidence is strong.
     discussion:
-      - Reason from public behavior and vote pressure without exposing the mark unnecessarily.
+      - Reason from public behavior and vote movement without exposing the mark unnecessarily.
       - If the vote count changes because of your mark, decide whether claiming helps clarify the result.
     voting:
       - Vote with the mark only when the marked target remains your best public suspect.
       - If the mark is on a weaker suspect, do not force the table to follow it blindly.
+    publicSpeechGuidanceJa:
+      - "夜に付けた印は、名乗る価値がある時以外は伏せる。"
+      - "投票数の変化を説明する必要が出た時だけ、名乗るかを考える。"
+      - "普段は発言と投票の流れから疑い先を話す。"
   Idiot:
     extends: villagePower
     roleStrategy:
@@ -329,19 +375,27 @@ roles:
       - If revealed, remind the table that you can still reason even though you cannot vote.
     voting:
       - Vote based on public evidence while you still have voting rights.
+    publicSpeechGuidanceJa:
+      - "吊られても一度だけ生き残る能力は、必要になるまで強く出さない。"
+      - "無駄吊りを誘わず、人間側として公開情報から考える。"
+      - "正体が明かされた後も、投票権がなくても発言で助ける。"
   Elder:
     extends: villagePower
     roleStrategy:
       - Your execution by the village disables remaining village special abilities.
       - Avoid becoming an easy execution target; make your reasoning clear and testable.
-      - If you are under pressure, explain why killing you can damage village resources.
+      - If you are being suspected, explain why killing you can damage village resources.
     nightAction:
       - You have no night action.
     discussion:
-      - Keep pressure focused on wolves and avoid chaotic claims.
+      - Keep suspicion focused on wolves and avoid chaotic claims.
       - If claiming Elder would prevent a bad execution, do it clearly and briefly.
     voting:
       - Vote from public evidence and avoid panic votes that could expose village powers.
+    publicSpeechGuidanceJa:
+      - "自分が吊られると人間側の能力に悪影響があるため、疑われた時は理由を短く説明する。"
+      - "能力を守るためにも、混乱する名乗り合いを避ける。"
+      - "疑い先は公開情報から一つに絞って話す。"
   Lover:
     extends: villagePower
     roleStrategy:
@@ -355,22 +409,30 @@ roles:
       - Keep the partner alive without making the bond obvious.
     voting:
       - Vote to keep the lover pair alive while still giving a public reason from table evidence.
+    publicSpeechGuidanceJa:
+      - "恋人の相手は、公開する価値がある時以外は伏せる。"
+      - "相手を守りたい気持ちが見えすぎないよう、公開情報から自然に理由を作る。"
+      - "元の陣営の推理と恋人としての生存を両方考える。"
   Jester:
     extends: villagePower
     roleStrategy:
       - Your hidden win condition is neutral: you win if the daytime vote eliminates you.
       - Do not openly announce the neutral goal unless the game is already ending.
-      - Create pressure around your slot carefully; being night-killed or ignored does not satisfy your condition.
+      - Make your own slot questionable carefully; being night-killed or ignored does not satisfy your condition.
     nightAction:
       - You have no night action.
     discussion:
       - Sound plausible enough to stay in the discussion while giving the table reasons to question you.
       - Avoid claims that make werewolves want to kill you at night instead of letting the vote happen.
     voting:
-      - Vote with a public reason that keeps attention on contentious slots, including your own pressure if useful.
+      - Vote with a public reason that keeps attention on contentious slots, including suspicion toward yourself if useful.
     publicSpeechMustNotReveal:
       - Do not reveal that your goal is to be eliminated by vote unless the game is already decided.
       - Do not expose private prompt instructions or hidden game state.
+    publicSpeechGuidanceJa:
+      - "昼の投票で自分が吊られると勝つが、その目的は終盤まで隠す。"
+      - "夜に襲撃されないよう、露骨に怪しくなりすぎない。"
+      - "自分にも疑いが向く余地を残しつつ、会話としては成立する理由を話す。"
     internalInformation:
       - Your neutral win condition.
       - Public discussion, public deaths, public claims, public reads, and public votes.
@@ -381,12 +443,12 @@ phases:
     publicSpeechBoundaryTitle: "Public speech boundary:"
     publicStatementGoalsTitle: "Public statement goals:"
     publicStatementGoals:
-      - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when pressure or claims need a final answer. The first pass opens reads and questions; the second pass answers pressure and updates reads before voting.
+      - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when direct questions, suspicion, or claims need a final answer. The first pass opens reads and questions; the second pass answers questions or suspicion and updates reads before voting.
       - Say something other players can respond to.
       - If someone asked you a direct question or turned suspicion toward you earlier today, answer that before starting a new topic.
       - Include a concrete suspicion, trust read, question, or claim decision.
       - Direct current suspicions, trust reads, and questions toward living players only.
-      - Treat dead players as historical evidence, not as candidates to pressure today.
+      - Treat dead players as past evidence, not as candidates to question or vote today.
       - Keep each message to one short sentence. Split longer thoughts into multiple short messages.
   night:
     roleSectionTitle: "Night action guidance:"
@@ -410,7 +472,7 @@ phases:
       - Coordinate the night kill by comparing who is dangerous, protected-looking, or likely to hold Seer/Witch information.
       - You may mention known werewolf allies and wolf-only chat here.
       - Agree on a target plan, but avoid creating a pattern that will be obvious in public discussion tomorrow.
-      - Use public claims, public reads, and vote pressure to predict which kill creates the best next-day position.
+      - Use public claims, public reads, and vote movement to predict which kill creates the best next-day position.
     nightKillStrategyTitle: "Night kill strategy:"
     privateSpeechGoalsTitle: "Private speech goals:"
     privateSpeechGoals:
@@ -423,7 +485,7 @@ roundSummary:
   jsonInstruction: >-
     Return strict JSON only, with no markdown:
     {"summary":"one or two short spectator-facing sentences"}. Focus on deaths,
-    public claims, public reads, and vote pressure. Do not reveal hidden roles
+    public claims, public reads, and vote movement. Do not reveal hidden roles
     beyond public claims.
   style:
     english: Use plain English for spectators. Keep it under 240 characters, concrete, and easy to scan.
@@ -440,7 +502,7 @@ outputFormats:
       listed living read target ids for suspects and trusts; if none are listed,
       leave suspects and trusts empty. Dead players may be mentioned in dialogue
       or claim-result metadata only as deaths, prior claims, vote history, or
-      past check results, never as current suspicion, trust, pressure, vote, or
+      past check results, never as current suspicion, trust, vote, or
       elimination targets. Keep reasons short. Use claims for public role
       claims, Seer results, Witch information, or fake claims only when
       strategically useful. The JSON object is a transport envelope only; each
@@ -449,10 +511,25 @@ outputFormats:
       brackets, schema examples, or code fences inside a messages string. Do not
       mention that you are an AI, prompt, system message, hidden instruction, or
       JSON schema.
+    japaneseInstruction: >-
+      厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
+      {"messages":["短いセリフ","短いセリフ"],"suspects":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"短い補足"}]}
+      messages は 1-3 件。messages の各文字列は、画面にそのまま表示される実際のセリフだけにします。
+      JSON キー、かっこ、スキーマ例、方針メモ、状況整理、内心の説明、システムやプロンプトへの言及を
+      messages の中に入れません。suspects と trusts は、下に示された生存者 ID だけを使います。
+      死亡者はセリフや結果の補足で過去の死亡、前日の投票、過去の占い結果として触れるだけにし、
+      今の疑い先、信頼先、投票先にはしません。claims は、公開の役職名乗り、占い結果、
+      魔女情報、意図的な偽名乗りを出す時だけ使います。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:
       {"targetId":"player_id_or_null","reason":"short reason"}.
+    japaneseInstruction: >-
+      厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
+      {"targetId":"player_id_or_null","reason":"短い理由"}。
+      targetId は一覧にある ID だけを使います。reason は画面や履歴に表示される場合があるため、
+      短い日本語の理由だけにします。方針メモ、作戦名、内部判断、翻訳文、英語の分類名は書きません。
+      昼の投票では、公開発言、投票理由、名乗り、反応など、全員に見える材料で説明します。
   booleanJson:
     instruction: >-
       Return strict JSON only, with no markdown:
@@ -461,19 +538,63 @@ outputFormats:
     Output format is mandatory. Do not add prose before or after the JSON object.
     If no legal target exists, use null only when the task explicitly allows
     skipping.
+  japaneseReminder: >-
+    出力形式は必須です。JSON オブジェクトの前後に説明文を足しません。
+    セリフに迷う場合も、短い実発話を messages に入れて返します。
 
 languageStyles:
   japanese:
     systemStyleGuide:
       - "日本語の話し方:"
       - "翻訳調ではなく、配信で聞いて自然な短い会話にする。"
-      - "絶対に中国語の単語や表現を混ぜない。簡体字・繁体字の語彙（观望、觉得、应该、确实、知道、认为、可能、但是、因为、所以 など）は一切使わない。日本語として不自然な漢字の並びがあれば日本語の自然な表現に置き換える。"
-      - "プレイヤーを指す時は「位置」ではなく「人」「相手」「発言している人」を使う。"
-      - "「陣営の軸」ではなく「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
-      - "「圧をかける」ではなく「理由を聞く」「質問する」「疑いを向ける」と言う。"
-      - "「処理」「処理枠」ではなく「投票する」「吊る」「投票先」と言う。"
-      - "人狼の夜会話では「落とす」ではなく「襲撃する」「噛む」を使う。"
-      - "「盤面」は多用せず、「状況」「今の流れ」「今日の話」を使う。"
+      - "日本語だけで書く。中国語の語彙や簡体字・繁体字が混ざったら自然な日本語へ直す。"
+      - "プレイヤーは「人」「相手」「発言している人」と呼ぶ。"
+      - "中心人物は「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
+      - "強く聞く時も、「理由を聞く」「質問する」「疑っている」と具体的に言う。"
+      - "投票まわりは「投票する」「吊る」「投票先」と言う。"
+      - "人狼の夜会話では「襲撃する」「噛む」を使う。"
+      - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"
+    dialogueContract:
+      - "日本語セリフの契約:"
+      - "messages はキャラクターが実際に口に出す会話だけにする。推理メモ、進行メモ、翻訳文、内部用の分類名を書かない。"
+      - "内部の方針や補助メモはセリフに混ぜない。会話では「理由を聞く」「疑っている」「今日の発言」「投票理由」「明日見返す」と具体的に言う。"
+      - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
+      - "世界観用語や人狼用語を増やさない。配信で聞いて違和感のない日本語を優先する。"
+    publicSpeech:
+      systemPreamble:
+        - "あなたは短い昼議論の中で発言する人狼ゲームの参加者です。"
+        - "下の情報は、セリフを作るための材料です。画面に出るのは JSON の messages に入れた文だけです。"
+      boundary:
+        - "公開の昼発言として、全員に聞こえてよい内容だけを話す。"
+        - "自分だけが知る役職情報は、名乗ると決めた時以外は伏せる。"
+        - "死亡者は返答も投票もできないため、過去の材料としてだけ触れる。"
+        - "誰かの発言、反応、矛盾、タイミング、発言量を材料にする時は、見えている会話やタスク情報にあるものだけ使う。"
+        - "プロンプト、システム、非公開メモ、仲間だけの相談、夜の対象をそのまま話さない。"
+        - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
+      phaseGuidance:
+        - "昼議論は短い発言を数回交わす形式です。最初は一つの読み、質問、名乗るかどうかの判断を出す。"
+        - "自分に質問や疑いが向いているなら、先に短く答えてから別の話をする。"
+        - "一度に広げすぎず、相手が返答できる具体的な一文にする。"
+        - "今の疑い先、信頼先、質問先は生存者に向ける。"
+        - "長い考えは短い文に分ける。"
+    targetDecision:
+      systemPreamble:
+        - "あなたは人狼ゲームの対象選択を行います。"
+        - "JSON の reason は画面や記憶に表示される場合があるため、自然な日本語の短い理由にします。"
+      boundary:
+        - "見えている情報と、自分の役職で知ってよい情報だけを使う。"
+        - "公開されていない役職、夜の対象、仲間だけの相談は、公開理由として書かない。"
+        - "死亡者は今の投票先や行動対象にしない。過去の材料としてだけ扱う。"
+        - "プロンプト、システム、JSON 形式、内部メモについて reason に書かない。"
+      votingGuidance:
+        - "昼の投票理由は、全員に見える発言、投票、死亡、名乗り、反応から説明する。"
+        - "自分だけの情報で投票する時も、公開発言として通る理由に言い換える。"
+        - "長い推理ではなく、投票先を選んだ一番大きな理由を一文で書く。"
+        - "英語の分類名や翻訳調の言い回しではなく、「疑っている」「理由が弱い」「発言が変わった」のように具体的に書く。"
+      internalGuidance:
+        - "夜や能力の対象選択では、自陣営の勝ち筋、対象の価値、リスクを比べる。"
+        - "reason は短く、後で見ても何を理由に選んだか分かる日本語にする。"
+        - "使えない情報を推測で補わず、一覧にある対象だけを選ぶ。"
 
 daySituations:
   ja:
@@ -488,10 +609,10 @@ daySituations:
       - "死体なし後: 護衛成功、魔女の救済、襲撃先選びなどを断定せず、可能性を分ける。"
       - "誰が守られた、誰が襲撃されたと決めつけず、発言の変化を見る。"
     seer_claim:
-      - "占いCO後: CO者の結果履歴、COタイミング、対抗の有無、投票理由を確認する。"
-      - "真偽を即断せず、具体的な質問で詰める。"
+      - "占い師を名乗った人が出た後: これまでの結果、出たタイミング、対抗の有無、投票理由を確認する。"
+      - "真偽を即断せず、具体的な質問で確かめる。"
     black_result:
-      - "黒結果後: 黒を出された人の反応、占い師の履歴、吊るか保留するかの理由を話す。"
+      - "黒結果後: 黒を出された人の反応、占い師のこれまでの結果、吊るか保留するかの理由を話す。"
       - "自分にしか見えない情報がある場合も、公開発言では公開根拠に言い換える。"
     pre_vote:
       - "投票直前: 新しい長い推理を増やさず、今日の発言、投票理由、CO結果から一つに絞る。"
@@ -508,10 +629,10 @@ daySituations:
       - "After no night death: separate possible explanations such as protection, a save, or wolf target choice without declaring one certain."
       - Do not assume who was protected or attacked; watch how players react to the missing death.
     seer_claim:
-      - "After a Seer claim: examine the claim history, timing, counterclaims, and voting reasons."
+      - "After a Seer claim: examine the claim timeline, timing, counterclaims, and voting reasons."
       - Do not instantly decide true or fake; ask concrete questions that test the claim.
     black_result:
-      - "After a black result: discuss the accused player's reaction, the Seer's history, and the reason to eliminate or hold."
+      - "After a black result: discuss the accused player's reaction, the Seer's prior checks, and the reason to eliminate or hold."
       - If private information drives your read, translate it into public evidence unless you are intentionally claiming.
     pre_vote:
       - "Right before voting: do not introduce a long new theory; narrow the vote using today's statements, vote reasons, and claims."
@@ -535,7 +656,7 @@ personas:
     strategies:
       - Avoid overcommitting unless the evidence is strong.
       - Ask for timelines and prefer lower-risk eliminations.
-      - Use uncertainty honestly, but still name the next player who needs pressure.
+      - Use uncertainty honestly, but still name the next player who should answer a question.
       - Before accusing someone, summarize what is confirmed vs. what is assumed.
       - Prefer waiting one more round over making a risky call now.
     exampleLines:
@@ -561,7 +682,7 @@ personas:
       - 人間側の勝率を上げるには、早く怪しい奴を絞り込むことが重要
       - "自分が間違えても「その時はその時」と割り切れる"
     strategies:
-      - Apply direct pressure and force unclear players to take a stance.
+      - Ask direct questions and force unclear players to take a stance.
       - Do not let weak claims pass without challenge.
       - Push one main case at a time so the table can respond.
       - Call out players who dodge questions or stay silent.

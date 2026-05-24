@@ -2,7 +2,7 @@ import type { Persona, Phase, Player, Role, TargetCandidate } from "../types";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "../i18n";
 import { characterVoiceSection } from "../characters";
 import { daySituationGuidance } from "../daySituations";
-import { japaneseStyleGuide } from "../japaneseStyle";
+import { japaneseDialogueContract, japaneseStyleGuide } from "../japaneseStyle";
 import {
   bulletList,
   commonBoundaryLines,
@@ -93,6 +93,20 @@ function formatSeerResults(results: SeerPrivateResult[], language: string): stri
   ];
 }
 
+function formatSeerResultsJa(results: SeerPrivateResult[], language: string): string[] {
+  if (results.length === 0) {
+    return ["- 占い結果: まだありません。"];
+  }
+
+  return [
+    "- 自分だけが知っている占い結果:",
+    ...results.map((result) => {
+      const round = result.round ? `第${result.round}ラウンド: ` : "";
+      return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}`;
+    })
+  ];
+}
+
 function formatWitchState(witch: WitchPrivateState | undefined): string[] {
   if (!witch) {
     return ["- Potion state: unavailable."];
@@ -108,6 +122,21 @@ function formatWitchState(witch: WitchPrivateState | undefined): string[] {
   ];
 }
 
+function formatWitchStateJa(witch: WitchPrivateState | undefined): string[] {
+  if (!witch) {
+    return ["- 薬の情報: 利用できません。"];
+  }
+
+  const attacked = witch.attackedTarget
+    ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
+    : "この判断では見えていません";
+  return [
+    `- 救済薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
+    `- 毒薬: ${witch.poisonPotion ? "残っています" : "ありません"}。`,
+    `- 魔女に見えている襲撃先: ${attacked}。`
+  ];
+}
+
 function isWerewolfRole(role: Role): boolean {
   return role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty";
 }
@@ -120,7 +149,49 @@ function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | u
   return [`- Lover partner: ${partner.name} (${partner.id})${status}.`];
 }
 
+function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+  if (!partner) {
+    return ["- 恋人の相方: まだ見えていません。"];
+  }
+  const status = partner.alive === undefined ? "" : partner.alive ? " 生存" : " 死亡";
+  return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
+}
+
+function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+  if (isWerewolfRole(role)) {
+    const allies = secret?.werewolfAllies ?? [];
+    return [
+      "- 把握している人狼:",
+      ...(allies.length > 0
+        ? allies.map((ally) => `  - ${ally.name} (${ally.id})${ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"}`)
+        : ["  - なし"])
+    ];
+  }
+
+  if (role === "Seer") {
+    return formatSeerResultsJa(secret?.seerResults ?? [], language);
+  }
+
+  if (role === "Witch") {
+    return formatWitchStateJa(secret?.witch);
+  }
+
+  if (role === "Lover") {
+    return formatLoverPartnerJa(secret?.loverPartner);
+  }
+
+  if (role === "Villager") {
+    return ["- 自分だけの役職情報はありません。公開情報だけで考えます。"];
+  }
+
+  return ["- 自分の役職と、見えている公開情報だけを使います。"];
+}
+
 function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+  if (isJapaneseLanguage(language)) {
+    return roleVisiblePrivateInfoJa(role, secret, language);
+  }
+
   if (isWerewolfRole(role)) {
     const allies = secret?.werewolfAllies ?? [];
     return [
@@ -157,11 +228,31 @@ function legalPlayerLine(players: TargetCandidate[] | undefined): string | null 
   return `Legal player ids: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`;
 }
 
+function legalTargetLineForLanguage(players: TargetCandidate[] | undefined, language: string): string | null {
+  if (!isJapaneseLanguage(language)) {
+    return legalPlayerLine(players);
+  }
+  if (!players || players.length === 0) {
+    return null;
+  }
+  return `選べる対象ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
+}
+
 function legalReadTargetLine(players: TargetCandidate[] | undefined): string {
   if (!players || players.length === 0) {
     return "Legal living read target ids for suspects/trusts: none. Keep suspects and trusts empty.";
   }
   return `Legal living read target ids for suspects/trusts: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`;
+}
+
+function legalReadTargetLineForLanguage(players: TargetCandidate[] | undefined, language: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return legalReadTargetLine(players);
+  }
+  if (!players || players.length === 0) {
+    return "suspects/trusts に使える生存者ID: なし。suspects と trusts は空にしてください。";
+  }
+  return `suspects/trusts に使える生存者ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
 }
 
 export function getRoleStrategy(role: Role): string {
@@ -190,6 +281,21 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const profile = getRolePromptProfile(player.role);
   const japanese = isJapaneseLanguage(language);
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
+  const dialogueContract = mode === "public_speech" ? japaneseDialogueContract(language) : [];
+  if (japanese && mode === "public_speech") {
+    return buildJapanesePublicSpeechContext({
+      ...options,
+      promptPhase,
+      mode
+    });
+  }
+  if (japanese && mode === "internal_decision" && promptPhase === "voting") {
+    return buildJapaneseVotingDecisionContext({
+      ...options,
+      promptPhase,
+      mode
+    });
+  }
   const lines = [
     japanese ? `あなたは${player.name}です。` : `You are ${player.name}.`,
     japanese ? `あなたの役職: ${roleLabel(player.role, language)}。` : `Your role: ${player.role}.`,
@@ -198,6 +304,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       ? `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`
       : `Current phase: ${phase}. Round: ${round}.`,
     `Prompt mode: ${mode === "public_speech" ? "public speech" : "internal decision"}.`,
+    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",
     "Information boundary:",
     bulletList(commonBoundaryLines(mode)),
@@ -232,7 +339,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     ...(mode === "public_speech"
       ? [
           `Current public read targets: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}.`,
-          "Dead players are historical evidence only, not current suspicion, trust, pressure, vote, or elimination targets."
+          "Dead players are past evidence only, not current suspicion, trust, vote, or elimination targets."
         ]
       : []),
     "",
@@ -265,6 +372,146 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   return lines.join("\n");
 }
 
+function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): string {
+  const {
+    player,
+    phase,
+    round,
+    alivePlayers,
+    deadPlayers,
+    publicHistory,
+    privateHistory,
+    language = defaultLanguage,
+    secret,
+    extra = []
+  } = options;
+  const profile = getRolePromptProfile(player.role);
+  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
+  const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
+  const lines = [
+    `あなたは${player.name}です。`,
+    `役職: ${roleLabel(player.role, language)}。`,
+    `表向きの性格: ${personaHeading(player.persona, language)}。`,
+    `現在: ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+    "",
+    "公開発言の前提:",
+    bulletList(publicSpeech.boundary),
+    "",
+    "役職ごとの発言方針:",
+    bulletList(profile.publicSpeechGuidanceJa),
+    "",
+    "昼議論で意識すること:",
+    bulletList(publicSpeech.phaseGuidance),
+    ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
+    "",
+    "人物の話し方:",
+    ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
+    "",
+    "人物として大事にすること:",
+    ...personaDetails[player.persona].principles.map((s) => `- ${s}`),
+    ...(player.characterProfile
+      ? [
+          "",
+          "キャラクターの声:",
+          ...characterVoiceSection(player.characterProfile).split("\n")
+        ]
+      : []),
+    "",
+    `生存者: ${formatPlayers(alivePlayers)}。`,
+    deadPlayers.length > 0
+      ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+      : "死亡者: なし。",
+    `今、疑い・信頼・質問を向けられる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
+    "死亡者は過去の材料としてだけ扱い、今の疑い先、信頼先、投票先にはしません。",
+    "",
+    "自分だけが見える役職情報:",
+    ...roleVisiblePrivateInfo(player.role, secret, language)
+  ];
+
+  if (privateHistory.length > 0) {
+    lines.push("", "自分の記憶:", ...recentLines(privateHistory, 12));
+  }
+
+  if (publicHistory.length === 0) {
+    lines.push(
+      "",
+      "見えている公開発言:",
+      "- まだ、この昼の公開発言はありません。",
+      "- 具体的な発言、反応、矛盾、発言量を見たことにしない。"
+    );
+  } else {
+    lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));
+  }
+
+  if (extra.length > 0) {
+    lines.push("", "今回のタスクで見えている情報:", ...extra);
+  }
+
+  return lines.join("\n");
+}
+
+function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions): string {
+  const {
+    player,
+    phase,
+    round,
+    alivePlayers,
+    deadPlayers,
+    publicHistory,
+    privateHistory,
+    language = defaultLanguage,
+    secret,
+    extra = []
+  } = options;
+  const profile = getRolePromptProfile(player.role);
+  const targetDecision = promptMaterials.languageStyles.japanese.targetDecision;
+  const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
+  const lines = [
+    `あなたは${player.name}です。`,
+    `役職: ${roleLabel(player.role, language)}。`,
+    `表向きの性格: ${personaHeading(player.persona, language)}。`,
+    `現在: ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+    "",
+    "投票理由の前提:",
+    bulletList(targetDecision.boundary),
+    "",
+    "投票判断の方針:",
+    bulletList(targetDecision.votingGuidance),
+    "",
+    "役職ごとの注意:",
+    bulletList(profile.publicSpeechGuidanceJa),
+    ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
+    "",
+    "人物の話し方:",
+    ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
+    "",
+    `生存者: ${formatPlayers(alivePlayers)}。`,
+    deadPlayers.length > 0
+      ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+      : "死亡者: なし。",
+    `投票できる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
+    "",
+    "自分だけが見える役職情報:",
+    ...roleVisiblePrivateInfo(player.role, secret, language)
+  ];
+
+  if (privateHistory.length > 0) {
+    lines.push("", "自分の記憶:", ...recentLines(privateHistory, 12));
+  }
+
+  if (publicHistory.length > 0) {
+    lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));
+  } else {
+    lines.push("", "直近の公開発言:", "- まだ、この昼の公開発言はありません。");
+  }
+
+  if (extra.length > 0) {
+    lines.push("", "今回の判断で見えている情報:", ...extra);
+  }
+
+  return lines.join("\n");
+}
+
 export function buildPublicSpeechPrompt(options: Omit<BuildPromptContextOptions, "mode">): string {
   return buildPromptContext({ ...options, mode: "public_speech", promptPhase: "discussion" });
 }
@@ -289,10 +536,15 @@ export function buildBaseContext(options: {
 }
 
 function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, outputInstruction: string): string {
+  if (mode === "public_speech" && isJapaneseLanguage(options.language)) {
+    return japanesePublicSpeechSystemPrompt(options);
+  }
+
   const promptPhase = promptPhaseFromGamePhase(options.phase);
   const profile = getRolePromptProfile(options.player.role);
   const legal = legalPlayerLine(options.legalPlayers);
   const styleGuide = japaneseStyleGuide(options.language);
+  const dialogueContract = mode === "public_speech" ? japaneseDialogueContract(options.language) : [];
   const lines = [
     "You are playing a hidden-role werewolf game.",
     `You are ${options.player.name}; role=${options.player.role}; persona=${options.player.persona}.`,
@@ -307,6 +559,7 @@ function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, o
     "Phase guidance:",
     ...phaseInstructions(profile, promptPhase),
     ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",
     outputInstruction,
     outputFormatReminder
@@ -317,10 +570,69 @@ function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, o
   }
 
   if (mode === "public_speech") {
-    lines.push("", legalReadTargetLine(options.legalPlayers));
+    lines.push("", legalReadTargetLineForLanguage(options.legalPlayers, options.language));
   } else if (legal) {
     lines.push("", legal);
   }
+
+  return lines.join("\n");
+}
+
+function japanesePublicSpeechSystemPrompt(options: BuildSystemPromptOptions): string {
+  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
+  const profile = getRolePromptProfile(options.player.role);
+  const styleGuide = japaneseStyleGuide(options.language);
+  const dialogueContract = japaneseDialogueContract(options.language);
+  const lines = [
+    ...publicSpeech.systemPreamble,
+    `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+    "返答言語: 日本語。",
+    "",
+    "公開発言の境界:",
+    bulletList(publicSpeech.boundary),
+    "",
+    "役職ごとの発言方針:",
+    bulletList(profile.publicSpeechGuidanceJa),
+    "",
+    "昼議論の進め方:",
+    bulletList(publicSpeech.phaseGuidance),
+    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
+    "",
+    promptMaterials.outputFormats.speechJson.japaneseInstruction,
+    promptMaterials.outputFormats.japaneseReminder,
+    "",
+    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
+  ];
+
+  return lines.join("\n");
+}
+
+function japaneseTargetSystemPrompt(options: BuildSystemPromptOptions, outputInstruction: string): string {
+  const promptPhase = promptPhaseFromGamePhase(options.phase);
+  const profile = getRolePromptProfile(options.player.role);
+  const targetDecision = promptMaterials.languageStyles.japanese.targetDecision;
+  const styleGuide = japaneseStyleGuide(options.language);
+  const legal = legalTargetLineForLanguage(options.legalPlayers, options.language);
+  const guidance = promptPhase === "voting" ? targetDecision.votingGuidance : targetDecision.internalGuidance;
+  const lines = [
+    ...targetDecision.systemPreamble,
+    `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+    "返答言語: 日本語。",
+    "",
+    "対象選択の境界:",
+    bulletList(targetDecision.boundary),
+    "",
+    promptPhase === "voting" ? "投票判断の方針:" : "対象選択の方針:",
+    bulletList(guidance),
+    "",
+    "役職ごとの注意:",
+    bulletList(profile.publicSpeechGuidanceJa),
+    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+    "",
+    outputInstruction,
+    ...(legal ? ["", legal] : [])
+  ];
 
   return lines.join("\n");
 }
@@ -330,6 +642,13 @@ export function buildSpeechSystemPrompt(options: BuildSystemPromptOptions): stri
 }
 
 export function buildTargetSystemPrompt(options: BuildSystemPromptOptions): string {
+  if (isJapaneseLanguage(options.language)) {
+    const skipLine = options.allowSkip
+      ? "対象を選ばない方がよい場合だけ、targetId に null を返せます。"
+      : "必ず一覧にある対象 ID を一つ選んでください。";
+    return japaneseTargetSystemPrompt(options, [promptMaterials.outputFormats.targetJson.japaneseInstruction, skipLine].join("\n"));
+  }
+
   const skipLine = options.allowSkip
     ? "You may return null if skipping is strategically best and the action allows it."
     : "You must choose one listed target.";

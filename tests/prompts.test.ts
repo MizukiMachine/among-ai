@@ -61,7 +61,13 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
+  assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /画面や履歴に表示/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
+  for (const profile of Object.values(promptMaterials.roles)) {
+    assert.ok(profile.publicSpeechGuidanceJa.length > 0, profile.role);
+    assert.doesNotMatch(profile.publicSpeechGuidanceJa.join("\n"), /\b(strategy|pressure|record|history|slot)\b/i);
+  }
+  assert.match(promptMaterials.roles.Seer.publicSpeechGuidanceJa.join("\n"), /占い結果/);
 });
 
 function contextFor(role: Role) {
@@ -97,7 +103,7 @@ test("role prompts include phase strategy and public speech boundary", () => {
     assert.match(context, /Public discussion guidance:/);
     assert.match(context, /Public speech boundary:/);
     assert.match(context, /Role-visible private information:/);
-    assert.match(context, /Dead players are historical evidence only/);
+    assert.match(context, /Dead players are past evidence only/);
     assert.doesNotMatch(context, /Edison \(Seer\)/);
   }
 });
@@ -214,10 +220,49 @@ test("Japanese prompts include a natural conversation style layer", () => {
     privateHistory: [],
     language: "Japanese"
   });
+  const generatedPrompt = `${speech}\n${context}`;
 
   assert.match(speech, /日本語の話し方/);
-  assert.match(speech, /「位置」ではなく「人」/);
-  assert.doesNotMatch(context, /日本語の話し方/);
+  assert.match(speech, /日本語セリフの契約/);
+  assert.match(speech, /messages の各文字列は、画面にそのまま表示される実際のセリフだけ/);
+  assert.match(speech, /プレイヤーは「人」「相手」「発言している人」/);
+  assert.match(context, /役職ごとの発言方針/);
+  assert.match(context, /人物の話し方/);
+  assert.match(context, /見えている公開発言/);
+  assert.doesNotMatch(generatedPrompt, /Role strategy|Phase guidance|Prompt mode|Information boundary|Public speech|public speech|internal decision/i);
+  assert.doesNotMatch(generatedPrompt, /\b(strategy|pressure|record|history|slot)\b/i);
+  assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
+  assert.doesNotMatch(generatedPrompt, /观望|觉得|应该|确实|因为|所以/);
+  assert.doesNotMatch(context, /No prior public statements|vagueness as observed evidence|Task-specific visible context/);
+});
+
+test("Japanese voting target prompts keep displayed reasons separate from English strategy labels", () => {
+  const target = buildTargetSystemPrompt({
+    player: player("Werewolf"),
+    phase: "voting",
+    language: "Japanese",
+    legalPlayers: alivePlayers,
+    allowSkip: false
+  });
+  const context = buildPromptContext({
+    player: player("Werewolf"),
+    phase: "voting",
+    round: 2,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Byron: 投票理由がまだ弱いので、もう一度聞きたいです。"],
+    privateHistory: ["第1ラウンド: Curieへ投票。理由: 発言が変わったため。"],
+    language: "Japanese"
+  });
+  const generatedPrompt = `${target}\n${context}`;
+
+  assert.match(target, /reason は画面や履歴に表示/);
+  assert.match(target, /短い日本語の理由だけ/);
+  assert.match(context, /投票理由の前提/);
+  assert.match(context, /投票判断の方針/);
+  assert.doesNotMatch(generatedPrompt, /Role strategy|Phase guidance|Prompt mode|Information boundary|internal decision|Action:|Legal targets:/i);
+  assert.doesNotMatch(generatedPrompt, /\b(strategy|pressure|record|history|slot)\b/i);
+  assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
 });
 
 test("first-day discussion prompts keep reads tentative and question-led", () => {
@@ -239,8 +284,8 @@ test("first-day discussion prompts keep reads tentative and question-led", () =>
   assert.match(context, /発言量/);
   assert.match(context, /実際に誰かが疑いに乗った後/);
   assert.match(context, /仮説として軽く疑う/);
-  assert.match(context, /No prior public statements are included/);
-  assert.match(context, /vagueness as observed evidence yet/);
+  assert.match(context, /まだ、この昼の公開発言はありません/);
+  assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
@@ -269,7 +314,7 @@ test("day situation prompts cover no-death, Seer claim, black result, and pre-vo
   );
   assert.match(context, /2日目以降の昼/);
   assert.match(context, /死体なし後/);
-  assert.match(context, /占いCO後/);
+  assert.match(context, /占い師を名乗った人が出た後/);
   assert.match(context, /黒結果後/);
   assert.match(context, /投票直前/);
   assert.match(context, /投票理由は短く/);

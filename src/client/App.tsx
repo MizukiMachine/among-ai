@@ -29,7 +29,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
@@ -59,15 +59,21 @@ const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 
 const characterImageMap: Record<string, string> = {
-  p1: `${CHARACTER_ASSET_ROOT}/kazu_final.png`,
-  p2: `${CHARACTER_ASSET_ROOT}/kai_final.png`,
-  p3: `${CHARACTER_ASSET_ROOT}/mio_final.png`,
-  p4: `${CHARACTER_ASSET_ROOT}/ren_final.png`,
-  p5: `${CHARACTER_ASSET_ROOT}/saki_final.png`,
-  p6: `${CHARACTER_ASSET_ROOT}/taka_final.png`,
-  p7: `${CHARACTER_ASSET_ROOT}/yuki_final.png`,
-  p8: `${CHARACTER_ASSET_ROOT}/ken_final.png`,
-  p9: `${CHARACTER_ASSET_ROOT}/rin_final.png`
+  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
+  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
+  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
+  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.png`,
+  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.png`,
+  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.png`,
+  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.png`,
+  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.png`,
+  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.png`,
+  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.png`,
+  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.png`,
+  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
+  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
+  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akihito.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
@@ -92,6 +98,45 @@ interface HeroCastItem {
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
   return characterImageMap[playerId] ?? null;
+}
+
+interface CharacterImageProps {
+  alt?: string;
+  className?: string;
+  fallback: ReactNode;
+  src: string | null | undefined;
+}
+
+function CharacterImage({ alt = "", className, fallback, src }: CharacterImageProps) {
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!src) {
+      setLoaded(false);
+      return;
+    }
+
+    let active = true;
+    const image = new Image();
+    image.onload = () => {
+      if (active) setLoaded(true);
+    };
+    image.onerror = () => {
+      if (active) setLoaded(false);
+    };
+    setLoaded(false);
+    image.src = src;
+
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  if (!src || !loaded) {
+    return <>{fallback}</>;
+  }
+
+  return <img className={className} src={src} alt={alt} onError={() => setLoaded(false)} />;
 }
 
 function playerIndexFromId(playerId: string): number {
@@ -302,6 +347,13 @@ function latestEvent(events: GameEvent[], predicate: (event: GameEvent) => boole
     }
   }
   return undefined;
+}
+
+export function voteResultHasVisibleData(event: GameEvent): boolean {
+  return (
+    event.type === "vote_result" &&
+    (dataArray<VoteDetail>(event, "votes").length > 0 || dataArray<VoteTotal>(event, "totals").length > 0)
+  );
 }
 
 function formatClaim(claim: ClaimMetadata, language = defaultLanguage): string {
@@ -535,7 +587,7 @@ export function App() {
   );
   const suspectClusters = useMemo(() => clusterReads(publicSuspects), [publicSuspects]);
   const latestVoteResult = useMemo(
-    () => latestEvent(events, (event) => event.type === "vote_result" && dataArray<VoteDetail>(event, "votes").length > 0),
+    () => latestEvent(events, voteResultHasVisibleData),
     [events]
   );
   const latestVotes = useMemo(() => dataArray<VoteDetail>(latestVoteResult, "votes"), [latestVoteResult]);
@@ -563,17 +615,23 @@ export function App() {
   const voteMapTargetName = leadingVote?.targetName ?? leadingRead?.targetName ?? "未確定";
   const voteMapCount = leadingVote?.count ?? leadingRead?.count ?? 0;
   const voteMapTargetImage = getCharacterImage(voteMapTargetId);
+  const showIndividualVoteSources = !humanEnabled;
   const voteMapSources =
     leadingVote && latestVotes.length > 0
-      ? latestVotes
-          .filter((vote) => vote.targetId === leadingVote.targetId)
-          .map((vote) => ({ id: vote.voterId, name: vote.voterName, reason: vote.reason }))
+      ? showIndividualVoteSources
+        ? latestVotes
+            .filter((vote) => vote.targetId === leadingVote.targetId)
+            .map((vote) => ({ id: vote.voterId, name: vote.voterName, reason: vote.reason }))
+        : []
       : publicSuspects
           .filter((read) => read.targetId === leadingRead?.targetId)
           .map((read) => ({ id: read.sourceId, name: read.sourceName, reason: read.reason }));
-  const voteMapQuietPlayers = allPlayers
-    .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
-    .slice(0, 2);
+  const voteMapQuietPlayers =
+    voteMapSources.length > 0
+      ? allPlayers
+          .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
+          .slice(0, 2)
+      : [];
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
@@ -630,6 +688,13 @@ export function App() {
     } else {
       setSpectatorMode("omniscient");
     }
+  }
+
+  function selectHumanPlayer(playerId: string) {
+    if (!humanEnabled) {
+      updateHumanEnabled(true);
+    }
+    setHumanPlayerId(playerId);
   }
 
   function resetHumanInputState() {
@@ -1027,7 +1092,7 @@ export function App() {
                   onClick={() => setHumanTargetId(candidate.id)}
                   type="button"
                 >
-                  {getCharacterImage(candidate.id) ? <img src={getCharacterImage(candidate.id) ?? ""} alt="" /> : <UserRound size={18} />}
+                  <CharacterImage src={getCharacterImage(candidate.id)} fallback={<UserRound size={18} />} />
                   <span>{candidate.name}</span>
                 </button>
               ))}
@@ -1155,7 +1220,7 @@ export function App() {
     const image = getCharacterImage(playerId);
     return (
       <span className={`summary-person ${tone}`} key={key}>
-        {image ? <img src={image} alt="" /> : <UserRound size={15} />}
+        <CharacterImage src={image} fallback={<UserRound size={15} />} />
         <span>{playerName}</span>
       </span>
     );
@@ -1408,10 +1473,19 @@ export function App() {
       <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
         {heroCast.map((item) =>
           item.image ? (
-            <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
+            <CharacterImage
+              className={item.alive ? "" : "fallen"}
+              fallback={(
+                <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`}>
+                  <UserRound size={18} />
+                </span>
+              )}
+              key={item.id}
+              src={item.image}
+            />
           ) : (
             <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`} key={item.id}>
-              {item.label}
+              <UserRound size={18} />
             </span>
           )
         )}
@@ -1472,17 +1546,16 @@ export function App() {
                 <span>参加キャラクター</span>
                 <strong>{effectivePlayerCount}人</strong>
               </div>
-              <div className={`setup-cast-grid ${humanEnabled ? "selectable" : ""}`}>
+              <div className="setup-cast-grid selectable">
                 {humanPlayerOptions.map((player) => (
                   <button
                     aria-pressed={humanEnabled && humanPlayerId === player.id}
                     className={humanEnabled && humanPlayerId === player.id ? "selected" : ""}
-                    disabled={!humanEnabled}
                     key={player.id}
-                    onClick={humanEnabled ? () => setHumanPlayerId(player.id) : undefined}
+                    onClick={() => selectHumanPlayer(player.id)}
                     type="button"
                   >
-                    {getCharacterImage(player.id) ? <img src={getCharacterImage(player.id) ?? ""} alt="" /> : <UserRound size={16} />}
+                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} />
                     <span>{player.name}</span>
                   </button>
                 ))}
@@ -1564,7 +1637,7 @@ export function App() {
         <div className="brand-lockup">
           <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
-            <h1>Among AI</h1>
+            <h1>among ai</h1>
             <p>AIクルーの騙し合い実験</p>
           </div>
         </div>
@@ -1610,79 +1683,99 @@ export function App() {
             <ChevronDown size={16} />
           </div>
 
-          <div className="roster">
-            {winnerRosterText ? (
-              <div className="winner-row" role="status">
-                <Shield size={16} />
-                <strong>{winnerRosterText}</strong>
-              </div>
-            ) : null}
-            {alivePlayers.length > 0 ? (
-              alivePlayers.map((player) => {
-                const humanPlayer = isHumanPlayer(player.id);
-                return (
-                  <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
-                    {getCharacterImage(player.id) ? (
-                      <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
-                    ) : (
-                      <div className="player-avatar avatar-fallback">
-                        <UserRound size={20} />
-                      </div>
-                    )}
-                    <div className="player-main">
-                      <div className="player-name-row">
-                        <strong>{player.name}</strong>
-                        <span className="persona-pill">{personaLabel(player.persona, language)}</span>
-                      </div>
-                      <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                        {roleDisplay(player, spectatorMode, language)}
-                      </span>
-                    </div>
-                    {humanPlayer ? (
-                      renderHumanPlayerBadge()
-                    ) : (
-                      <div className="signal-bars" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <p className="empty-note">プレイヤー未生成</p>
-            )}
-          </div>
-
-          {deadPlayers.length > 0 ? (
-            <>
-              <div className="player-section-title grave-title">
-                <span>墓地（{deadPlayers.length}人）</span>
-                <ChevronDown size={16} />
-              </div>
-              <div className="graveyard">
-                {deadPlayers.map((player) => {
+          <div className="player-list-scroll">
+            <div className="roster">
+              {winnerRosterText ? (
+                <div className="winner-row" role="status">
+                  <Shield size={16} />
+                  <strong>{winnerRosterText}</strong>
+                </div>
+              ) : null}
+              {alivePlayers.length > 0 ? (
+                alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
                   return (
-                    <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                    <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
-                        <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                        <CharacterImage
+                          alt={player.name}
+                          className="player-avatar"
+                          fallback={(
+                            <div className="player-avatar avatar-fallback">
+                              <UserRound size={20} />
+                            </div>
+                          )}
+                          src={getCharacterImage(player.id)}
+                        />
                       ) : (
-                        <span className="avatar-fallback small">
-                          <UserRound size={15} />
-                        </span>
+                        <div className="player-avatar avatar-fallback">
+                          <UserRound size={20} />
+                        </div>
                       )}
-                      <strong>{player.name}</strong>
-                      {humanPlayer ? renderHumanPlayerBadge() : null}
-                      <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                      <div className="player-main">
+                        <div className="player-name-row">
+                          <strong>{player.name}</strong>
+                          <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                        </div>
+                        <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
+                          {roleDisplay(player, spectatorMode, language)}
+                        </span>
+                      </div>
+                      {humanPlayer ? (
+                        renderHumanPlayerBadge()
+                      ) : (
+                        <div className="signal-bars" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      )}
                     </div>
                   );
-                })}
-              </div>
-            </>
-          ) : null}
+                })
+              ) : (
+                <p className="empty-note">プレイヤー未生成</p>
+              )}
+            </div>
+
+            {deadPlayers.length > 0 ? (
+              <>
+                <div className="player-section-title grave-title">
+                  <span>墓地（{deadPlayers.length}人）</span>
+                  <ChevronDown size={16} />
+                </div>
+                <div className="graveyard">
+                  {deadPlayers.map((player) => {
+                    const humanPlayer = isHumanPlayer(player.id);
+                    return (
+                      <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                        {getCharacterImage(player.id) ? (
+                          <CharacterImage
+                            alt={player.name}
+                            className="player-avatar small"
+                            fallback={(
+                              <span className="avatar-fallback small">
+                                <UserRound size={15} />
+                              </span>
+                            )}
+                            src={getCharacterImage(player.id)}
+                          />
+                        ) : (
+                          <span className="avatar-fallback small">
+                            <UserRound size={15} />
+                          </span>
+                        )}
+                        <strong>{player.name}</strong>
+                        {humanPlayer ? renderHumanPlayerBadge() : null}
+                        <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+          </div>
         </aside>
 
         <section className="story-column">
@@ -1711,7 +1804,9 @@ export function App() {
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden)}
                       {renderHeroCast()}
-                      {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
+                      {activeSpeakerImage && !hidden && isSpeech ? (
+                        <CharacterImage alt={speakerName} className="hero-character" src={activeSpeakerImage} fallback={null} />
+                      ) : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
                           <span>R{currentEvent.round}</span>
@@ -1876,7 +1971,13 @@ export function App() {
             <section className="overlay-panel">
               <div className="overlay-header">
                 <div className="overlay-title">
-                  {activeOverlay === "vote" ? <><Vote size={18} /><h2>投票マップ</h2><span>現在の疑い先</span></> : null}
+                  {activeOverlay === "vote" ? (
+                    <>
+                      <Vote size={18} />
+                      <h2>{showIndividualVoteSources ? "投票マップ" : "投票結果"}</h2>
+                      <span>{showIndividualVoteSources ? "現在の疑い先" : "票数"}</span>
+                    </>
+                  ) : null}
                   {activeOverlay === "history" ? <><History size={18} /><h2>履歴</h2><span>最近の出来事</span></> : null}
                   {activeOverlay === "recent" ? <><Activity size={18} /><h2>直近のイベント</h2></> : null}
                 </div>
@@ -1886,25 +1987,38 @@ export function App() {
               </div>
               <div className="overlay-body">
                 {activeOverlay === "vote" ? (
-                  voteMapSources.length > 0 || voteMapTargetId ? (
+                  !showIndividualVoteSources && latestVoteTotalsSorted.length > 0 ? (
+                    <div className="summary-vote-list">
+                      {latestVoteTotalsSorted.slice(0, 4).map((total) => (
+                        <div className="summary-vote-row" key={total.targetId}>
+                          {renderSummaryPerson(total.targetId, total.targetName, "vote")}
+                          <span className="summary-vote-meter" aria-hidden="true">
+                            <i style={{ width: `${Math.max(16, Math.round((total.count / maxCount(latestVoteTotalsSorted)) * 100))}%` }} />
+                          </span>
+                          <strong>{total.count}票</strong>
+                        </div>
+                      ))}
+                      {latestVoteTotalsSorted.length > 4 ? <span className="summary-more">他{latestVoteTotalsSorted.length - 4}件</span> : null}
+                    </div>
+                  ) : voteMapSources.length > 0 || voteMapTargetId ? (
                     <div className="vote-diagram">
                       <div className="vote-column">
                         {voteMapSources.slice(0, 4).map((source) => (
                           <div className="vote-node voting" key={`${source.id}-${source.name}`}>
-                            <img src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} alt="" />
+                            <CharacterImage src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} fallback={<UserRound size={26} />} />
                             <strong>{source.name}</strong>
                           </div>
                         ))}
                       </div>
                       <div className="vote-focus">
-                        {voteMapTargetImage ? <img src={voteMapTargetImage} alt={voteMapTargetName} /> : <UserRound size={48} />}
+                        <CharacterImage alt={voteMapTargetName} src={voteMapTargetImage} fallback={<UserRound size={48} />} />
                         <strong>{voteMapTargetName}</strong>
                         <span>{voteMapCount}票</span>
                       </div>
                       <div className="vote-column quiet">
                         {voteMapQuietPlayers.map((player) => (
                           <div className="vote-node" key={player.id}>
-                            <img src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} alt="" />
+                            <CharacterImage src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} fallback={<UserRound size={26} />} />
                             <strong>{player.name}</strong>
                             <span>0票</span>
                           </div>
