@@ -1,4 +1,5 @@
 import { WerewolfGame } from "./engine";
+import { maxSupportedPlayers, minSupportedPlayers } from "./rules/presets";
 import type { CampId, GameConfig, GameEvent } from "./types";
 
 export interface BalanceBucket {
@@ -65,7 +66,9 @@ function winnerCampFrom(event: GameEvent | undefined): CampId | null {
 }
 
 export async function runBalanceReport(options: BalanceReportOptions = {}): Promise<BalanceBucket[]> {
-  const playerCounts = options.playerCounts ?? Array.from({ length: 15 }, (_, index) => index + 6);
+  const playerCounts =
+    options.playerCounts ??
+    Array.from({ length: maxSupportedPlayers - minSupportedPlayers + 1 }, (_, index) => minSupportedPlayers + index);
   const runs = Math.max(1, Math.floor(options.runs ?? 20));
   const maxRounds = Math.max(3, Math.floor(options.maxRounds ?? 8));
   const seed = options.seed ?? "among-ai-balance";

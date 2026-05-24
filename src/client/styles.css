@@ -1846,10 +1846,6 @@ input[type="range"] {
   backdrop-filter: blur(18px);
 }
 
-.setup-card.mode-long {
-  border-color: rgba(227, 166, 79, 0.44);
-}
-
 .setup-card-heading {
   display: flex;
   flex: 0 0 auto;

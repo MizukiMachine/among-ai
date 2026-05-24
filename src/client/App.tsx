@@ -34,6 +34,13 @@ import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { eventVisibility, isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
+import {
+  createRoles,
+  maxSupportedPlayers,
+  minimumPlayerCountForScenario as minimumSupportedPlayerCountForScenario,
+  minSupportedPlayers,
+  normalizePlayerCount as normalizeSupportedPlayerCount
+} from "../game/rules/presets";
 import type {
   ClaimMetadata,
   DebugScenario,
@@ -380,26 +387,19 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
-const playerCountOptions = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] as const;
-const minPlayerCount = playerCountOptions[0];
-const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
+const playerCountOptions = Array.from(
+  { length: maxSupportedPlayers - minSupportedPlayers + 1 },
+  (_, index) => minSupportedPlayers + index
+);
+const minPlayerCount = minSupportedPlayers;
 const humanInputNoticeLeadCount = 2;
 
 function normalizePlayerCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 7;
-  }
-  return Math.min(maxPlayerCount, Math.max(minPlayerCount, Math.trunc(count)));
+  return normalizeSupportedPlayerCount(count);
 }
 
 function minimumPlayerCountForScenario(scenario: DebugScenario): number {
-  if (scenario === "guard_success") {
-    return 8;
-  }
-  if (scenario === "hunter_shot") {
-    return 9;
-  }
-  return minPlayerCount;
+  return minimumSupportedPlayerCountForScenario(scenario);
 }
 
 function effectivePlayerCountForScenario(count: number, scenario: DebugScenario): number {
@@ -416,48 +416,12 @@ function formatRoleCount(role: Role, count: number, language: string, forceCount
 
 function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
-  const roleCounts: Array<[Role, number]> = [];
-  if (normalizedCount <= 6) {
-    roleCounts.push(["Werewolf", 1]);
-  } else if (normalizedCount <= 10) {
-    roleCounts.push(["Werewolf", 2]);
-  } else if (normalizedCount <= 14) {
-    roleCounts.push(["Werewolf", 2], ["AlphaWolf", 1]);
-  } else if (normalizedCount <= 17) {
-    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1]);
-  } else {
-    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1], ["WolfBeauty", 1]);
-  }
-  roleCounts.push(["Seer", 1], ["Witch", 1]);
-  if (normalizedCount >= 8) {
-    roleCounts.push(["Guard", 1]);
-  }
-  if (normalizedCount >= 9) {
-    roleCounts.push(["Hunter", 1]);
-  }
-  if (normalizedCount >= 10) {
-    roleCounts.push(["Raven", 1]);
-  }
-  if (normalizedCount >= 13) {
-    roleCounts.push(["Idiot", 1]);
-  }
-  if (normalizedCount >= 15) {
-    roleCounts.push(["Elder", 1]);
-  }
-  if (normalizedCount >= 16) {
-    roleCounts.push(["Lover", 2]);
-  }
-  if (normalizedCount >= 20) {
-    roleCounts.push(["Jester", 1]);
+  const counts = new Map<Role, number>();
+  for (const role of createRoles(normalizedCount)) {
+    counts.set(role, (counts.get(role) ?? 0) + 1);
   }
 
-  const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
-  const villagers = Math.max(0, normalizedCount - assignedRoles);
-  if (villagers > 0) {
-    roleCounts.push(["Villager", villagers]);
-  }
-
-  return roleCounts;
+  return [...counts.entries()];
 }
 
 function getRoleDistributionText(count: number, language: string): string {
@@ -466,9 +430,6 @@ function getRoleDistributionText(count: number, language: string): string {
 }
 
 function runModeClass(count: number): string {
-  if (count >= 17) {
-    return "mode-long";
-  }
   if (count >= 13) {
     return "mode-large";
   }
