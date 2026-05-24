@@ -95,7 +95,7 @@ const demoSpeechJa: Partial<Record<Role, string[]>> = {
     "夜の結果で守られたように見える人と、本当に信用できる人は分けて考えるべきです。"
   ],
   Hunter: [
-    "私を安易な投票先にする前に、次に誰を疑うのかまで理由を残してください。",
+    "私を安易な投票先にする前に、次に誰を疑うのかまで理由を話してください。",
     "誰を疑っているのか、順番をはっきりさせたいです。雑な便乗は危険です。",
     "私を雑に吊ろうとしている人が、次にどう進めるつもりなのか見ています。"
   ],
@@ -166,8 +166,8 @@ const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   ],
   black_result: [
     "人狼判定は重いですが、出された人の返答を聞いてから投票を考えたいです。",
-    "黒を出した人の履歴と、出された人の反応を並べて見たいです。",
-    "今日その人を吊るなら、明日確認できる理由まで残したいです。"
+    "黒を出した人のこれまでの結果と、出された人の反応を並べて見たいです。",
+    "今日その人を吊るなら、明日確認できる理由にしたいです。"
   ],
   pre_vote: [
     "投票直前なので、新しい話を広げず、今日一番理由が残っている人に絞ります。",
@@ -406,7 +406,7 @@ const openingFirstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], st
 const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
     "最初の考えを一つ聞きたい",
-    "後で比べやすいように早めの読みを残してほしい",
+    "後で比べやすいように早めの読みを出してほしい",
     "小さい質問から始める方が整理しやすい"
   ],
   aggressive: [
@@ -470,7 +470,7 @@ export function listJapaneseDemoCopySamples(): string[] {
     "ここで見送る方が後半の手を残せます。",
     "選べる対象がいません。",
     `${name}は公開された主張と発言から最も疑いが集まっています。`,
-    `${name}は人狼判定への返答がまだ弱く、今日の投票理由として残せます。`,
+    `${name}は人狼判定への返答がまだ弱く、今日の投票理由になります。`,
     `${name}は占い主張への反応がはっきりしないため投票します。`,
     `${name}は死体なし後に説明を急いだように見えます。`,
     `${name}は初日の発言が少なく、理由を確認する投票です。`,
@@ -505,11 +505,24 @@ function isSpeechJsonLeak(text: string): boolean {
   );
 }
 
+function stripDialogueLabel(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  const match = compact.match(/^(?:実際の発話|実際のセリフ|セリフ|発言)\s*[:：]\s*(.+)$/);
+  return match ? match[1].trim() : compact;
+}
+
+function isDialogueMetaMessage(message: string): boolean {
+  const compact = message.replace(/\s+/g, " ").trim();
+  return /^(?:方針|戦略|作戦|推理メモ|進行メモ|内部メモ|補助メモ|メモ|出力|スキーマ|JSON|strategy|reasoning|analysis|public speech|message|messages|suspects|trusts|claims)\s*[:：]/i.test(
+    compact
+  );
+}
+
 function normalizeSpeechMessages(messagesSource: string[], fallback: string): string[] {
   return messagesSource
     .flatMap(splitSpeechText)
-    .map((message) => message.replace(/\s+/g, " ").trim())
-    .filter((message) => message.length > 0 && !isSpeechJsonLeak(message))
+    .map(stripDialogueLabel)
+    .filter((message) => message.length > 0 && !isSpeechJsonLeak(message) && !isDialogueMetaMessage(message))
     .slice(0, maxSpeechMessages)
     .map((message) => clampText(message, fallback));
 }
@@ -1006,6 +1019,44 @@ function targetName(targetId: string, candidates: TargetCandidate[]): string {
   return candidates.find((candidate) => candidate.id === targetId)?.name ?? targetId;
 }
 
+function stripTargetReasonLabel(reason: string): string {
+  const compact = reason.replace(/\s+/g, " ").trim();
+  const match = compact.match(/^(?:理由|投票理由|表示理由|実際の理由|reason)\s*[:：]\s*(.+)$/i);
+  return match ? match[1].trim() : compact;
+}
+
+function isTargetReasonMeta(reason: string): boolean {
+  const compact = reason.replace(/\s+/g, " ").trim();
+  return /^(?:方針|戦略|作戦|内部メモ|補助メモ|推理メモ|出力|スキーマ|JSON|strategy|reasoning|analysis|target|targetId|reason)\s*[:：]/i.test(
+    compact
+  );
+}
+
+function fallbackTargetReason(decision: TargetDecision, candidates: TargetCandidate[], language: string, phase: AgentTargetInput["phase"]): string {
+  const target = decision.targetId ? candidates.find((candidate) => candidate.id === decision.targetId) : null;
+  if (isJapaneseLanguage(language)) {
+    if (!target) {
+      return "今回は対象を選びません。";
+    }
+    return phase === "voting"
+      ? `${target.name}は今日の公開発言から一番疑わしいためです。`
+      : `${target.name}を選ぶのが今の状況で一番よいと判断しました。`;
+  }
+  if (!target) {
+    return "Skipping is the best available choice.";
+  }
+  return phase === "voting" ? `${target.name} is the most suspicious public vote.` : `${target.name} is the best available target.`;
+}
+
+function normalizeTargetDecision(decision: TargetDecision, candidates: TargetCandidate[], language: string, phase: AgentTargetInput["phase"]): TargetDecision {
+  const fallback = fallbackTargetReason(decision, candidates, language, phase);
+  const reason = stripTargetReasonLabel(clampReason(decision.reason, fallback));
+  return {
+    ...decision,
+    reason: reason.length > 0 && !isSpeechJsonLeak(reason) && !isTargetReasonMeta(reason) ? reason : fallback
+  };
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1242,7 +1293,7 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
 
   if (japanese) {
     if (situation === "black_result") {
-      return `${target.name}は人狼判定への返答がまだ弱く、今日の投票理由として残せます。`;
+      return `${target.name}は人狼判定への返答がまだ弱く、今日の投票理由になります。`;
     }
     if (situation === "seer_claim") {
       return `${target.name}は占い主張への反応がはっきりしないため投票します。`;
@@ -1646,6 +1697,7 @@ class LlmAgent implements Agent {
       };
     }
 
+    const japanese = isJapaneseLanguage(this.language);
     const system = buildTargetSystemPrompt({
       player: input.player,
       phase: input.phase,
@@ -1656,13 +1708,9 @@ class LlmAgent implements Agent {
     const messages: MessageParam[] = [
       {
         role: "user",
-        content: [
-          input.context,
-          "",
-          `Action: ${input.action}`,
-          "Legal targets:",
-          buildTargetList(input.candidates)
-        ].join("\n")
+        content: japanese
+          ? [input.context, "", `行動: ${input.action}`, "選べる対象:", buildTargetList(input.candidates)].join("\n")
+          : [input.context, "", `Action: ${input.action}`, "Legal targets:", buildTargetList(input.candidates)].join("\n")
       }
     ];
 
@@ -1670,7 +1718,7 @@ class LlmAgent implements Agent {
       const content = await this.complete(system, messages, targetDecisionMaxTokens, input.abortSignal);
       const selection = parseTargetSelection(content, input.candidates, input.allowSkip);
       if (selection.valid) {
-        return selection.decision;
+        return normalizeTargetDecision(selection.decision, input.candidates, this.language, input.phase);
       }
 
       messages.push({
@@ -1679,12 +1727,21 @@ class LlmAgent implements Agent {
       });
       messages.push({
         role: "user",
-        content: [
-          "Your previous response was not valid target-selection JSON or selected an illegal target.",
-          "Retry with strict JSON only.",
-          `Legal target ids: ${input.candidates.map((candidate) => candidate.id).join(", ")}.`,
-          input.allowSkip ? 'Use {"targetId":null,"reason":"short reason"} only if skipping.' : "You must choose one listed target id."
-        ].join("\n")
+        content: japanese
+          ? [
+              "直前の返答は、対象選択の JSON として不正か、一覧にない対象 ID を選んでいました。",
+              "厳密な JSON だけでやり直してください。",
+              `選べる対象 ID: ${input.candidates.map((candidate) => candidate.id).join(", ")}。`,
+              input.allowSkip
+                ? '選ばない場合だけ {"targetId":null,"reason":"短い理由"} を使えます。'
+                : "必ず一覧にある対象 ID を一つ選んでください。"
+            ].join("\n")
+          : [
+              "Your previous response was not valid target-selection JSON or selected an illegal target.",
+              "Retry with strict JSON only.",
+              `Legal target ids: ${input.candidates.map((candidate) => candidate.id).join(", ")}.`,
+              input.allowSkip ? 'Use {"targetId":null,"reason":"short reason"} only if skipping.' : "You must choose one listed target id."
+            ].join("\n")
       });
     }
 

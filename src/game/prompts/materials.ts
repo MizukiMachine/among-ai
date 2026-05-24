@@ -78,18 +78,33 @@ export interface PromptMaterials {
   outputFormats: {
     speechJson: {
       instruction: string;
+      japaneseInstruction: string;
     };
     targetJson: {
       instruction: string;
+      japaneseInstruction: string;
     };
     booleanJson: {
       instruction: string;
     };
     reminder: string;
+    japaneseReminder: string;
   };
   languageStyles: {
     japanese: {
       systemStyleGuide: string[];
+      dialogueContract: string[];
+      publicSpeech: {
+        systemPreamble: string[];
+        boundary: string[];
+        phaseGuidance: string[];
+      };
+      targetDecision: {
+        systemPreamble: string[];
+        boundary: string[];
+        votingGuidance: string[];
+        internalGuidance: string[];
+      };
     };
   };
   daySituations: Record<"ja" | "en", Record<DaySituationKey, string[]>>;
@@ -142,6 +157,7 @@ const roleArrayFields = [
   "discussion",
   "voting",
   "publicSpeechMustNotReveal",
+  "publicSpeechGuidanceJa",
   "internalInformation"
 ] as const;
 
@@ -257,6 +273,7 @@ function readRoleBody(source: Record<string, unknown>, path: string, errors: str
     discussion: stringArrayAt(source, "discussion", path, errors),
     voting: stringArrayAt(source, "voting", path, errors),
     publicSpeechMustNotReveal: stringArrayAt(source, "publicSpeechMustNotReveal", path, errors),
+    publicSpeechGuidanceJa: stringArrayAt(source, "publicSpeechGuidanceJa", path, errors),
     internalInformation: stringArrayAt(source, "internalInformation", path, errors)
   };
 }
@@ -290,6 +307,7 @@ function mergeRoleProfile(
     discussion: (merged.discussion ?? []) as string[],
     voting: (merged.voting ?? []) as string[],
     publicSpeechMustNotReveal: (merged.publicSpeechMustNotReveal ?? []) as string[],
+    publicSpeechGuidanceJa: (merged.publicSpeechGuidanceJa ?? []) as string[],
     internalInformation: (merged.internalInformation ?? []) as string[]
   };
 }
@@ -408,15 +426,18 @@ function readOutputFormats(root: Record<string, unknown>, errors: string[]): Pro
 
   return {
     speechJson: {
-      instruction: stringAt(speechJson, "instruction", "outputFormats.speechJson", errors)
+      instruction: stringAt(speechJson, "instruction", "outputFormats.speechJson", errors),
+      japaneseInstruction: stringAt(speechJson, "japaneseInstruction", "outputFormats.speechJson", errors)
     },
     targetJson: {
-      instruction: stringAt(targetJson, "instruction", "outputFormats.targetJson", errors)
+      instruction: stringAt(targetJson, "instruction", "outputFormats.targetJson", errors),
+      japaneseInstruction: stringAt(targetJson, "japaneseInstruction", "outputFormats.targetJson", errors)
     },
     booleanJson: {
       instruction: stringAt(booleanJson, "instruction", "outputFormats.booleanJson", errors)
     },
-    reminder: stringAt(outputFormats, "reminder", "outputFormats", errors)
+    reminder: stringAt(outputFormats, "reminder", "outputFormats", errors),
+    japaneseReminder: stringAt(outputFormats, "japaneseReminder", "outputFormats", errors)
   };
 }
 
@@ -439,10 +460,24 @@ function readRoundSummary(root: Record<string, unknown>, errors: string[]): Prom
 function readLanguageStyles(root: Record<string, unknown>, errors: string[]): PromptMaterials["languageStyles"] {
   const languageStyles = recordAt(root, "languageStyles", "materials", errors);
   const japanese = recordAt(languageStyles, "japanese", "languageStyles", errors);
+  const publicSpeech = recordAt(japanese, "publicSpeech", "languageStyles.japanese", errors);
+  const targetDecision = recordAt(japanese, "targetDecision", "languageStyles.japanese", errors);
 
   return {
     japanese: {
-      systemStyleGuide: stringArrayAt(japanese, "systemStyleGuide", "languageStyles.japanese", errors)
+      systemStyleGuide: stringArrayAt(japanese, "systemStyleGuide", "languageStyles.japanese", errors),
+      dialogueContract: stringArrayAt(japanese, "dialogueContract", "languageStyles.japanese", errors),
+      publicSpeech: {
+        systemPreamble: stringArrayAt(publicSpeech, "systemPreamble", "languageStyles.japanese.publicSpeech", errors),
+        boundary: stringArrayAt(publicSpeech, "boundary", "languageStyles.japanese.publicSpeech", errors),
+        phaseGuidance: stringArrayAt(publicSpeech, "phaseGuidance", "languageStyles.japanese.publicSpeech", errors)
+      },
+      targetDecision: {
+        systemPreamble: stringArrayAt(targetDecision, "systemPreamble", "languageStyles.japanese.targetDecision", errors),
+        boundary: stringArrayAt(targetDecision, "boundary", "languageStyles.japanese.targetDecision", errors),
+        votingGuidance: stringArrayAt(targetDecision, "votingGuidance", "languageStyles.japanese.targetDecision", errors),
+        internalGuidance: stringArrayAt(targetDecision, "internalGuidance", "languageStyles.japanese.targetDecision", errors)
+      }
     }
   };
 }

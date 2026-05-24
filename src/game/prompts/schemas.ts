@@ -32,6 +32,7 @@ export interface RolePromptProfile {
   discussion: string[];
   voting: string[];
   publicSpeechMustNotReveal: string[];
+  publicSpeechGuidanceJa: string[];
   internalInformation: string[];
 }
 

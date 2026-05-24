@@ -2151,6 +2151,61 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
   }
 });
 
+test("Japanese LLM target decision keeps displayed vote reason free of planning notes", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.match(body.system, /対象選択/);
+    assert.match(body.system, /reason は画面や履歴に表示/);
+    assert.doesNotMatch(body.system, /Role strategy|Phase guidance|Prompt mode|pressure|record|history|slot/i);
+    assert.match(String(body.messages[0].content), /行動:/);
+    assert.match(String(body.messages[0].content), /選べる対象:/);
+    assert.doesNotMatch(String(body.messages[0].content), /Action:|Legal targets:/);
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              targetId: "p2",
+              reason: "方針: サクラコへの疑いを強める。"
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
+
+    const decision = await agent.chooseTarget({
+      player,
+      phase: "voting",
+      action: "昼の処刑投票",
+      context: "投票理由の前提:\n公開発言から投票先を選んでください。",
+      candidates: [
+        { id: "p2", name: "サクラコ" },
+        { id: "p3", name: "アカネ" }
+      ],
+      allowSkip: false
+    });
+
+    assert.equal(decision.targetId, "p2");
+    assert.equal(decision.reason, "サクラコは今日の公開発言から一番疑わしいためです。");
+    assert.doesNotMatch(decision.reason, /方針|疑いを強める|strategy|pressure|record|history|slot/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("LLM speech messages are filtered, clamped, and capped", async () => {
   const originalFetch = globalThis.fetch;
   const longMessage = "x".repeat(180);
@@ -2360,6 +2415,55 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
     assert.match(speech.messages[0], /day one|not using anyone's statement|little information/i);
     assert.doesNotMatch(speech.messages[0], /quiet|vague|which statement changed/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM speech messages discard planning notes and keep displayed dialogue", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["方針: サクラコへの質問を増やす。", "実際の発話: サクラコ、投票理由をもう一度聞かせてください。"],
+              suspects: [{ targetId: "p2", reason: "投票理由がまだ弱い", weight: 0.6 }]
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "昼議論で発言してください。",
+      context: "議論してください。",
+      knownPlayers: [
+        { id: "p1", name: "シオン" },
+        { id: "p2", name: "サクラコ" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(speech.messages, ["サクラコ、投票理由をもう一度聞かせてください。"]);
+    assert.doesNotMatch(speech.messages.join(" "), /方針|実際の発話|質問を増やす/);
+    assert.equal(speech.metadata.suspects[0].targetName, "サクラコ");
   } finally {
     globalThis.fetch = originalFetch;
   }

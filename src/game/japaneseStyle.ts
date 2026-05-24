@@ -118,6 +118,15 @@ export function japaneseStyleGuide(language: string): string[] {
   return [heading, ...guidelines.map((line) => `- ${line}`)];
 }
 
+export function japaneseDialogueContract(language: string): string[] {
+  if (!isJapaneseLanguage(language)) {
+    return [];
+  }
+
+  const [heading, ...guidelines] = promptMaterials.languageStyles.japanese.dialogueContract;
+  return [heading, ...guidelines.map((line) => `- ${line}`)];
+}
+
 // Keep this scoped to deterministic demo copy. LLM output should be steered by prompts, not broad post-processing.
 export function sanitizeDemoJapaneseGameText(text: string, language: string): string {
   if (!isJapaneseLanguage(language)) {

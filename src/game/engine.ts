@@ -1402,8 +1402,8 @@ export class WerewolfGame {
             ),
         discussionPass === 1
           ? this.text(
-              "First pass: put one readable read, claim decision, or question on record so others can respond.",
-              "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つはっきり残してください。"
+              "First pass: give one clear read, claim decision, or question so others can respond.",
+              "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つだけ短く出してください。"
             )
           : discussionPass === 2
           ? this.text(
@@ -1411,7 +1411,7 @@ export class WerewolfGame {
               "2巡目: 自分への質問や疑いがあれば先に短く答え、その後に投票前の読みを一つ更新してください。"
             )
           : this.text(
-              "Final follow-up: answer the strongest pressure or claim question involving you, then give one voting-ready read.",
+              "Final follow-up: answer the strongest suspicion or claim question involving you, then give one voting-ready read.",
               "追加発言: 自分に向いた一番強い疑いや主張への確認に答え、投票前の読みを一つだけ出してください。"
             )
       ];
