@@ -1989,6 +1989,23 @@ input[type="range"] {
     0 8px 18px rgba(0, 0, 0, 0.18);
 }
 
+.setup-card .segments button:not(.selected):not(:disabled):hover,
+.setup-cast-grid.selectable button:not(.selected):not(:disabled):hover {
+  border-color: rgba(103, 216, 223, 0.5);
+  background:
+    linear-gradient(180deg, rgba(54, 66, 76, 0.72), rgba(15, 26, 33, 0.9)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(0, 0, 0, 0.22)),
+    var(--ship-control-texture),
+    #17242d;
+  background-blend-mode: normal, soft-light, luminosity, normal;
+  background-position: center, center, 44% 58%, center;
+  background-size: auto, auto, 360% 360%, auto;
+  box-shadow:
+    inset 0 0 0 1px rgba(103, 216, 223, 0.16),
+    0 7px 16px rgba(0, 0, 0, 0.16);
+  color: #ffffff;
+}
+
 .setup-card .segments button:disabled {
   background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.34);
@@ -2006,23 +2023,26 @@ input[type="range"] {
 }
 
 .participant-mode {
-  width: min(320px, 100%);
+  width: min(390px, 100%);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px;
+  gap: 7px;
 }
 
 .participant-mode button {
   display: inline-flex;
-  height: 30px;
-  min-height: 30px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 12px;
-  line-height: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.15;
   white-space: nowrap;
+}
+
+.participant-mode button svg {
+  flex: 0 0 auto;
 }
 
 .setup-cast-preview {
@@ -2082,11 +2102,6 @@ input[type="range"] {
 .setup-cast-grid button:disabled {
   cursor: default;
   opacity: 1;
-}
-
-.setup-cast-grid.selectable button:not(:disabled):hover {
-  border-color: rgba(103, 216, 223, 0.5);
-  background: rgba(255, 255, 255, 0.15);
 }
 
 .setup-cast-grid button.selected {
@@ -3667,11 +3682,11 @@ input[type="range"] {
   }
 
   .participant-mode button {
-    height: 30px;
-    min-height: 30px;
-    font-size: 11px;
+    min-height: 40px;
+    padding: 8px 6px;
+    font-size: 12px;
     white-space: nowrap;
-    line-height: 1;
+    line-height: 1.15;
   }
 
   .setup-cast-grid {
