@@ -690,6 +690,13 @@ export function App() {
     }
   }
 
+  function selectHumanPlayer(playerId: string) {
+    if (!humanEnabled) {
+      updateHumanEnabled(true);
+    }
+    setHumanPlayerId(playerId);
+  }
+
   function resetHumanInputState() {
     setPendingHumanInput(null);
     setHumanSpeech("");
@@ -1539,14 +1546,13 @@ export function App() {
                 <span>参加キャラクター</span>
                 <strong>{effectivePlayerCount}人</strong>
               </div>
-              <div className={`setup-cast-grid ${humanEnabled ? "selectable" : ""}`}>
+              <div className="setup-cast-grid selectable">
                 {humanPlayerOptions.map((player) => (
                   <button
                     aria-pressed={humanEnabled && humanPlayerId === player.id}
                     className={humanEnabled && humanPlayerId === player.id ? "selected" : ""}
-                    disabled={!humanEnabled}
                     key={player.id}
-                    onClick={humanEnabled ? () => setHumanPlayerId(player.id) : undefined}
+                    onClick={() => selectHumanPlayer(player.id)}
                     type="button"
                   >
                     <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} />
