@@ -1677,97 +1677,99 @@ export function App() {
             <ChevronDown size={16} />
           </div>
 
-          <div className="roster">
-            {winnerRosterText ? (
-              <div className="winner-row" role="status">
-                <Shield size={16} />
-                <strong>{winnerRosterText}</strong>
-              </div>
-            ) : null}
-            {alivePlayers.length > 0 ? (
-              alivePlayers.map((player) => {
-                const humanPlayer = isHumanPlayer(player.id);
-                return (
-                  <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
-                    {getCharacterImage(player.id) ? (
-                      <CharacterImage
-                        alt={player.name}
-                        className="player-avatar"
-                        fallback={(
-                          <div className="player-avatar avatar-fallback">
-                            <UserRound size={20} />
-                          </div>
-                        )}
-                        src={getCharacterImage(player.id)}
-                      />
-                    ) : (
-                      <div className="player-avatar avatar-fallback">
-                        <UserRound size={20} />
-                      </div>
-                    )}
-                    <div className="player-main">
-                      <div className="player-name-row">
-                        <strong>{player.name}</strong>
-                        <span className="persona-pill">{personaLabel(player.persona, language)}</span>
-                      </div>
-                      <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                        {roleDisplay(player, spectatorMode, language)}
-                      </span>
-                    </div>
-                    {humanPlayer ? (
-                      renderHumanPlayerBadge()
-                    ) : (
-                      <div className="signal-bars" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <p className="empty-note">プレイヤー未生成</p>
-            )}
-          </div>
-
-          {deadPlayers.length > 0 ? (
-            <>
-              <div className="player-section-title grave-title">
-                <span>墓地（{deadPlayers.length}人）</span>
-                <ChevronDown size={16} />
-              </div>
-              <div className="graveyard">
-                {deadPlayers.map((player) => {
+          <div className="player-list-scroll">
+            <div className="roster">
+              {winnerRosterText ? (
+                <div className="winner-row" role="status">
+                  <Shield size={16} />
+                  <strong>{winnerRosterText}</strong>
+                </div>
+              ) : null}
+              {alivePlayers.length > 0 ? (
+                alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
                   return (
-                    <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                    <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
                         <CharacterImage
                           alt={player.name}
-                          className="player-avatar small"
+                          className="player-avatar"
                           fallback={(
-                            <span className="avatar-fallback small">
-                              <UserRound size={15} />
-                            </span>
+                            <div className="player-avatar avatar-fallback">
+                              <UserRound size={20} />
+                            </div>
                           )}
                           src={getCharacterImage(player.id)}
                         />
                       ) : (
-                        <span className="avatar-fallback small">
-                          <UserRound size={15} />
-                        </span>
+                        <div className="player-avatar avatar-fallback">
+                          <UserRound size={20} />
+                        </div>
                       )}
-                      <strong>{player.name}</strong>
-                      {humanPlayer ? renderHumanPlayerBadge() : null}
-                      <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                      <div className="player-main">
+                        <div className="player-name-row">
+                          <strong>{player.name}</strong>
+                          <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                        </div>
+                        <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
+                          {roleDisplay(player, spectatorMode, language)}
+                        </span>
+                      </div>
+                      {humanPlayer ? (
+                        renderHumanPlayerBadge()
+                      ) : (
+                        <div className="signal-bars" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      )}
                     </div>
                   );
-                })}
-              </div>
-            </>
-          ) : null}
+                })
+              ) : (
+                <p className="empty-note">プレイヤー未生成</p>
+              )}
+            </div>
+
+            {deadPlayers.length > 0 ? (
+              <>
+                <div className="player-section-title grave-title">
+                  <span>墓地（{deadPlayers.length}人）</span>
+                  <ChevronDown size={16} />
+                </div>
+                <div className="graveyard">
+                  {deadPlayers.map((player) => {
+                    const humanPlayer = isHumanPlayer(player.id);
+                    return (
+                      <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                        {getCharacterImage(player.id) ? (
+                          <CharacterImage
+                            alt={player.name}
+                            className="player-avatar small"
+                            fallback={(
+                              <span className="avatar-fallback small">
+                                <UserRound size={15} />
+                              </span>
+                            )}
+                            src={getCharacterImage(player.id)}
+                          />
+                        ) : (
+                          <span className="avatar-fallback small">
+                            <UserRound size={15} />
+                          </span>
+                        )}
+                        <strong>{player.name}</strong>
+                        {humanPlayer ? renderHumanPlayerBadge() : null}
+                        <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+          </div>
         </aside>
 
         <section className="story-column">

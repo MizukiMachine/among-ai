@@ -175,6 +175,15 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
 });
 
+test("player roster scrolls inside the fixed gameplay panel", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /className="player-list-scroll"/);
+  assert.match(css, /\.intelligence-panel\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0[^}]*flex-direction:\s*column/s);
+  assert.match(css, /\.player-list-scroll\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+});
+
 test("story can advance from keyboard shortcuts outside form controls", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
