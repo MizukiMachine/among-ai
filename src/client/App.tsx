@@ -73,7 +73,7 @@ const characterImageMap: Record<string, string> = {
   p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
   p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
   p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
-  p15: `${CHARACTER_ASSET_ROOT}/p15_akihito.png`
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
