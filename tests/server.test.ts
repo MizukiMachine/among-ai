@@ -44,9 +44,15 @@ test("stream options default to LLM provider and LLM summaries", () => {
   assert.notEqual(options.model, "demo");
 });
 
-test("stream options accept expanded player counts up to 20", () => {
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20")).playerCount, 20);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=21")).playerCount, 20);
+test("stream options accept player counts up to 15", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).playerCount, 15);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=16")).playerCount, 15);
+});
+
+test("stream options lock generation concurrency to six", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).prefetchConcurrency, 6);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&concurrency=8")).prefetchConcurrency, 6);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&prefetchConcurrency=50")).prefetchConcurrency, 6);
 });
 
 test("stream options accept a human player and player view", () => {
@@ -59,6 +65,33 @@ test("stream options accept a human player and player view", () => {
   assert.equal(options.debugScenario, "none");
 });
 
+test("stream emits progress frames for batched AI generation", async () => {
+  const app = createApp();
+  const response = await app.request(
+    "/api/games/stream?players=8&provider=demo&summary=deterministic&speed=0&concurrency=2&scenario=guard_success&maxRounds=3"
+  );
+  const frames = parseSse(await response.text());
+  const progressFrames = frames.filter((frame) => frame.event === "progress");
+
+  assert.ok(progressFrames.some((frame) => (frame.data as { task?: string }).task === "day_speech"));
+  assert.ok(progressFrames.every((frame) => ((frame.data as { concurrency?: number }).concurrency ?? 0) <= 6));
+});
+
+test("village stream redacts secret werewolf progress frames", async () => {
+  const app = createApp();
+  const response = await app.request(
+    "/api/games/stream?players=8&provider=demo&summary=deterministic&speed=0&view=village&scenario=guard_success&maxRounds=3"
+  );
+  const frames = parseSse(await response.text());
+  const progressFrames = frames.filter((frame) => frame.event === "progress");
+  const progressPayloads = progressFrames.map((frame) => frame.data as { task?: string; label?: string; phase?: string; redacted?: boolean });
+
+  assert.ok(progressPayloads.some((progress) => progress.redacted === true && progress.task === "hidden"));
+  assert.ok(progressPayloads.every((progress) => !String(progress.task).startsWith("werewolf")));
+  assert.ok(progressPayloads.every((progress) => !String(progress.label).includes("人狼")));
+  assert.ok(progressPayloads.every((progress) => progress.phase !== "werewolf_discussion"));
+});
+
 test("human input session rejects responses that do not match the pending request", async () => {
   let requestId = "";
   const session = new HumanInputSession((request) => {
@@ -67,12 +100,12 @@ test("human input session rejects responses that do not match the pending reques
   const requestPromise = session.request({
     kind: "target",
     playerId: "p1",
-    playerName: "カズ",
+    playerName: "シオン",
     phase: "voting",
     role: "Villager",
     action: "投票",
     context: { notes: [], publicHistory: [], privateHistory: [] },
-    candidates: [{ id: "p2", name: "カイ" }],
+    candidates: [{ id: "p2", name: "ガク" }],
     allowSkip: false
   });
 

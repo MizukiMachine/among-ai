@@ -30,45 +30,62 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
+import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
-import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
+import { eventVisibility, isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
+import {
+  createRoles,
+  maxSupportedPlayers,
+  minimumPlayerCountForScenario as minimumSupportedPlayerCountForScenario,
+  minSupportedPlayers,
+  normalizePlayerCount as normalizeSupportedPlayerCount
+} from "../game/rules/presets";
 import type {
   ClaimMetadata,
   DebugScenario,
   GameEvent,
+  GameEventType,
   GameSnapshot,
+  GenerationProgress,
   HumanInputRequest,
+  Phase,
   PlayerReadMetadata,
   PlayerSnapshot,
   Role
 } from "../game/types";
 
+const BASE_URL = import.meta.env?.BASE_URL ?? "/";
+const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
+
 const characterImageMap: Record<string, string> = {
-  p1: new URL("../../assets/characters/kazu_final.png", import.meta.url).href,
-  p2: new URL("../../assets/characters/kai_final.png", import.meta.url).href,
-  p3: new URL("../../assets/characters/mio_final.png", import.meta.url).href,
-  p4: new URL("../../assets/characters/ren_final.png", import.meta.url).href,
-  p5: new URL("../../assets/characters/saki_final.png", import.meta.url).href,
-  p6: new URL("../../assets/characters/taka_final.png", import.meta.url).href,
-  p7: new URL("../../assets/characters/yuki_final.png", import.meta.url).href,
-  p8: new URL("../../assets/characters/ken_final.png", import.meta.url).href,
-  p9: new URL("../../assets/characters/rin_final.png", import.meta.url).href
+  p1: `${CHARACTER_ASSET_ROOT}/kazu_final.png`,
+  p2: `${CHARACTER_ASSET_ROOT}/kai_final.png`,
+  p3: `${CHARACTER_ASSET_ROOT}/mio_final.png`,
+  p4: `${CHARACTER_ASSET_ROOT}/ren_final.png`,
+  p5: `${CHARACTER_ASSET_ROOT}/saki_final.png`,
+  p6: `${CHARACTER_ASSET_ROOT}/taka_final.png`,
+  p7: `${CHARACTER_ASSET_ROOT}/yuki_final.png`,
+  p8: `${CHARACTER_ASSET_ROOT}/ken_final.png`,
+  p9: `${CHARACTER_ASSET_ROOT}/rin_final.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
-const villageRedactedMessage = "人間視点では非公開情報です。";
-const characterNames = ["カズ", "カイ", "ミオ", "レン", "サキ", "タカ", "ユキ", "ケン", "リン"];
+const villageRedactedMessage = redactedMessage;
+const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
 
 interface StreamSystemPayload {
   gameId?: string | null;
   humanPlayerId?: string | null;
   message?: string;
+  prefetchConcurrency?: number | null;
   view?: SpectatorMode;
 }
 
 interface HeroCastItem {
   id: string;
-  image: string;
+  image: string | null;
+  label: string;
   alive: boolean;
 }
 
@@ -89,17 +106,18 @@ function characterName(playerId: string): string {
 
 export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
   if (players.length > 0) {
-    return players
-      .map((player) => {
-        const image = getCharacterImage(player.id);
-        return image ? { id: player.id, image, alive: player.alive } : null;
-      })
-      .filter((item): item is HeroCastItem => Boolean(item));
+    return players.map((player) => ({
+      id: player.id,
+      image: getCharacterImage(player.id),
+      label: characterName(player.id),
+      alive: player.alive
+    }));
   }
 
-  return defaultCharacterImages.slice(0, playerCount).map((image, index) => ({
+  return Array.from({ length: playerCount }, (_, index) => ({
     id: `pending-${index}`,
-    image,
+    image: defaultCharacterImages[index] ?? null,
+    label: characterNames[index] ?? `P${index + 1}`,
     alive: true
   }));
 }
@@ -136,6 +154,17 @@ interface VoteTotal {
   targetId: string;
   targetName: string;
   count: number;
+}
+
+interface NightDeathSummary {
+  playerId: string;
+  playerName: string;
+}
+
+interface ClaimSummary {
+  speakerId: string;
+  speakerName: string;
+  claim: ClaimMetadata;
 }
 
 export interface ReadDetail {
@@ -178,6 +207,25 @@ function visibilityLabel(visibility: string): string {
   return visibility;
 }
 
+export function streamErrorMessageFromData(data: string | undefined): string {
+  if (!data) {
+    return streamConnectionErrorMessage;
+  }
+
+  try {
+    const payload = JSON.parse(data) as { message?: unknown };
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+  } catch {
+    if (data.trim()) {
+      return data;
+    }
+  }
+
+  return streamConnectionErrorMessage;
+}
+
 function eventIcon(event: GameEvent) {
   if (eventCause(event) === "hunter") {
     return <Crosshair size={16} />;
@@ -217,6 +265,10 @@ function eventTone(event: GameEvent): string {
     return "guard-action";
   }
   return "";
+}
+
+function renderStageBackdrop(phase: Phase | undefined, eventType?: GameEventType, secret?: boolean) {
+  return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} />;
 }
 
 function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
@@ -282,6 +334,10 @@ function shortText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
+function maxCount(items: Array<{ count: number }>): number {
+  return Math.max(1, ...items.map((item) => item.count));
+}
+
 export function isEventRedactedForSpectator(event: GameEvent, mode: SpectatorMode): boolean {
   if (event.data?.redacted === true) {
     return true;
@@ -331,26 +387,19 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
 }
 
-const playerCountOptions = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] as const;
-const minPlayerCount = playerCountOptions[0];
-const maxPlayerCount = playerCountOptions[playerCountOptions.length - 1];
+const playerCountOptions = Array.from(
+  { length: maxSupportedPlayers - minSupportedPlayers + 1 },
+  (_, index) => minSupportedPlayers + index
+);
+const minPlayerCount = minSupportedPlayers;
 const humanInputNoticeLeadCount = 2;
 
 function normalizePlayerCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 7;
-  }
-  return Math.min(maxPlayerCount, Math.max(minPlayerCount, Math.trunc(count)));
+  return normalizeSupportedPlayerCount(count);
 }
 
 function minimumPlayerCountForScenario(scenario: DebugScenario): number {
-  if (scenario === "guard_success") {
-    return 8;
-  }
-  if (scenario === "hunter_shot") {
-    return 9;
-  }
-  return minPlayerCount;
+  return minimumSupportedPlayerCountForScenario(scenario);
 }
 
 function effectivePlayerCountForScenario(count: number, scenario: DebugScenario): number {
@@ -367,50 +416,24 @@ function formatRoleCount(role: Role, count: number, language: string, forceCount
 
 function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
-  const roleCounts: Array<[Role, number]> = [];
-  if (normalizedCount <= 6) {
-    roleCounts.push(["Werewolf", 1]);
-  } else if (normalizedCount <= 10) {
-    roleCounts.push(["Werewolf", 2]);
-  } else if (normalizedCount <= 14) {
-    roleCounts.push(["Werewolf", 2], ["AlphaWolf", 1]);
-  } else if (normalizedCount <= 17) {
-    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1]);
-  } else {
-    roleCounts.push(["Werewolf", 3], ["AlphaWolf", 1], ["WolfBeauty", 1]);
-  }
-  roleCounts.push(["Seer", 1], ["Witch", 1]);
-  if (normalizedCount >= 8) {
-    roleCounts.push(["Guard", 1]);
-  }
-  if (normalizedCount >= 9) {
-    roleCounts.push(["Hunter", 1]);
-  }
-  if (normalizedCount >= 10) {
-    roleCounts.push(["Raven", 1]);
-  }
-  if (normalizedCount >= 13) {
-    roleCounts.push(["Idiot", 1]);
-  }
-  if (normalizedCount >= 15) {
-    roleCounts.push(["Elder", 1]);
-  }
-  if (normalizedCount >= 16) {
-    roleCounts.push(["Lover", 2]);
+  const counts = new Map<Role, number>();
+  for (const role of createRoles(normalizedCount)) {
+    counts.set(role, (counts.get(role) ?? 0) + 1);
   }
 
-  const assignedRoles = roleCounts.reduce((total, [, roleCount]) => total + roleCount, 0);
-  const villagers = Math.max(0, normalizedCount - assignedRoles);
-  if (villagers > 0) {
-    roleCounts.push(["Villager", villagers]);
-  }
-
-  return roleCounts;
+  return [...counts.entries()];
 }
 
 function getRoleDistributionText(count: number, language: string): string {
   const roleCounts = getRoleDistributionItems(count);
   return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language, role === "Werewolf")).join(" ");
+}
+
+function runModeClass(count: number): string {
+  if (count >= 13) {
+    return "mode-large";
+  }
+  return "mode-standard";
 }
 
 function getCampRatioText(count: number, language: string): string {
@@ -457,10 +480,12 @@ export function App() {
   const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
   const [humanEnabled, setHumanEnabled] = useState(false);
   const [humanPlayerId, setHumanPlayerId] = useState("p1");
+  const [settingsConfirmed, setSettingsConfirmed] = useState(false);
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -536,8 +561,9 @@ export function App() {
   const recentHistory = events.slice(-6).reverse();
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
+  const largeRunMode = effectivePlayerCount >= 13;
   const humanPlayerOptions = useMemo(
-    () => characterNames.slice(0, effectivePlayerCount).map((name, index) => ({ id: `p${index + 1}`, name })),
+    () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
   );
   const allPlayers = snapshot?.players ?? [];
@@ -601,15 +627,6 @@ export function App() {
     return remainingCount <= humanInputNoticeLeadCount ? "入力前確認" : "進行中";
   }
 
-  function updateDebugScenario(nextScenario: DebugScenario) {
-    if (humanEnabled) {
-      setDebugScenario("none");
-      return;
-    }
-    setDebugScenario(nextScenario);
-    setPlayerCount((current) => Math.max(current, minimumPlayerCountForScenario(nextScenario)));
-  }
-
   function updatePlayerCount(nextCount: number) {
     const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
     setPlayerCount(normalized);
@@ -642,6 +659,25 @@ export function App() {
     sourceRef.current = null;
   }
 
+  function resetToSetup() {
+    closeGameStream();
+    pausedRef.current = false;
+    revealFirstEventRef.current = false;
+    resetHumanInputState();
+    setPaused(false);
+    setEvents([]);
+    queuedRef.current = [];
+    setQueuedEvents([]);
+    setSnapshot(null);
+    setGenerationProgress(null);
+    setGameId(null);
+    setSourceDone(false);
+    setRunning(false);
+    setSettingsConfirmed(false);
+    statusBeforePauseRef.current = "待機中";
+    setStatus("待機中");
+  }
+
   function pauseGame() {
     if (!gameStarted || pausedRef.current) {
       return;
@@ -671,6 +707,7 @@ export function App() {
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
+    setGenerationProgress(null);
     setGameId(null);
     setSourceDone(false);
     setRunning(true);
@@ -703,8 +740,15 @@ export function App() {
       setGameStatus("生成中");
     });
 
+    source.addEventListener("progress", (message) => {
+      const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
+      setGenerationProgress(progress);
+      setGameStatus("生成中");
+    });
+
     source.addEventListener("game", (message) => {
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
+      setGenerationProgress(null);
       if (revealFirstEventRef.current) {
         revealFirstEventRef.current = false;
         if (!pausedRef.current) {
@@ -721,6 +765,7 @@ export function App() {
 
     source.addEventListener("human_input", (message) => {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
+      setGenerationProgress(null);
       setPendingHumanInput(request);
       setHumanSpeech("");
       setHumanReason("");
@@ -733,6 +778,7 @@ export function App() {
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
+      setGenerationProgress(null);
       setGameStatus("生成完了");
       source.close();
       if (sourceRef.current === source) {
@@ -744,36 +790,45 @@ export function App() {
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
+      setGenerationProgress(null);
       setGameStatus("エラー");
-      if ("data" in message && typeof message.data === "string") {
-        const payload = JSON.parse(message.data) as { message?: string };
-        const errorEvent: GameEvent = {
-          id: events.length + queuedRef.current.length + 1,
-          createdAt: new Date().toISOString(),
-          round: snapshot?.round ?? 0,
-          phase: snapshot?.phase ?? "setup",
-          type: "system",
-          message: payload.message ?? "ストリームエラー",
-          snapshot:
-            snapshot ?? {
-              round: 0,
-              phase: "setup",
-              winner: null,
-              players: [],
-              aliveCount: 0,
-              werewolfCount: 0,
-              villageCount: 0
-            }
-        };
-        const nextQueue = [...queuedRef.current, errorEvent];
-        queuedRef.current = nextQueue;
-        setQueuedEvents(nextQueue);
-      }
+      const errorMessage = streamErrorMessageFromData(
+        "data" in message && typeof message.data === "string" ? message.data : undefined
+      );
+      const errorEvent: GameEvent = {
+        id: events.length + queuedRef.current.length + 1,
+        createdAt: new Date().toISOString(),
+        round: snapshot?.round ?? 0,
+        phase: snapshot?.phase ?? "setup",
+        type: "system",
+        message: errorMessage,
+        snapshot:
+          snapshot ?? {
+            round: 0,
+            phase: "setup",
+            winner: null,
+            players: [],
+            aliveCount: 0,
+            werewolfCount: 0,
+            villageCount: 0
+          }
+      };
+      const nextQueue = [...queuedRef.current, errorEvent];
+      queuedRef.current = nextQueue;
+      setQueuedEvents(nextQueue);
       source.close();
       if (sourceRef.current === source) {
         sourceRef.current = null;
       }
     });
+  }
+
+  function confirmSettings() {
+    if (settingsConfirmed || running || sourceRef.current || events.length > 0 || queuedRef.current.length > 0) {
+      return;
+    }
+    setSettingsConfirmed(true);
+    startGame();
   }
 
   function revealNext() {
@@ -817,10 +872,6 @@ export function App() {
     }
     if (queuedRef.current.length > 0) {
       revealNext();
-      return;
-    }
-    if (!running && events.length === 0 && !sourceRef.current) {
-      startGame({ revealFirstEvent: true });
     }
   }
 
@@ -851,7 +902,7 @@ export function App() {
 
       const isBackKey = event.key === "ArrowLeft";
       const canRetreat = !paused && !pendingHumanInput && events.length > 0;
-      const canAdvance = !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || (!running && events.length === 0));
+      const canAdvance = !paused && !readyHumanInput && !isBackKey && queuedRef.current.length > 0;
       if (isBackKey && canRetreat) {
         event.preventDefault();
         retreatStory();
@@ -1113,10 +1164,162 @@ export function App() {
     );
   }
 
+  function renderSummaryPerson(playerId: string, playerName: string, tone = "", key?: string) {
+    const image = getCharacterImage(playerId);
+    return (
+      <span className={`summary-person ${tone}`} key={key}>
+        {image ? <img src={image} alt="" /> : <UserRound size={15} />}
+        <span>{playerName}</span>
+      </span>
+    );
+  }
+
+  function renderReadLeaders(title: string, reads: ReadDetail[], tone: "suspect" | "trust") {
+    const clusters = clusterReads(reads);
+    const shownClusters = clusters.slice(0, 2);
+    const highest = maxCount(shownClusters);
+    return (
+      <section className={`summary-read-column ${tone}`}>
+        <header>
+          {tone === "suspect" ? <Crosshair size={15} /> : <Shield size={15} />}
+          <span>{title}</span>
+        </header>
+        {shownClusters.length > 0 ? (
+          <div className="summary-rank-list">
+            {shownClusters.map((cluster) => (
+              <div className="summary-rank-row" key={`${tone}-${cluster.targetId}`}>
+                <div className="summary-rank-main">
+                  {renderSummaryPerson(cluster.targetId, cluster.targetName, tone)}
+                  <strong>{cluster.count}件</strong>
+                </div>
+                <span className="summary-meter" aria-hidden="true">
+                  <i style={{ width: `${Math.max(18, Math.round((cluster.count / highest) * 100))}%` }} />
+                </span>
+                <small>{cluster.sources.slice(0, 3).join("、")}</small>
+              </div>
+            ))}
+            {clusters.length > shownClusters.length ? <span className="summary-more">他{clusters.length - shownClusters.length}件</span> : null}
+          </div>
+        ) : (
+          <p className="summary-empty">なし</p>
+        )}
+      </section>
+    );
+  }
+
+  function renderRoundSummary(event: GameEvent, hidden: boolean) {
+    if (hidden) {
+      return <p>{villageRedactedMessage}</p>;
+    }
+
+    const nightDeaths = dataArray<NightDeathSummary>(event, "nightDeaths");
+    const claims = dataArray<ClaimSummary>(event, "claims");
+    const suspects = dataArray<ReadDetail>(event, "suspects");
+    const trusts = dataArray<ReadDetail>(event, "trusts");
+    const totals = [...dataArray<VoteTotal>(event, "totals")].sort(
+      (a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName)
+    );
+    const highestVoteCount = maxCount(totals);
+
+    return (
+      <div className="round-summary-board" aria-label={event.message}>
+        <div className="round-summary-title">
+          <span className="summary-icon"><ListChecks size={18} /></span>
+          <span>
+            <strong>ラウンド{event.round} 集計</strong>
+            <small>夜の結果・発言の読み・投票を整理</small>
+          </span>
+        </div>
+
+        <div className="summary-layout">
+          <div className="summary-left-column">
+            <div className="summary-status-grid">
+              <section className="summary-status-block death">
+                <header>
+                  <Skull size={16} />
+                  <span>夜の結果</span>
+                </header>
+                <div className="summary-person-row">
+                  {nightDeaths.length > 0
+                    ? nightDeaths.map((death) => renderSummaryPerson(death.playerId, death.playerName, "fallen", death.playerId))
+                    : <span className="summary-none">死亡者なし</span>}
+                </div>
+              </section>
+
+              <section className="summary-status-block claim">
+                <header>
+                  <MessageCircle size={16} />
+                  <span>主張</span>
+                </header>
+                <div className="summary-claim-list">
+                  {claims.length > 0 ? (
+                    claims.slice(0, 3).map((item, index) => (
+                      <span className="summary-claim" key={`${item.speakerId}-${index}`}>
+                        <strong>{item.speakerName}</strong>
+                        <span>{formatClaim(item.claim, language)}</span>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="summary-none">なし</span>
+                  )}
+                  {claims.length > 3 ? <span className="summary-more">他{claims.length - 3}件</span> : null}
+                </div>
+              </section>
+            </div>
+
+            <section className="summary-vote-block">
+              <header>
+                <Vote size={16} />
+                <span>投票</span>
+              </header>
+              {totals.length > 0 ? (
+                <div className="summary-vote-list">
+                  {totals.slice(0, 4).map((total) => (
+                    <div className="summary-vote-row" key={total.targetId}>
+                      {renderSummaryPerson(total.targetId, total.targetName, "vote")}
+                      <span className="summary-vote-meter" aria-hidden="true">
+                        <i style={{ width: `${Math.max(16, Math.round((total.count / highestVoteCount) * 100))}%` }} />
+                      </span>
+                      <strong>{total.count}票</strong>
+                    </div>
+                  ))}
+                  {totals.length > 4 ? <span className="summary-more">他{totals.length - 4}件</span> : null}
+                </div>
+              ) : (
+                <p className="summary-empty">なし</p>
+              )}
+            </section>
+          </div>
+
+          <div className="summary-read-grid">
+            {renderReadLeaders("疑い先", suspects, "suspect")}
+            {renderReadLeaders("信頼先", trusts, "trust")}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderStoryBody(event: GameEvent, hidden: boolean) {
+    if (event.type === "round_summary") {
+      return renderRoundSummary(event, hidden);
+    }
+    return <p>{hidden ? villageRedactedMessage : formatMessage(event.message)}</p>;
+  }
+
   const storyBackDisabled = paused || Boolean(pendingHumanInput) || events.length === 0;
-  const storyNextDisabled = paused || Boolean(readyHumanInput) || (queuedEvents.length === 0 && (running || events.length > 0));
+  const setupMode = events.length === 0 && snapshot === null;
+  const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
+  const storyNextDisabled =
+    paused ||
+    Boolean(readyHumanInput) ||
+    (setupMode && !settingsConfirmed) ||
+    firstScenePending ||
+    (queuedEvents.length === 0 && (running || events.length > 0));
   const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
-  const setupMode = !running && events.length === 0 && queuedEvents.length === 0 && snapshot === null;
+  const primaryActionIsGameStart = setupMode && settingsConfirmed;
+  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyWaitingForStream ? "処理中" : "次へ";
+  const primaryActionHint = primaryActionIsGameStart && storyWaitingForStream ? "準備中" : storyWaitingForStream ? "思考中" : "Enter / →";
   const runControlState = storyRunControlState(gameStarted, paused);
 
   function renderStoryProcessingHud() {
@@ -1124,8 +1327,15 @@ export function App() {
       return null;
     }
 
-    const title = currentEvent ? "次の場面を準備中" : "対局を準備中";
-    const detail = currentEvent ? "AIプレイヤーが考えています" : "AIプレイヤーと最初の場面を準備しています";
+    const progress = generationProgress;
+    const title = progress ? progress.label : currentEvent ? "次の場面を準備中" : "対局を準備中";
+    const passText = progress?.pass && progress.passes ? ` ${progress.pass}/${progress.passes}巡目` : "";
+    const detail = progress
+      ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}`
+      : currentEvent
+        ? "AIプレイヤーが考えています"
+        : "AIプレイヤーと最初の場面を準備しています";
+    const progressPercent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
     return (
       <section className="story-processing-hud" role="status" aria-live="polite">
@@ -1136,6 +1346,11 @@ export function App() {
           <strong>{title}</strong>
           <span>{detail}</span>
         </span>
+        {progress ? (
+          <span className="processing-meter" aria-hidden="true">
+            <i style={{ width: `${progressPercent}%` }} />
+          </span>
+        ) : null}
       </section>
     );
   }
@@ -1189,17 +1404,58 @@ export function App() {
     );
   }
 
-  function renderSetupControls() {
-    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
+  function renderQueueStatus() {
+    const progress = generationProgress && running ? generationProgress : null;
 
     return (
-      <div className="setup-card">
+      <span className="queue-count">
+        <ListChecks size={17} />
+        <span>未読 {queuedEvents.length}件</span>
+        {progress ? <small>生成 {progress.completed}/{progress.total}</small> : null}
+      </span>
+    );
+  }
+
+  function renderHeroCast() {
+    return (
+      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
+        {heroCast.map((item) =>
+          item.image ? (
+            <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
+          ) : (
+            <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`} key={item.id}>
+              {item.label}
+            </span>
+          )
+        )}
+      </div>
+    );
+  }
+
+  function isHumanPlayer(playerId: string): boolean {
+    return humanEnabled && humanPlayerId === playerId;
+  }
+
+  function renderHumanPlayerBadge() {
+    return (
+      <span className="human-player-badge">
+        <Gamepad2 size={12} />
+        <span>自分</span>
+      </span>
+    );
+  }
+
+  function renderSetupControls() {
+    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
+    const modeClass = runModeClass(effectivePlayerCount);
+
+    return (
+      <div className={`setup-card ${modeClass}`}>
         <div className="setup-card-heading">
           <div className="heading-label">
             <Settings size={18} />
             <h2>対局設定</h2>
           </div>
-          <span>開始前のみ</span>
         </div>
 
         <div className="setup-grid">
@@ -1211,7 +1467,7 @@ export function App() {
                 onClick={() => updateHumanEnabled(false)}
                 type="button"
               >
-                <Bot size={15} />
+                <Bot size={13} />
                 AI観戦
               </button>
               <button
@@ -1219,17 +1475,24 @@ export function App() {
                 onClick={() => updateHumanEnabled(true)}
                 type="button"
               >
-                <Gamepad2 size={15} />
-                自分で参加
+                <Gamepad2 size={13} />
+                自分も参加してプレイ
               </button>
             </div>
-            {humanEnabled ? (
-              <div className="human-seat-grid" aria-label="操作キャラクター">
+
+            <div className="setup-cast-preview" aria-label="参加キャラクター">
+              <div className="setup-cast-heading">
+                <span>参加キャラクター</span>
+                <strong>{effectivePlayerCount}人</strong>
+              </div>
+              <div className={`setup-cast-grid ${humanEnabled ? "selectable" : ""}`}>
                 {humanPlayerOptions.map((player) => (
                   <button
-                    className={humanPlayerId === player.id ? "selected" : ""}
+                    aria-pressed={humanEnabled && humanPlayerId === player.id}
+                    className={humanEnabled && humanPlayerId === player.id ? "selected" : ""}
+                    disabled={!humanEnabled}
                     key={player.id}
-                    onClick={() => setHumanPlayerId(player.id)}
+                    onClick={humanEnabled ? () => setHumanPlayerId(player.id) : undefined}
                     type="button"
                   >
                     {getCharacterImage(player.id) ? <img src={getCharacterImage(player.id) ?? ""} alt="" /> : <UserRound size={16} />}
@@ -1237,7 +1500,7 @@ export function App() {
                   </button>
                 ))}
               </div>
-            ) : null}
+            </div>
           </div>
 
           <div className="field setup-field player-count-field">
@@ -1263,10 +1526,13 @@ export function App() {
                 );
               })}
             </div>
+            <span className="player-count-note" role="note">
+              ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
+            </span>
 
             <div className="setup-breakdown" aria-label="役職内訳">
               <div className="setup-ratio">
-                <span>陣営比率</span>
+                <span>役職</span>
                 <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
               </div>
               <div className="setup-role-list">
@@ -1280,18 +1546,28 @@ export function App() {
             </div>
           </div>
 
-          {!humanEnabled ? (
-            <label className="field setup-field scenario-field">
-              <span>必ず起こしたいイベント</span>
-              <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-                <option value="none">ランダム（おすすめ）</option>
-                <option value="guard_success">護衛成功を再現</option>
-                <option value="hunter_shot">ハンター発砲を再現</option>
-              </select>
-            </label>
-          ) : null}
+        </div>
+
+        <div className="setup-card-footer">
+          <button className="icon-button primary setup-confirm-button" onClick={confirmSettings} type="button">
+            <Check size={17} />
+            <span>設定を決定</span>
+          </button>
         </div>
       </div>
+    );
+  }
+
+  function renderSetupConfirmedActions() {
+    if (!settingsConfirmed || events.length > 0) {
+      return null;
+    }
+
+    return (
+      <button className="setup-edit-button" onClick={resetToSetup} type="button">
+        <Settings size={15} />
+        <span>設定を変更</span>
+      </button>
     );
   }
 
@@ -1299,10 +1575,10 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true" />
+          <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
             <h1>Among AI</h1>
-            <p>AI人狼アリーナ</p>
+            <p>AIクルーの騙し合い実験</p>
           </div>
         </div>
 
@@ -1341,7 +1617,7 @@ export function App() {
       </header>
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
-        <aside className="panel intelligence-panel">
+        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""}`}>
           <div className="player-section-title">
             <span>生存プレイヤー（{alivePlayers.length}人）</span>
             <ChevronDown size={16} />
@@ -1355,32 +1631,39 @@ export function App() {
               </div>
             ) : null}
             {alivePlayers.length > 0 ? (
-              alivePlayers.map((player) => (
-                <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""}`} key={player.id}>
-                  {getCharacterImage(player.id) ? (
-                    <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
-                  ) : (
-                    <div className="player-avatar avatar-fallback">
-                      <UserRound size={20} />
+              alivePlayers.map((player) => {
+                const humanPlayer = isHumanPlayer(player.id);
+                return (
+                  <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                    {getCharacterImage(player.id) ? (
+                      <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                    ) : (
+                      <div className="player-avatar avatar-fallback">
+                        <UserRound size={20} />
+                      </div>
+                    )}
+                    <div className="player-main">
+                      <div className="player-name-row">
+                        <strong>{player.name}</strong>
+                        <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                      </div>
+                      <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
+                        {roleDisplay(player, spectatorMode, language)}
+                      </span>
                     </div>
-                  )}
-                  <div className="player-main">
-                    <div className="player-name-row">
-                      <strong>{player.name}</strong>
-                      <span className="persona-pill">{personaLabel(player.persona, language)}</span>
-                    </div>
-                    <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                      {roleDisplay(player, spectatorMode, language)}
-                    </span>
+                    {humanPlayer ? (
+                      renderHumanPlayerBadge()
+                    ) : (
+                      <div className="signal-bars" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    )}
                   </div>
-                  <div className="signal-bars" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="empty-note">プレイヤー未生成</p>
             )}
@@ -1393,19 +1676,23 @@ export function App() {
                 <ChevronDown size={16} />
               </div>
               <div className="graveyard">
-                {deadPlayers.map((player) => (
-                  <div className="dead-player" key={player.id}>
-                    {getCharacterImage(player.id) ? (
-                      <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
-                    ) : (
-                      <span className="avatar-fallback small">
-                        <UserRound size={15} />
-                      </span>
-                    )}
-                    <strong>{player.name}</strong>
-                    <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
-                  </div>
-                ))}
+                {deadPlayers.map((player) => {
+                  const humanPlayer = isHumanPlayer(player.id);
+                  return (
+                    <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                      {getCharacterImage(player.id) ? (
+                        <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                      ) : (
+                        <span className="avatar-fallback small">
+                          <UserRound size={15} />
+                        </span>
+                      )}
+                      <strong>{player.name}</strong>
+                      {humanPlayer ? renderHumanPlayerBadge() : null}
+                      <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </>
           ) : null}
@@ -1435,12 +1722,8 @@ export function App() {
                         : "進行";
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                      <div className="chapel-backdrop" aria-hidden="true" />
-                      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
-                        {heroCast.map((item) => (
-                          <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
-                        ))}
-                      </div>
+                      {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden)}
+                      {renderHeroCast()}
                       {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
@@ -1464,7 +1747,7 @@ export function App() {
                             </span>
                           </small>
                         </div>
-                        <p>{hidden ? villageRedactedMessage : formatMessage(currentEvent.message)}</p>
+                        {renderStoryBody(currentEvent, hidden)}
                         {renderEventDetails(currentEvent, hidden)}
                       </div>
                       {renderHumanInputPanel(readyHumanInput)}
@@ -1488,16 +1771,13 @@ export function App() {
                         >
                           {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
                           <span className="story-button-label">
-                            <span>{storyWaitingForStream ? "処理中" : "次へ"}</span>
-                            <kbd>{storyWaitingForStream ? "思考中" : "Enter / →"}</kbd>
+                            <span>{primaryActionLabel}</span>
+                            <kbd>{primaryActionHint}</kbd>
                           </span>
                           <ChevronRight className="story-next-chevron" size={20} />
                         </button>
                         {renderRunControls()}
-                        <span className="queue-count">
-                          <ListChecks size={17} />
-                          未読 {queuedEvents.length}件
-                        </span>
+                        {renderQueueStatus()}
                         {humanEnabled ? (
                           <div className="view-toggle view-toggle-inline player-view-lock">
                             <button className="selected" type="button" title={`${characterName(humanPlayerId)}として表示`}>
@@ -1533,22 +1813,20 @@ export function App() {
                 })()
               ) : (
                 <article className="scene-card story-hero empty-hero">
-                  <div className="chapel-backdrop" aria-hidden="true" />
-                  <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
-                    {heroCast.map((item) => (
-                      <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
-                    ))}
-                  </div>
-                  <div className="pregame-layout">
-                    <div className="scene-placeholder">
-                      <strong>{storyWaitingForStream ? "対局準備中" : "R0 待機中"}</strong>
-                      <p>{storyWaitingForStream ? "AIプレイヤーと最初の場面を準備しています。" : "設定を決めて対局を開始します。"}</p>
-                    </div>
-                    {storyWaitingForStream ? null : renderSetupControls()}
+                  {renderStageBackdrop("setup")}
+                  {renderHeroCast()}
+                  <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
+                    {settingsConfirmed ? (
+                      <div className="scene-placeholder">
+                        <strong>対局準備中</strong>
+                        <p>{queuedEvents.length > 0 ? "最初の場面を表示できます。" : "最初の場面を準備しています。"}</p>
+                      </div>
+                    ) : null}
+                    {!settingsConfirmed ? renderSetupControls() : renderSetupConfirmedActions()}
                   </div>
                   {renderPendingHumanInputNotice()}
                   {renderStoryProcessingHud()}
-                  <div className="story-controls">
+                  <div className="story-controls" hidden={!settingsConfirmed}>
                     <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
                       <ChevronLeft size={20} />
                       <span className="story-button-label">
@@ -1565,19 +1843,16 @@ export function App() {
                     >
                       {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
                       <span className="story-button-label">
-                        <span>{storyWaitingForStream ? "処理中" : "次へ"}</span>
-                        <kbd>{storyWaitingForStream ? "思考中" : "Enter / →"}</kbd>
+                        <span>{primaryActionLabel}</span>
+                        <kbd>{primaryActionHint}</kbd>
                       </span>
                       <ChevronRight className="story-next-chevron" size={20} />
                     </button>
                     {renderRunControls()}
-                    <span className="queue-count">
-                      <ListChecks size={17} />
-                      未読 {queuedEvents.length}件
-                    </span>
+                    {renderQueueStatus()}
                     {humanEnabled ? (
                       <div className="view-toggle view-toggle-inline player-view-lock">
-                        <button className="selected" type="button">
+                        <button className="selected" disabled={!settingsConfirmed} type="button">
                           <Gamepad2 size={15} />
                           自分視点
                         </button>
@@ -1586,6 +1861,7 @@ export function App() {
                       <div className="view-toggle view-toggle-inline">
                         <button
                           className={spectatorMode === "omniscient" ? "selected" : ""}
+                          disabled={!settingsConfirmed}
                           onClick={() => setSpectatorMode("omniscient")}
                           type="button"
                         >
@@ -1594,6 +1870,7 @@ export function App() {
                         </button>
                         <button
                           className={spectatorMode === "village" ? "selected" : ""}
+                          disabled={!settingsConfirmed}
                           onClick={() => setSpectatorMode("village")}
                           type="button"
                         >
@@ -1725,14 +2002,6 @@ export function App() {
             <span className="role-distribution">{getRoleDistributionText(effectivePlayerCount, language)}</span>
           </div>
 
-          <label className="field">
-            <span>必ず起こしたいイベント</span>
-            <select value={debugScenario} onChange={(event) => updateDebugScenario(event.target.value as DebugScenario)}>
-              <option value="none">ランダム（おすすめ）</option>
-              <option value="guard_success">護衛成功を再現</option>
-              <option value="hunter_shot">ハンター発砲を再現</option>
-            </select>
-          </label>
         </aside>
       </section>
     </main>

@@ -11,6 +11,7 @@ import {
   eventSpeakerForSpectator,
   heroCastForStage,
   storyRunControlState,
+  streamErrorMessageFromData,
   winnerLabelForRoster
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
@@ -19,8 +20,7 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /Among AI/);
-  assert.match(html, /必ず起こしたいイベント/);
-  assert.match(html, /自分で参加/);
+  assert.match(html, /自分も参加してプレイ/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
   assert.match(html, /info-bar-btn/);
@@ -33,6 +33,7 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   assert.doesNotMatch(html, /roster-summary/);
   assert.doesNotMatch(html, /対局サマリー/);
   assert.doesNotMatch(html, /一気に読む/);
+  assert.doesNotMatch(html, /必ず起こしたいイベント/);
   assert.doesNotMatch(html, /ゲームをリセット/);
   assert.doesNotMatch(html, />停止</);
   assert.doesNotMatch(html, /言語/);
@@ -53,8 +54,9 @@ test("winner label appears only when a winner exists", () => {
 
 test("hero cast mirrors selected and active player counts", () => {
   assert.equal(heroCastForStage([], 9).length, 9);
+  assert.equal(heroCastForStage([], 15).length, 15);
 
-  const players: PlayerSnapshot[] = Array.from({ length: 9 }, (_, index) => ({
+  const players: PlayerSnapshot[] = Array.from({ length: 15 }, (_, index) => ({
     id: `p${index + 1}`,
     name: `Player ${index + 1}`,
     role: "Villager",
@@ -64,11 +66,13 @@ test("hero cast mirrors selected and active player counts", () => {
     model: "demo",
     memoryCount: 0
   }));
-  const cast = heroCastForStage(players, 9);
+  const cast = heroCastForStage(players, 15);
 
-  assert.equal(cast.length, 9);
-  assert.equal(cast.at(-1)?.id, "p9");
-  assert.equal(cast.at(-1)?.alive, false);
+  assert.equal(cast.length, 15);
+  assert.equal(cast.at(-1)?.id, "p15");
+  assert.equal(cast.at(-1)?.image, null);
+  assert.equal(cast.at(-1)?.alive, true);
+  assert.equal(cast[8].alive, false);
 });
 
 test("read clusters count each source-target pair once", () => {
@@ -125,10 +129,12 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(css, /\.story-panel\s*\{[^}]*height:\s*clamp\(620px,\s*calc\(100vh - 104px\),\s*760px\)/s);
+  assert.match(css, /\.workspace\s*\{[^}]*height:\s*clamp\(560px,\s*calc\(100vh - 122px\),\s*760px\)/s);
+  assert.match(css, /\.story-panel\s*\{[^}]*min-height:\s*0/s);
   assert.match(css, /\.novel-stage\s*\{[^}]*height:\s*100%/s);
   assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 98px\)/s);
   assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.setup-grid\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*14px/s);
   assert.match(css, /\.story-back,\s*\.story-next\s*\{[^}]*min-width:\s*128px/s);
@@ -155,11 +161,23 @@ test("story controls expose back and next without read-all", () => {
   assert.doesNotMatch(source, /story-read-all/);
 });
 
-test("first next click starts the game and reveals the first streamed event", () => {
+test("stream connection errors produce a visible Japanese message", () => {
+  assert.equal(
+    streamErrorMessageFromData(undefined),
+    "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。"
+  );
+  assert.equal(streamErrorMessageFromData('{"message":"upstream failed"}'), "upstream failed");
+  assert.equal(streamErrorMessageFromData("plain failure"), "plain failure");
+});
+
+test("setting confirmation starts generation before the game start reveal", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /const revealFirstEventRef = useRef\(false\)/);
-  assert.match(source, /startGame\(\{ revealFirstEvent: true \}\)/);
+  assert.match(source, /function confirmSettings\(\)/);
+  assert.match(source, /setSettingsConfirmed\(true\);\s*startGame\(\);/);
+  assert.match(source, /const primaryActionLabel = primaryActionIsGameStart \? "ゲーム開始"/);
+  assert.match(source, /<span>設定を決定<\/span>/);
   assert.match(source, /summary: "deterministic"/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
@@ -178,7 +196,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function renderPendingHumanInputNotice/);
   assert.match(source, /次へで入力前の会話を確認してください/);
   assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(pendingHumanInput\)/);
-  assert.match(source, /const storyNextDisabled = paused \|\| Boolean\(readyHumanInput\)/);
+  assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !pendingHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
   assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running\]\);/);
@@ -194,7 +212,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     type: "player_speech",
     message: "人狼だけに見える相談内容",
     playerId: "p1",
-    playerName: "カズ",
+    playerName: "シオン",
     role: "Werewolf",
     data: { visibility: "werewolf" },
     snapshot: {
@@ -208,8 +226,8 @@ test("village spectator history redacts secret event messages and speakers", () 
     }
   };
 
-  assert.equal(eventMessageForSpectator(event, "village"), "人間視点では非公開情報です。");
+  assert.equal(eventMessageForSpectator(event, "village"), "あなたの視点では非公開情報です\n次へ進んでください");
   assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
-  assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "カズ");
+  assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
 });

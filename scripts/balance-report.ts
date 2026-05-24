@@ -17,6 +17,8 @@ console.table(
     runs: bucket.runs,
     village: bucket.villageWins,
     werewolf: bucket.werewolfWins,
+    lover: bucket.loverWins,
+    neutral: bucket.neutralWins,
     early: bucket.earlyEndings,
     avgRound: bucket.averageEndRound,
     minRound: bucket.minEndRound,

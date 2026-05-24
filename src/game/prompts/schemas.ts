@@ -19,6 +19,7 @@ export interface WitchPrivateState {
 
 export interface RoleSecretContext {
   werewolfAllies?: Array<TargetCandidate & { alive?: boolean }>;
+  loverPartner?: TargetCandidate & { alive?: boolean };
   seerResults?: SeerPrivateResult[];
   witch?: WitchPrivateState;
 }
@@ -65,4 +66,13 @@ export const booleanJsonSchemaInstruction = promptMaterials.outputFormats.boolea
 
 export const outputFormatReminder = promptMaterials.outputFormats.reminder;
 
-export const supportedPersonas: Persona[] = ["cautious", "aggressive", "logical", "opportunistic", "empathetic"];
+export const supportedPersonas: Persona[] = [
+  "cautious",
+  "aggressive",
+  "logical",
+  "opportunistic",
+  "empathetic",
+  "trickster",
+  "stoic",
+  "passionate"
+];

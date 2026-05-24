@@ -1,12 +1,25 @@
 import { Hono } from "hono";
 import { WerewolfGame } from "../game/engine";
 import { defaultLanguage } from "../game/i18n";
-import { redactEventForPlayer, redactEventForVillage, type SpectatorMode } from "../game/redaction";
+import {
+  redactEventForPlayer,
+  redactEventForVillage,
+  redactProgressForPlayer,
+  redactProgressForVillage,
+  type SpectatorMode
+} from "../game/redaction";
+import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
 import type { DebugScenario, GameConfig, HumanInputResponse, SummaryMode } from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
 
 const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
+const fixedGenerationConcurrency = 6;
+
+interface StreamOptions extends GameConfig {
+  speed: number;
+  view: SpectatorMode;
+}
 
 function intParam(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
@@ -70,11 +83,11 @@ function humanInputResponseFromBody(value: unknown): { requestId: string; respon
   };
 }
 
-export function parseStreamOptions(url: URL): GameConfig & { speed: number; view: SpectatorMode } {
+export function parseStreamOptions(url: URL): StreamOptions {
   const provider = url.searchParams.get("provider") === "demo" ? "demo" : "llm";
   const requestedModel = url.searchParams.get("model")?.trim() ?? "";
   const requestedSummaryMode = url.searchParams.get("summary");
-  const playerCount = intParam(url.searchParams.get("players"), 7, 6, 20);
+  const playerCount = intParam(url.searchParams.get("players"), 7, minSupportedPlayers, maxSupportedPlayers);
   const humanPlayerId =
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);
@@ -88,19 +101,28 @@ export function parseStreamOptions(url: URL): GameConfig & { speed: number; view
     summaryMode: requestedSummaryMode ? summaryModeParam(requestedSummaryMode) : provider === "llm" ? "llm" : "deterministic",
     debugScenario,
     humanPlayerId,
+    prefetchConcurrency: fixedGenerationConcurrency,
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
   };
 }
 
-function sseFrame(event: string, data: unknown): Uint8Array {
-  return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
+  return {
+    provider: options.provider,
+    model: options.model,
+    playerCount: options.playerCount,
+    language: options.language,
+    maxRounds: options.maxRounds,
+    summaryMode: options.summaryMode,
+    debugScenario: options.debugScenario,
+    humanPlayerId: options.humanPlayerId,
+    prefetchConcurrency: options.prefetchConcurrency
+  };
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+function sseFrame(event: string, data: unknown): Uint8Array {
+  return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 export function createApp(): Hono {
@@ -130,7 +152,9 @@ export function createApp(): Hono {
 
   app.get("/api/games/stream", (c) => {
     const url = new URL(c.req.url);
-    const { speed, view, ...config } = parseStreamOptions(url);
+    const options = parseStreamOptions(url);
+    const { view } = options;
+    const config = gameConfigFromStreamOptions(options);
     let cancelled = false;
     let humanSession: HumanInputSession | null = null;
     const abortController = new AbortController();
@@ -149,14 +173,26 @@ export function createApp(): Hono {
         const streamView = view === "player" && !config.humanPlayerId ? "village" : view;
         const game = new WerewolfGame(config, {
           ...(humanSession ? { humanInput: humanSession } : {}),
-          abortSignal: abortController.signal
+          abortSignal: abortController.signal,
+          onProgress: (progress) => {
+            if (!cancelled && !abortController.signal.aborted) {
+              const payload =
+                streamView === "player" && config.humanPlayerId
+                  ? redactProgressForPlayer(progress)
+                  : streamView === "village"
+                    ? redactProgressForVillage(progress)
+                    : progress;
+              controller.enqueue(sseFrame("progress", payload));
+            }
+          }
         });
         controller.enqueue(
           sseFrame("system", {
             message: "stream_opened",
             view: streamView,
             gameId: humanSession?.id ?? null,
-            humanPlayerId: config.humanPlayerId ?? null
+            humanPlayerId: config.humanPlayerId ?? null,
+            prefetchConcurrency: config.prefetchConcurrency ?? null
           })
         );
 
@@ -172,7 +208,6 @@ export function createApp(): Hono {
                   ? redactEventForVillage(event)
                   : event;
             controller.enqueue(sseFrame("game", payload));
-            await wait(speed);
           }
           if (!cancelled && !abortController.signal.aborted) {
             controller.enqueue(sseFrame("done", { message: "game_complete" }));

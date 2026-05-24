@@ -4,6 +4,7 @@ import { runBalanceReport } from "../src/game/balance";
 
 test("seeded balance smoke covers 6-9 player tables without pre-day endings", async () => {
   const report = await runBalanceReport({
+    playerCounts: [6, 7, 8, 9],
     runs: 8,
     maxRounds: 5,
     seed: "test-balance"
@@ -15,7 +16,7 @@ test("seeded balance smoke covers 6-9 player tables without pre-day endings", as
   );
 
   for (const bucket of report) {
-    assert.equal(bucket.villageWins + bucket.werewolfWins, bucket.runs);
+    assert.equal(bucket.villageWins + bucket.werewolfWins + bucket.loverWins + bucket.neutralWins, bucket.runs);
     assert.equal(bucket.earlyEndings, 0);
     assert.ok(bucket.averageEndRound >= 1);
     assert.ok(bucket.averageEndRound <= 5);
@@ -24,9 +25,9 @@ test("seeded balance smoke covers 6-9 player tables without pre-day endings", as
   }
 });
 
-test("seeded balance smoke covers 15-20 player tables without pre-day endings", async () => {
+test("seeded balance smoke covers compressed upper player tables without pre-day endings", async () => {
   const report = await runBalanceReport({
-    playerCounts: [15, 16, 17, 18, 19, 20],
+    playerCounts: [13, 14, 15],
     runs: 2,
     maxRounds: 5,
     seed: "test-large-balance"
@@ -34,11 +35,11 @@ test("seeded balance smoke covers 15-20 player tables without pre-day endings", 
 
   assert.deepEqual(
     report.map((bucket) => bucket.playerCount),
-    [15, 16, 17, 18, 19, 20]
+    [13, 14, 15]
   );
 
   for (const bucket of report) {
-    assert.equal(bucket.villageWins + bucket.werewolfWins, bucket.runs);
+    assert.equal(bucket.villageWins + bucket.werewolfWins + bucket.loverWins + bucket.neutralWins, bucket.runs);
     assert.equal(bucket.earlyEndings, 0);
     assert.ok(bucket.averageEndRound >= 1);
     assert.ok(bucket.averageEndRound <= 5);

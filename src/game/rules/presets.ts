@@ -1,7 +1,7 @@
 import type { DebugScenario, Role } from "../types";
 
 export const minSupportedPlayers = 6;
-export const maxSupportedPlayers = 20;
+export const maxSupportedPlayers = 15;
 export const defaultPlayerCount = 7;
 
 export function normalizePlayerCount(count: number): number {
@@ -20,17 +20,20 @@ export function createRoles(playerCount: number): Role[] {
   if (playerCount >= 9) {
     fixed.push("Hunter");
   }
-  if (playerCount >= 10) {
+  if (playerCount >= 9) {
     fixed.push("Raven");
   }
-  if (playerCount >= 13) {
+  if (playerCount >= 11) {
     fixed.push("Idiot");
   }
-  if (playerCount >= 15) {
+  if (playerCount >= 12) {
     fixed.push("Elder");
   }
-  if (playerCount >= 16) {
+  if (playerCount >= 13) {
     fixed.push("Lover", "Lover");
+  }
+  if (playerCount >= 15) {
+    fixed.push("Jester");
   }
   return [...fixed, ...Array.from<Role>({ length: playerCount - fixed.length }).fill("Villager")];
 }
@@ -39,16 +42,13 @@ function createWerewolfRoles(playerCount: number): Role[] {
   if (playerCount <= 6) {
     return ["Werewolf"];
   }
-  if (playerCount <= 10) {
+  if (playerCount <= 9) {
     return ["Werewolf", "Werewolf"];
   }
-  if (playerCount <= 14) {
+  if (playerCount <= 13) {
     return ["Werewolf", "Werewolf", "AlphaWolf"];
   }
-  if (playerCount <= 17) {
-    return ["Werewolf", "Werewolf", "AlphaWolf", "Werewolf"];
-  }
-  return ["Werewolf", "Werewolf", "AlphaWolf", "WolfBeauty", "Werewolf"];
+  return ["Werewolf", "Werewolf", "AlphaWolf", "WolfBeauty"];
 }
 
 export function minimumPlayerCountForScenario(scenario: DebugScenario): number {

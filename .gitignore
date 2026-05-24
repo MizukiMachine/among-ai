@@ -4,6 +4,7 @@ dist
 .env
 .DS_Store
 *.log
-assets/
-public/characters/
+/assets/
+/another/
+/public/characters/
 .claude/

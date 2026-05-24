@@ -27,17 +27,17 @@ function rulePlayer(id: string, role: Role, alive = true): Pick<Player, "id" | "
   };
 }
 
-test("role presets preserve the current 6-9 player distribution", () => {
+test("role presets preserve the compact low-player distribution", () => {
   assert.equal(normalizePlayerCount(5), 6);
-  assert.equal(normalizePlayerCount(20), 20);
-  assert.equal(normalizePlayerCount(21), 20);
+  assert.equal(normalizePlayerCount(15), 15);
+  assert.equal(normalizePlayerCount(16), 15);
   assert.equal(normalizePlayerCount(Number.NaN), 7);
 
   const expected = new Map<number, Partial<Record<Role, number>>>([
     [6, { Werewolf: 1, Seer: 1, Witch: 1, Villager: 3 }],
     [7, { Werewolf: 2, Seer: 1, Witch: 1, Villager: 3 }],
     [8, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Villager: 3 }],
-    [9, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Hunter: 1, Villager: 3 }]
+    [9, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Hunter: 1, Raven: 1, Villager: 2 }]
   ]);
 
   for (const [count, roleCounts] of expected) {
@@ -49,17 +49,41 @@ test("role presets preserve the current 6-9 player distribution", () => {
   }
 });
 
-test("large role presets enable 15-20 player tables with advanced roles", () => {
-  for (const count of [15, 16, 17, 18, 19, 20]) {
+test("compressed role presets unlock advanced roles across 10-14 players", () => {
+  const expected = new Map<number, Partial<Record<Role, number>>>([
+    [10, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Villager: 2 }],
+    [11, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Villager: 2 }],
+    [12, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Elder: 1, Villager: 2 }],
+    [13, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }],
+    [14, { Werewolf: 2, AlphaWolf: 1, WolfBeauty: 1, Raven: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }]
+  ]);
+
+  for (const [count, roleCounts] of expected) {
     const roles = createRoles(count);
     assert.equal(roles.length, count);
-    assert.ok(roles.includes("AlphaWolf"));
-    assert.ok(roles.includes("Raven"));
-    assert.ok(roles.includes("Idiot"));
-    assert.ok(roles.includes("Elder"));
-    assert.equal(roles.filter((role) => role === "Lover").length, count >= 16 ? 2 : 0);
-    assert.equal(roles.filter((role) => role === "WolfBeauty").length, count >= 18 ? 1 : 0);
+    for (const [role, roleCount] of Object.entries(roleCounts)) {
+      assert.equal(roles.filter((item) => item === role).length, roleCount);
+    }
   }
+});
+
+test("15 player role preset compresses every advanced role into the supported max table", () => {
+  const roles = createRoles(15);
+
+  assert.equal(roles.length, 15);
+  assert.equal(roles.filter((role) => role === "Werewolf").length, 2);
+  assert.equal(roles.filter((role) => role === "AlphaWolf").length, 1);
+  assert.equal(roles.filter((role) => role === "WolfBeauty").length, 1);
+  assert.equal(roles.filter((role) => role === "Seer").length, 1);
+  assert.equal(roles.filter((role) => role === "Witch").length, 1);
+  assert.equal(roles.filter((role) => role === "Guard").length, 1);
+  assert.equal(roles.filter((role) => role === "Hunter").length, 1);
+  assert.equal(roles.filter((role) => role === "Raven").length, 1);
+  assert.equal(roles.filter((role) => role === "Idiot").length, 1);
+  assert.equal(roles.filter((role) => role === "Elder").length, 1);
+  assert.equal(roles.filter((role) => role === "Lover").length, 2);
+  assert.equal(roles.filter((role) => role === "Jester").length, 1);
+  assert.equal(roles.filter((role) => role === "Villager").length, 1);
 });
 
 test("night action plan is priority ordered and deduplicates team actions", () => {

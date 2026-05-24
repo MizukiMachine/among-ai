@@ -12,7 +12,7 @@ import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, val
 import type { Camp, Persona, Player, Role } from "../src/game/types";
 
 function player(role: Role, id = "p1", name = "Ada", persona: Persona = "logical"): Player {
-  const camp: Camp = role === "Werewolf" ? "werewolf" : "village";
+  const camp: Camp = role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty" ? "werewolf" : "village";
   return {
     id,
     name,
@@ -78,6 +78,7 @@ function contextFor(role: Role) {
     language: "English",
     secret: {
       werewolfAllies: [{ id: "secret-wolf", name: "SecretWolf" }],
+      loverPartner: { id: "secret-lover", name: "SecretLover", alive: true },
       seerResults: [{ targetId: "secret-check", targetName: "SecretCheck", camp: "werewolf", round: 1 }],
       witch: {
         savePotion: true,
@@ -107,6 +108,16 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
+  const alphaWolf = contextFor("AlphaWolf");
+  assert.match(alphaWolf, /SecretWolf/);
+  assert.doesNotMatch(alphaWolf, /SecretCheck/);
+  assert.doesNotMatch(alphaWolf, /SecretVictim/);
+
+  const wolfBeauty = contextFor("WolfBeauty");
+  assert.match(wolfBeauty, /SecretWolf/);
+  assert.doesNotMatch(wolfBeauty, /SecretCheck/);
+  assert.doesNotMatch(wolfBeauty, /SecretVictim/);
+
   const seer = contextFor("Seer");
   assert.match(seer, /SecretCheck/);
   assert.doesNotMatch(seer, /SecretWolf/);
@@ -118,11 +129,18 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(witch, /SecretWolf/);
   assert.doesNotMatch(witch, /SecretCheck/);
 
+  const lover = contextFor("Lover");
+  assert.match(lover, /SecretLover/);
+  assert.doesNotMatch(lover, /SecretWolf/);
+  assert.doesNotMatch(lover, /SecretCheck/);
+  assert.doesNotMatch(lover, /SecretVictim/);
+
   const villager = contextFor("Villager");
   assert.match(villager, /No private role information/);
   assert.doesNotMatch(villager, /SecretWolf/);
   assert.doesNotMatch(villager, /SecretCheck/);
   assert.doesNotMatch(villager, /SecretVictim/);
+  assert.doesNotMatch(villager, /SecretLover/);
   assert.doesNotMatch(villager, /Save potion remaining/);
 });
 
@@ -169,7 +187,9 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /Public speech must not reveal/);
   assert.match(speech, /Legal living read target ids for suspects\/trusts/);
   assert.match(speech, /two short table passes/);
+  assert.match(speech, /follow-up statements/);
   assert.match(speech, /answer that before starting a new topic/);
+  assert.match(speech, /Evaluate another player's statements/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
   assert.match(target, /You must choose one listed target/);
@@ -217,8 +237,11 @@ test("first-day discussion prompts keep reads tentative and question-led", () =>
   assert.match(context, /強い断定を避ける/);
   assert.match(context, /質問する/);
   assert.match(context, /発言量/);
-  assert.match(context, /誰が誰の疑いに乗ったか/);
+  assert.match(context, /実際に誰かが疑いに乗った後/);
   assert.match(context, /仮説として軽く疑う/);
+  assert.match(context, /No prior public statements are included/);
+  assert.match(context, /vagueness as observed evidence yet/);
+  assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
 

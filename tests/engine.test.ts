@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicAgent, DemoAgent, listJapaneseDemoCopySamples, summarizeRoundWithLlm } from "../src/game/agents";
+import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
+import { HumanInputAgent } from "../src/game/humanAgent";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
+import { maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
@@ -17,8 +20,11 @@ import type {
   CampId,
   GameConfig,
   GameEvent,
+  GenerationProgress,
   Player,
   Role,
+  HumanInputHandler,
+  HumanInputRequestPayload,
   TargetDecision
 } from "../src/game/types";
 
@@ -27,7 +33,8 @@ const baseConfig: GameConfig = {
   provider: "demo",
   model: "demo",
   language: "English",
-  maxRounds: 3
+  maxRounds: 3,
+  prefetchConcurrency: 1
 };
 
 class ScriptedAgent implements Agent {
@@ -90,6 +97,139 @@ class PreferTargetAgent extends ScriptedAgent {
       targetId: target?.id ?? null,
       reason: `${this.name} preferred ${this.preferredTargetId}`
     };
+  }
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(new Error("aborted"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+class DelayedSpeechAgent implements Agent {
+  readonly model = "delayed";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  private calls = 0;
+
+  constructor(
+    readonly name: string,
+    private readonly delays: number[],
+    private readonly message: (input: AgentSpeechInput, call: number) => string
+  ) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const call = this.calls;
+    this.calls += 1;
+    this.speechInputs.push(input);
+    await sleepWithAbort(this.delays[call] ?? this.delays.at(-1) ?? 0, input.abortSignal);
+    return {
+      messages: [this.message(input, call)],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} delayed target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
+class DelayedNightActionAgent implements Agent {
+  readonly model = "delayed-night-action";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+
+  constructor(
+    readonly name: string,
+    private readonly speechDelayMs: number,
+    private readonly targetDelayMs: number
+  ) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
+    await sleepWithAbort(this.speechDelayMs, input.abortSignal);
+    return {
+      messages: [`${this.name} slow night discussion.`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    await sleepWithAbort(this.targetDelayMs, input.abortSignal);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} delayed night target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
+class FailOnceSpeechAgent implements Agent {
+  readonly model = "fail-once";
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  private failed = false;
+
+  constructor(readonly name: string) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
+    if (!this.failed) {
+      this.failed = true;
+      throw new Error(`${this.name} failed speculative speech`);
+    }
+    return {
+      messages: [`${this.name} recovered after speculative failure.`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: []
+      }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} fail-once target`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
   }
 }
 
@@ -217,14 +357,15 @@ test("role distribution includes required special roles and scales werewolves", 
     assert.equal(roles.filter((role) => role === "Witch").length, 1);
     assert.equal(roles.filter((role) => role === "Guard").length, playerCount >= 8 ? 1 : 0);
     assert.equal(roles.filter((role) => role === "Hunter").length, playerCount >= 9 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Raven").length, playerCount >= 9 ? 1 : 0);
     assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 7 ? 2 : 1);
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
 });
 
-test("large role distribution supports 15-20 players with advanced roles", async () => {
-  for (const playerCount of [15, 16, 17, 18, 19, 20]) {
+test("compressed role distribution supports advanced roles before the 15 player cap", async () => {
+  for (const playerCount of [10, 11, 12, 13, 14, 15]) {
     const game = new WerewolfGame({ ...baseConfig, playerCount });
     const run = game.run();
     const first = await run.next();
@@ -235,10 +376,42 @@ test("large role distribution supports 15-20 players with advanced roles", async
     assert.equal(roles.length, playerCount);
     assert.ok(roles.includes("AlphaWolf"));
     assert.ok(roles.includes("Raven"));
-    assert.ok(roles.includes("Idiot"));
-    assert.ok(roles.includes("Elder"));
-    assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 16 ? 2 : 0);
-    assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 18 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Idiot").length, playerCount >= 11 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Elder").length, playerCount >= 12 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 13 ? 2 : 0);
+    assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 14 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Jester").length, playerCount >= 15 ? 1 : 0);
+  }
+});
+
+test("character roster covers all supported player slots with fixed names and personas", () => {
+  assert.equal(characterProfiles.length, maxSupportedPlayers);
+  assert.deepEqual(characterNames, characterProfiles.map((profile) => profile.nameJa));
+  const nameLengths = characterNames.reduce<Record<number, number>>((counts, name) => {
+    const length = Array.from(name).length;
+    counts[length] = (counts[length] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  assert.deepEqual(nameLengths, { 2: 2, 3: 9, 4: 2, 5: 2 });
+  const incomingRelations = Object.fromEntries(characterProfiles.map((profile) => [profile.playerId, 0]));
+  for (const profile of characterProfiles) {
+    for (const relatedPlayerId of Object.keys(profile.relations)) {
+      if (relatedPlayerId in incomingRelations) {
+        incomingRelations[relatedPlayerId] += 1;
+      }
+    }
+  }
+  assert.ok(characterProfiles.every((profile) => incomingRelations[profile.playerId] > 0));
+
+  const game = new WerewolfGame({ ...baseConfig, playerCount: maxSupportedPlayers }) as TestableGame;
+
+  for (const [index, player] of game.players.entries()) {
+    const profile = characterProfiles[index];
+    assert.equal(player.id, profile.playerId);
+    assert.equal(player.name, profile.nameJa);
+    assert.equal(player.persona, profile.persona);
+    assert.equal(player.characterProfile, profile);
   }
 });
 
@@ -402,8 +575,9 @@ test("Japanese demo first-day speech stays tentative and question-led", async ()
   });
 
   const messageText = speech.messages.join(" ");
-  assert.match(messageText, /初日|情報が少ない|決め打ち|仮説|発言量|便乗/);
+  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|軽い質問|理由を出す流れ|最初の考え/);
   assert.doesNotMatch(messageText, /人狼判定|確定|決めつけ/);
+  assert.doesNotMatch(messageText, /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
@@ -550,7 +724,7 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.equal(players[3].alive, false);
   assert.ok(events.some((event) => event.type === "vote_result"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
-  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "カズ scripted reason"));
+  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "シオン scripted reason"));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
 });
 
@@ -566,6 +740,9 @@ test("Raven mark adds a vote modifier to the next execution vote", async () => {
   ]);
 
   await collect(game.runRavenAction(players[0]));
+  const ravenAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.ok(ravenAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[0].id));
+
   const events = await collect(game.runVoting());
   const totals = events.find((event) => event.type === "vote_result" && Array.isArray(event.data?.totals));
 
@@ -728,7 +905,297 @@ test("day discussion gives each living player a second response pass", async () 
   assert.equal(firstAgent.speechInputs.length, 2);
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
-  assert.match(firstAgent.speechInputs[1].context, /カイ speaks/);
+  assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
+});
+
+test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 6 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [50], () => "slow first candidate"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "FAST marker"));
+  game.agents.set(
+    players[2].id,
+    new DelayedSpeechAgent(players[2].name, [30, 1], (input) =>
+      input.context.includes("FAST marker") ? "saw FAST marker" : "missed FAST marker"
+    )
+  );
+  for (const player of players.slice(3)) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [50], () => `${player.name} slow`));
+  }
+
+  const events = await collect(game.runDay());
+  const firstPassEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 1);
+
+  assert.equal(firstPassEvents[0].playerId, players[1].id);
+  assert.equal(firstPassEvents[0].message, "FAST marker");
+  assert.equal(firstPassEvents[1].playerId, players[2].id);
+  assert.equal(firstPassEvents[1].message, "saw FAST marker");
+});
+
+test("discarded speculative speech failures do not write player memories", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 2 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new FailOnceSpeechAgent(players[0].name));
+  for (const player of players.slice(1)) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [20], () => `${player.name} speaks after failure`));
+  }
+
+  await collect(game.runDay());
+
+  assert.equal(players[0].memories.some((memory) => memory.includes("LLM error") || memory.includes("発言生成中")), false);
+});
+
+test("day discussion adds focused follow-up speakers after regular passes", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Byron needs to answer this first."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "unclear stance", weight: 0.8 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf" },
+    {
+      role: "Seer",
+      speeches: [
+        {
+          messages: ["Byron is still my main concern."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "dodged pressure", weight: 0.7 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    {
+      role: "Witch",
+      speeches: [
+        {
+          messages: ["Edison also needs a final answer."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p5", targetName: "Edison", reason: "late shift", weight: 0.4 }],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    [players[1].id, players[4].id]
+  );
+  assert.ok(followUpEvents.every((event) => event.data?.discussionFollowUp === true));
+
+  const pressuredAgent = game.agents.get(players[1].id) as ScriptedAgent;
+  assert.equal(pressuredAgent.speechInputs.length, 3);
+  assert.match(pressuredAgent.speechInputs[2].context, /Follow-up pass for selected speakers/);
+});
+
+test("human follow-up speaker is placed after AI follow-up speakers", async () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech") {
+        return { speech: "Human follow-up answer." };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Curie and Edison both need final answers."],
+          metadata: {
+            claims: [],
+            suspects: [
+              { targetId: "p3", targetName: "Curie", reason: "human pressure", weight: 0.9 },
+              { targetId: "p5", targetName: "Edison", reason: "AI pressure", weight: 0.8 }
+            ],
+            trusts: []
+          }
+        }
+      ]
+    },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    [players[4].id, players[2].id]
+  );
+});
+
+test("day discussion scales follow-up speaker count on large tables", async () => {
+  const game = new WerewolfGame({ ...baseConfig, playerCount: maxSupportedPlayers }) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["Several players need final answers."],
+          metadata: {
+            claims: [],
+            suspects: ["p2", "p3", "p4", "p5", "p6", "p7", "p8"].map((targetId) => ({
+              targetId,
+              targetName: targetId,
+              reason: "needs follow-up",
+              weight: 0.5
+            })),
+            trusts: []
+          }
+        }
+      ]
+    },
+    ...Array.from({ length: maxSupportedPlayers - 1 }, () => ({ role: "Villager" as const }))
+  ]);
+
+  const events = await collect(game.runDay());
+  const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
+
+  assert.deepEqual(
+    followUpEvents.map((event) => event.playerId),
+    players.slice(1, 6).map((player) => player.id)
+  );
+});
+
+test("human participation still reports batched progress for AI day work", async () => {
+  const progressEvents: GenerationProgress[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech") {
+        return { speech: "I will give my read after hearing everyone." };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      playerCount: 6,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 2
+    },
+    {
+      humanInput,
+      onProgress: (progress) => progressEvents.push(progress)
+    }
+  ) as TestableGame;
+
+  const events = await collect(game.runDay());
+  const speechEvents = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+
+  assert.ok(events.some((event) => event.type === "player_speech" && event.playerId === "p3"));
+  assert.equal(speechEvents.filter((event) => event.data?.discussionPass === 1).at(-1)?.playerId, "p3");
+  assert.equal(speechEvents.filter((event) => event.data?.discussionPass === 2).at(-1)?.playerId, "p3");
+  assert.ok(progressEvents.some((progress) => progress.task === "day_speech"));
+  assert.ok(progressEvents.some((progress) => progress.task === "day_vote"));
+  assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));
+});
+
+test("human Lover receives partner info in private input context", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech") {
+        return { speech: "相方の生存も見ながら話します。" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[3].id, new HumanInputAgent(players[3].name, humanInput, "Japanese"));
+  players[3].model = "human";
+
+  await collect(game.runDay());
+
+  const speechRequest = requests.find((request) => request.kind === "speech");
+  assert.ok(speechRequest);
+  assert.ok(speechRequest.context.privateHistory.some((line) => line.includes(`恋人の相方は${players[4].name}`)));
+});
+
+test("progress observer failures do not abort game generation", async () => {
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      playerCount: 6,
+      prefetchConcurrency: 2
+    },
+    {
+      onProgress: () => {
+        throw new Error("progress observer failed");
+      }
+    }
+  ) as TestableGame;
+
+  const events = await collect(game.runDay());
+
+  assert.ok(events.some((event) => event.type === "player_speech"));
+  assert.ok(events.some((event) => event.type === "round_summary"));
 });
 
 test("round summary counts repeated reads from the same speaker once", async () => {
@@ -1061,6 +1528,37 @@ test("seer records a private camp result for the chosen living target", async ()
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
 });
 
+test("werewolf attack target generation is prefetched while private discussion waits in the queue", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const firstWolf = new DelayedNightActionAgent(players[0].name, 120, 20);
+  const secondWolf = new DelayedNightActionAgent(players[1].name, 120, 20);
+  game.agents.set(players[0].id, firstWolf);
+  game.agents.set(players[1].id, secondWolf);
+
+  const run = game.runNight();
+  const nightStart = await run.next();
+  const discussionStart = await run.next();
+
+  assert.equal(nightStart.value?.type, "phase_changed");
+  assert.equal(discussionStart.value?.type, "phase_changed");
+  assert.equal(discussionStart.value?.phase, "werewolf_discussion");
+
+  await sleepWithAbort(60);
+  const targetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
+  assert.ok(targetInputs.length >= 2);
+  assert.ok(targetInputs.every((input) => input.phase === "night"));
+
+  await run.return(undefined);
+});
+
 test("witch save potion prevents the werewolf kill and consumes explicit engine state", async () => {
   const game = createGame();
   const players = setTable(game, [
@@ -1176,7 +1674,7 @@ test("village redaction helper strips private event and snapshot role data", asy
   assert.ok(privateEvent);
   const redacted = redactEventForVillage(privateEvent);
 
-  assert.equal(redacted.message, "人間視点では非公開情報です。");
+  assert.equal(redacted.message, "あなたの視点では非公開情報です\n次へ進んでください");
   assert.equal(redacted.playerName, undefined);
   assert.equal(redacted.targetName, undefined);
   assert.equal(redacted.role, undefined);
@@ -1194,7 +1692,7 @@ test("player redaction reveals only the human player's role and private info", (
     players: [
       {
         id: "p1",
-        name: "カズ",
+        name: "シオン",
         role: "Werewolf" as const,
         camp: "werewolf" as const,
         persona: "cautious" as const,
@@ -1204,7 +1702,7 @@ test("player redaction reveals only the human player's role and private info", (
       },
       {
         id: "p3",
-        name: "ミオ",
+        name: "アカネ",
         role: "Seer" as const,
         camp: "village" as const,
         persona: "logical" as const,
@@ -1223,12 +1721,12 @@ test("player redaction reveals only the human player's role and private info", (
     round: 1,
     phase: "seer_action",
     type: "private_info",
-    message: "ミオはカズが狼陣営だと知りました。",
+    message: "アカネはシオンが狼陣営だと知りました。",
     playerId: "p3",
-    playerName: "ミオ",
+    playerName: "アカネ",
     role: "Seer",
     targetId: "p1",
-    targetName: "カズ",
+    targetName: "シオン",
     data: { visibility: "private", visibleTo: "p3", action: "seer_check", result: "werewolf" },
     snapshot
   };
@@ -1355,9 +1853,11 @@ test("Lover role links paired lovers and resolves heartbreak deaths", async () =
     { role: "Lover", targets: ["p4"] },
     { role: "Villager", targets: ["p4"] }
   ]);
+  const context = (game as unknown as { contextFor(player: Player, extra?: string[]): string }).contextFor(players[3]);
 
   const events = await collect(game.runVoting());
 
+  assert.match(context, new RegExp(`Lover partner: ${players[4].name}`));
   assert.equal(players[3].alive, false);
   assert.equal(players[4].alive, false);
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover"));
@@ -1367,7 +1867,7 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
   const game = createGame();
   const players = setTable(game, [
     { role: "WolfBeauty", targets: ["p4", "p2"] },
-    { role: "Seer", targets: ["p1"] },
+    { role: "Werewolf", targets: ["p1"] },
     { role: "Witch", targets: ["p1"] },
     { role: "Villager", targets: ["p1"] },
     { role: "Villager", targets: ["p1"] },
@@ -1375,6 +1875,10 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
   ]);
 
   await collect(game.runWolfBeautyCharmAction(players[0]));
+  const wolfBeautyAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.ok(wolfBeautyAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[0].id));
+  assert.ok(wolfBeautyAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[1].id));
+
   const events = await collect(game.runVoting());
 
   assert.equal(players[0].alive, false);
@@ -1753,6 +2257,8 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /suspects|targetId/i);
+    assert.match(speech.messages[0], /day one|not using anyone's statement|little information/i);
+    assert.doesNotMatch(speech.messages[0], /quiet|vague|which statement changed/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -1808,7 +2314,7 @@ test("LLM truncated speech JSON recovers dialogue without leaking JSON syntax", 
         content: [
           {
             type: "text",
-            text: "{\"messages\":[\"カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ\",\"でも、誰か占"
+            text: "{\"messages\":[\"シオンの言う通り、初日は情報が少ないから無理に決めない方がいいだろ\",\"でも、誰か占"
           }
         ]
       }),
@@ -1830,14 +2336,14 @@ test("LLM truncated speech JSON recovers dialogue without leaking JSON syntax", 
       task: "昼議論で発言してください。",
       context: "議論してください。",
       knownPlayers: [
-        { id: "p1", name: "カズ" },
-        { id: "p2", name: "ミオ" }
+        { id: "p1", name: "シオン" },
+        { id: "p2", name: "ガク" }
       ],
       publicHistory: [],
       privateHistory: []
     });
 
-    assert.deepEqual(speech.messages, ["カズの言う通り、初日は情報が少ないから無理に決めない方がいいだろ"]);
+    assert.deepEqual(speech.messages, ["シオンの言う通り、初日は情報が少ないから無理に決めない方がいいだろ"]);
     assert.doesNotMatch(speech.messages.join(" "), /messages|^\{|```/);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
@@ -1863,16 +2369,16 @@ test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", a
   try {
     const game = createGame();
     const [player] = setTable(game, [{ role: "Villager" }]);
-    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
 
     const speech = await agent.speak({
       player,
       phase: "day_discussion",
-      task: "Speak.",
-      context: "Discuss.",
+      task: "昼議論で発言してください。",
+      context: "現在のフェーズ: 昼議論。ラウンド: 1。",
       knownPlayers: [
-        { id: "p1", name: "Ada" },
-        { id: "p2", name: "Byron" }
+        { id: "p1", name: "シオン" },
+        { id: "p2", name: "レン" }
       ],
       publicHistory: [],
       privateHistory: []
@@ -1880,6 +2386,8 @@ test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", a
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /messages|^\{|```/);
+    assert.match(speech.messages[0], /初日|誰の発言も材料|軽い質問|理由を出す流れ/);
+    assert.doesNotMatch(speech.messages[0], /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
     globalThis.fetch = originalFetch;
