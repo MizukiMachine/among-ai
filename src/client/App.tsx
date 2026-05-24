@@ -29,7 +29,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
@@ -92,6 +92,45 @@ interface HeroCastItem {
 function getCharacterImage(playerId?: string): string | null {
   if (!playerId) return null;
   return characterImageMap[playerId] ?? null;
+}
+
+interface CharacterImageProps {
+  alt?: string;
+  className?: string;
+  fallback: ReactNode;
+  src: string | null | undefined;
+}
+
+function CharacterImage({ alt = "", className, fallback, src }: CharacterImageProps) {
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!src) {
+      setLoaded(false);
+      return;
+    }
+
+    let active = true;
+    const image = new Image();
+    image.onload = () => {
+      if (active) setLoaded(true);
+    };
+    image.onerror = () => {
+      if (active) setLoaded(false);
+    };
+    setLoaded(false);
+    image.src = src;
+
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  if (!src || !loaded) {
+    return <>{fallback}</>;
+  }
+
+  return <img className={className} src={src} alt={alt} onError={() => setLoaded(false)} />;
 }
 
 function playerIndexFromId(playerId: string): number {
@@ -1027,7 +1066,7 @@ export function App() {
                   onClick={() => setHumanTargetId(candidate.id)}
                   type="button"
                 >
-                  {getCharacterImage(candidate.id) ? <img src={getCharacterImage(candidate.id) ?? ""} alt="" /> : <UserRound size={18} />}
+                  <CharacterImage src={getCharacterImage(candidate.id)} fallback={<UserRound size={18} />} />
                   <span>{candidate.name}</span>
                 </button>
               ))}
@@ -1155,7 +1194,7 @@ export function App() {
     const image = getCharacterImage(playerId);
     return (
       <span className={`summary-person ${tone}`} key={key}>
-        {image ? <img src={image} alt="" /> : <UserRound size={15} />}
+        <CharacterImage src={image} fallback={<UserRound size={15} />} />
         <span>{playerName}</span>
       </span>
     );
@@ -1408,10 +1447,19 @@ export function App() {
       <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
         {heroCast.map((item) =>
           item.image ? (
-            <img className={item.alive ? "" : "fallen"} src={item.image} alt="" key={item.id} />
+            <CharacterImage
+              className={item.alive ? "" : "fallen"}
+              fallback={(
+                <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`}>
+                  <UserRound size={18} />
+                </span>
+              )}
+              key={item.id}
+              src={item.image}
+            />
           ) : (
             <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`} key={item.id}>
-              {item.label}
+              <UserRound size={18} />
             </span>
           )
         )}
@@ -1482,7 +1530,7 @@ export function App() {
                     onClick={humanEnabled ? () => setHumanPlayerId(player.id) : undefined}
                     type="button"
                   >
-                    {getCharacterImage(player.id) ? <img src={getCharacterImage(player.id) ?? ""} alt="" /> : <UserRound size={16} />}
+                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} />
                     <span>{player.name}</span>
                   </button>
                 ))}
@@ -1623,7 +1671,16 @@ export function App() {
                 return (
                   <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                     {getCharacterImage(player.id) ? (
-                      <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                      <CharacterImage
+                        alt={player.name}
+                        className="player-avatar"
+                        fallback={(
+                          <div className="player-avatar avatar-fallback">
+                            <UserRound size={20} />
+                          </div>
+                        )}
+                        src={getCharacterImage(player.id)}
+                      />
                     ) : (
                       <div className="player-avatar avatar-fallback">
                         <UserRound size={20} />
@@ -1668,7 +1725,16 @@ export function App() {
                   return (
                     <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
-                        <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                        <CharacterImage
+                          alt={player.name}
+                          className="player-avatar small"
+                          fallback={(
+                            <span className="avatar-fallback small">
+                              <UserRound size={15} />
+                            </span>
+                          )}
+                          src={getCharacterImage(player.id)}
+                        />
                       ) : (
                         <span className="avatar-fallback small">
                           <UserRound size={15} />
@@ -1711,7 +1777,9 @@ export function App() {
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden)}
                       {renderHeroCast()}
-                      {activeSpeakerImage && !hidden && isSpeech ? <img className="hero-character" src={activeSpeakerImage} alt={speakerName} /> : null}
+                      {activeSpeakerImage && !hidden && isSpeech ? (
+                        <CharacterImage alt={speakerName} className="hero-character" src={activeSpeakerImage} fallback={null} />
+                      ) : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
                           <span>R{currentEvent.round}</span>
@@ -1891,20 +1959,20 @@ export function App() {
                       <div className="vote-column">
                         {voteMapSources.slice(0, 4).map((source) => (
                           <div className="vote-node voting" key={`${source.id}-${source.name}`}>
-                            <img src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} alt="" />
+                            <CharacterImage src={getCharacterImage(source.id) ?? defaultCharacterImages[0]} fallback={<UserRound size={26} />} />
                             <strong>{source.name}</strong>
                           </div>
                         ))}
                       </div>
                       <div className="vote-focus">
-                        {voteMapTargetImage ? <img src={voteMapTargetImage} alt={voteMapTargetName} /> : <UserRound size={48} />}
+                        <CharacterImage alt={voteMapTargetName} src={voteMapTargetImage} fallback={<UserRound size={48} />} />
                         <strong>{voteMapTargetName}</strong>
                         <span>{voteMapCount}票</span>
                       </div>
                       <div className="vote-column quiet">
                         {voteMapQuietPlayers.map((player) => (
                           <div className="vote-node" key={player.id}>
-                            <img src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} alt="" />
+                            <CharacterImage src={getCharacterImage(player.id) ?? defaultCharacterImages[1]} fallback={<UserRound size={26} />} />
                             <strong>{player.name}</strong>
                             <span>0票</span>
                           </div>
