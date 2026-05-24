@@ -12,6 +12,7 @@ import {
   heroCastForStage,
   storyRunControlState,
   streamErrorMessageFromData,
+  voteResultHasVisibleData,
   winnerLabelForRoster
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
@@ -95,6 +96,37 @@ test("read clusters count each source-target pair once", () => {
       latestReason: "second pass"
     }
   ]);
+});
+
+test("vote result data is visible from either individual votes or totals", () => {
+  const baseEvent: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-24T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "vote_result",
+    message: "投票結果が出ました。",
+    data: {},
+    snapshot: {
+      round: 1,
+      phase: "voting",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(voteResultHasVisibleData(baseEvent), false);
+  assert.equal(voteResultHasVisibleData({ ...baseEvent, data: { totals: [{ targetId: "p1", targetName: "シオン", count: 2 }] } }), true);
+  assert.equal(
+    voteResultHasVisibleData({
+      ...baseEvent,
+      data: { votes: [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }] }
+    }),
+    true
+  );
 });
 
 test("story run controls switch between pause, resume, and reset", () => {

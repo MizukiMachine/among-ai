@@ -168,6 +168,11 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
 
   const publicData: Record<string, unknown> = { ...(event.data ?? {}) };
   delete publicData.visibleTo;
+  delete publicData.votes;
+  delete publicData.modifiers;
+  if (event.type === "vote_cast" && event.playerId !== playerId) {
+    delete publicData.reason;
+  }
   if (!secret) {
     delete publicData.targetRole;
     delete publicData.result;
@@ -177,19 +182,20 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
 
 export function redactEventForPlayer(event: GameEvent, playerId: string): PlayerViewGameEvent {
   const visible = isEventVisibleToPlayer(event, playerId);
+  const hiddenVoteCast = visible && event.type === "vote_cast" && event.playerId !== playerId;
   const redactedEvent: PlayerViewGameEvent = {
     id: event.id,
     createdAt: event.createdAt,
     round: event.round,
     phase: event.phase,
     type: event.type,
-    message: visible ? event.message : redactedMessage,
-    playerId: visible ? event.playerId : undefined,
-    playerName: visible ? event.playerName : undefined,
-    targetId: visible ? event.targetId : undefined,
-    targetName: visible ? event.targetName : undefined,
+    message: hiddenVoteCast ? "投票が行われました。" : visible ? event.message : redactedMessage,
+    playerId: visible && !hiddenVoteCast ? event.playerId : undefined,
+    playerName: visible && !hiddenVoteCast ? event.playerName : undefined,
+    targetId: visible && !hiddenVoteCast ? event.targetId : undefined,
+    targetName: visible && !hiddenVoteCast ? event.targetName : undefined,
     data: redactEventDataForPlayer(event, playerId),
-    role: visible && event.playerId === playerId ? event.role : undefined,
+    role: visible && !hiddenVoteCast && event.playerId === playerId ? event.role : undefined,
     snapshot: redactSnapshotForPlayer(event.snapshot, playerId)
   };
   return redactedEvent;

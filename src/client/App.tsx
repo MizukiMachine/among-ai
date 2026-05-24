@@ -343,6 +343,13 @@ function latestEvent(events: GameEvent[], predicate: (event: GameEvent) => boole
   return undefined;
 }
 
+export function voteResultHasVisibleData(event: GameEvent): boolean {
+  return (
+    event.type === "vote_result" &&
+    (dataArray<VoteDetail>(event, "votes").length > 0 || dataArray<VoteTotal>(event, "totals").length > 0)
+  );
+}
+
 function formatClaim(claim: ClaimMetadata, language = defaultLanguage): string {
   const role = claim.role ? `${displayRoleLabel(claim.role, language)}主張` : "主張";
   const result = claim.result;
@@ -574,7 +581,7 @@ export function App() {
   );
   const suspectClusters = useMemo(() => clusterReads(publicSuspects), [publicSuspects]);
   const latestVoteResult = useMemo(
-    () => latestEvent(events, (event) => event.type === "vote_result" && dataArray<VoteDetail>(event, "votes").length > 0),
+    () => latestEvent(events, voteResultHasVisibleData),
     [events]
   );
   const latestVotes = useMemo(() => dataArray<VoteDetail>(latestVoteResult, "votes"), [latestVoteResult]);
@@ -602,17 +609,23 @@ export function App() {
   const voteMapTargetName = leadingVote?.targetName ?? leadingRead?.targetName ?? "未確定";
   const voteMapCount = leadingVote?.count ?? leadingRead?.count ?? 0;
   const voteMapTargetImage = getCharacterImage(voteMapTargetId);
+  const showIndividualVoteSources = !humanEnabled;
   const voteMapSources =
     leadingVote && latestVotes.length > 0
-      ? latestVotes
-          .filter((vote) => vote.targetId === leadingVote.targetId)
-          .map((vote) => ({ id: vote.voterId, name: vote.voterName, reason: vote.reason }))
+      ? showIndividualVoteSources
+        ? latestVotes
+            .filter((vote) => vote.targetId === leadingVote.targetId)
+            .map((vote) => ({ id: vote.voterId, name: vote.voterName, reason: vote.reason }))
+        : []
       : publicSuspects
           .filter((read) => read.targetId === leadingRead?.targetId)
           .map((read) => ({ id: read.sourceId, name: read.sourceName, reason: read.reason }));
-  const voteMapQuietPlayers = allPlayers
-    .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
-    .slice(0, 2);
+  const voteMapQuietPlayers =
+    voteMapSources.length > 0
+      ? allPlayers
+          .filter((player) => player.alive && player.id !== voteMapTargetId && !voteMapSources.some((source) => source.id === player.id))
+          .slice(0, 2)
+      : [];
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
@@ -1944,7 +1957,13 @@ export function App() {
             <section className="overlay-panel">
               <div className="overlay-header">
                 <div className="overlay-title">
-                  {activeOverlay === "vote" ? <><Vote size={18} /><h2>投票マップ</h2><span>現在の疑い先</span></> : null}
+                  {activeOverlay === "vote" ? (
+                    <>
+                      <Vote size={18} />
+                      <h2>{showIndividualVoteSources ? "投票マップ" : "投票結果"}</h2>
+                      <span>{showIndividualVoteSources ? "現在の疑い先" : "票数"}</span>
+                    </>
+                  ) : null}
                   {activeOverlay === "history" ? <><History size={18} /><h2>履歴</h2><span>最近の出来事</span></> : null}
                   {activeOverlay === "recent" ? <><Activity size={18} /><h2>直近のイベント</h2></> : null}
                 </div>
@@ -1954,7 +1973,20 @@ export function App() {
               </div>
               <div className="overlay-body">
                 {activeOverlay === "vote" ? (
-                  voteMapSources.length > 0 || voteMapTargetId ? (
+                  !showIndividualVoteSources && latestVoteTotalsSorted.length > 0 ? (
+                    <div className="summary-vote-list">
+                      {latestVoteTotalsSorted.slice(0, 4).map((total) => (
+                        <div className="summary-vote-row" key={total.targetId}>
+                          {renderSummaryPerson(total.targetId, total.targetName, "vote")}
+                          <span className="summary-vote-meter" aria-hidden="true">
+                            <i style={{ width: `${Math.max(16, Math.round((total.count / maxCount(latestVoteTotalsSorted)) * 100))}%` }} />
+                          </span>
+                          <strong>{total.count}票</strong>
+                        </div>
+                      ))}
+                      {latestVoteTotalsSorted.length > 4 ? <span className="summary-more">他{latestVoteTotalsSorted.length - 4}件</span> : null}
+                    </div>
+                  ) : voteMapSources.length > 0 || voteMapTargetId ? (
                     <div className="vote-diagram">
                       <div className="vote-column">
                         {voteMapSources.slice(0, 4).map((source) => (

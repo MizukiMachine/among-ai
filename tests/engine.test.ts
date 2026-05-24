@@ -1743,6 +1743,106 @@ test("player redaction reveals only the human player's role and private info", (
   assert.equal(otherView.playerId, undefined);
 });
 
+test("player view hides other players' individual vote details while keeping vote totals", () => {
+  const snapshot = {
+    round: 1,
+    phase: "voting" as const,
+    winner: null,
+    players: [
+      {
+        id: "p1",
+        name: "シオン",
+        role: "Villager" as const,
+        camp: "village" as const,
+        persona: "cautious" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p2",
+        name: "ガク",
+        role: "Werewolf" as const,
+        camp: "werewolf" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p3",
+        name: "アカネ",
+        role: "Seer" as const,
+        camp: "village" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "human",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 3,
+    werewolfCount: 1,
+    villageCount: 2
+  };
+  const voteCast: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-24T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "vote_cast",
+    message: "ガクがシオンに投票しました。",
+    playerId: "p2",
+    playerName: "ガク",
+    role: "Werewolf",
+    targetId: "p1",
+    targetName: "シオン",
+    data: { reason: "発言が薄い" },
+    snapshot
+  };
+  const otherPlayerView = redactEventForPlayer(voteCast, "p3");
+
+  assert.equal(otherPlayerView.message, "投票が行われました。");
+  assert.equal(otherPlayerView.playerId, undefined);
+  assert.equal(otherPlayerView.targetId, undefined);
+  assert.equal(otherPlayerView.data.reason, undefined);
+
+  const ownPlayerView = redactEventForPlayer(voteCast, "p2");
+  assert.equal(ownPlayerView.message, voteCast.message);
+  assert.equal(ownPlayerView.playerId, "p2");
+  assert.equal(ownPlayerView.targetId, "p1");
+  assert.equal(ownPlayerView.data.reason, "発言が薄い");
+
+  const voteResult: GameEvent = {
+    ...voteCast,
+    id: 2,
+    type: "vote_result",
+    message: "投票結果が出ました。",
+    playerId: undefined,
+    playerName: undefined,
+    role: undefined,
+    targetId: undefined,
+    targetName: undefined,
+    data: {
+      votes: [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン", reason: "発言が薄い" }],
+      modifiers: [{ targetId: "p1", targetName: "シオン", count: 1, sourceId: "p3", sourceName: "アカネ", reason: "raven_marked" }],
+      totals: [{ targetId: "p1", targetName: "シオン", count: 1 }]
+    }
+  };
+  const resultPlayerView = redactEventForPlayer(voteResult, "p3");
+  assert.equal(resultPlayerView.data.votes, undefined);
+  assert.equal(resultPlayerView.data.modifiers, undefined);
+  assert.deepEqual(resultPlayerView.data.totals, [{ targetId: "p1", targetName: "シオン", count: 1 }]);
+
+  const resultSpectatorView = redactEventForVillage(voteResult);
+  assert.deepEqual(resultSpectatorView.data.votes, voteResult.data?.votes);
+  assert.deepEqual(resultSpectatorView.data.modifiers, voteResult.data?.modifiers);
+
+  const summaryPlayerView = redactEventForPlayer({ ...voteResult, type: "round_summary" }, "p3");
+  assert.equal(summaryPlayerView.data.votes, undefined);
+  assert.equal(summaryPlayerView.data.modifiers, undefined);
+  assert.deepEqual(summaryPlayerView.data.totals, [{ targetId: "p1", targetName: "シオン", count: 1 }]);
+});
+
 test("hunter gets one death shot after vote elimination", async () => {
   const game = createGame();
   const players = setTable(game, [
