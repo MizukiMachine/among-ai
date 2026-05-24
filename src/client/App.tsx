@@ -59,15 +59,21 @@ const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 
 const characterImageMap: Record<string, string> = {
-  p1: `${CHARACTER_ASSET_ROOT}/kazu_final.png`,
-  p2: `${CHARACTER_ASSET_ROOT}/kai_final.png`,
-  p3: `${CHARACTER_ASSET_ROOT}/mio_final.png`,
-  p4: `${CHARACTER_ASSET_ROOT}/ren_final.png`,
-  p5: `${CHARACTER_ASSET_ROOT}/saki_final.png`,
-  p6: `${CHARACTER_ASSET_ROOT}/taka_final.png`,
-  p7: `${CHARACTER_ASSET_ROOT}/yuki_final.png`,
-  p8: `${CHARACTER_ASSET_ROOT}/ken_final.png`,
-  p9: `${CHARACTER_ASSET_ROOT}/rin_final.png`
+  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
+  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
+  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
+  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.png`,
+  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.png`,
+  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.png`,
+  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.png`,
+  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.png`,
+  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.png`,
+  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.png`,
+  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.png`,
+  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
+  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
+  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akihito.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);

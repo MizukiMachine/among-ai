@@ -71,7 +71,7 @@ test("hero cast mirrors selected and active player counts", () => {
 
   assert.equal(cast.length, 15);
   assert.equal(cast.at(-1)?.id, "p15");
-  assert.equal(cast.at(-1)?.image, null);
+  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akihito\.png$/);
   assert.equal(cast.at(-1)?.alive, true);
   assert.equal(cast[8].alive, false);
 });
