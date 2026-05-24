@@ -25,9 +25,9 @@ test("seeded balance smoke covers 6-9 player tables without pre-day endings", as
   }
 });
 
-test("seeded balance smoke covers 15-20 player tables without pre-day endings", async () => {
+test("seeded balance smoke covers compressed upper player tables without pre-day endings", async () => {
   const report = await runBalanceReport({
-    playerCounts: [15, 16, 17, 18, 19, 20],
+    playerCounts: [13, 14, 15],
     runs: 2,
     maxRounds: 5,
     seed: "test-large-balance"
@@ -35,7 +35,7 @@ test("seeded balance smoke covers 15-20 player tables without pre-day endings", 
 
   assert.deepEqual(
     report.map((bucket) => bucket.playerCount),
-    [15, 16, 17, 18, 19, 20]
+    [13, 14, 15]
   );
 
   for (const bucket of report) {

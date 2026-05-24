@@ -44,15 +44,15 @@ test("stream options default to LLM provider and LLM summaries", () => {
   assert.notEqual(options.model, "demo");
 });
 
-test("stream options accept expanded player counts up to 20", () => {
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20")).playerCount, 20);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=21")).playerCount, 20);
+test("stream options accept player counts up to 15", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).playerCount, 15);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=16")).playerCount, 15);
 });
 
 test("stream options lock generation concurrency to six", () => {
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20")).prefetchConcurrency, 6);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20&concurrency=8")).prefetchConcurrency, 6);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=20&prefetchConcurrency=50")).prefetchConcurrency, 6);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).prefetchConcurrency, 6);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&concurrency=8")).prefetchConcurrency, 6);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&prefetchConcurrency=50")).prefetchConcurrency, 6);
 });
 
 test("stream options accept a human player and player view", () => {

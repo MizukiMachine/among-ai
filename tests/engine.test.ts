@@ -7,6 +7,7 @@ import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
+import { maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
@@ -356,14 +357,15 @@ test("role distribution includes required special roles and scales werewolves", 
     assert.equal(roles.filter((role) => role === "Witch").length, 1);
     assert.equal(roles.filter((role) => role === "Guard").length, playerCount >= 8 ? 1 : 0);
     assert.equal(roles.filter((role) => role === "Hunter").length, playerCount >= 9 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Raven").length, playerCount >= 9 ? 1 : 0);
     assert.equal(roles.filter((role) => role === "Werewolf").length, playerCount >= 7 ? 2 : 1);
     assert.equal(roles.length, playerCount);
     assert.ok(first.value.snapshot.players.every((player) => player.persona));
   }
 });
 
-test("large role distribution supports 15-20 players with advanced roles", async () => {
-  for (const playerCount of [15, 16, 17, 18, 19, 20]) {
+test("compressed role distribution supports advanced roles before the 15 player cap", async () => {
+  for (const playerCount of [10, 11, 12, 13, 14, 15]) {
     const game = new WerewolfGame({ ...baseConfig, playerCount });
     const run = game.run();
     const first = await run.next();
@@ -374,16 +376,16 @@ test("large role distribution supports 15-20 players with advanced roles", async
     assert.equal(roles.length, playerCount);
     assert.ok(roles.includes("AlphaWolf"));
     assert.ok(roles.includes("Raven"));
-    assert.ok(roles.includes("Idiot"));
-    assert.ok(roles.includes("Elder"));
-    assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 16 ? 2 : 0);
-    assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 18 ? 1 : 0);
-    assert.equal(roles.filter((role) => role === "Jester").length, playerCount >= 20 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Idiot").length, playerCount >= 11 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Elder").length, playerCount >= 12 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Lover").length, playerCount >= 13 ? 2 : 0);
+    assert.equal(roles.filter((role) => role === "WolfBeauty").length, playerCount >= 14 ? 1 : 0);
+    assert.equal(roles.filter((role) => role === "Jester").length, playerCount >= 15 ? 1 : 0);
   }
 });
 
-test("character roster covers all 20 player slots with fixed names and personas", () => {
-  assert.equal(characterProfiles.length, 20);
+test("character roster covers all supported player slots with fixed names and personas", () => {
+  assert.equal(characterProfiles.length, maxSupportedPlayers);
   assert.deepEqual(characterNames, characterProfiles.map((profile) => profile.nameJa));
   const nameLengths = characterNames.reduce<Record<number, number>>((counts, name) => {
     const length = Array.from(name).length;
@@ -391,16 +393,18 @@ test("character roster covers all 20 player slots with fixed names and personas"
     return counts;
   }, {});
 
-  assert.deepEqual(nameLengths, { 2: 6, 3: 8, 4: 4, 5: 2 });
+  assert.deepEqual(nameLengths, { 2: 2, 3: 9, 4: 2, 5: 2 });
   const incomingRelations = Object.fromEntries(characterProfiles.map((profile) => [profile.playerId, 0]));
   for (const profile of characterProfiles) {
     for (const relatedPlayerId of Object.keys(profile.relations)) {
-      incomingRelations[relatedPlayerId] = (incomingRelations[relatedPlayerId] ?? 0) + 1;
+      if (relatedPlayerId in incomingRelations) {
+        incomingRelations[relatedPlayerId] += 1;
+      }
     }
   }
   assert.ok(characterProfiles.every((profile) => incomingRelations[profile.playerId] > 0));
 
-  const game = new WerewolfGame({ ...baseConfig, playerCount: 20 }) as TestableGame;
+  const game = new WerewolfGame({ ...baseConfig, playerCount: maxSupportedPlayers }) as TestableGame;
 
   for (const [index, player] of game.players.entries()) {
     const profile = characterProfiles[index];
@@ -1072,7 +1076,7 @@ test("human follow-up speaker is placed after AI follow-up speakers", async () =
 });
 
 test("day discussion scales follow-up speaker count on large tables", async () => {
-  const game = new WerewolfGame({ ...baseConfig, playerCount: 20 }) as TestableGame;
+  const game = new WerewolfGame({ ...baseConfig, playerCount: maxSupportedPlayers }) as TestableGame;
   const players = setTable(game, [
     {
       role: "Villager",
@@ -1092,7 +1096,7 @@ test("day discussion scales follow-up speaker count on large tables", async () =
         }
       ]
     },
-    ...Array.from({ length: 19 }, () => ({ role: "Villager" as const }))
+    ...Array.from({ length: maxSupportedPlayers - 1 }, () => ({ role: "Villager" as const }))
   ]);
 
   const events = await collect(game.runDay());
@@ -1100,7 +1104,7 @@ test("day discussion scales follow-up speaker count on large tables", async () =
 
   assert.deepEqual(
     followUpEvents.map((event) => event.playerId),
-    players.slice(1, 7).map((player) => player.id)
+    players.slice(1, 6).map((player) => player.id)
   );
 });
 
