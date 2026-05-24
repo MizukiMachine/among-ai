@@ -1721,16 +1721,7 @@ export function App() {
                           {roleDisplay(player, spectatorMode, language)}
                         </span>
                       </div>
-                      {humanPlayer ? (
-                        renderHumanPlayerBadge()
-                      ) : (
-                        <div className="signal-bars" aria-hidden="true">
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                      )}
+                      {humanPlayer ? renderHumanPlayerBadge() : null}
                     </div>
                   );
                 })

@@ -553,7 +553,7 @@ textarea:focus-visible {
   min-height: 62px;
   align-items: center;
   gap: 10px;
-  grid-template-columns: 50px minmax(0, 1fr) 30px;
+  grid-template-columns: 50px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -624,7 +624,7 @@ textarea:focus-visible {
 
 .large-roster .player-card {
   min-height: 50px;
-  grid-template-columns: 40px minmax(0, 1fr) 22px;
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 8px;
   padding: 4px 7px 4px 4px;
 }
@@ -667,11 +667,6 @@ textarea:focus-visible {
   min-height: 20px;
   padding: 3px 7px;
   font-size: 10px;
-}
-
-.large-roster .signal-bars {
-  transform: scale(0.82);
-  transform-origin: center;
 }
 
 .player-avatar {
@@ -755,36 +750,6 @@ textarea:focus-visible {
 
 .human-player-badge svg {
   flex: 0 0 auto;
-}
-
-.signal-bars {
-  display: flex;
-  height: 22px;
-  align-items: end;
-  justify-content: center;
-  gap: 3px;
-}
-
-.signal-bars span {
-  width: 3px;
-  border-radius: 999px;
-  background: var(--ship-cyan);
-}
-
-.signal-bars span:nth-child(1) {
-  height: 7px;
-}
-
-.signal-bars span:nth-child(2) {
-  height: 11px;
-}
-
-.signal-bars span:nth-child(3) {
-  height: 15px;
-}
-
-.signal-bars span:nth-child(4) {
-  height: 19px;
 }
 
 .role-chip {
