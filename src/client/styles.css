@@ -1446,23 +1446,23 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .detail-chip {
   display: inline-flex;
   max-width: 100%;
-  min-height: 30px;
+  min-height: 42px;
   align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
-  padding: 5px 11px;
-  font-size: 13px;
+  padding: 8px 14px;
+  font-size: 17px;
   font-weight: 820;
-  line-height: 1.25;
+  line-height: 1.32;
   overflow-wrap: anywhere;
 }
 
@@ -1798,7 +1798,7 @@ input[type="range"] {
   justify-content: center;
   justify-items: center;
   gap: 14px;
-  grid-template-columns: minmax(0, 870px);
+  grid-template-columns: minmax(0, 980px);
   grid-template-rows: auto minmax(0, 1fr);
   padding: 8px 7px 88px;
 }
@@ -1814,7 +1814,7 @@ input[type="range"] {
 }
 
 .pregame-layout .scene-placeholder {
-  width: min(100%, 870px);
+  width: min(100%, 980px);
   justify-self: center;
   text-align: left;
 }
@@ -1823,7 +1823,7 @@ input[type="range"] {
   display: flex;
   position: relative;
   isolation: isolate;
-  width: min(100%, 870px);
+  width: min(100%, 980px);
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -1905,10 +1905,14 @@ input[type="range"] {
 
 .setup-card .field > span {
   color: rgba(255, 255, 255, 0.86);
+  font-size: 15px;
+  font-weight: 840;
 }
 
 .setup-card .field .field-desc {
   color: #ffd38a;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .setup-card .field input,
@@ -1966,7 +1970,7 @@ input[type="range"] {
 
 .setup-cast-heading span {
   color: rgba(255, 255, 255, 0.86);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 820;
 }
 
@@ -1992,7 +1996,7 @@ input[type="range"] {
 
 .setup-cast-preview {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .setup-cast-heading {
@@ -2005,15 +2009,15 @@ input[type="range"] {
 
 .setup-cast-heading strong {
   color: rgba(255, 255, 255, 0.64);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 820;
 }
 
 .setup-cast-grid {
   display: grid;
   align-content: start;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px;
   overflow: visible;
 }
 
@@ -2023,11 +2027,11 @@ input[type="range"] {
   isolation: isolate;
   overflow: hidden;
   min-width: 0;
-  height: 66px;
-  min-height: 66px;
+  height: 94px;
+  min-height: 94px;
   align-items: center;
   justify-items: center;
-  gap: 2px;
+  gap: 5px;
   grid-template-columns: minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.16);
   border-radius: 7px;
@@ -2040,7 +2044,7 @@ input[type="range"] {
   background-position: center, center, var(--ship-trim-position), center;
   background-size: auto, auto, 140px 140px, auto;
   color: rgba(255, 255, 255, 0.84);
-  padding: 2px 2px;
+  padding: 5px 6px;
   text-align: center;
 }
 
@@ -2068,8 +2072,8 @@ input[type="range"] {
 }
 
 .setup-cast-grid img {
-  width: 44px;
-  height: 48px;
+  width: 64px;
+  height: 66px;
   border-radius: 6px;
   object-fit: cover;
   object-position: top center;
@@ -2079,7 +2083,7 @@ input[type="range"] {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 850;
   line-height: 1.05;
   text-overflow: ellipsis;
@@ -2088,7 +2092,7 @@ input[type="range"] {
 
 .setup-breakdown {
   display: grid;
-  gap: 6px;
+  gap: 9px;
   border: 1px solid rgba(218, 230, 236, 0.14);
   border-radius: 8px;
   background:
@@ -2098,7 +2102,7 @@ input[type="range"] {
   background-blend-mode: normal, normal, normal;
   background-position: center, var(--ship-panel-position), center;
   background-size: auto, var(--ship-panel-size), auto;
-  padding: 7px 9px 8px;
+  padding: 10px 12px 11px;
 }
 
 .setup-ratio {
@@ -2111,7 +2115,7 @@ input[type="range"] {
 
 .setup-ratio span {
   color: rgba(255, 255, 255, 0.56);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 780;
 }
 
@@ -2119,7 +2123,7 @@ input[type="range"] {
   min-width: 0;
   overflow: hidden;
   color: #ffffff;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 850;
   text-align: right;
   text-overflow: ellipsis;
@@ -2129,31 +2133,31 @@ input[type="range"] {
 .setup-role-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 7px;
 }
 
 .setup-role-chip {
   display: inline-flex;
-  min-height: 20px;
+  min-height: 28px;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 7px;
-  padding: 2px 4px;
-  font-size: 10px;
+  padding: 5px 8px;
+  font-size: 13px;
   font-weight: 820;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .setup-role-chip strong {
   display: inline-grid;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   place-items: center;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
   color: currentColor;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -2208,17 +2212,17 @@ input[type="range"] {
   align-self: auto;
 }
 
-.player-count-field .player-count-note {
+.setup-card .player-count-field .player-count-note {
   display: block;
   margin-top: -2px;
   border: 1px solid rgba(245, 189, 93, 0.26);
   border-radius: 7px;
   background: rgba(245, 189, 93, 0.1);
   color: #f8d28d;
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 780;
-  line-height: 1.2;
+  padding: 7px 10px;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.38;
 }
 
 .player-count-field .segments {
@@ -3640,7 +3644,7 @@ input[type="range"] {
   }
 
   .setup-cast-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .player-count-field .segments {
