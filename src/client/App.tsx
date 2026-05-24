@@ -1585,10 +1585,10 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true" />
+          <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
             <h1>Among AI</h1>
-            <p>AI人狼アリーナ</p>
+            <p>AIクルーの騙し合い実験</p>
           </div>
         </div>
 
