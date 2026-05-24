@@ -1612,7 +1612,7 @@ export function App() {
         <div className="brand-lockup">
           <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
-            <h1>Among AI</h1>
+            <h1>among ai</h1>
             <p>AIクルーの騙し合い実験</p>
           </div>
         </div>

@@ -19,7 +19,7 @@ import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 test("app shell renders spectator controls and info overlay buttons", () => {
   const html = renderToStaticMarkup(createElement(App));
 
-  assert.match(html, /Among AI/);
+  assert.match(html, /among ai/);
   assert.match(html, /自分も参加してプレイ/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
