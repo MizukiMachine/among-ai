@@ -398,10 +398,12 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
     resizeObserver.observe(rootElement);
     resize();
 
-    const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
-      const dt = Math.min(clock.getDelta(), 0.05);
-      const elapsed = clock.elapsedTime;
+    const timer = new THREE.Timer();
+    timer.connect(document);
+    renderer.setAnimationLoop((timestamp) => {
+      timer.update(timestamp);
+      const dt = Math.min(timer.getDelta(), 0.05);
+      const elapsed = timer.getElapsed();
       const config = toneConfig[toneRef.current];
 
       scene.fog?.color.set(config.fill);
@@ -434,6 +436,7 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       disposed = true;
       resizeObserver.disconnect();
       renderer.setAnimationLoop(null);
+      timer.dispose();
       if (renderer.domElement.parentNode === rootElement) {
         rootElement.removeChild(renderer.domElement);
       }

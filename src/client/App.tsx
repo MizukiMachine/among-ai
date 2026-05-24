@@ -406,14 +406,6 @@ function effectivePlayerCountForScenario(count: number, scenario: DebugScenario)
   return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
 }
 
-function formatRoleCount(role: Role, count: number, language: string, forceCount = false): string {
-  const label = displayRoleLabel(role, language);
-  if (count === 1 && !forceCount) {
-    return label;
-  }
-  return `${label}${isJapaneseLanguage(language) ? "×" : " x"}${count}`;
-}
-
 function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const counts = new Map<Role, number>();
@@ -422,11 +414,6 @@ function getRoleDistributionItems(count: number): Array<[Role, number]> {
   }
 
   return [...counts.entries()];
-}
-
-function getRoleDistributionText(count: number, language: string): string {
-  const roleCounts = getRoleDistributionItems(count);
-  return roleCounts.map(([role, roleCount]) => formatRoleCount(role, roleCount, language, role === "Werewolf")).join(" ");
 }
 
 function runModeClass(count: number): string {
@@ -1967,42 +1954,6 @@ export function App() {
             </section>
           ) : null}
         </section>
-
-        <aside className="panel controls-panel" hidden>
-          <div className="panel-heading">
-            <div className="heading-label">
-              <Settings size={18} />
-              <h2>設定・マッチコントロール</h2>
-            </div>
-          </div>
-
-          <div className="field">
-            <span>人数</span>
-            {scenarioMinimumPlayerCount > minPlayerCount ? (
-              <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
-            ) : null}
-            <div className="segments">
-              {playerCountOptions.map((count) => {
-                const disabled = count < scenarioMinimumPlayerCount;
-                return (
-                  <button
-                    key={count}
-                    aria-pressed={effectivePlayerCount === count}
-                    className={effectivePlayerCount === count ? "selected" : ""}
-                    disabled={disabled}
-                    onClick={() => updatePlayerCount(count)}
-                    title={disabled ? `${scenarioMinimumPlayerCount}人以上が必要です` : `${count}人で開始`}
-                    type="button"
-                  >
-                    {count}
-                  </button>
-                );
-              })}
-            </div>
-            <span className="role-distribution">{getRoleDistributionText(effectivePlayerCount, language)}</span>
-          </div>
-
-        </aside>
       </section>
     </main>
   );
