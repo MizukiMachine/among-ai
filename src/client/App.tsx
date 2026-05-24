@@ -33,7 +33,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
-import { eventVisibility, isSecretEvent, type SpectatorMode } from "../game/redaction";
+import { eventVisibility, isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import type {
   ClaimMetadata,
   DebugScenario,
@@ -64,7 +64,8 @@ const characterImageMap: Record<string, string> = {
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
-const villageRedactedMessage = "人間視点では非公開情報です。";
+const villageRedactedMessage = redactedMessage;
+const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
 
 interface StreamSystemPayload {
   gameId?: string | null;
@@ -197,6 +198,25 @@ function visibilityLabel(visibility: string): string {
     return "人狼";
   }
   return visibility;
+}
+
+export function streamErrorMessageFromData(data: string | undefined): string {
+  if (!data) {
+    return streamConnectionErrorMessage;
+  }
+
+  try {
+    const payload = JSON.parse(data) as { message?: unknown };
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+  } catch {
+    if (data.trim()) {
+      return data;
+    }
+  }
+
+  return streamConnectionErrorMessage;
 }
 
 function eventIcon(event: GameEvent) {
@@ -811,30 +831,30 @@ export function App() {
       setSourceDone(true);
       setGenerationProgress(null);
       setGameStatus("エラー");
-      if ("data" in message && typeof message.data === "string") {
-        const payload = JSON.parse(message.data) as { message?: string };
-        const errorEvent: GameEvent = {
-          id: events.length + queuedRef.current.length + 1,
-          createdAt: new Date().toISOString(),
-          round: snapshot?.round ?? 0,
-          phase: snapshot?.phase ?? "setup",
-          type: "system",
-          message: payload.message ?? "ストリームエラー",
-          snapshot:
-            snapshot ?? {
-              round: 0,
-              phase: "setup",
-              winner: null,
-              players: [],
-              aliveCount: 0,
-              werewolfCount: 0,
-              villageCount: 0
-            }
-        };
-        const nextQueue = [...queuedRef.current, errorEvent];
-        queuedRef.current = nextQueue;
-        setQueuedEvents(nextQueue);
-      }
+      const errorMessage = streamErrorMessageFromData(
+        "data" in message && typeof message.data === "string" ? message.data : undefined
+      );
+      const errorEvent: GameEvent = {
+        id: events.length + queuedRef.current.length + 1,
+        createdAt: new Date().toISOString(),
+        round: snapshot?.round ?? 0,
+        phase: snapshot?.phase ?? "setup",
+        type: "system",
+        message: errorMessage,
+        snapshot:
+          snapshot ?? {
+            round: 0,
+            phase: "setup",
+            winner: null,
+            players: [],
+            aliveCount: 0,
+            werewolfCount: 0,
+            villageCount: 0
+          }
+      };
+      const nextQueue = [...queuedRef.current, errorEvent];
+      queuedRef.current = nextQueue;
+      setQueuedEvents(nextQueue);
       source.close();
       if (sourceRef.current === source) {
         sourceRef.current = null;
@@ -1451,6 +1471,19 @@ export function App() {
     );
   }
 
+  function isHumanPlayer(playerId: string): boolean {
+    return humanEnabled && humanPlayerId === playerId;
+  }
+
+  function renderHumanPlayerBadge() {
+    return (
+      <span className="human-player-badge">
+        <Gamepad2 size={12} />
+        <span>自分</span>
+      </span>
+    );
+  }
+
   function renderSetupControls() {
     const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
     const modeClass = runModeClass(effectivePlayerCount);
@@ -1466,26 +1499,24 @@ export function App() {
 
         <div className="setup-grid">
           <div className="field setup-field participant-field">
-            <div className="participant-field-header">
-              <span>参加方式</span>
-              <div className="segments participant-mode">
-                <button
-                  className={!humanEnabled ? "selected" : ""}
-                  onClick={() => updateHumanEnabled(false)}
-                  type="button"
-                >
-                  <Bot size={13} />
-                  AI観戦
-                </button>
-                <button
-                  className={humanEnabled ? "selected" : ""}
-                  onClick={() => updateHumanEnabled(true)}
-                  type="button"
-                >
-                  <Gamepad2 size={13} />
-                  自分も参加してプレイ
-                </button>
-              </div>
+            <span>参加方式</span>
+            <div className="segments participant-mode">
+              <button
+                className={!humanEnabled ? "selected" : ""}
+                onClick={() => updateHumanEnabled(false)}
+                type="button"
+              >
+                <Bot size={13} />
+                AI観戦
+              </button>
+              <button
+                className={humanEnabled ? "selected" : ""}
+                onClick={() => updateHumanEnabled(true)}
+                type="button"
+              >
+                <Gamepad2 size={13} />
+                自分も参加してプレイ
+              </button>
             </div>
 
             <div className="setup-cast-preview" aria-label="参加キャラクター">
@@ -1535,9 +1566,7 @@ export function App() {
               })}
             </div>
             <span className="player-count-note" role="note">
-              ・10人以上はルール確認などの観戦モード推奨
-              <br />
-              ・10人以上は認知負荷が大きいためプレイする場合は、9人以下を推奨
+              ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
             </span>
 
             <div className="setup-breakdown" aria-label="役職内訳">
@@ -1641,32 +1670,39 @@ export function App() {
               </div>
             ) : null}
             {alivePlayers.length > 0 ? (
-              alivePlayers.map((player) => (
-                <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""}`} key={player.id}>
-                  {getCharacterImage(player.id) ? (
-                    <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
-                  ) : (
-                    <div className="player-avatar avatar-fallback">
-                      <UserRound size={20} />
+              alivePlayers.map((player) => {
+                const humanPlayer = isHumanPlayer(player.id);
+                return (
+                  <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                    {getCharacterImage(player.id) ? (
+                      <img className="player-avatar" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                    ) : (
+                      <div className="player-avatar avatar-fallback">
+                        <UserRound size={20} />
+                      </div>
+                    )}
+                    <div className="player-main">
+                      <div className="player-name-row">
+                        <strong>{player.name}</strong>
+                        <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                      </div>
+                      <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
+                        {roleDisplay(player, spectatorMode, language)}
+                      </span>
                     </div>
-                  )}
-                  <div className="player-main">
-                    <div className="player-name-row">
-                      <strong>{player.name}</strong>
-                      <span className="persona-pill">{personaLabel(player.persona, language)}</span>
-                    </div>
-                    <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                      {roleDisplay(player, spectatorMode, language)}
-                    </span>
+                    {humanPlayer ? (
+                      renderHumanPlayerBadge()
+                    ) : (
+                      <div className="signal-bars" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    )}
                   </div>
-                  <div className="signal-bars" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="empty-note">プレイヤー未生成</p>
             )}
@@ -1679,19 +1715,23 @@ export function App() {
                 <ChevronDown size={16} />
               </div>
               <div className="graveyard">
-                {deadPlayers.map((player) => (
-                  <div className="dead-player" key={player.id}>
-                    {getCharacterImage(player.id) ? (
-                      <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
-                    ) : (
-                      <span className="avatar-fallback small">
-                        <UserRound size={15} />
-                      </span>
-                    )}
-                    <strong>{player.name}</strong>
-                    <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
-                  </div>
-                ))}
+                {deadPlayers.map((player) => {
+                  const humanPlayer = isHumanPlayer(player.id);
+                  return (
+                    <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                      {getCharacterImage(player.id) ? (
+                        <img className="player-avatar small" src={getCharacterImage(player.id) ?? ""} alt={player.name} />
+                      ) : (
+                        <span className="avatar-fallback small">
+                          <UserRound size={15} />
+                        </span>
+                      )}
+                      <strong>{player.name}</strong>
+                      {humanPlayer ? renderHumanPlayerBadge() : null}
+                      <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </>
           ) : null}
@@ -1825,7 +1865,7 @@ export function App() {
                   </div>
                   {renderPendingHumanInputNotice()}
                   {renderStoryProcessingHud()}
-                  <div className="story-controls">
+                  <div className="story-controls" hidden={!settingsConfirmed}>
                     <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
                       <ChevronLeft size={20} />
                       <span className="story-button-label">
@@ -1851,7 +1891,7 @@ export function App() {
                     {renderQueueStatus()}
                     {humanEnabled ? (
                       <div className="view-toggle view-toggle-inline player-view-lock">
-                        <button className="selected" type="button">
+                        <button className="selected" disabled={!settingsConfirmed} type="button">
                           <Gamepad2 size={15} />
                           自分視点
                         </button>
@@ -1860,6 +1900,7 @@ export function App() {
                       <div className="view-toggle view-toggle-inline">
                         <button
                           className={spectatorMode === "omniscient" ? "selected" : ""}
+                          disabled={!settingsConfirmed}
                           onClick={() => setSpectatorMode("omniscient")}
                           type="button"
                         >
@@ -1868,6 +1909,7 @@ export function App() {
                         </button>
                         <button
                           className={spectatorMode === "village" ? "selected" : ""}
+                          disabled={!settingsConfirmed}
                           onClick={() => setSpectatorMode("village")}
                           type="button"
                         >

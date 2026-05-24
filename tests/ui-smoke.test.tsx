@@ -11,6 +11,7 @@ import {
   eventSpeakerForSpectator,
   heroCastForStage,
   storyRunControlState,
+  streamErrorMessageFromData,
   winnerLabelForRoster
 } from "../src/client/App";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
@@ -160,6 +161,15 @@ test("story controls expose back and next without read-all", () => {
   assert.doesNotMatch(source, /story-read-all/);
 });
 
+test("stream connection errors produce a visible Japanese message", () => {
+  assert.equal(
+    streamErrorMessageFromData(undefined),
+    "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。"
+  );
+  assert.equal(streamErrorMessageFromData('{"message":"upstream failed"}'), "upstream failed");
+  assert.equal(streamErrorMessageFromData("plain failure"), "plain failure");
+});
+
 test("setting confirmation starts generation before the game start reveal", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
@@ -216,7 +226,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     }
   };
 
-  assert.equal(eventMessageForSpectator(event, "village"), "人間視点では非公開情報です。");
+  assert.equal(eventMessageForSpectator(event, "village"), "あなたの視点では非公開情報です\n次へ進んでください");
   assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");

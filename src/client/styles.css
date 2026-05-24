@@ -552,6 +552,40 @@ textarea:focus-visible {
     inset 0 0 0 1px rgba(103, 216, 223, 0.18);
 }
 
+.player-card.human-player {
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  border-color: rgba(227, 166, 79, 0.76);
+  background:
+    linear-gradient(90deg, rgba(111, 72, 14, 0.62), rgba(13, 22, 30, 0.9) 76%),
+    linear-gradient(90deg, rgba(255, 213, 120, 0.18), transparent 50%, rgba(0, 0, 0, 0.18)),
+    var(--ship-trim-texture),
+    #201b14;
+  box-shadow:
+    0 10px 22px rgba(227, 166, 79, 0.16),
+    inset 0 0 0 1px rgba(255, 220, 151, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.player-card.human-player::after {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe19a, var(--ship-amber));
+  content: "";
+  box-shadow: 0 0 12px rgba(227, 166, 79, 0.45);
+}
+
+.player-card.human-player.active {
+  border-color: rgba(255, 225, 154, 0.82);
+  box-shadow:
+    0 10px 24px rgba(227, 166, 79, 0.2),
+    0 0 0 1px rgba(103, 216, 223, 0.2),
+    inset 0 0 0 1px rgba(255, 220, 151, 0.2);
+}
+
 .large-roster .roster {
   gap: 5px;
   padding-inline: 12px;
@@ -562,6 +596,10 @@ textarea:focus-visible {
   grid-template-columns: 40px minmax(0, 1fr) 22px;
   gap: 8px;
   padding: 4px 7px 4px 4px;
+}
+
+.large-roster .player-card.human-player {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
 }
 
 .large-roster .player-avatar {
@@ -581,6 +619,17 @@ textarea:focus-visible {
   max-width: 70px;
   padding-inline: 5px;
   font-size: 10px;
+}
+
+.large-roster .human-player-badge {
+  gap: 3px;
+  padding: 2px 5px;
+  font-size: 10px;
+}
+
+.large-roster .human-player-badge svg {
+  width: 10px;
+  height: 10px;
 }
 
 .large-roster .role-chip {
@@ -651,6 +700,30 @@ textarea:focus-visible {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.human-player-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 20px;
+  align-items: center;
+  align-self: start;
+  justify-self: end;
+  gap: 4px;
+  border: 1px solid rgba(255, 225, 154, 0.54);
+  border-radius: 6px;
+  background: rgba(111, 72, 14, 0.54);
+  color: #ffe7ad;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 880;
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.human-player-badge svg {
+  flex: 0 0 auto;
 }
 
 .signal-bars {
@@ -744,9 +817,20 @@ textarea:focus-visible {
   display: grid;
   align-items: center;
   gap: 9px;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
   color: var(--ship-muted);
   font-size: 12px;
+}
+
+.dead-player.human-player {
+  border: 1px solid rgba(227, 166, 79, 0.44);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(111, 72, 14, 0.32), rgba(13, 22, 30, 0.62)),
+    var(--ship-decal-texture);
+  background-blend-mode: normal, soft-light;
+  color: #ffe7ad;
+  padding: 4px 6px 4px 4px;
 }
 
 .dead-player strong {
@@ -1353,6 +1437,7 @@ input[type="range"] {
   line-height: 1.48;
   overflow-wrap: anywhere;
   text-shadow: 0 3px 12px rgba(0, 0, 0, 0.48);
+  white-space: pre-line;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
 }
@@ -1713,13 +1798,14 @@ input[type="range"] {
   justify-content: center;
   justify-items: center;
   gap: 14px;
-  grid-template-columns: minmax(0, 680px);
+  grid-template-columns: minmax(0, 870px);
   grid-template-rows: auto minmax(0, 1fr);
-  padding: 14px 36px 92px;
+  padding: 8px 7px 88px;
 }
 
 .pregame-layout.settings-open {
   grid-template-rows: minmax(0, 1fr);
+  padding-bottom: 8px;
 }
 
 .pregame-layout.settings-confirmed {
@@ -1728,7 +1814,7 @@ input[type="range"] {
 }
 
 .pregame-layout .scene-placeholder {
-  width: min(100%, 680px);
+  width: min(100%, 870px);
   justify-self: center;
   text-align: left;
 }
@@ -1737,7 +1823,7 @@ input[type="range"] {
   display: flex;
   position: relative;
   isolation: isolate;
-  width: min(100%, 680px);
+  width: min(100%, 870px);
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -1779,7 +1865,7 @@ input[type="range"] {
     #1d2a33;
   background-blend-mode: normal, soft-light, soft-light, normal;
   background-size: auto, 420px 420px, 320px 320px, auto;
-  padding: 10px 16px;
+  padding: 9px 16px;
 }
 
 .setup-card-heading svg {
@@ -1807,11 +1893,12 @@ input[type="range"] {
 .setup-grid {
   display: grid;
   flex: 1 1 auto;
-  gap: 8px 14px;
+  gap: 10px 16px;
+  align-content: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 16px 8px;
+  padding: 12px 18px 0;
   scrollbar-color: rgba(255, 255, 255, 0.34) transparent;
   scrollbar-width: thin;
 }
@@ -1878,17 +1965,9 @@ input[type="range"] {
 
 .participant-field {
   grid-column: 1 / -1;
+  align-content: start;
 }
 
-.participant-field-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.participant-field-header > span,
 .setup-cast-heading span {
   color: rgba(255, 255, 255, 0.86);
   font-size: 13px;
@@ -1897,26 +1976,27 @@ input[type="range"] {
 
 .participant-mode {
   width: min(320px, 100%);
-  flex: 0 1 320px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
 }
 
 .participant-mode button {
   display: inline-flex;
+  height: 30px;
   min-height: 30px;
   align-items: center;
   justify-content: center;
   gap: 5px;
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 3px 8px;
   font-size: 12px;
+  line-height: 1;
   white-space: nowrap;
 }
 
 .setup-cast-preview {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .setup-cast-heading {
@@ -1935,8 +2015,10 @@ input[type="range"] {
 
 .setup-cast-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
-  gap: 4px;
+  align-content: start;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  overflow: visible;
 }
 
 .setup-cast-grid button {
@@ -1945,10 +2027,11 @@ input[type="range"] {
   isolation: isolate;
   overflow: hidden;
   min-width: 0;
-  min-height: 46px;
+  height: 66px;
+  min-height: 66px;
   align-items: center;
   justify-items: center;
-  gap: 3px;
+  gap: 2px;
   grid-template-columns: minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.16);
   border-radius: 7px;
@@ -1961,7 +2044,7 @@ input[type="range"] {
   background-position: center, center, var(--ship-trim-position), center;
   background-size: auto, auto, 140px 140px, auto;
   color: rgba(255, 255, 255, 0.84);
-  padding: 3px 2px;
+  padding: 2px 2px;
   text-align: center;
 }
 
@@ -1989,8 +2072,8 @@ input[type="range"] {
 }
 
 .setup-cast-grid img {
-  width: 24px;
-  height: 27px;
+  width: 44px;
+  height: 48px;
   border-radius: 6px;
   object-fit: cover;
   object-position: top center;
@@ -2000,8 +2083,9 @@ input[type="range"] {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 850;
+  line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2054,12 +2138,12 @@ input[type="range"] {
 
 .setup-role-chip {
   display: inline-flex;
-  min-height: 22px;
+  min-height: 20px;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 7px;
-  padding: 3px 5px;
+  padding: 2px 4px;
   font-size: 10px;
   font-weight: 820;
   line-height: 1.1;
@@ -2067,8 +2151,8 @@ input[type="range"] {
 
 .setup-role-chip strong {
   display: inline-grid;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   place-items: center;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
@@ -2109,38 +2193,59 @@ input[type="range"] {
 
 .player-count-field {
   grid-column: 1 / -1;
+  display: grid;
+  align-items: start;
+  gap: 8px;
+  grid-template-columns: 1fr;
 }
 
+.player-count-field > span:first-child,
+.player-count-field .field-desc,
+.player-count-field .segments,
 .player-count-note {
+  grid-column: 1;
+}
+
+.player-count-field .setup-breakdown {
+  grid-column: 1;
+  grid-row: auto;
+  align-self: auto;
+}
+
+.player-count-field .player-count-note {
   display: block;
   margin-top: -2px;
   border: 1px solid rgba(245, 189, 93, 0.26);
   border-radius: 7px;
   background: rgba(245, 189, 93, 0.1);
   color: #f8d28d;
-  padding: 6px 8px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 10px;
   font-weight: 780;
-  line-height: 1.35;
+  line-height: 1.2;
 }
 
 .player-count-field .segments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  display: grid;
+  width: 100%;
+  justify-content: start;
+  grid-template-columns: repeat(auto-fill, 58px);
+  gap: 8px;
+  overflow: visible;
+  padding-bottom: 0;
 }
 
 .player-count-field .segments button {
-  flex: 0 0 34px;
-  min-height: 30px;
+  min-height: 56px;
   border-radius: 6px;
-  padding: 3px 0;
-  font-size: 12px;
+  padding: 8px 0;
+  font-size: 17px;
 }
 
 .setup-card-footer {
   display: flex;
   flex: 0 0 auto;
+  align-items: center;
   justify-content: flex-end;
   border-top: 1px solid rgba(218, 230, 236, 0.12);
   background:
@@ -2149,12 +2254,14 @@ input[type="range"] {
     #17232c;
   background-blend-mode: normal, soft-light, normal;
   background-size: auto, 420px 420px, auto;
-  padding: 6px 16px 8px;
+  padding: 4px 16px;
 }
 
 .setup-confirm-button {
+  min-height: 36px;
   min-width: 172px;
   justify-content: center;
+  padding: 6px 14px;
 }
 
 .setup-edit-button {
@@ -2216,6 +2323,10 @@ input[type="range"] {
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.25);
 }
 
+.story-controls[hidden] {
+  display: none;
+}
+
 .story-controls .icon-button {
   min-height: 48px;
   border-color: rgba(218, 230, 236, 0.18);
@@ -2225,31 +2336,25 @@ input[type="range"] {
 .story-next {
   min-width: 128px;
   position: relative;
+  align-items: center;
   justify-content: center;
-  padding-inline: 18px;
+  padding-inline: 16px;
   text-align: center;
 }
 
 .story-back {
-  padding-left: 42px;
+  padding-left: 16px;
 }
 
 .story-next {
   min-width: 145px;
-  padding-right: 42px;
+  padding-right: 16px;
 }
 
 .story-back svg,
 .story-next svg {
-  position: absolute;
-}
-
-.story-back svg {
-  left: 18px;
-}
-
-.story-next svg {
-  right: 18px;
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .story-next.is-loading:disabled {
@@ -2285,22 +2390,29 @@ input[type="range"] {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  position: absolute;
-  top: 50%;
-  left: 50%;
+  position: relative;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  transform: none;
   white-space: nowrap;
 }
 
+.story-button-label > span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
 .story-button-label kbd {
+  display: inline-flex;
+  min-height: 17px;
+  align-items: center;
   border: 1px solid rgba(218, 230, 236, 0.24);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.14);
-  padding: 1px 5px;
+  padding: 1px 5px 2px;
   font-size: 10px;
   font-weight: 850;
-  line-height: 1.35;
+  line-height: 1;
 }
 
 .story-back .story-button-label kbd {
@@ -3497,6 +3609,10 @@ input[type="range"] {
     padding: 24px 14px 230px;
   }
 
+  .pregame-layout.settings-open {
+    padding-bottom: 14px;
+  }
+
   .scene-placeholder strong {
     font-size: 24px;
   }
@@ -3505,43 +3621,40 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
-  .participant-field-header {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
+  .player-count-field {
+    grid-template-columns: 1fr;
+  }
+
+  .player-count-field .setup-breakdown {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .participant-mode {
     width: 100%;
-    flex: none;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
   }
 
   .participant-mode button {
-    min-height: 36px;
+    height: 30px;
+    min-height: 30px;
     font-size: 11px;
     white-space: nowrap;
-    line-height: 1.15;
+    line-height: 1;
   }
 
   .setup-cast-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .player-count-field .segments button {
-    flex-basis: 32px;
-  }
-
   .player-count-field .segments {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 3px;
-    scrollbar-color: rgba(103, 216, 223, 0.38) transparent;
-    scrollbar-width: thin;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
   }
 
   .player-count-field .segments button {
-    flex: 0 0 34px;
+    min-height: 50px;
+    font-size: 15px;
   }
 
   .human-target-grid {

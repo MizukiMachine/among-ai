@@ -1,6 +1,7 @@
 import type { Camp, EventVisibility, GameEvent, GameSnapshot, GenerationProgress, PlayerSnapshot, Role } from "./types";
 
 export type SpectatorMode = "omniscient" | "village" | "player";
+export const redactedMessage = "あなたの視点では非公開情報です\n次へ進んでください";
 
 export interface VillagePlayerSnapshot extends Omit<PlayerSnapshot, "camp" | "role" | "witch"> {
   camp: "hidden";
@@ -133,7 +134,7 @@ export function redactEventForVillage(event: GameEvent): VillageGameEvent {
     round: event.round,
     phase: event.phase,
     type: event.type,
-    message: secret ? "人間視点では非公開情報です。" : event.message,
+    message: secret ? redactedMessage : event.message,
     playerId: secret ? undefined : event.playerId,
     playerName: secret ? undefined : event.playerName,
     targetId: secret ? undefined : event.targetId,
@@ -182,7 +183,7 @@ export function redactEventForPlayer(event: GameEvent, playerId: string): Player
     round: event.round,
     phase: event.phase,
     type: event.type,
-    message: visible ? event.message : "人間視点では非公開情報です。",
+    message: visible ? event.message : redactedMessage,
     playerId: visible ? event.playerId : undefined,
     playerName: visible ? event.playerName : undefined,
     targetId: visible ? event.targetId : undefined,

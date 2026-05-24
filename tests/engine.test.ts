@@ -391,7 +391,7 @@ test("character roster covers all 20 player slots with fixed names and personas"
     return counts;
   }, {});
 
-  assert.deepEqual(nameLengths, { 2: 8, 3: 8, 4: 4 });
+  assert.deepEqual(nameLengths, { 2: 6, 3: 8, 4: 4, 5: 2 });
   const incomingRelations = Object.fromEntries(characterProfiles.map((profile) => [profile.playerId, 0]));
   for (const profile of characterProfiles) {
     for (const relatedPlayerId of Object.keys(profile.relations)) {
@@ -1670,7 +1670,7 @@ test("village redaction helper strips private event and snapshot role data", asy
   assert.ok(privateEvent);
   const redacted = redactEventForVillage(privateEvent);
 
-  assert.equal(redacted.message, "人間視点では非公開情報です。");
+  assert.equal(redacted.message, "あなたの視点では非公開情報です\n次へ進んでください");
   assert.equal(redacted.playerName, undefined);
   assert.equal(redacted.targetName, undefined);
   assert.equal(redacted.role, undefined);

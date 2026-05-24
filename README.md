@@ -17,7 +17,7 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5174`.
 
 The app requests LLM agents by default. If no API key is configured, the server falls back to demo agents and keeps the UI usable. For full LLM mode, set a Z.AI coding/API key for the Anthropic-compatible endpoint:
 
