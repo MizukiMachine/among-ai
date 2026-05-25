@@ -118,6 +118,16 @@ function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await sleepWithAbort(5);
+  }
+}
+
 class DelayedSpeechAgent implements Agent {
   readonly model = "delayed";
   readonly speechInputs: AgentSpeechInput[] = [];
@@ -2173,6 +2183,83 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
   } finally {
     globalThis.fetch = originalFetch;
     Math.random = originalRandom;
+  }
+});
+
+test("aborted LLM requests release queue slots even when fetch does not settle", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls <= 6) {
+      return new Promise<Response>(() => undefined);
+    }
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["slot released"],
+              suspects: [],
+              trusts: [],
+              claims: []
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+    const knownPlayers = [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" }
+    ];
+    const input = (abortSignal?: AbortSignal): AgentSpeechInput => ({
+      player,
+      phase: "day_discussion",
+      task: "Make a public statement.",
+      context: "Public context.",
+      knownPlayers,
+      legalPlayers: knownPlayers,
+      publicHistory: [],
+      privateHistory: [],
+      abortSignal
+    });
+    const controllers = Array.from({ length: 6 }, () => new AbortController());
+    const blocked = controllers.map((controller) => agent.speak(input(controller.signal)).catch((error: unknown) => error));
+
+    await waitUntil(() => calls === 6);
+    const releasedSlotSpeech = agent.speak(input());
+    controllers.forEach((controller) => {
+      controller.abort();
+    });
+
+    const speech = await Promise.race([
+      releasedSlotSpeech,
+      sleepWithAbort(250).then(() => {
+        throw new Error("Queued LLM request did not start after aborts.");
+      })
+    ]);
+    const abortedResults = await Promise.all(blocked);
+
+    assert.deepEqual(speech.messages, ["slot released"]);
+    assert.equal(calls, 7);
+    assert.equal(
+      abortedResults.every((result) => result instanceof Error && result.message.includes("cancelled")),
+      true
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

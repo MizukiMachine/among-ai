@@ -872,6 +872,11 @@ function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: numbe
 }
 
 type LlmQueueEntry = {
+  id: number;
+  queuedAt: number;
+  startedAt?: number;
+  model: string;
+  maxTokens: number;
   resolve: () => void;
   reject: (error: unknown) => void;
   signal?: AbortSignal;
@@ -882,6 +887,7 @@ const llmQueue: LlmQueueEntry[] = [];
 let activeLlmRequests = 0;
 let nextLlmStartAt = 0;
 let llmStartTimer: ReturnType<typeof setTimeout> | null = null;
+let nextLlmRequestId = 0;
 
 function llmRequestConcurrency(): number {
   return fixedLlmRequestConcurrency;
@@ -889,6 +895,29 @@ function llmRequestConcurrency(): number {
 
 function llmRequestMinIntervalMs(): number {
   return fixedLlmRequestMinIntervalMs;
+}
+
+function llmQueueTraceEnabled(): boolean {
+  return process.env.AMONG_AI_LLM_QUEUE_TRACE === "1";
+}
+
+function emitLlmQueueTrace(kind: string, entry: LlmQueueEntry, extra: Record<string, unknown> = {}): void {
+  if (!llmQueueTraceEnabled()) {
+    return;
+  }
+
+  console.info(
+    `[llm-queue] ${JSON.stringify({
+      kind,
+      requestId: entry.id,
+      model: entry.model,
+      maxTokens: entry.maxTokens,
+      active: activeLlmRequests,
+      queued: llmQueue.length,
+      concurrency: llmRequestConcurrency(),
+      ...extra
+    })}`
+  );
 }
 
 function scheduleLlmQueue(): void {
@@ -924,15 +953,25 @@ function drainLlmQueue(): void {
 
     activeLlmRequests += 1;
     nextLlmStartAt = now + llmRequestMinIntervalMs();
+    entry.startedAt = now;
+    emitLlmQueueTrace("started", entry, { waitMs: now - entry.queuedAt });
     entry.resolve();
   }
 }
 
-async function acquireLlmSlot(signal?: AbortSignal): Promise<() => void> {
+async function acquireLlmSlot(signal: AbortSignal | undefined, request: { model: string; maxTokens: number }): Promise<() => void> {
   throwIfAborted(signal);
+  let acquiredEntry: LlmQueueEntry | null = null;
   await new Promise<void>((resolve, reject) => {
     const entry: LlmQueueEntry = {
-      resolve,
+      id: ++nextLlmRequestId,
+      queuedAt: Date.now(),
+      model: request.model,
+      maxTokens: request.maxTokens,
+      resolve: () => {
+        acquiredEntry = entry;
+        resolve();
+      },
       reject,
       signal,
       abort: () => {
@@ -940,13 +979,19 @@ async function acquireLlmSlot(signal?: AbortSignal): Promise<() => void> {
         if (index !== -1) {
           llmQueue.splice(index, 1);
         }
+        emitLlmQueueTrace("aborted_waiting", entry, { waitMs: Date.now() - entry.queuedAt });
         reject(abortError());
       }
     };
     signal?.addEventListener("abort", entry.abort, { once: true });
     llmQueue.push(entry);
+    emitLlmQueueTrace("queued", entry);
     drainLlmQueue();
   });
+  if (!acquiredEntry) {
+    throw abortError();
+  }
+  const entry = acquiredEntry as LlmQueueEntry;
 
   let released = false;
   return () => {
@@ -955,6 +1000,9 @@ async function acquireLlmSlot(signal?: AbortSignal): Promise<() => void> {
     }
     released = true;
     activeLlmRequests = Math.max(0, activeLlmRequests - 1);
+    emitLlmQueueTrace("finished", entry, {
+      activeMs: entry.startedAt ? Date.now() - entry.startedAt : undefined
+    });
     drainLlmQueue();
   };
 }
@@ -973,6 +1021,7 @@ function isRetryableAnthropicError(error: unknown): boolean {
       error.name === "AbortError" ||
       message.includes("timeout") ||
       message.includes("aborted") ||
+      message.includes("cancelled") ||
       message.includes("rate limit") ||
       message.includes("429")
     ) {
@@ -1559,19 +1608,36 @@ async function completeAnthropic(
   for (let attempt = 1; attempt <= llmRequestAttempts; attempt += 1) {
     try {
       throwIfAborted(signal);
-      const releaseSlot = await acquireLlmSlot(signal);
+      const releaseSlot = await acquireLlmSlot(signal, { model, maxTokens });
       const configuredTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
       const abortTimeoutMs = timeoutMs ?? configuredTimeoutMs;
       const controller = new AbortController();
-      const abortFromExternalSignal = () => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let abortFromExternalSignal: (() => void) | null = null;
+      const abortGate = new Promise<never>((_, reject) => {
+        const rejectWithAbort = (error: Error) => {
+          controller.abort();
+          reject(error);
+        };
+        abortFromExternalSignal = () => {
+          rejectWithAbort(abortError());
+        };
+        if (signal?.aborted) {
+          abortFromExternalSignal();
+          return;
+        }
+        signal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+        timeout = setTimeout(() => {
+          rejectWithAbort(abortError("LLM request timed out."));
+        }, abortTimeoutMs);
+      });
+      const abortFromExternalSignalForCleanup = abortFromExternalSignal;
+      if (!abortFromExternalSignalForCleanup) {
         controller.abort();
-      };
-      signal?.addEventListener("abort", abortFromExternalSignal, { once: true });
-      const timeout = setTimeout(() => {
-        controller.abort();
-      }, abortTimeoutMs);
+        throw abortError();
+      }
       try {
-        const response = await client.messages.create(
+        const request = client.messages.create(
           {
             model,
             system,
@@ -1582,11 +1648,14 @@ async function completeAnthropic(
           },
           { signal: controller.signal }
         );
+        const response = await Promise.race([request, abortGate]);
         const textBlock = response.content.find((block): block is TextBlock => block.type === "text");
         return textBlock?.text ?? "";
       } finally {
-        clearTimeout(timeout);
-        signal?.removeEventListener("abort", abortFromExternalSignal);
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        signal?.removeEventListener("abort", abortFromExternalSignalForCleanup);
         releaseSlot();
       }
     } catch (error) {
