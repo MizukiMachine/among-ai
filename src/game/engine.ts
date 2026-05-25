@@ -5,6 +5,7 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
+import { buildPublicSpeechPlan, reviewSpeechAgainstPlan } from "./speechPlanning";
 import {
   canUseDeathTrigger,
   createDeathResolutionEffects,
@@ -45,6 +46,7 @@ import type {
   Persona,
   Phase,
   Player,
+  PublicSpeechPlan,
   Role,
   SpeechMetadata,
   SummaryMode,
@@ -379,6 +381,7 @@ export class WerewolfGame {
   private lastDiscussion: DiscussionRecord[] = [];
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
+  private lastNightDeathRecords: DeathRecord[] = [];
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.abortSignal = options.abortSignal;
@@ -733,6 +736,7 @@ export class WerewolfGame {
 
   private async *runNight(): AsyncGenerator<GameEvent> {
     this.lastNightDeaths = [];
+    this.lastNightDeathRecords = [];
     this.lastVotes = [];
     this.lastVoteModifiers = [];
     this.witchState.savedTargetId = null;
@@ -1415,7 +1419,17 @@ export class WerewolfGame {
               "追加発言: 自分に向いた一番強い疑いや主張への確認に答え、投票前の読みを一つだけ出してください。"
             )
       ];
-      const context = this.contextFor(player, contextLines);
+      const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+      const speechPlan = buildPublicSpeechPlan({
+        phase: this.phase,
+        round: this.round,
+        discussionPass,
+        players: this.players,
+        lastNightDeaths: this.lastNightDeathRecords,
+        legalPlayers,
+        language: this.config.language
+      });
+      const context = this.contextFor(player, contextLines, {}, speechPlan);
       const speech = await this.safeSpeak(
         player,
         discussionPass <= regularDayDiscussionPasses
@@ -1424,7 +1438,7 @@ export class WerewolfGame {
         context,
         contextLines,
         options.signal,
-        { suppressMemorySideEffects: Boolean(options.speculative) }
+        { suppressMemorySideEffects: Boolean(options.speculative), speechPlan }
       );
       return { player, speech };
     };
@@ -1507,7 +1521,15 @@ export class WerewolfGame {
         ),
         this.text("Vote for one living player to eliminate.", "処刑する生存者を一人選んで投票してください。")
       ];
-      const context = this.contextFor(voter, contextLines);
+      const speechPlan = buildPublicSpeechPlan({
+        phase: this.phase,
+        round: this.round,
+        players: this.players,
+        lastNightDeaths: this.lastNightDeathRecords,
+        legalPlayers: targets.map(({ id, name }) => ({ id, name })),
+        language: this.config.language
+      });
+      const context = this.contextFor(voter, contextLines, {}, speechPlan);
       const decision = await this.safeChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines);
       return { voter, decision };
     };
@@ -1619,6 +1641,7 @@ export class WerewolfGame {
       }
       if (this.phase !== "voting") {
         this.lastNightDeaths.push(death.playerId);
+        this.lastNightDeathRecords.push(death);
       }
       yield this.emit("death", this.deathMessage(player, death), this.deathEventData(player, death, chainDepth), undefined, player);
       const deathEffects = createDeathResolutionEffects(death, player, this.players);
@@ -1833,7 +1856,7 @@ export class WerewolfGame {
     context: string,
     uiContext: string[] = [],
     abortSignal?: AbortSignal,
-    options: { suppressMemorySideEffects?: boolean } = {}
+    options: { suppressMemorySideEffects?: boolean; speechPlan?: PublicSpeechPlan } = {}
   ): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
@@ -1849,9 +1872,22 @@ export class WerewolfGame {
       uiContext,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
       legalPlayers,
+      speechPlan: options.speechPlan,
       publicHistory: this.publicHistory,
       privateHistory,
       abortSignal: requestAbortSignal
+    };
+    const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
+    const reviewGeneratedSpeech = (candidate: AgentSpeech): { ok: boolean; issues: string[]; revisionHint?: string } => {
+      const styleReview = reviewJapaneseOutput(candidate.messages.join(" "), this.config.language);
+      const planReview = shouldReviewSpeechPlan
+        ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
+        : { ok: true, issues: [] };
+      return {
+        ok: styleReview.ok && planReview.ok,
+        issues: [...styleReview.issues, ...planReview.issues],
+        revisionHint: "revisionHint" in planReview ? planReview.revisionHint : undefined
+      };
     };
     try {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
@@ -1863,7 +1899,7 @@ export class WerewolfGame {
         return speech;
       }
 
-      const review = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
+      const review = reviewGeneratedSpeech(speech);
       if (!review.ok) {
         if (!options.suppressMemorySideEffects) {
           console.warn(
@@ -1874,11 +1910,17 @@ export class WerewolfGame {
         if (requestAbortSignal?.aborted) {
           throw new Error("Speech request cancelled.");
         }
-        const retry = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
+        const retryInput = review.revisionHint
+          ? {
+              ...input,
+              task: [input.task, "", "Revision required:", review.revisionHint].join("\n")
+            }
+          : input;
+        const retry = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers);
         if (requestAbortSignal?.aborted) {
           throw new Error("Speech request cancelled.");
         }
-        const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
+        const retryReview = reviewGeneratedSpeech(retry);
         if (retryReview.ok) {
           return retry;
         }
@@ -2231,7 +2273,12 @@ export class WerewolfGame {
     );
   }
 
-  private contextFor(player: Player, extra: string[] = [], secretOverride: RoleSecretContext = {}): string {
+  private contextFor(
+    player: Player,
+    extra: string[] = [],
+    secretOverride: RoleSecretContext = {},
+    speechPlan?: PublicSpeechPlan
+  ): string {
     return buildBaseContext({
       player,
       phase: this.phase,
@@ -2244,6 +2291,7 @@ export class WerewolfGame {
       privateHistory: player.memories,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride),
+      speechPlan,
       extra
     });
   }

@@ -908,6 +908,31 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
+test("day discussion context includes structured public knowledge after night deaths", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p2"] },
+    { role: "Villager" },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: [null], decisions: [false] },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  await collect(game.runNight());
+  await collect(game.runDay());
+
+  const firstWolf = game.agents.get(players[0].id) as ScriptedAgent;
+  const dayInput = firstWolf.speechInputs.find((input) => input.phase === "day_discussion");
+  assert.ok(dayInput);
+  assert.equal(dayInput.speechPlan?.requiresForwardMove, true);
+  assert.match(dayInput.context, /公開知識/);
+  assert.match(dayInput.context, new RegExp(`昨夜の死亡: ${players[1].name}`));
+  assert.match(dayInput.context, /公開上の死因: 不明/);
+  assert.match(dayInput.context, /魔女の毒薬/);
+  assert.match(dayInput.context, /死因候補を並べるだけで終わらず/);
+});
+
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 6 }) as TestableGame;
   const players = setTable(game, [
