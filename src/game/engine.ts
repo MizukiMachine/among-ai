@@ -71,8 +71,8 @@ const followUpDayDiscussionPass = regularDayDiscussionPasses + 1;
 const followUpDayDiscussionSpeakerRatio = 0.3;
 const minFollowUpDayDiscussionSpeakers = 2;
 const maxFollowUpDayDiscussionSpeakers = 6;
-const defaultAiPrefetchConcurrency = 6;
-const maxAiPrefetchConcurrency = 20;
+const defaultAiPrefetchConcurrency = 5;
+const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
@@ -235,6 +235,22 @@ function aiPrefetchConcurrency(configured?: number): number {
     return normalizePrefetchConcurrency(configured);
   }
   return defaultAiPrefetchConcurrency;
+}
+
+function speechRaceSlots(players: Player[], concurrency: number): Player[] {
+  if (players.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, concurrency);
+  const ordered = limit === 1 ? [players[0]] : shuffle(players);
+  const slots = ordered.slice(0, Math.min(limit, ordered.length));
+  let index = 0;
+  while (slots.length < limit) {
+    slots.push(ordered[index % ordered.length]);
+    index += 1;
+  }
+  return slots;
 }
 
 async function* orderedConcurrentMap<T, R>(
@@ -609,7 +625,7 @@ export class WerewolfGame {
     const aiPlayers = players.filter((player) => !this.isHumanControlledPlayer(player));
     const humanPlayers = players.filter((player) => this.isHumanControlledPlayer(player));
     const total = players.length;
-    const limit = Math.max(1, Math.min(this.prefetchConcurrency, Math.max(1, aiPlayers.length)));
+    const limit = Math.max(1, this.prefetchConcurrency);
     let accepted = 0;
     let active = 0;
     const report = () => {
@@ -629,7 +645,7 @@ export class WerewolfGame {
     const remainingAi = [...aiPlayers];
 
     while (remainingAi.length > 0) {
-      const racers = limit === 1 ? [remainingAi[0]] : shuffle(remainingAi).slice(0, Math.min(limit, remainingAi.length));
+      const racers = speechRaceSlots(remainingAi, limit);
       active = racers.length;
       report();
       const result = await this.firstFinishedSpeechRace(racers, run);
@@ -659,29 +675,31 @@ export class WerewolfGame {
     run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>
   ): Promise<{ player: Player; value: R }> {
     type RaceResult =
-      | { ok: true; player: Player; value: R; controller: AbortController }
-      | { ok: false; player: Player; error: unknown; controller: AbortController };
+      | { ok: true; slotId: string; player: Player; value: R; controller: AbortController }
+      | { ok: false; slotId: string; player: Player; error: unknown; controller: AbortController };
+    type RaceController = { controller: AbortController; player: Player };
     const active = new Map<string, Promise<RaceResult>>();
-    const controllers = new Map<string, AbortController>();
+    const controllers = new Map<string, RaceController>();
     let lastError: unknown;
 
-    for (const player of players) {
+    for (const [index, player] of players.entries()) {
+      const slotId = `${player.id}:${index}`;
       const controller = new AbortController();
-      controllers.set(player.id, controller);
+      controllers.set(slotId, { controller, player });
       const promise = run(player, { signal: controller.signal, speculative: true }).then(
-        (value) => ({ ok: true, player, value, controller }) as RaceResult,
-        (error: unknown) => ({ ok: false, player, error, controller }) as RaceResult
+        (value) => ({ ok: true, slotId, player, value, controller }) as RaceResult,
+        (error: unknown) => ({ ok: false, slotId, player, error, controller }) as RaceResult
       );
-      active.set(player.id, promise);
+      active.set(slotId, promise);
     }
 
     while (active.size > 0) {
       const result = await Promise.race(active.values());
-      active.delete(result.player.id);
-      controllers.delete(result.player.id);
+      active.delete(result.slotId);
+      controllers.delete(result.slotId);
       if (result.ok) {
-        const abortedPlayerIds = [...controllers.keys()];
-        for (const controller of controllers.values()) {
+        const abortedPlayerIds = [...controllers.values()].map(({ player }) => player.id);
+        for (const { controller } of controllers.values()) {
           controller.abort();
         }
         if (abortedPlayerIds.length > 0) {

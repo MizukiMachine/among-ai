@@ -987,14 +987,14 @@ test("speech diagnostics record review retries and reasons", async () => {
 });
 
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
-  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 6 }) as TestableGame;
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager" },
     { role: "Werewolf" },
     { role: "Seer" },
     { role: "Witch" },
     { role: "Villager" },
-    { role: "Villager" }
+    { role: "Villager", alive: false }
   ]);
   game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [50], () => "slow first candidate"));
   game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "FAST marker"));
@@ -1015,6 +1015,26 @@ test("day discussion race publishes the fastest AI and rebuilds the next race fr
   assert.equal(firstPassEvents[0].message, "FAST marker");
   assert.equal(firstPassEvents[1].playerId, players[2].id);
   assert.equal(firstPassEvents[1].message, "saw FAST marker");
+});
+
+test("day discussion race uses spare slots for duplicate generation near the end", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf", alive: false },
+    { role: "Seer", alive: false },
+    { role: "Witch", alive: false },
+    { role: "Villager", alive: false },
+    { role: "Villager", alive: false }
+  ]);
+  const agent = new DelayedSpeechAgent(players[0].name, [50, 1, 50, 50, 50, 1], (_input, call) => `attempt ${call}`);
+  game.agents.set(players[0].id, agent);
+
+  const events = await collect(game.runDay());
+  const firstPassEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 1);
+
+  assert.equal(firstPassEvents[0].message, "attempt 1");
+  assert.equal(agent.speechInputs.slice(0, 5).length, 5);
 });
 
 test("speech diagnostics record race loser aborts without changing race publishing", async () => {
@@ -2272,7 +2292,7 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
 
   globalThis.fetch = (async () => {
     calls += 1;
-    if (calls <= 6) {
+    if (calls <= 5) {
       return new Promise<Response>(() => undefined);
     }
     return new Response(
@@ -2315,10 +2335,10 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
       privateHistory: [],
       abortSignal
     });
-    const controllers = Array.from({ length: 6 }, () => new AbortController());
+    const controllers = Array.from({ length: 5 }, () => new AbortController());
     const blocked = controllers.map((controller) => agent.speak(input(controller.signal)).catch((error: unknown) => error));
 
-    await waitUntil(() => calls === 6);
+    await waitUntil(() => calls === 5);
     const releasedSlotSpeech = agent.speak(input());
     controllers.forEach((controller) => {
       controller.abort();
@@ -2333,7 +2353,7 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
     const abortedResults = await Promise.all(blocked);
 
     assert.deepEqual(speech.messages, ["slot released"]);
-    assert.equal(calls, 7);
+    assert.equal(calls, 6);
     assert.equal(
       abortedResults.every((result) => result instanceof Error && result.message.includes("cancelled")),
       true
