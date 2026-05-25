@@ -193,6 +193,41 @@ export interface GenerationProgress {
   redacted?: boolean;
 }
 
+export type SpeechGenerationDiagnosticKind =
+  | "speech_started"
+  | "speech_review_rejected"
+  | "speech_retry_accepted"
+  | "speech_retry_rejected"
+  | "speech_completed"
+  | "speech_aborted"
+  | "speech_failed"
+  | "speech_race_losers_aborted";
+
+export interface SpeechGenerationDiagnostic {
+  createdAt: string;
+  round: number;
+  phase: Phase;
+  kind: SpeechGenerationDiagnosticKind;
+  playerId?: string;
+  playerName?: string;
+  provider?: GameConfig["provider"];
+  model?: string;
+  speculative?: boolean;
+  speechPlanReviewEnabled?: boolean;
+  speechPlanRequiresForwardMove?: boolean;
+  attempts?: number;
+  retried?: boolean;
+  reviewOk?: boolean;
+  issues?: string[];
+  styleIssues?: string[];
+  speechPlanIssues?: string[];
+  revisionHint?: string;
+  durationMs?: number;
+  raceSize?: number;
+  abortedPlayerIds?: string[];
+  error?: string;
+}
+
 export interface GameConfig {
   playerCount: number;
   provider: "demo" | "llm";

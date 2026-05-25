@@ -48,6 +48,7 @@ import type {
   Player,
   PublicSpeechPlan,
   Role,
+  SpeechGenerationDiagnostic,
   SpeechMetadata,
   SummaryMode,
   TargetCandidate,
@@ -108,6 +109,7 @@ interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
   abortSignal?: AbortSignal;
   onProgress?: (progress: GenerationProgress) => void;
+  onSpeechDiagnostics?: (diagnostic: SpeechGenerationDiagnostic) => void;
 }
 
 function speechEventData(
@@ -357,6 +359,7 @@ export class WerewolfGame {
   private readonly config: GameConfig;
   private readonly abortSignal?: AbortSignal;
   private readonly onProgress?: (progress: GenerationProgress) => void;
+  private readonly onSpeechDiagnostics?: (diagnostic: SpeechGenerationDiagnostic) => void;
   private readonly prefetchConcurrency: number;
   private readonly startupWarnings: string[] = [];
   private readonly witchState = {
@@ -389,6 +392,7 @@ export class WerewolfGame {
       setMaxListeners(abortSignalMaxListeners, this.abortSignal);
     }
     this.onProgress = options.onProgress;
+    this.onSpeechDiagnostics = options.onSpeechDiagnostics;
     const debugScenario = normalizeDebugScenario(config.debugScenario);
     const playerCount = normalizePlayerCount(Math.max(config.playerCount, minimumPlayerCountForScenario(debugScenario)));
     const prefetchConcurrency = aiPrefetchConcurrency(config.prefetchConcurrency);
@@ -532,6 +536,19 @@ export class WerewolfGame {
     return this.progressReporterAt(this.phase, this.round, task, label, extra);
   }
 
+  private emitSpeechDiagnostic(diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">): void {
+    try {
+      this.onSpeechDiagnostics?.({
+        createdAt: new Date().toISOString(),
+        round: this.round,
+        phase: this.phase,
+        ...diagnostic
+      });
+    } catch {
+      // Diagnostic observers are best-effort and must not affect game generation.
+    }
+  }
+
   private progressReporterAt(
     phase: Phase,
     round: number,
@@ -672,8 +689,19 @@ export class WerewolfGame {
       active.delete(result.player.id);
       controllers.delete(result.player.id);
       if (result.ok) {
+        const abortedPlayerIds = [...controllers.keys()];
         for (const controller of controllers.values()) {
           controller.abort();
+        }
+        if (abortedPlayerIds.length > 0) {
+          this.emitSpeechDiagnostic({
+            kind: "speech_race_losers_aborted",
+            playerId: result.player.id,
+            playerName: result.player.name,
+            speculative: true,
+            raceSize: players.length,
+            abortedPlayerIds
+          });
         }
         return { player: result.player, value: result.value };
       }
@@ -1878,29 +1906,64 @@ export class WerewolfGame {
       abortSignal: requestAbortSignal
     };
     const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
-    const reviewGeneratedSpeech = (candidate: AgentSpeech): { ok: boolean; issues: string[]; revisionHint?: string } => {
+    const diagnosticBase = {
+      playerId: player.id,
+      playerName: player.name,
+      provider: this.config.provider,
+      model: agent.model,
+      speculative: Boolean(options.suppressMemorySideEffects),
+      speechPlanReviewEnabled: shouldReviewSpeechPlan,
+      speechPlanRequiresForwardMove: Boolean(options.speechPlan?.requiresForwardMove)
+    };
+    const startedAt = Date.now();
+    let attempts = 0;
+    const emitSpeechAttemptDiagnostic = (diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">) => {
+      this.emitSpeechDiagnostic({
+        ...diagnosticBase,
+        durationMs: Date.now() - startedAt,
+        ...diagnostic
+      });
+    };
+    const reviewGeneratedSpeech = (
+      candidate: AgentSpeech
+    ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; revisionHint?: string } => {
       const styleReview = reviewJapaneseOutput(candidate.messages.join(" "), this.config.language);
       const planReview = shouldReviewSpeechPlan
         ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
         : { ok: true, issues: [] };
+      const styleIssues = styleReview.issues;
+      const speechPlanIssues = planReview.issues;
       return {
         ok: styleReview.ok && planReview.ok,
-        issues: [...styleReview.issues, ...planReview.issues],
+        issues: [...styleIssues, ...speechPlanIssues],
+        styleIssues,
+        speechPlanIssues,
         revisionHint: "revisionHint" in planReview ? planReview.revisionHint : undefined
       };
     };
+    emitSpeechAttemptDiagnostic({ kind: "speech_started" });
     try {
+      attempts += 1;
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
       }
 
       if (agent.model === "human") {
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
         return speech;
       }
 
       const review = reviewGeneratedSpeech(speech);
       if (!review.ok) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_review_rejected",
+          attempts,
+          issues: review.issues,
+          styleIssues: review.styleIssues,
+          speechPlanIssues: review.speechPlanIssues,
+          revisionHint: review.revisionHint
+        });
         if (!options.suppressMemorySideEffects) {
           console.warn(
             `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
@@ -1916,27 +1979,57 @@ export class WerewolfGame {
               task: [input.task, "", "Revision required:", review.revisionHint].join("\n")
             }
           : input;
+        attempts += 1;
         const retry = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers);
         if (requestAbortSignal?.aborted) {
           throw new Error("Speech request cancelled.");
         }
         const retryReview = reviewGeneratedSpeech(retry);
         if (retryReview.ok) {
+          emitSpeechAttemptDiagnostic({
+            kind: "speech_retry_accepted",
+            attempts,
+            retried: true,
+            reviewOk: true
+          });
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
           return retry;
         }
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_retry_rejected",
+          attempts,
+          retried: true,
+          reviewOk: false,
+          issues: retryReview.issues,
+          styleIssues: retryReview.styleIssues,
+          speechPlanIssues: retryReview.speechPlanIssues,
+          revisionHint: retryReview.revisionHint
+        });
         if (!options.suppressMemorySideEffects) {
           console.warn(
             `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
           );
         }
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: false });
         return retry;
       }
 
+      emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
       return speech;
     } catch (error) {
       if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_aborted",
+          attempts,
+          error: error instanceof Error ? error.message : String(error)
+        });
         throw error;
       }
+      emitSpeechAttemptDiagnostic({
+        kind: "speech_failed",
+        attempts,
+        error: error instanceof Error ? error.message : String(error)
+      });
       if (!options.suppressMemorySideEffects) {
         console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
         player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
