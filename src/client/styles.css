@@ -553,7 +553,7 @@ textarea:focus-visible {
   min-height: 62px;
   align-items: center;
   gap: 10px;
-  grid-template-columns: 50px minmax(0, 1fr) 30px;
+  grid-template-columns: 50px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -624,7 +624,7 @@ textarea:focus-visible {
 
 .large-roster .player-card {
   min-height: 50px;
-  grid-template-columns: 40px minmax(0, 1fr) 22px;
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 8px;
   padding: 4px 7px 4px 4px;
 }
@@ -667,11 +667,6 @@ textarea:focus-visible {
   min-height: 20px;
   padding: 3px 7px;
   font-size: 10px;
-}
-
-.large-roster .signal-bars {
-  transform: scale(0.82);
-  transform-origin: center;
 }
 
 .player-avatar {
@@ -755,36 +750,6 @@ textarea:focus-visible {
 
 .human-player-badge svg {
   flex: 0 0 auto;
-}
-
-.signal-bars {
-  display: flex;
-  height: 22px;
-  align-items: end;
-  justify-content: center;
-  gap: 3px;
-}
-
-.signal-bars span {
-  width: 3px;
-  border-radius: 999px;
-  background: var(--ship-cyan);
-}
-
-.signal-bars span:nth-child(1) {
-  height: 7px;
-}
-
-.signal-bars span:nth-child(2) {
-  height: 11px;
-}
-
-.signal-bars span:nth-child(3) {
-  height: 15px;
-}
-
-.signal-bars span:nth-child(4) {
-  height: 19px;
 }
 
 .role-chip {
@@ -2883,18 +2848,19 @@ input[type="range"] {
   font-weight: 800;
 }
 
-.queue-count {
+.speaker-unread-count {
   display: inline-flex;
   position: relative;
   isolation: isolate;
   overflow: hidden;
   flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  border: 1px solid rgba(218, 230, 236, 0.12);
-  border-radius: 8px;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid rgba(103, 216, 223, 0.24);
+  border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(27, 39, 48, 0.52), rgba(5, 10, 15, 0.78)),
+    linear-gradient(180deg, rgba(19, 52, 59, 0.62), rgba(5, 10, 15, 0.76)),
     linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 42%, rgba(0, 0, 0, 0.2)),
     var(--ship-trim-texture),
     #0c141b;
@@ -2902,16 +2868,16 @@ input[type="range"] {
   background-position: center, center, var(--ship-trim-position), center;
   background-size: auto, auto, 150px 150px, auto;
   color: #ffffff;
-  padding: 10px 9px;
+  padding: 5px 10px;
   font-size: 12px;
   font-weight: 820;
 }
 
-.queue-count > span {
+.speaker-unread-count > span {
   white-space: nowrap;
 }
 
-.queue-count small {
+.speaker-unread-count small {
   color: rgba(255, 255, 255, 0.68);
   font-size: 11px;
   font-weight: 760;
@@ -3353,7 +3319,7 @@ input[type="range"] {
 .view-toggle button,
 .setup-card .segments button,
 .setup-cast-grid button,
-.queue-count,
+.speaker-unread-count,
 .info-bar-btn {
   background-position: center, center, var(--ship-trim-position), center;
   background-size: auto, auto, var(--ship-trim-size), auto;
@@ -3749,7 +3715,6 @@ input[type="range"] {
   .story-back,
   .story-next,
   .story-run-controls,
-  .queue-count,
   .view-toggle-inline {
     flex: none;
     width: 100%;
@@ -3769,11 +3734,6 @@ input[type="range"] {
   .story-run-controls .story-run-button {
     min-width: 0;
     flex: none;
-  }
-
-  .queue-count {
-    grid-column: 1 / -1;
-    justify-content: center;
   }
 
   .view-toggle-inline {

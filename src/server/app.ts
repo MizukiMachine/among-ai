@@ -9,12 +9,13 @@ import {
   type SpectatorMode
 } from "../game/redaction";
 import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
-import type { DebugScenario, GameConfig, HumanInputResponse, SummaryMode } from "../game/types";
+import type { DebugScenario, GameConfig, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
 
 const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
-const fixedGenerationConcurrency = 6;
+const fixedGenerationConcurrency = 5;
+let nextStreamLogId = 0;
 
 interface StreamOptions extends GameConfig {
   speed: number;
@@ -125,6 +126,94 @@ function sseFrame(event: string, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function createStreamLogId(): string {
+  nextStreamLogId += 1;
+  return `stream-${nextStreamLogId}`;
+}
+
+function createSpeechDiagnosticsLogger(streamId: string): {
+  onDiagnostic: (diagnostic: SpeechGenerationDiagnostic) => void;
+  logSummary: (status: "completed" | "cancelled" | "error") => void;
+} {
+  const startedAt = Date.now();
+  const counts = {
+    speechReviewRejected: 0,
+    speechRetryAccepted: 0,
+    speechRetryRejected: 0,
+    speechRetryCompleted: 0,
+    speechAborted: 0,
+    speechFailed: 0,
+    speechRaceLosersAbortedEvents: 0,
+    speechRaceLoserAbortCount: 0
+  };
+
+  return {
+    onDiagnostic: (diagnostic) => {
+      if (diagnostic.kind === "speech_review_rejected") {
+        counts.speechReviewRejected += 1;
+      }
+      if (diagnostic.kind === "speech_retry_accepted") {
+        counts.speechRetryAccepted += 1;
+        counts.speechRetryCompleted += 1;
+      }
+      if (diagnostic.kind === "speech_retry_rejected") {
+        counts.speechRetryRejected += 1;
+        counts.speechRetryCompleted += 1;
+      }
+      if (diagnostic.kind === "speech_aborted") {
+        counts.speechAborted += 1;
+      }
+      if (diagnostic.kind === "speech_failed") {
+        counts.speechFailed += 1;
+      }
+      if (diagnostic.kind === "speech_race_losers_aborted") {
+        counts.speechRaceLosersAbortedEvents += 1;
+        counts.speechRaceLoserAbortCount += diagnostic.abortedPlayerIds?.length ?? 0;
+      }
+
+      if (
+        diagnostic.kind !== "speech_review_rejected" &&
+        diagnostic.kind !== "speech_retry_accepted" &&
+        diagnostic.kind !== "speech_retry_rejected" &&
+        diagnostic.kind !== "speech_aborted" &&
+        diagnostic.kind !== "speech_failed"
+      ) {
+        return;
+      }
+
+      console.info(
+        `[speech-diagnostic] ${JSON.stringify({
+          streamId,
+          kind: diagnostic.kind,
+          round: diagnostic.round,
+          phase: diagnostic.phase,
+          playerId: diagnostic.playerId,
+          playerName: diagnostic.playerName,
+          speculative: diagnostic.speculative,
+          attempts: diagnostic.attempts,
+          durationMs: diagnostic.durationMs,
+          speechPlanReviewEnabled: diagnostic.speechPlanReviewEnabled,
+          speechPlanRequiresForwardMove: diagnostic.speechPlanRequiresForwardMove,
+          issues: diagnostic.issues,
+          styleIssues: diagnostic.styleIssues,
+          speechPlanIssues: diagnostic.speechPlanIssues,
+          error: diagnostic.error
+        })}`
+      );
+    },
+    logSummary: (status) => {
+      console.info(
+        `[speech-diagnostic-summary] ${JSON.stringify({
+          streamId,
+          status,
+          durationMs: Date.now() - startedAt,
+          ...counts
+        })}`
+      );
+    }
+  };
+}
+
 export function createApp(): Hono {
   const app = new Hono();
 
@@ -158,9 +247,12 @@ export function createApp(): Hono {
     let cancelled = false;
     let humanSession: HumanInputSession | null = null;
     const abortController = new AbortController();
+    const streamLogId = createStreamLogId();
 
     const stream = new ReadableStream({
       async start(controller) {
+        const speechDiagnostics = createSpeechDiagnosticsLogger(streamLogId);
+        let streamStatus: "completed" | "cancelled" | "error" = "completed";
         humanSession = config.humanPlayerId
           ? new HumanInputSession((request) => {
               controller.enqueue(sseFrame("human_input", request));
@@ -174,6 +266,7 @@ export function createApp(): Hono {
         const game = new WerewolfGame(config, {
           ...(humanSession ? { humanInput: humanSession } : {}),
           abortSignal: abortController.signal,
+          onSpeechDiagnostics: speechDiagnostics.onDiagnostic,
           onProgress: (progress) => {
             if (!cancelled && !abortController.signal.aborted) {
               const payload =
@@ -192,13 +285,15 @@ export function createApp(): Hono {
             view: streamView,
             gameId: humanSession?.id ?? null,
             humanPlayerId: config.humanPlayerId ?? null,
-            prefetchConcurrency: config.prefetchConcurrency ?? null
+            prefetchConcurrency: config.prefetchConcurrency ?? null,
+            streamLogId
           })
         );
 
         try {
           for await (const event of game.run()) {
             if (cancelled) {
+              streamStatus = "cancelled";
               break;
             }
             const payload =
@@ -213,6 +308,7 @@ export function createApp(): Hono {
             controller.enqueue(sseFrame("done", { message: "game_complete" }));
           }
         } catch (error) {
+          streamStatus = "error";
           if (!cancelled && !abortController.signal.aborted) {
             controller.enqueue(
               sseFrame("error", {
@@ -221,6 +317,7 @@ export function createApp(): Hono {
             );
           }
         } finally {
+          speechDiagnostics.logSummary(cancelled || abortController.signal.aborted ? "cancelled" : streamStatus);
           if (humanSession) {
             unregisterHumanInputSession(humanSession.id);
             humanSession = null;

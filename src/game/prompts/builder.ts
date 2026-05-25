@@ -3,6 +3,7 @@ import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "../i1
 import { characterVoiceSection } from "../characters";
 import { daySituationGuidance } from "../daySituations";
 import { japaneseDialogueContract, japaneseStyleGuide } from "../japaneseStyle";
+import { renderPublicSpeechPlan } from "../speechPlanning";
 import {
   bulletList,
   commonBoundaryLines,
@@ -315,6 +316,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     "Phase-specific guidance:",
     ...phaseInstructions(profile, promptPhase),
     ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
+    ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
     "",
     "Persona style:",
     getPersonaStrategy(player.persona),
@@ -403,6 +405,7 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
     "昼議論で意識すること:",
     bulletList(publicSpeech.phaseGuidance),
     ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
+    ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
     "",
     "人物の話し方:",
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
@@ -481,6 +484,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     "役職ごとの注意:",
     bulletList(profile.publicSpeechGuidanceJa),
     ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
+    ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
     "",
     "人物の話し方:",
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
@@ -530,6 +534,7 @@ export function buildBaseContext(options: {
   privateHistory: string[];
   language?: string;
   secret?: RoleSecretContext;
+  speechPlan?: BuildPromptContextOptions["speechPlan"];
   extra?: string[];
 }): string {
   return buildPromptContext(options);

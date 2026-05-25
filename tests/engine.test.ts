@@ -23,6 +23,7 @@ import type {
   GenerationProgress,
   Player,
   Role,
+  SpeechGenerationDiagnostic,
   HumanInputHandler,
   HumanInputRequestPayload,
   TargetDecision
@@ -116,6 +117,16 @@ function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await sleepWithAbort(5);
+  }
 }
 
 class DelayedSpeechAgent implements Agent {
@@ -908,15 +919,82 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
+test("day discussion context includes structured public knowledge after night deaths", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p2"] },
+    { role: "Villager" },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: [null], decisions: [false] },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  await collect(game.runNight());
+  await collect(game.runDay());
+
+  const firstWolf = game.agents.get(players[0].id) as ScriptedAgent;
+  const dayInput = firstWolf.speechInputs.find((input) => input.phase === "day_discussion");
+  assert.ok(dayInput);
+  assert.equal(dayInput.speechPlan?.requiresForwardMove, true);
+  assert.match(dayInput.context, /公開知識/);
+  assert.match(dayInput.context, new RegExp(`昨夜の死亡: ${players[1].name}`));
+  assert.match(dayInput.context, /公開上の死因: 不明/);
+  assert.match(dayInput.context, /魔女の毒薬/);
+  assert.match(dayInput.context, /死因候補を並べるだけで終わらず/);
+});
+
+test("speech diagnostics record review retries and reasons", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p2"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch", targets: [null], decisions: [false] },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  await collect(game.runNight());
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  game.agents.set(
+    players[0].id,
+    new ScriptedAgent(players[0].name, [], [], [
+      {
+        messages: [`${players[1].name}の死から考えると、噛まれたか毒かの二択です。`],
+        metadata: emptyMetadata
+      },
+      {
+        messages: [`${players[2].name}さん、昨日の発言と${players[1].name}さんの死亡をどう見ていますか。`],
+        metadata: emptyMetadata
+      }
+    ])
+  );
+
+  await collect(game.runDay());
+
+  const rejected = diagnostics.find((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id);
+  assert.ok(rejected);
+  assert.deepEqual(rejected.speechPlanIssues, ["speech stops at night-death recap without a living-player move"]);
+  assert.equal(rejected.attempts, 1);
+  assert.equal(diagnostics.filter((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id).length, 1);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id && diagnostic.retried));
+});
+
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
-  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 6 }) as TestableGame;
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager" },
     { role: "Werewolf" },
     { role: "Seer" },
     { role: "Witch" },
     { role: "Villager" },
-    { role: "Villager" }
+    { role: "Villager", alive: false }
   ]);
   game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [50], () => "slow first candidate"));
   game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "FAST marker"));
@@ -937,6 +1015,57 @@ test("day discussion race publishes the fastest AI and rebuilds the next race fr
   assert.equal(firstPassEvents[0].message, "FAST marker");
   assert.equal(firstPassEvents[1].playerId, players[2].id);
   assert.equal(firstPassEvents[1].message, "saw FAST marker");
+});
+
+test("day discussion race uses spare slots for duplicate generation near the end", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf", alive: false },
+    { role: "Seer", alive: false },
+    { role: "Witch", alive: false },
+    { role: "Villager", alive: false },
+    { role: "Villager", alive: false }
+  ]);
+  const agent = new DelayedSpeechAgent(players[0].name, [50, 1, 50, 50, 50, 1], (_input, call) => `attempt ${call}`);
+  game.agents.set(players[0].id, agent);
+
+  const events = await collect(game.runDay());
+  const firstPassEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 1);
+
+  assert.equal(firstPassEvents[0].message, "attempt 1");
+  assert.equal(agent.speechInputs.slice(0, 5).length, 5);
+});
+
+test("speech diagnostics record race loser aborts without changing race publishing", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, prefetchConcurrency: 2 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "fast visible speech"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [60], () => "slow aborted speech"));
+
+  const originalRandom = Math.random;
+  Math.random = () => 0.999;
+  const events = await collect(game.runDay()).finally(() => {
+    Math.random = originalRandom;
+  });
+  const firstSpeech = events.find((event) => event.type === "player_speech" && event.data?.discussionPass === 1);
+  const abortDiagnostic = diagnostics.find((diagnostic) => diagnostic.kind === "speech_race_losers_aborted");
+
+  assert.equal(firstSpeech?.message, "fast visible speech");
+  assert.ok(abortDiagnostic);
+  assert.equal(abortDiagnostic.playerId, players[0].id);
+  assert.ok(abortDiagnostic.abortedPlayerIds?.includes(players[1].id));
 });
 
 test("discarded speculative speech failures do not write player memories", async () => {
@@ -1528,7 +1657,7 @@ test("seer records a private camp result for the chosen living target", async ()
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
 });
 
-test("werewolf attack target generation is prefetched while private discussion waits in the queue", async () => {
+test("werewolf attack target generation waits until private discussion finishes", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 1 }) as TestableGame;
   const players = setTable(game, [
     { role: "Werewolf" },
@@ -1551,11 +1680,17 @@ test("werewolf attack target generation is prefetched while private discussion w
   assert.equal(discussionStart.value?.type, "phase_changed");
   assert.equal(discussionStart.value?.phase, "werewolf_discussion");
 
+  const firstSpeech = run.next();
   await sleepWithAbort(60);
   const targetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
-  assert.ok(targetInputs.length >= 2);
-  assert.ok(targetInputs.every((input) => input.phase === "night"));
+  assert.equal(targetInputs.length, 0);
+  assert.equal(firstWolf.speechInputs.length, 1);
+  await firstSpeech;
 
+  await collect(run);
+  const completedTargetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
+  assert.ok(completedTargetInputs.length >= 2);
+  assert.ok(completedTargetInputs.every((input) => input.phase === "night"));
   await run.return(undefined);
 });
 
@@ -2148,6 +2283,83 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
   } finally {
     globalThis.fetch = originalFetch;
     Math.random = originalRandom;
+  }
+});
+
+test("aborted LLM requests release queue slots even when fetch does not settle", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls <= 5) {
+      return new Promise<Response>(() => undefined);
+    }
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["slot released"],
+              suspects: [],
+              trusts: [],
+              claims: []
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+    const knownPlayers = [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" }
+    ];
+    const input = (abortSignal?: AbortSignal): AgentSpeechInput => ({
+      player,
+      phase: "day_discussion",
+      task: "Make a public statement.",
+      context: "Public context.",
+      knownPlayers,
+      legalPlayers: knownPlayers,
+      publicHistory: [],
+      privateHistory: [],
+      abortSignal
+    });
+    const controllers = Array.from({ length: 5 }, () => new AbortController());
+    const blocked = controllers.map((controller) => agent.speak(input(controller.signal)).catch((error: unknown) => error));
+
+    await waitUntil(() => calls === 5);
+    const releasedSlotSpeech = agent.speak(input());
+    controllers.forEach((controller) => {
+      controller.abort();
+    });
+
+    const speech = await Promise.race([
+      releasedSlotSpeech,
+      sleepWithAbort(250).then(() => {
+        throw new Error("Queued LLM request did not start after aborts.");
+      })
+    ]);
+    const abortedResults = await Promise.all(blocked);
+
+    assert.deepEqual(speech.messages, ["slot released"]);
+    assert.equal(calls, 6);
+    assert.equal(
+      abortedResults.every((result) => result instanceof Error && result.message.includes("cancelled")),
+      true
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

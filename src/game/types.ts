@@ -193,6 +193,41 @@ export interface GenerationProgress {
   redacted?: boolean;
 }
 
+export type SpeechGenerationDiagnosticKind =
+  | "speech_started"
+  | "speech_review_rejected"
+  | "speech_retry_accepted"
+  | "speech_retry_rejected"
+  | "speech_completed"
+  | "speech_aborted"
+  | "speech_failed"
+  | "speech_race_losers_aborted";
+
+export interface SpeechGenerationDiagnostic {
+  createdAt: string;
+  round: number;
+  phase: Phase;
+  kind: SpeechGenerationDiagnosticKind;
+  playerId?: string;
+  playerName?: string;
+  provider?: GameConfig["provider"];
+  model?: string;
+  speculative?: boolean;
+  speechPlanReviewEnabled?: boolean;
+  speechPlanRequiresForwardMove?: boolean;
+  attempts?: number;
+  retried?: boolean;
+  reviewOk?: boolean;
+  issues?: string[];
+  styleIssues?: string[];
+  speechPlanIssues?: string[];
+  revisionHint?: string;
+  durationMs?: number;
+  raceSize?: number;
+  abortedPlayerIds?: string[];
+  error?: string;
+}
+
 export interface GameConfig {
   playerCount: number;
   provider: "demo" | "llm";
@@ -210,6 +245,49 @@ export interface TargetCandidate {
   name: string;
 }
 
+export type PublicNightDeathCauseKind =
+  | "werewolf_attack"
+  | "witch_poison"
+  | "werewolf_and_witch_overlap"
+  | "hunter_death_shot"
+  | "alpha_wolf_death_shot"
+  | "lover_linked_death"
+  | "wolf_beauty_charm_linked_death";
+
+export interface PublicNightDeathCause {
+  kind: PublicNightDeathCauseKind;
+  label: string;
+}
+
+export interface PublicNightDeathInfo {
+  playerId: string;
+  playerName: string;
+  publicCauseLabel: string | null;
+}
+
+export type SpeechIntentKind =
+  | "connect_night_death_to_living_players"
+  | "ask_living_player"
+  | "update_living_read"
+  | "answer_or_update"
+  | "vote_ready_read"
+  | "open_discussion";
+
+export interface SpeechIntent {
+  kind: SpeechIntentKind;
+  label: string;
+  instruction: string;
+}
+
+export interface PublicSpeechPlan {
+  phase: Phase;
+  round: number;
+  lastNightDeaths: PublicNightDeathInfo[];
+  possibleNightDeathCauses: PublicNightDeathCause[];
+  intents: SpeechIntent[];
+  requiresForwardMove: boolean;
+}
+
 export interface AgentSpeechInput {
   player: Player;
   phase: Phase;
@@ -218,6 +296,7 @@ export interface AgentSpeechInput {
   uiContext?: string[];
   knownPlayers: TargetCandidate[];
   legalPlayers?: TargetCandidate[];
+  speechPlan?: PublicSpeechPlan;
   publicHistory: string[];
   privateHistory: string[];
   abortSignal?: AbortSignal;

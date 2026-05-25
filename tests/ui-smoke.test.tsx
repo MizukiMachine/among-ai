@@ -45,6 +45,7 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
   assert.doesNotMatch(html, /insight-grid/);
+  assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
 });
 
 test("winner label appears only when a winner exists", () => {
@@ -71,7 +72,7 @@ test("hero cast mirrors selected and active player counts", () => {
 
   assert.equal(cast.length, 15);
   assert.equal(cast.at(-1)?.id, "p15");
-  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akihito\.png$/);
+  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akiomi\.png$/);
   assert.equal(cast.at(-1)?.alive, true);
   assert.equal(cast[8].alive, false);
 });
@@ -198,8 +199,11 @@ test("story controls expose back and next without read-all", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /function retreatStory/);
+  assert.match(source, /className="speaker-unread-count"/);
+  assert.match(source, /renderSpeakerUnreadStatus\(\)/);
   assert.doesNotMatch(source, /function revealAll/);
   assert.doesNotMatch(source, /story-read-all/);
+  assert.doesNotMatch(source, /renderQueueStatus/);
 });
 
 test("stream connection errors produce a visible Japanese message", () => {

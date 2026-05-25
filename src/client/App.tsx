@@ -73,7 +73,7 @@ const characterImageMap: Record<string, string> = {
   p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
   p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
   p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
-  p15: `${CHARACTER_ASSET_ROOT}/p15_akihito.png`
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
@@ -1456,12 +1456,12 @@ export function App() {
     );
   }
 
-  function renderQueueStatus() {
+  function renderSpeakerUnreadStatus() {
     const progress = generationProgress && running ? generationProgress : null;
 
     return (
-      <span className="queue-count">
-        <ListChecks size={17} />
+      <span className="speaker-unread-count" aria-label={`未読 ${queuedEvents.length}件`}>
+        <ListChecks size={15} />
         <span>未読 {queuedEvents.length}件</span>
         {progress ? <small>生成 {progress.completed}/{progress.total}</small> : null}
       </span>
@@ -1586,9 +1586,11 @@ export function App() {
                 );
               })}
             </div>
-            <span className="player-count-note" role="note">
-              ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
-            </span>
+            {humanEnabled ? (
+              <span className="player-count-note" role="note">
+                ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
+              </span>
+            ) : null}
 
             <div className="setup-breakdown" aria-label="役職内訳">
               <div className="setup-ratio">
@@ -1721,16 +1723,7 @@ export function App() {
                           {roleDisplay(player, spectatorMode, language)}
                         </span>
                       </div>
-                      {humanPlayer ? (
-                        renderHumanPlayerBadge()
-                      ) : (
-                        <div className="signal-bars" aria-hidden="true">
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                      )}
+                      {humanPlayer ? renderHumanPlayerBadge() : null}
                     </div>
                   );
                 })
@@ -1828,6 +1821,7 @@ export function App() {
                               <i />
                             </span>
                           </small>
+                          {renderSpeakerUnreadStatus()}
                         </div>
                         {renderStoryBody(currentEvent, hidden)}
                         {renderEventDetails(currentEvent, hidden)}
@@ -1859,7 +1853,6 @@ export function App() {
                           <ChevronRight className="story-next-chevron" size={20} />
                         </button>
                         {renderRunControls()}
-                        {renderQueueStatus()}
                         {humanEnabled ? (
                           <div className="view-toggle view-toggle-inline player-view-lock">
                             <button className="selected" type="button" title={`${characterName(humanPlayerId)}として表示`}>
@@ -1931,7 +1924,6 @@ export function App() {
                       <ChevronRight className="story-next-chevron" size={20} />
                     </button>
                     {renderRunControls()}
-                    {renderQueueStatus()}
                     {humanEnabled ? (
                       <div className="view-toggle view-toggle-inline player-view-lock">
                         <button className="selected" disabled={!settingsConfirmed} type="button">

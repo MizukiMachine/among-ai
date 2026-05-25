@@ -49,10 +49,10 @@ test("stream options accept player counts up to 15", () => {
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=16")).playerCount, 15);
 });
 
-test("stream options lock generation concurrency to six", () => {
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).prefetchConcurrency, 6);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&concurrency=8")).prefetchConcurrency, 6);
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&prefetchConcurrency=50")).prefetchConcurrency, 6);
+test("stream options lock generation concurrency to five", () => {
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).prefetchConcurrency, 5);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&concurrency=8")).prefetchConcurrency, 5);
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&prefetchConcurrency=50")).prefetchConcurrency, 5);
 });
 
 test("stream options accept a human player and player view", () => {
@@ -74,7 +74,7 @@ test("stream emits progress frames for batched AI generation", async () => {
   const progressFrames = frames.filter((frame) => frame.event === "progress");
 
   assert.ok(progressFrames.some((frame) => (frame.data as { task?: string }).task === "day_speech"));
-  assert.ok(progressFrames.every((frame) => ((frame.data as { concurrency?: number }).concurrency ?? 0) <= 6));
+  assert.ok(progressFrames.every((frame) => ((frame.data as { concurrency?: number }).concurrency ?? 0) <= 5));
 });
 
 test("village stream redacts secret werewolf progress frames", async () => {

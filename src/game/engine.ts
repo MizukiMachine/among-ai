@@ -5,6 +5,7 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
+import { buildPublicSpeechPlan, reviewSpeechAgainstPlan } from "./speechPlanning";
 import {
   canUseDeathTrigger,
   createDeathResolutionEffects,
@@ -45,7 +46,9 @@ import type {
   Persona,
   Phase,
   Player,
+  PublicSpeechPlan,
   Role,
+  SpeechGenerationDiagnostic,
   SpeechMetadata,
   SummaryMode,
   TargetCandidate,
@@ -68,13 +71,11 @@ const followUpDayDiscussionPass = regularDayDiscussionPasses + 1;
 const followUpDayDiscussionSpeakerRatio = 0.3;
 const minFollowUpDayDiscussionSpeakers = 2;
 const maxFollowUpDayDiscussionSpeakers = 6;
-const defaultAiPrefetchConcurrency = 6;
-const maxAiPrefetchConcurrency = 20;
+const defaultAiPrefetchConcurrency = 5;
+const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
-
-type SettledValue<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
 interface DiscussionRecord {
   playerId: string;
@@ -106,6 +107,7 @@ interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
   abortSignal?: AbortSignal;
   onProgress?: (progress: GenerationProgress) => void;
+  onSpeechDiagnostics?: (diagnostic: SpeechGenerationDiagnostic) => void;
 }
 
 function speechEventData(
@@ -235,11 +237,20 @@ function aiPrefetchConcurrency(configured?: number): number {
   return defaultAiPrefetchConcurrency;
 }
 
-function settle<T>(promise: Promise<T>): Promise<SettledValue<T>> {
-  return promise.then(
-    (value) => ({ ok: true, value }),
-    (error: unknown) => ({ ok: false, error })
-  );
+function speechRaceSlots(players: Player[], concurrency: number): Player[] {
+  if (players.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, concurrency);
+  const ordered = limit === 1 ? [players[0]] : shuffle(players);
+  const slots = ordered.slice(0, Math.min(limit, ordered.length));
+  let index = 0;
+  while (slots.length < limit) {
+    slots.push(ordered[index % ordered.length]);
+    index += 1;
+  }
+  return slots;
 }
 
 async function* orderedConcurrentMap<T, R>(
@@ -355,6 +366,7 @@ export class WerewolfGame {
   private readonly config: GameConfig;
   private readonly abortSignal?: AbortSignal;
   private readonly onProgress?: (progress: GenerationProgress) => void;
+  private readonly onSpeechDiagnostics?: (diagnostic: SpeechGenerationDiagnostic) => void;
   private readonly prefetchConcurrency: number;
   private readonly startupWarnings: string[] = [];
   private readonly witchState = {
@@ -379,6 +391,7 @@ export class WerewolfGame {
   private lastDiscussion: DiscussionRecord[] = [];
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
+  private lastNightDeathRecords: DeathRecord[] = [];
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.abortSignal = options.abortSignal;
@@ -386,6 +399,7 @@ export class WerewolfGame {
       setMaxListeners(abortSignalMaxListeners, this.abortSignal);
     }
     this.onProgress = options.onProgress;
+    this.onSpeechDiagnostics = options.onSpeechDiagnostics;
     const debugScenario = normalizeDebugScenario(config.debugScenario);
     const playerCount = normalizePlayerCount(Math.max(config.playerCount, minimumPlayerCountForScenario(debugScenario)));
     const prefetchConcurrency = aiPrefetchConcurrency(config.prefetchConcurrency);
@@ -529,6 +543,19 @@ export class WerewolfGame {
     return this.progressReporterAt(this.phase, this.round, task, label, extra);
   }
 
+  private emitSpeechDiagnostic(diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">): void {
+    try {
+      this.onSpeechDiagnostics?.({
+        createdAt: new Date().toISOString(),
+        round: this.round,
+        phase: this.phase,
+        ...diagnostic
+      });
+    } catch {
+      // Diagnostic observers are best-effort and must not affect game generation.
+    }
+  }
+
   private progressReporterAt(
     phase: Phase,
     round: number,
@@ -598,7 +625,7 @@ export class WerewolfGame {
     const aiPlayers = players.filter((player) => !this.isHumanControlledPlayer(player));
     const humanPlayers = players.filter((player) => this.isHumanControlledPlayer(player));
     const total = players.length;
-    const limit = Math.max(1, Math.min(this.prefetchConcurrency, Math.max(1, aiPlayers.length)));
+    const limit = Math.max(1, this.prefetchConcurrency);
     let accepted = 0;
     let active = 0;
     const report = () => {
@@ -618,7 +645,7 @@ export class WerewolfGame {
     const remainingAi = [...aiPlayers];
 
     while (remainingAi.length > 0) {
-      const racers = limit === 1 ? [remainingAi[0]] : shuffle(remainingAi).slice(0, Math.min(limit, remainingAi.length));
+      const racers = speechRaceSlots(remainingAi, limit);
       active = racers.length;
       report();
       const result = await this.firstFinishedSpeechRace(racers, run);
@@ -648,29 +675,42 @@ export class WerewolfGame {
     run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>
   ): Promise<{ player: Player; value: R }> {
     type RaceResult =
-      | { ok: true; player: Player; value: R; controller: AbortController }
-      | { ok: false; player: Player; error: unknown; controller: AbortController };
+      | { ok: true; slotId: string; player: Player; value: R; controller: AbortController }
+      | { ok: false; slotId: string; player: Player; error: unknown; controller: AbortController };
+    type RaceController = { controller: AbortController; player: Player };
     const active = new Map<string, Promise<RaceResult>>();
-    const controllers = new Map<string, AbortController>();
+    const controllers = new Map<string, RaceController>();
     let lastError: unknown;
 
-    for (const player of players) {
+    for (const [index, player] of players.entries()) {
+      const slotId = `${player.id}:${index}`;
       const controller = new AbortController();
-      controllers.set(player.id, controller);
+      controllers.set(slotId, { controller, player });
       const promise = run(player, { signal: controller.signal, speculative: true }).then(
-        (value) => ({ ok: true, player, value, controller }) as RaceResult,
-        (error: unknown) => ({ ok: false, player, error, controller }) as RaceResult
+        (value) => ({ ok: true, slotId, player, value, controller }) as RaceResult,
+        (error: unknown) => ({ ok: false, slotId, player, error, controller }) as RaceResult
       );
-      active.set(player.id, promise);
+      active.set(slotId, promise);
     }
 
     while (active.size > 0) {
       const result = await Promise.race(active.values());
-      active.delete(result.player.id);
-      controllers.delete(result.player.id);
+      active.delete(result.slotId);
+      controllers.delete(result.slotId);
       if (result.ok) {
-        for (const controller of controllers.values()) {
+        const abortedPlayerIds = [...controllers.values()].map(({ player }) => player.id);
+        for (const { controller } of controllers.values()) {
           controller.abort();
+        }
+        if (abortedPlayerIds.length > 0) {
+          this.emitSpeechDiagnostic({
+            kind: "speech_race_losers_aborted",
+            playerId: result.player.id,
+            playerName: result.player.name,
+            speculative: true,
+            raceSize: players.length,
+            abortedPlayerIds
+          });
         }
         return { player: result.player, value: result.value };
       }
@@ -733,6 +773,7 @@ export class WerewolfGame {
 
   private async *runNight(): AsyncGenerator<GameEvent> {
     this.lastNightDeaths = [];
+    this.lastNightDeathRecords = [];
     this.lastVotes = [];
     this.lastVoteModifiers = [];
     this.witchState.savedTargetId = null;
@@ -744,88 +785,20 @@ export class WerewolfGame {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     let killTarget: Player | null = null;
     let savedTarget: string | null = null;
-    let attackTargetTask: Promise<SettledValue<Player | null>> | null = null;
-    let seerActionTask: Promise<SettledValue<PreparedTargetAction | null>> | null = null;
-    let witchActionTask: Promise<SettledValue<PreparedWitchAction | null>> | null = null;
-
-    const startWerewolfAttackPrefetch = () => {
-      if (attackTargetTask || werewolves.length === 0) {
-        return;
-      }
-      const previousPhase = this.phase;
-      this.phase = "night";
-      attackTargetTask = settle(
-        this.resolveWerewolfAttack(
-          werewolves,
-          this.progressReporterAt("night", this.round, "werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
-        )
-      );
-      this.phase = previousPhase;
-    };
-
-    const awaitWerewolfAttack = async (): Promise<Player | null> => {
-      startWerewolfAttackPrefetch();
-      const result = await attackTargetTask;
-      if (!result) {
-        return null;
-      }
-      if (!result.ok) {
-        throw result.error;
-      }
-      return result.value;
-    };
-
-    const awaitPrepared = async <T,>(task: Promise<SettledValue<T>>): Promise<T> => {
-      const result = await task;
-      if (!result.ok) {
-        throw result.error;
-      }
-      return result.value;
-    };
-
-    const startSeerActionPrefetch = () => {
-      if (seerActionTask) {
-        return;
-      }
-      const seer = this.alivePlayers().find((player) => player.role === "Seer");
-      if (!seer || this.isHumanControlledPlayer(seer)) {
-        return;
-      }
-      seerActionTask = settle(this.prepareSeerAction());
-    };
-
-    const startWitchActionPrefetch = () => {
-      if (witchActionTask) {
-        return;
-      }
-      const witch = this.alivePlayers().find((player) => player.role === "Witch");
-      if (!witch || this.isHumanControlledPlayer(witch)) {
-        return;
-      }
-      startWerewolfAttackPrefetch();
-      witchActionTask = settle((async () => this.prepareWitchAction(await awaitWerewolfAttack()))());
-    };
-
-    const startIndependentNightPrefetch = () => {
-      startWerewolfAttackPrefetch();
-      startSeerActionPrefetch();
-      startWitchActionPrefetch();
-    };
 
     for (const step of createNightActionPlan(this.alivePlayers().map((player) => ({ role: player.role, playerId: player.id })))) {
       if (step.kind === "guard_protect") {
         yield* this.runGuardAction();
-        startIndependentNightPrefetch();
       }
       if (step.kind === "werewolf_discussion") {
-        startIndependentNightPrefetch();
         yield* this.runWerewolfDiscussion(werewolves);
       }
       if (step.kind === "werewolf_attack") {
         this.phase = "night";
-        startSeerActionPrefetch();
-        killTarget = await awaitWerewolfAttack();
-        startWitchActionPrefetch();
+        killTarget = await this.resolveWerewolfAttack(
+          werewolves,
+          this.progressReporterAt("night", this.round, "werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
+        );
         if (killTarget) {
           yield this.emit(
             "night_action",
@@ -837,25 +810,10 @@ export class WerewolfGame {
         }
       }
       if (step.kind === "seer_check") {
-        if (seerActionTask) {
-          const event = this.applySeerAction(await awaitPrepared(seerActionTask));
-          if (event) {
-            yield event;
-          }
-        } else {
-          yield* this.runSeerAction();
-        }
+        yield* this.runSeerAction();
       }
       if (step.kind === "witch_action") {
-        if (witchActionTask) {
-          const result = this.applyWitchAction(await awaitPrepared(witchActionTask));
-          savedTarget = result.savedTarget;
-          for (const event of result.events) {
-            yield event;
-          }
-        } else {
-          savedTarget = yield* this.runWitchAction(killTarget);
-        }
+        savedTarget = yield* this.runWitchAction(killTarget);
       }
       if (step.kind === "wolf_beauty_charm") {
         for (const actorId of step.actorIds) {
@@ -1415,7 +1373,17 @@ export class WerewolfGame {
               "追加発言: 自分に向いた一番強い疑いや主張への確認に答え、投票前の読みを一つだけ出してください。"
             )
       ];
-      const context = this.contextFor(player, contextLines);
+      const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+      const speechPlan = buildPublicSpeechPlan({
+        phase: this.phase,
+        round: this.round,
+        discussionPass,
+        players: this.players,
+        lastNightDeaths: this.lastNightDeathRecords,
+        legalPlayers,
+        language: this.config.language
+      });
+      const context = this.contextFor(player, contextLines, {}, speechPlan);
       const speech = await this.safeSpeak(
         player,
         discussionPass <= regularDayDiscussionPasses
@@ -1424,7 +1392,7 @@ export class WerewolfGame {
         context,
         contextLines,
         options.signal,
-        { suppressMemorySideEffects: Boolean(options.speculative) }
+        { suppressMemorySideEffects: Boolean(options.speculative), speechPlan }
       );
       return { player, speech };
     };
@@ -1507,7 +1475,15 @@ export class WerewolfGame {
         ),
         this.text("Vote for one living player to eliminate.", "処刑する生存者を一人選んで投票してください。")
       ];
-      const context = this.contextFor(voter, contextLines);
+      const speechPlan = buildPublicSpeechPlan({
+        phase: this.phase,
+        round: this.round,
+        players: this.players,
+        lastNightDeaths: this.lastNightDeathRecords,
+        legalPlayers: targets.map(({ id, name }) => ({ id, name })),
+        language: this.config.language
+      });
+      const context = this.contextFor(voter, contextLines, {}, speechPlan);
       const decision = await this.safeChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines);
       return { voter, decision };
     };
@@ -1619,6 +1595,7 @@ export class WerewolfGame {
       }
       if (this.phase !== "voting") {
         this.lastNightDeaths.push(death.playerId);
+        this.lastNightDeathRecords.push(death);
       }
       yield this.emit("death", this.deathMessage(player, death), this.deathEventData(player, death, chainDepth), undefined, player);
       const deathEffects = createDeathResolutionEffects(death, player, this.players);
@@ -1833,7 +1810,7 @@ export class WerewolfGame {
     context: string,
     uiContext: string[] = [],
     abortSignal?: AbortSignal,
-    options: { suppressMemorySideEffects?: boolean } = {}
+    options: { suppressMemorySideEffects?: boolean; speechPlan?: PublicSpeechPlan } = {}
   ): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
@@ -1849,22 +1826,70 @@ export class WerewolfGame {
       uiContext,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
       legalPlayers,
+      speechPlan: options.speechPlan,
       publicHistory: this.publicHistory,
       privateHistory,
       abortSignal: requestAbortSignal
     };
+    const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
+    const diagnosticBase = {
+      playerId: player.id,
+      playerName: player.name,
+      provider: this.config.provider,
+      model: agent.model,
+      speculative: Boolean(options.suppressMemorySideEffects),
+      speechPlanReviewEnabled: shouldReviewSpeechPlan,
+      speechPlanRequiresForwardMove: Boolean(options.speechPlan?.requiresForwardMove)
+    };
+    const startedAt = Date.now();
+    let attempts = 0;
+    const emitSpeechAttemptDiagnostic = (diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">) => {
+      this.emitSpeechDiagnostic({
+        ...diagnosticBase,
+        durationMs: Date.now() - startedAt,
+        ...diagnostic
+      });
+    };
+    const reviewGeneratedSpeech = (
+      candidate: AgentSpeech
+    ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; revisionHint?: string } => {
+      const styleReview = reviewJapaneseOutput(candidate.messages.join(" "), this.config.language);
+      const planReview = shouldReviewSpeechPlan
+        ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
+        : { ok: true, issues: [] };
+      const styleIssues = styleReview.issues;
+      const speechPlanIssues = planReview.issues;
+      return {
+        ok: styleReview.ok && planReview.ok,
+        issues: [...styleIssues, ...speechPlanIssues],
+        styleIssues,
+        speechPlanIssues,
+        revisionHint: "revisionHint" in planReview ? planReview.revisionHint : undefined
+      };
+    };
+    emitSpeechAttemptDiagnostic({ kind: "speech_started" });
     try {
+      attempts += 1;
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
       }
 
       if (agent.model === "human") {
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
         return speech;
       }
 
-      const review = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
+      const review = reviewGeneratedSpeech(speech);
       if (!review.ok) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_review_rejected",
+          attempts,
+          issues: review.issues,
+          styleIssues: review.styleIssues,
+          speechPlanIssues: review.speechPlanIssues,
+          revisionHint: review.revisionHint
+        });
         if (!options.suppressMemorySideEffects) {
           console.warn(
             `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
@@ -1874,27 +1899,63 @@ export class WerewolfGame {
         if (requestAbortSignal?.aborted) {
           throw new Error("Speech request cancelled.");
         }
-        const retry = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
+        const retryInput = review.revisionHint
+          ? {
+              ...input,
+              task: [input.task, "", "Revision required:", review.revisionHint].join("\n")
+            }
+          : input;
+        attempts += 1;
+        const retry = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers);
         if (requestAbortSignal?.aborted) {
           throw new Error("Speech request cancelled.");
         }
-        const retryReview = reviewJapaneseOutput(retry.messages.join(" "), this.config.language);
+        const retryReview = reviewGeneratedSpeech(retry);
         if (retryReview.ok) {
+          emitSpeechAttemptDiagnostic({
+            kind: "speech_retry_accepted",
+            attempts,
+            retried: true,
+            reviewOk: true
+          });
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
           return retry;
         }
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_retry_rejected",
+          attempts,
+          retried: true,
+          reviewOk: false,
+          issues: retryReview.issues,
+          styleIssues: retryReview.styleIssues,
+          speechPlanIssues: retryReview.speechPlanIssues,
+          revisionHint: retryReview.revisionHint
+        });
         if (!options.suppressMemorySideEffects) {
           console.warn(
             `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
           );
         }
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: false });
         return retry;
       }
 
+      emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
       return speech;
     } catch (error) {
       if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_aborted",
+          attempts,
+          error: error instanceof Error ? error.message : String(error)
+        });
         throw error;
       }
+      emitSpeechAttemptDiagnostic({
+        kind: "speech_failed",
+        attempts,
+        error: error instanceof Error ? error.message : String(error)
+      });
       if (!options.suppressMemorySideEffects) {
         console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
         player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
@@ -2231,7 +2292,12 @@ export class WerewolfGame {
     );
   }
 
-  private contextFor(player: Player, extra: string[] = [], secretOverride: RoleSecretContext = {}): string {
+  private contextFor(
+    player: Player,
+    extra: string[] = [],
+    secretOverride: RoleSecretContext = {},
+    speechPlan?: PublicSpeechPlan
+  ): string {
     return buildBaseContext({
       player,
       phase: this.phase,
@@ -2244,6 +2310,7 @@ export class WerewolfGame {
       privateHistory: player.memories,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride),
+      speechPlan,
       extra
     });
   }
