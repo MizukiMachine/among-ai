@@ -77,8 +77,6 @@ const abortSignalMaxListeners = 64;
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
-type SettledValue<T> = { ok: true; value: T } | { ok: false; error: unknown };
-
 interface DiscussionRecord {
   playerId: string;
   playerName: string;
@@ -237,13 +235,6 @@ function aiPrefetchConcurrency(configured?: number): number {
     return normalizePrefetchConcurrency(configured);
   }
   return defaultAiPrefetchConcurrency;
-}
-
-function settle<T>(promise: Promise<T>): Promise<SettledValue<T>> {
-  return promise.then(
-    (value) => ({ ok: true, value }),
-    (error: unknown) => ({ ok: false, error })
-  );
 }
 
 async function* orderedConcurrentMap<T, R>(
@@ -776,88 +767,20 @@ export class WerewolfGame {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     let killTarget: Player | null = null;
     let savedTarget: string | null = null;
-    let attackTargetTask: Promise<SettledValue<Player | null>> | null = null;
-    let seerActionTask: Promise<SettledValue<PreparedTargetAction | null>> | null = null;
-    let witchActionTask: Promise<SettledValue<PreparedWitchAction | null>> | null = null;
-
-    const startWerewolfAttackPrefetch = () => {
-      if (attackTargetTask || werewolves.length === 0) {
-        return;
-      }
-      const previousPhase = this.phase;
-      this.phase = "night";
-      attackTargetTask = settle(
-        this.resolveWerewolfAttack(
-          werewolves,
-          this.progressReporterAt("night", this.round, "werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
-        )
-      );
-      this.phase = previousPhase;
-    };
-
-    const awaitWerewolfAttack = async (): Promise<Player | null> => {
-      startWerewolfAttackPrefetch();
-      const result = await attackTargetTask;
-      if (!result) {
-        return null;
-      }
-      if (!result.ok) {
-        throw result.error;
-      }
-      return result.value;
-    };
-
-    const awaitPrepared = async <T,>(task: Promise<SettledValue<T>>): Promise<T> => {
-      const result = await task;
-      if (!result.ok) {
-        throw result.error;
-      }
-      return result.value;
-    };
-
-    const startSeerActionPrefetch = () => {
-      if (seerActionTask) {
-        return;
-      }
-      const seer = this.alivePlayers().find((player) => player.role === "Seer");
-      if (!seer || this.isHumanControlledPlayer(seer)) {
-        return;
-      }
-      seerActionTask = settle(this.prepareSeerAction());
-    };
-
-    const startWitchActionPrefetch = () => {
-      if (witchActionTask) {
-        return;
-      }
-      const witch = this.alivePlayers().find((player) => player.role === "Witch");
-      if (!witch || this.isHumanControlledPlayer(witch)) {
-        return;
-      }
-      startWerewolfAttackPrefetch();
-      witchActionTask = settle((async () => this.prepareWitchAction(await awaitWerewolfAttack()))());
-    };
-
-    const startIndependentNightPrefetch = () => {
-      startWerewolfAttackPrefetch();
-      startSeerActionPrefetch();
-      startWitchActionPrefetch();
-    };
 
     for (const step of createNightActionPlan(this.alivePlayers().map((player) => ({ role: player.role, playerId: player.id })))) {
       if (step.kind === "guard_protect") {
         yield* this.runGuardAction();
-        startIndependentNightPrefetch();
       }
       if (step.kind === "werewolf_discussion") {
-        startIndependentNightPrefetch();
         yield* this.runWerewolfDiscussion(werewolves);
       }
       if (step.kind === "werewolf_attack") {
         this.phase = "night";
-        startSeerActionPrefetch();
-        killTarget = await awaitWerewolfAttack();
-        startWitchActionPrefetch();
+        killTarget = await this.resolveWerewolfAttack(
+          werewolves,
+          this.progressReporterAt("night", this.round, "werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
+        );
         if (killTarget) {
           yield this.emit(
             "night_action",
@@ -869,25 +792,10 @@ export class WerewolfGame {
         }
       }
       if (step.kind === "seer_check") {
-        if (seerActionTask) {
-          const event = this.applySeerAction(await awaitPrepared(seerActionTask));
-          if (event) {
-            yield event;
-          }
-        } else {
-          yield* this.runSeerAction();
-        }
+        yield* this.runSeerAction();
       }
       if (step.kind === "witch_action") {
-        if (witchActionTask) {
-          const result = this.applyWitchAction(await awaitPrepared(witchActionTask));
-          savedTarget = result.savedTarget;
-          for (const event of result.events) {
-            yield event;
-          }
-        } else {
-          savedTarget = yield* this.runWitchAction(killTarget);
-        }
+        savedTarget = yield* this.runWitchAction(killTarget);
       }
       if (step.kind === "wolf_beauty_charm") {
         for (const actorId of step.actorIds) {

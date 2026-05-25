@@ -1637,7 +1637,7 @@ test("seer records a private camp result for the chosen living target", async ()
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
 });
 
-test("werewolf attack target generation is prefetched while private discussion waits in the queue", async () => {
+test("werewolf attack target generation waits until private discussion finishes", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 1 }) as TestableGame;
   const players = setTable(game, [
     { role: "Werewolf" },
@@ -1660,11 +1660,17 @@ test("werewolf attack target generation is prefetched while private discussion w
   assert.equal(discussionStart.value?.type, "phase_changed");
   assert.equal(discussionStart.value?.phase, "werewolf_discussion");
 
+  const firstSpeech = run.next();
   await sleepWithAbort(60);
   const targetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
-  assert.ok(targetInputs.length >= 2);
-  assert.ok(targetInputs.every((input) => input.phase === "night"));
+  assert.equal(targetInputs.length, 0);
+  assert.equal(firstWolf.speechInputs.length, 1);
+  await firstSpeech;
 
+  await collect(run);
+  const completedTargetInputs = [...firstWolf.targetInputs, ...secondWolf.targetInputs];
+  assert.ok(completedTargetInputs.length >= 2);
+  assert.ok(completedTargetInputs.every((input) => input.phase === "night"));
   await run.return(undefined);
 });
 
