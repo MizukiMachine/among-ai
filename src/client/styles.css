@@ -20,7 +20,7 @@
   --ship-accent: #2fc581;
   --ship-cyan: #67d8df;
   --ship-amber: #e3a64f;
-  --main-panel-image: linear-gradient(118deg, rgba(6, 10, 14, 0.96), rgba(10, 19, 24, 0.92) 48%, rgba(12, 24, 28, 0.76));
+  --main-panel-image: url("/assets/background-candidates/scifi-bg-top-left-b-observation.png");
   color: #e8eef1;
   background: #0b1015;
   font-family:
@@ -1388,9 +1388,12 @@ input[type="range"] {
   isolation: isolate;
   min-height: 100%;
   background:
-    linear-gradient(90deg, rgba(3, 7, 11, 0.94) 0%, rgba(6, 13, 19, 0.84) 42%, rgba(7, 18, 22, 0.48) 72%, rgba(6, 11, 15, 0.42) 100%),
+    linear-gradient(90deg, rgba(3, 7, 11, 0.58) 0%, rgba(6, 13, 19, 0.38) 42%, rgba(7, 18, 22, 0.12) 72%, rgba(6, 11, 15, 0.18) 100%),
     var(--main-panel-image),
     #05080c;
+  background-position: center, center, center;
+  background-repeat: no-repeat;
+  background-size: auto, cover, auto;
 }
 
 .chapel-backdrop {
@@ -1406,15 +1409,16 @@ input[type="range"] {
 
 .scifi-texture-backdrop {
   background:
-    linear-gradient(90deg, rgba(1, 5, 8, 0.94), rgba(5, 12, 18, 0.74) 48%, rgba(4, 10, 13, 0.7)),
+    linear-gradient(90deg, rgba(1, 5, 8, 0.7), rgba(5, 12, 18, 0.38) 48%, rgba(4, 10, 13, 0.22)),
     radial-gradient(circle at 70% 18%, rgba(103, 216, 223, 0.16), transparent 20%),
     radial-gradient(circle at 28% 72%, rgba(47, 197, 129, 0.12), transparent 28%),
     var(--ship-cable-texture),
-    var(--ship-panel-texture),
     var(--main-panel-image),
     #070b10;
-  background-blend-mode: normal, screen, screen, overlay, normal, normal, normal;
-  background-size: auto, auto, auto, 720px 720px, var(--ship-panel-size), cover, auto;
+  background-blend-mode: normal, screen, screen, soft-light, normal, normal;
+  background-position: center, center, center, center, center, center;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat, no-repeat, no-repeat;
+  background-size: auto, auto, auto, 720px 720px, cover, auto;
 }
 
 .chapel-backdrop::before,
@@ -1439,57 +1443,55 @@ input[type="range"] {
   inset: 0;
   z-index: 2;
   background:
-    linear-gradient(90deg, rgba(1, 5, 8, 0.72), rgba(2, 8, 12, 0.44) 38%, rgba(2, 9, 11, 0.12) 72%, rgba(1, 5, 8, 0.28)),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.46), transparent 46%, rgba(255, 255, 255, 0.08));
+    linear-gradient(90deg, rgba(1, 5, 8, 0.48), rgba(2, 8, 12, 0.22) 38%, rgba(2, 9, 11, 0.05) 72%, rgba(1, 5, 8, 0.14)),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.34), transparent 46%, rgba(255, 255, 255, 0.06));
 }
 
 .scifi-texture-backdrop[data-stage-tone="night"] {
   background:
-    linear-gradient(90deg, rgba(5, 6, 12, 0.96), rgba(14, 11, 20, 0.72) 48%, rgba(18, 9, 14, 0.66)),
+    linear-gradient(90deg, rgba(5, 6, 12, 0.74), rgba(14, 11, 20, 0.4) 48%, rgba(18, 9, 14, 0.26)),
     radial-gradient(circle at 72% 22%, rgba(251, 113, 133, 0.2), transparent 18%),
     radial-gradient(circle at 20% 70%, rgba(103, 216, 223, 0.12), transparent 25%),
     var(--ship-cable-texture),
-    var(--ship-panel-texture),
     var(--main-panel-image),
     #090914;
 }
 
 .scifi-texture-backdrop[data-stage-tone="danger"] {
   background:
-    linear-gradient(90deg, rgba(11, 4, 5, 0.96), rgba(24, 11, 13, 0.72) 48%, rgba(24, 9, 8, 0.66)),
+    linear-gradient(90deg, rgba(11, 4, 5, 0.76), rgba(24, 11, 13, 0.42) 48%, rgba(24, 9, 8, 0.28)),
     radial-gradient(circle at 70% 22%, rgba(239, 68, 68, 0.26), transparent 18%),
     radial-gradient(circle at 22% 72%, rgba(249, 115, 22, 0.14), transparent 24%),
     var(--ship-cable-texture),
-    var(--ship-panel-texture),
     var(--main-panel-image),
     #120709;
 }
 
 .scifi-texture-backdrop[data-stage-tone="vote"] {
   background:
-    linear-gradient(90deg, rgba(11, 8, 4, 0.96), rgba(24, 17, 9, 0.72) 48%, rgba(26, 15, 6, 0.66)),
+    linear-gradient(90deg, rgba(11, 8, 4, 0.74), rgba(24, 17, 9, 0.4) 48%, rgba(26, 15, 6, 0.26)),
     radial-gradient(circle at 72% 22%, rgba(245, 158, 11, 0.24), transparent 18%),
     radial-gradient(circle at 20% 72%, rgba(103, 216, 223, 0.11), transparent 24%),
     var(--ship-cable-texture),
-    var(--ship-panel-texture),
     var(--main-panel-image),
     #100d08;
 }
 
 .scifi-texture-backdrop[data-stage-tone="summary"] {
   background:
-    linear-gradient(90deg, rgba(4, 9, 12, 0.96), rgba(7, 22, 27, 0.74) 48%, rgba(6, 24, 28, 0.66)),
+    linear-gradient(90deg, rgba(4, 9, 12, 0.72), rgba(7, 22, 27, 0.4) 48%, rgba(6, 24, 28, 0.26)),
     radial-gradient(circle at 72% 18%, rgba(134, 239, 172, 0.18), transparent 18%),
     radial-gradient(circle at 20% 70%, rgba(103, 216, 223, 0.16), transparent 26%),
     var(--ship-cable-texture),
-    var(--ship-panel-texture),
     var(--main-panel-image),
     #061119;
 }
 
 .scifi-texture-backdrop[data-stage-tone] {
-  background-blend-mode: normal, screen, screen, overlay, normal, normal, normal;
-  background-size: auto, auto, auto, 720px 720px, var(--ship-panel-size), cover, auto;
+  background-blend-mode: normal, screen, screen, soft-light, normal, normal;
+  background-position: center, center, center, center, center, center;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat, no-repeat, no-repeat;
+  background-size: auto, auto, auto, 720px 720px, cover, auto;
 }
 
 .story-hero:has(.hero-character) .chapel-backdrop::before {
@@ -1596,22 +1598,22 @@ input[type="range"] {
   position: relative;
   z-index: 2;
   display: grid;
-  width: min(85%, 1000px);
+  width: min(96%, 1160px);
   max-height: calc(100% - 170px);
   align-content: start;
   gap: 14px;
   overflow-y: auto;
-  padding: 34px 34px 0;
+  padding: 72px 36px 0 84px;
   scrollbar-color: rgba(255, 255, 255, 0.34) transparent;
   scrollbar-width: thin;
 }
 
 .story-hero:has(.hero-character) .story-copy {
-  width: min(62%, 760px);
+  width: min(96%, 1120px);
 }
 
 .story-hero.round_summary .story-copy {
-  width: min(82%, 860px);
+  width: min(92%, 980px);
   max-height: calc(100% - 188px);
   padding-bottom: 12px;
 }
@@ -3660,7 +3662,7 @@ input[type="range"] {
   .story-copy {
     width: min(100%, 660px);
     max-height: 66%;
-    padding: 30px 24px 154px;
+    padding: 54px 24px 154px 56px;
   }
 
   .hero-character {
@@ -3771,7 +3773,7 @@ input[type="range"] {
 
   .story-copy {
     max-height: 62%;
-    padding: 26px 18px 230px;
+    padding: 42px 16px 230px 32px;
   }
 
   .human-input-panel {
