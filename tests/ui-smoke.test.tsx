@@ -29,6 +29,9 @@ test("app shell renders spectator controls and info overlay buttons", () => {
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
   assert.match(html, /一時停止/);
+  assert.match(html, /header-role-distribution/);
+  assert.match(html, /header-role-chip/);
+  assert.match(html, /役職内訳/);
   assert.doesNotMatch(html, /topbar-actions/);
   assert.doesNotMatch(html, /プレイヤー・インテリジェンス/);
   assert.doesNotMatch(html, /roster-summary/);
@@ -153,7 +156,8 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 
   assert.match(css, /@media \(max-width: 980px\)/);
   assert.match(css, /\.workspace\s*\{[^}]*grid-template-columns:\s*1fr/s);
-  assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.header-role-distribution\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.header-role-list\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /\.story-column\s*\{[^}]*order:\s*1/s);
   assert.match(css, /\.controls-panel\s*\{[^}]*order:\s*3/s);
   assert.match(css, /\.vote-node\s*\{[^}]*min-width:\s*0/s);
@@ -162,18 +166,19 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(css, /\.workspace\s*\{[^}]*height:\s*clamp\(560px,\s*calc\(100vh - 122px\),\s*760px\)/s);
+  assert.match(css, /\.workspace\s*\{[^}]*height:\s*clamp\(680px,\s*calc\(100dvh - 128px\),\s*970px\)/s);
   assert.match(css, /\.story-panel\s*\{[^}]*min-height:\s*0/s);
   assert.match(css, /\.novel-stage\s*\{[^}]*height:\s*100%/s);
-  assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 98px\)/s);
+  assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 170px\)/s);
   assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.setup-grid\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
-  assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*14px/s);
-  assert.match(css, /\.story-back,\s*\.story-next\s*\{[^}]*min-width:\s*128px/s);
+  assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*18px/s);
+  assert.match(css, /\.story-back,\s*\.story-next\s*\{[^}]*min-width:\s*164px/s);
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
-  assert.match(css, /\.status-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.header-role-chip\s*\{[^}]*min-height:\s*46px/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 
 test("player roster scrolls inside the fixed gameplay panel", () => {
