@@ -9,3 +9,4 @@ dist
 /public/characters/
 backups/
 .claude/
+.mcpheadlessbrowser/
