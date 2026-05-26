@@ -56,8 +56,9 @@ import type {
 
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
+const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 
-const characterImageMap: Record<string, string> = {
+const characterPortraitMap: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
   p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
   p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
@@ -73,6 +74,24 @@ const characterImageMap: Record<string, string> = {
   p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
   p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
   p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
+};
+
+const characterImageMap: Record<string, string> = {
+  p1: `${CHARACTER_THUMBNAIL_ROOT}/p1_shion.webp`,
+  p2: `${CHARACTER_THUMBNAIL_ROOT}/p2_gaku.webp`,
+  p3: `${CHARACTER_THUMBNAIL_ROOT}/p3_akane.webp`,
+  p4: `${CHARACTER_THUMBNAIL_ROOT}/p4_mahiro.webp`,
+  p5: `${CHARACTER_THUMBNAIL_ROOT}/p5_nagisa.webp`,
+  p6: `${CHARACTER_THUMBNAIL_ROOT}/p6_shuhei.webp`,
+  p7: `${CHARACTER_THUMBNAIL_ROOT}/p7_kirie.webp`,
+  p8: `${CHARACTER_THUMBNAIL_ROOT}/p8_rikuto.webp`,
+  p9: `${CHARACTER_THUMBNAIL_ROOT}/p9_iori.webp`,
+  p10: `${CHARACTER_THUMBNAIL_ROOT}/p10_sakurako.webp`,
+  p11: `${CHARACTER_THUMBNAIL_ROOT}/p11_rintaro.webp`,
+  p12: `${CHARACTER_THUMBNAIL_ROOT}/p12_koharu.webp`,
+  p13: `${CHARACTER_THUMBNAIL_ROOT}/p13_sena.webp`,
+  p14: `${CHARACTER_THUMBNAIL_ROOT}/p14_nozomi.webp`,
+  p15: `${CHARACTER_THUMBNAIL_ROOT}/p15_akiomi.webp`
 };
 
 const defaultCharacterImages = Object.values(characterImageMap);
@@ -170,14 +189,21 @@ function getCharacterImage(playerId?: string): string | null {
   return characterImageMap[playerId] ?? null;
 }
 
+function getCharacterPortrait(playerId?: string): string | null {
+  if (!playerId) return null;
+  return characterPortraitMap[playerId] ?? getCharacterImage(playerId);
+}
+
 interface CharacterImageProps {
   alt?: string;
   className?: string;
+  fetchPriority?: "high" | "low" | "auto";
   fallback: ReactNode;
+  loading?: "eager" | "lazy";
   src: string | null | undefined;
 }
 
-function CharacterImage({ alt = "", className, fallback, src }: CharacterImageProps) {
+function CharacterImage({ alt = "", className, fallback, fetchPriority = "auto", loading = "eager", src }: CharacterImageProps) {
   const [loadState, setLoadState] = useState<CharacterImageLoadState>(() => characterImageLoadState(src));
 
   useEffect(() => {
@@ -200,11 +226,22 @@ function CharacterImage({ alt = "", className, fallback, src }: CharacterImagePr
     };
   }, [src]);
 
-  if (!src || loadState !== "loaded") {
+  if (!src || loadState === "failed") {
     return <>{fallback}</>;
   }
 
-  return <img className={className} src={src} alt={alt} onError={() => setLoadState("failed")} />;
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      decoding="async"
+      fetchPriority={fetchPriority}
+      loading={loading}
+      onLoad={() => setLoadState("loaded")}
+      onError={() => setLoadState("failed")}
+    />
+  );
 }
 
 function playerIndexFromId(playerId: string): number {
@@ -833,7 +870,7 @@ export function App() {
     [effectivePlayerCount]
   );
   const allPlayers = snapshot?.players ?? [];
-  const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
+  const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
   const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
   const heroCastDensity = heroCast.length >= 8 ? "cast-large" : heroCast.length === 7 ? "cast-medium" : "";
   const leadingVote = latestVoteTotalsSorted[0];
@@ -1877,7 +1914,7 @@ export function App() {
                     onClick={() => selectHumanPlayer(player.id)}
                     type="button"
                   >
-                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} />
+                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} fetchPriority="high" />
                     <span>{player.name}</span>
                   </button>
                 ))}

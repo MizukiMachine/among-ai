@@ -75,18 +75,28 @@ test("hero cast mirrors selected and active player counts", () => {
 
   assert.equal(cast.length, 15);
   assert.equal(cast.at(-1)?.id, "p15");
-  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akiomi\.png$/);
+  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/thumbs\/p15_akiomi\.webp$/);
   assert.equal(cast.at(-1)?.alive, true);
   assert.equal(cast[8].alive, false);
 });
 
 test("setup character portraits preload the full roster", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
+  assert.match(source, /const CHARACTER_THUMBNAIL_ROOT = `\$\{CHARACTER_ASSET_ROOT\}\/thumbs`;/);
+  assert.match(source, /p15:\s*`\$\{CHARACTER_THUMBNAIL_ROOT\}\/p15_akiomi\.webp`/);
+  assert.match(source, /function getCharacterPortrait\(playerId\?: string\): string \| null/);
   assert.match(source, /const loadedCharacterImages = new Set<string>\(\);/);
   assert.match(source, /const pendingCharacterImageLoads = new Map<string, Promise<boolean>>\(\);/);
   assert.match(source, /preloadCharacterImages\(defaultCharacterImages\);/);
+  assert.match(source, /fetchPriority=\{fetchPriority\}/);
+  assert.match(source, /loading=\{loading\}/);
+  assert.match(source, /fetchPriority="high"/);
   assert.match(source, /void preloadCharacterImage\(src\)\.then/);
+  assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p1_shion\.webp"/);
+  assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p7_kirie\.webp"/);
+  assert.doesNotMatch(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p15_akiomi\.webp"/);
 });
 
 test("read clusters count each source-target pair once", () => {
