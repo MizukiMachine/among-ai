@@ -292,26 +292,7 @@ function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
 }
 
-const compactHeaderRoleLabels: Partial<Record<Role, string>> = {
-  Werewolf: "人狼",
-  AlphaWolf: "α人狼",
-  WolfBeauty: "美女狼",
-  Seer: "占",
-  Witch: "魔",
-  Guard: "騎",
-  Hunter: "狩",
-  Raven: "鴉",
-  Idiot: "愚",
-  Elder: "老",
-  Lover: "恋",
-  Jester: "道",
-  Villager: "村"
-};
-
-function headerRoleLabel(role: Role, compact: boolean, language: string): string {
-  if (compact && isJapaneseLanguage(language)) {
-    return compactHeaderRoleLabels[role] ?? displayRoleLabel(role, language);
-  }
+function headerRoleLabel(role: Role, language: string): string {
   return displayRoleLabel(role, language);
 }
 
@@ -864,7 +845,7 @@ export function App() {
     () => getRoleDistributionItems(effectivePlayerCount),
     [effectivePlayerCount]
   );
-  const compactHeaderRoleList = roleDistributionItems.length >= 8;
+  const expandedHeaderRoleList = roleDistributionItems.length >= 8;
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
@@ -1805,11 +1786,11 @@ export function App() {
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
 
     return (
-      <section className={`header-role-distribution ${compactHeaderRoleList ? "compact-roles" : ""}`} aria-label="役職内訳">
+      <section className={`header-role-distribution ${expandedHeaderRoleList ? "expanded-roles" : ""}`} aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
-          <strong className={`header-camp-ratio ${compactHeaderRoleList ? "split" : ""}`}>
-            {renderHeaderCampRatio(effectivePlayerCount, compactHeaderRoleList, language)}
+          <strong className="header-camp-ratio">
+            {renderHeaderCampRatio(effectivePlayerCount, false, language)}
           </strong>
         </div>
         <div className="header-role-list" role="list">
@@ -1824,8 +1805,8 @@ export function App() {
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
-                <span>{headerRoleLabel(role, compactHeaderRoleList, language)}</span>
-                <strong>{compactHeaderRoleList ? count : `${count}人`}</strong>
+                <span>{headerRoleLabel(role, language)}</span>
+                <strong>{`${count}人`}</strong>
               </button>
             </span>
           ))}
@@ -1979,7 +1960,7 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
+      <header className={`topbar ${expandedHeaderRoleList ? "expanded-roles" : ""}`}>
         <div className="brand-lockup">
           <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
@@ -2071,6 +2052,8 @@ export function App() {
                 <div className="graveyard">
                   {deadPlayers.map((player) => {
                     const humanPlayer = isHumanPlayer(player.id);
+                    const deadRole = spectatorMode === "omniscient" ? player.role : "Hidden";
+                    const deadRoleLabel = displayRoleLabel(deadRole, language);
                     return (
                       <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                         {getCharacterImage(player.id) ? (
@@ -2091,7 +2074,7 @@ export function App() {
                         )}
                         <strong>{player.name}</strong>
                         {humanPlayer ? renderHumanPlayerBadge() : null}
-                        <span>{spectatorMode === "omniscient" ? displayRoleLabel(player.role, language) : displayRoleLabel("Hidden", language)}</span>
+                        <span className={`dead-role-chip ${roleClassName(deadRole)}`}>{deadRoleLabel}</span>
                       </div>
                     );
                   })}
