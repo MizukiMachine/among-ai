@@ -255,6 +255,29 @@ function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
 }
 
+const compactHeaderRoleLabels: Partial<Record<Role, string>> = {
+  Werewolf: "人狼",
+  AlphaWolf: "α人狼",
+  WolfBeauty: "美女狼",
+  Seer: "占",
+  Witch: "魔",
+  Guard: "騎",
+  Hunter: "狩",
+  Raven: "鴉",
+  Idiot: "愚",
+  Elder: "老",
+  Lover: "恋",
+  Jester: "道",
+  Villager: "村"
+};
+
+function headerRoleLabel(role: Role, compact: boolean, language: string): string {
+  if (compact && isJapaneseLanguage(language)) {
+    return compactHeaderRoleLabels[role] ?? displayRoleLabel(role, language);
+  }
+  return displayRoleLabel(role, language);
+}
+
 interface VoteDetail {
   voterId: string;
   voterName: string;
@@ -548,17 +571,37 @@ function runModeClass(count: number): string {
   return "mode-standard";
 }
 
-function getCampRatioText(count: number, language: string): string {
+function getCampRatioCounts(count: number): { villagers: number; werewolves: number } {
   const roleCounts = getRoleDistributionItems(count);
   const werewolves = roleCounts
     .filter(([role]) => role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty")
     .reduce((total, [, roleCount]) => total + roleCount, 0);
   const villagers = normalizePlayerCount(count) - werewolves;
 
+  return { villagers, werewolves };
+}
+
+function getCampRatioText(count: number, language: string): string {
+  const { villagers, werewolves } = getCampRatioCounts(count);
+
   if (isJapaneseLanguage(language)) {
     return `人間側${villagers} / 狼陣営${werewolves}`;
   }
   return `Village ${villagers} / Werewolf ${werewolves}`;
+}
+
+function renderHeaderCampRatio(count: number, compact: boolean, language: string): ReactNode {
+  const { villagers, werewolves } = getCampRatioCounts(count);
+
+  if (compact && isJapaneseLanguage(language)) {
+    return (
+      <>
+        <span>人間側{villagers}</span>
+        <span>狼陣営{werewolves}</span>
+      </>
+    );
+  }
+  return getCampRatioText(count, language);
 }
 
 interface RoleRuleCopy {
@@ -784,6 +827,7 @@ export function App() {
     () => getRoleDistributionItems(effectivePlayerCount),
     [effectivePlayerCount]
   );
+  const compactHeaderRoleList = roleDistributionItems.length >= 8;
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
@@ -1722,37 +1766,32 @@ export function App() {
   function renderHeaderRoleDistribution() {
     const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
-    const compactRoleList = roleDistributionItems.length >= 8;
-    const visibleRoleDistributionItems = compactRoleList ? roleDistributionItems.slice(0, 1) : roleDistributionItems;
-    const hiddenRoleCount = roleDistributionItems.length - visibleRoleDistributionItems.length;
 
     return (
-      <section className={`header-role-distribution ${compactRoleList ? "compact-roles" : ""}`} aria-label="役職内訳">
+      <section className={`header-role-distribution ${compactHeaderRoleList ? "compact-roles" : ""}`} aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
-          <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
+          <strong className={`header-camp-ratio ${compactHeaderRoleList ? "split" : ""}`}>
+            {renderHeaderCampRatio(effectivePlayerCount, compactHeaderRoleList, language)}
+          </strong>
         </div>
         <div className="header-role-list" role="list">
-          {visibleRoleDistributionItems.map(([role, count]) => (
+          {roleDistributionItems.map(([role, count]) => (
             <span key={role} role="listitem">
               <button
                 aria-controls={selectedRoleRule === role ? "role-rule-panel" : undefined}
                 aria-expanded={selectedRoleRule === role}
+                aria-label={`${displayRoleLabel(role, language)} ${count}人のルールを表示`}
                 className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
                 onClick={() => setSelectedRoleRule(selectedRoleRule === role ? null : role)}
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
-                <span>{displayRoleLabel(role, language)}</span>
-                <strong>{count}人</strong>
+                <span>{headerRoleLabel(role, compactHeaderRoleList, language)}</span>
+                <strong>{compactHeaderRoleList ? count : `${count}人`}</strong>
               </button>
             </span>
           ))}
-          {hiddenRoleCount > 0 ? (
-            <span className="header-role-more" role="listitem">
-              +{hiddenRoleCount}役職
-            </span>
-          ) : null}
         </div>
         {selectedRoleRule && selectedRule ? (
           <section className={`role-rule-popover ${roleClassName(selectedRoleRule)}-rule`} id="role-rule-panel" role="dialog" aria-label={`${selectedRoleLabel}のルール`}>

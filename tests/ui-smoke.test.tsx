@@ -195,11 +195,22 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.header-role-chip\s*\{[^}]*min-height:\s*46px/s);
-  assert.match(source, /const compactRoleList = roleDistributionItems\.length >= 8;/);
-  assert.match(source, /const visibleRoleDistributionItems = compactRoleList \? roleDistributionItems\.slice\(0, 1\) : roleDistributionItems;/);
-  assert.match(source, /<span className="header-role-more" role="listitem">/);
-  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-list\s*\{[^}]*flex-wrap:\s*nowrap[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*hidden/s);
-  assert.match(css, /\.header-role-more\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(source, /const compactHeaderRoleList = roleDistributionItems\.length >= 8;/);
+  assert.match(source, /AlphaWolf:\s*"α人狼"/);
+  assert.match(source, /function headerRoleLabel\(role: Role, compact: boolean, language: string\): string/);
+  assert.match(source, /function renderHeaderCampRatio\(count: number, compact: boolean, language: string\): ReactNode/);
+  assert.match(source, /<span>人間側\{villagers\}<\/span>/);
+  assert.match(source, /<span>狼陣営\{werewolves\}<\/span>/);
+  assert.match(source, /className=\{`header-camp-ratio \$\{compactHeaderRoleList \? "split" : ""\}`\}/);
+  assert.match(source, /aria-label=\{`\$\{displayRoleLabel\(role, language\)\} \$\{count\}人のルールを表示`\}/);
+  assert.match(source, /\{roleDistributionItems\.map\(\(\[role, count\]\) => \(/);
+  assert.doesNotMatch(source, /visibleRoleDistributionItems/);
+  assert.doesNotMatch(source, /header-role-more/);
+  assert.doesNotMatch(source, /compact-role-topbar/);
+  assert.doesNotMatch(css, /\.topbar\.compact-role-topbar/);
+  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-list\s*\{[^}]*flex-wrap:\s*wrap[^}]*overflow:\s*visible/s);
+  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-chip\s*\{[^}]*min-height:\s*32px/s);
+  assert.match(css, /\.header-camp-ratio\.split\s*\{[^}]*display:\s*grid/s);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 
