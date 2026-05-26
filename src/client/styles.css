@@ -1362,13 +1362,6 @@ input[type="range"] {
   color: #ffffff;
 }
 
-.player-view-lock {
-  width: min(172px, 100%);
-  flex-basis: 172px;
-  max-width: 220px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .story-panel {
   flex: 1;
   height: auto;
