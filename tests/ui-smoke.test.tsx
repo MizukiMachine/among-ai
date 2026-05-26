@@ -75,9 +75,28 @@ test("hero cast mirrors selected and active player counts", () => {
 
   assert.equal(cast.length, 15);
   assert.equal(cast.at(-1)?.id, "p15");
-  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/p15_akiomi\.png$/);
+  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/thumbs\/p15_akiomi\.webp$/);
   assert.equal(cast.at(-1)?.alive, true);
   assert.equal(cast[8].alive, false);
+});
+
+test("setup character portraits preload the full roster", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+
+  assert.match(source, /const CHARACTER_THUMBNAIL_ROOT = `\$\{CHARACTER_ASSET_ROOT\}\/thumbs`;/);
+  assert.match(source, /p15:\s*`\$\{CHARACTER_THUMBNAIL_ROOT\}\/p15_akiomi\.webp`/);
+  assert.match(source, /function getCharacterPortrait\(playerId\?: string\): string \| null/);
+  assert.match(source, /const loadedCharacterImages = new Set<string>\(\);/);
+  assert.match(source, /const pendingCharacterImageLoads = new Map<string, Promise<boolean>>\(\);/);
+  assert.match(source, /preloadCharacterImages\(defaultCharacterImages\);/);
+  assert.match(source, /fetchPriority=\{fetchPriority\}/);
+  assert.match(source, /loading=\{loading\}/);
+  assert.match(source, /fetchPriority="high"/);
+  assert.match(source, /void preloadCharacterImage\(src\)\.then/);
+  assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p1_shion\.webp"/);
+  assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p7_kirie\.webp"/);
+  assert.doesNotMatch(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p15_akiomi\.webp"/);
 });
 
 test("read clusters count each source-target pair once", () => {
@@ -134,6 +153,8 @@ test("vote result data is visible from either individual votes or totals", () =>
 });
 
 test("story run controls switch between pause, resume, and reset", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
   assert.deepEqual(storyRunControlState(false, false), {
     pauseLabel: "一時停止",
     pauseDisabled: true,
@@ -149,6 +170,11 @@ test("story run controls switch between pause, resume, and reset", () => {
     pauseDisabled: false,
     resetVisible: true
   });
+  assert.match(source, /function resetToInitialSetup\(\)/);
+  assert.match(source, /setPlayerCount\(initialPlayerCount\);/);
+  assert.match(source, /setHumanEnabled\(initialHumanEnabled\);/);
+  assert.match(source, /onClick=\{resetToInitialSetup\}/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => startGame\(\{ revealFirstEvent: true \}\)\}/);
 });
 
 test("mobile layout CSS keeps spectator panels in a single column", () => {
@@ -165,6 +191,7 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.match(css, /\.workspace\s*\{[^}]*height:\s*clamp\(680px,\s*calc\(100dvh - 128px\),\s*970px\)/s);
   assert.match(css, /\.story-panel\s*\{[^}]*min-height:\s*0/s);
@@ -178,6 +205,22 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.header-role-chip\s*\{[^}]*min-height:\s*46px/s);
+  assert.match(source, /const compactHeaderRoleList = roleDistributionItems\.length >= 8;/);
+  assert.match(source, /AlphaWolf:\s*"α人狼"/);
+  assert.match(source, /function headerRoleLabel\(role: Role, compact: boolean, language: string\): string/);
+  assert.match(source, /function renderHeaderCampRatio\(count: number, compact: boolean, language: string\): ReactNode/);
+  assert.match(source, /<span>人間側\{villagers\}<\/span>/);
+  assert.match(source, /<span>狼陣営\{werewolves\}<\/span>/);
+  assert.match(source, /className=\{`header-camp-ratio \$\{compactHeaderRoleList \? "split" : ""\}`\}/);
+  assert.match(source, /aria-label=\{`\$\{displayRoleLabel\(role, language\)\} \$\{count\}人のルールを表示`\}/);
+  assert.match(source, /\{roleDistributionItems\.map\(\(\[role, count\]\) => \(/);
+  assert.doesNotMatch(source, /visibleRoleDistributionItems/);
+  assert.doesNotMatch(source, /header-role-more/);
+  assert.doesNotMatch(source, /compact-role-topbar/);
+  assert.doesNotMatch(css, /\.topbar\.compact-role-topbar/);
+  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-list\s*\{[^}]*flex-wrap:\s*wrap[^}]*overflow:\s*visible/s);
+  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-chip\s*\{[^}]*min-height:\s*32px/s);
+  assert.match(css, /\.header-camp-ratio\.split\s*\{[^}]*display:\s*grid/s);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 

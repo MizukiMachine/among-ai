@@ -56,8 +56,9 @@ import type {
 
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
+const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 
-const characterImageMap: Record<string, string> = {
+const characterPortraitMap: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
   p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
   p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
@@ -75,9 +76,98 @@ const characterImageMap: Record<string, string> = {
   p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
 };
 
+const characterImageMap: Record<string, string> = {
+  p1: `${CHARACTER_THUMBNAIL_ROOT}/p1_shion.webp`,
+  p2: `${CHARACTER_THUMBNAIL_ROOT}/p2_gaku.webp`,
+  p3: `${CHARACTER_THUMBNAIL_ROOT}/p3_akane.webp`,
+  p4: `${CHARACTER_THUMBNAIL_ROOT}/p4_mahiro.webp`,
+  p5: `${CHARACTER_THUMBNAIL_ROOT}/p5_nagisa.webp`,
+  p6: `${CHARACTER_THUMBNAIL_ROOT}/p6_shuhei.webp`,
+  p7: `${CHARACTER_THUMBNAIL_ROOT}/p7_kirie.webp`,
+  p8: `${CHARACTER_THUMBNAIL_ROOT}/p8_rikuto.webp`,
+  p9: `${CHARACTER_THUMBNAIL_ROOT}/p9_iori.webp`,
+  p10: `${CHARACTER_THUMBNAIL_ROOT}/p10_sakurako.webp`,
+  p11: `${CHARACTER_THUMBNAIL_ROOT}/p11_rintaro.webp`,
+  p12: `${CHARACTER_THUMBNAIL_ROOT}/p12_koharu.webp`,
+  p13: `${CHARACTER_THUMBNAIL_ROOT}/p13_sena.webp`,
+  p14: `${CHARACTER_THUMBNAIL_ROOT}/p14_nozomi.webp`,
+  p15: `${CHARACTER_THUMBNAIL_ROOT}/p15_akiomi.webp`
+};
+
 const defaultCharacterImages = Object.values(characterImageMap);
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
+const initialPlayerCount = 7;
+const initialDebugScenario: DebugScenario = "none";
+const initialHumanEnabled = false;
+const initialHumanPlayerId = "p1";
+const initialSpectatorMode: SpectatorMode = "omniscient";
+
+type CharacterImageLoadState = "loading" | "loaded" | "failed";
+
+const loadedCharacterImages = new Set<string>();
+const failedCharacterImages = new Set<string>();
+const pendingCharacterImageLoads = new Map<string, Promise<boolean>>();
+
+function preloadCharacterImage(src: string): Promise<boolean> {
+  if (loadedCharacterImages.has(src)) {
+    return Promise.resolve(true);
+  }
+  if (failedCharacterImages.has(src)) {
+    return Promise.resolve(false);
+  }
+
+  const pending = pendingCharacterImageLoads.get(src);
+  if (pending) {
+    return pending;
+  }
+
+  if (typeof Image === "undefined") {
+    return Promise.resolve(false);
+  }
+
+  const promise = new Promise<boolean>((resolve) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      pendingCharacterImageLoads.delete(src);
+      failedCharacterImages.delete(src);
+      loadedCharacterImages.add(src);
+      resolve(true);
+    };
+    image.onerror = () => {
+      pendingCharacterImageLoads.delete(src);
+      loadedCharacterImages.delete(src);
+      failedCharacterImages.add(src);
+      resolve(false);
+    };
+    image.src = src;
+  });
+
+  pendingCharacterImageLoads.set(src, promise);
+  return promise;
+}
+
+function preloadCharacterImages(srcs: string[]) {
+  if (typeof Image === "undefined") {
+    return;
+  }
+  for (const src of srcs) {
+    void preloadCharacterImage(src);
+  }
+}
+
+function characterImageLoadState(src: string | null | undefined): CharacterImageLoadState {
+  if (!src || failedCharacterImages.has(src)) {
+    return "failed";
+  }
+  if (loadedCharacterImages.has(src)) {
+    return "loaded";
+  }
+  return "loading";
+}
+
+preloadCharacterImages(defaultCharacterImages);
 
 interface StreamSystemPayload {
   gameId?: string | null;
@@ -99,43 +189,59 @@ function getCharacterImage(playerId?: string): string | null {
   return characterImageMap[playerId] ?? null;
 }
 
+function getCharacterPortrait(playerId?: string): string | null {
+  if (!playerId) return null;
+  return characterPortraitMap[playerId] ?? getCharacterImage(playerId);
+}
+
 interface CharacterImageProps {
   alt?: string;
   className?: string;
+  fetchPriority?: "high" | "low" | "auto";
   fallback: ReactNode;
+  loading?: "eager" | "lazy";
   src: string | null | undefined;
 }
 
-function CharacterImage({ alt = "", className, fallback, src }: CharacterImageProps) {
-  const [loaded, setLoaded] = useState(false);
+function CharacterImage({ alt = "", className, fallback, fetchPriority = "auto", loading = "eager", src }: CharacterImageProps) {
+  const [loadState, setLoadState] = useState<CharacterImageLoadState>(() => characterImageLoadState(src));
 
   useEffect(() => {
     if (!src) {
-      setLoaded(false);
+      setLoadState("failed");
       return;
     }
 
     let active = true;
-    const image = new Image();
-    image.onload = () => {
-      if (active) setLoaded(true);
-    };
-    image.onerror = () => {
-      if (active) setLoaded(false);
-    };
-    setLoaded(false);
-    image.src = src;
+    const nextState = characterImageLoadState(src);
+    setLoadState(nextState);
+    if (nextState === "loading") {
+      void preloadCharacterImage(src).then((loaded) => {
+        if (active) setLoadState(loaded ? "loaded" : "failed");
+      });
+    }
 
     return () => {
       active = false;
     };
   }, [src]);
 
-  if (!src || !loaded) {
+  if (!src || loadState === "failed") {
     return <>{fallback}</>;
   }
 
-  return <img className={className} src={src} alt={alt} onError={() => setLoaded(false)} />;
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      decoding="async"
+      fetchPriority={fetchPriority}
+      loading={loading}
+      onLoad={() => setLoadState("loaded")}
+      onError={() => setLoadState("failed")}
+    />
+  );
 }
 
 function playerIndexFromId(playerId: string): number {
@@ -184,6 +290,29 @@ const roleClass: Partial<Record<Role, string>> = {
 
 function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
+}
+
+const compactHeaderRoleLabels: Partial<Record<Role, string>> = {
+  Werewolf: "人狼",
+  AlphaWolf: "α人狼",
+  WolfBeauty: "美女狼",
+  Seer: "占",
+  Witch: "魔",
+  Guard: "騎",
+  Hunter: "狩",
+  Raven: "鴉",
+  Idiot: "愚",
+  Elder: "老",
+  Lover: "恋",
+  Jester: "道",
+  Villager: "村"
+};
+
+function headerRoleLabel(role: Role, compact: boolean, language: string): string {
+  if (compact && isJapaneseLanguage(language)) {
+    return compactHeaderRoleLabels[role] ?? displayRoleLabel(role, language);
+  }
+  return displayRoleLabel(role, language);
 }
 
 interface VoteDetail {
@@ -326,6 +455,11 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   const save = player.witch.savePotion ? "S" : "-";
   const poison = player.witch.poisonPotion ? "P" : "-";
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
+}
+
+function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
+  const label = roleDisplay(player, mode, language);
+  return isJapaneseLanguage(language) && label === displayRoleLabel("AlphaWolf", language) ? "α人狼" : label;
 }
 
 function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, humanPlayerId: string): string {
@@ -474,17 +608,37 @@ function runModeClass(count: number): string {
   return "mode-standard";
 }
 
-function getCampRatioText(count: number, language: string): string {
+function getCampRatioCounts(count: number): { villagers: number; werewolves: number } {
   const roleCounts = getRoleDistributionItems(count);
   const werewolves = roleCounts
     .filter(([role]) => role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty")
     .reduce((total, [, roleCount]) => total + roleCount, 0);
   const villagers = normalizePlayerCount(count) - werewolves;
 
+  return { villagers, werewolves };
+}
+
+function getCampRatioText(count: number, language: string): string {
+  const { villagers, werewolves } = getCampRatioCounts(count);
+
   if (isJapaneseLanguage(language)) {
     return `人間側${villagers} / 狼陣営${werewolves}`;
   }
   return `Village ${villagers} / Werewolf ${werewolves}`;
+}
+
+function renderHeaderCampRatio(count: number, compact: boolean, language: string): ReactNode {
+  const { villagers, werewolves } = getCampRatioCounts(count);
+
+  if (compact && isJapaneseLanguage(language)) {
+    return (
+      <>
+        <span>人間側{villagers}</span>
+        <span>狼陣営{werewolves}</span>
+      </>
+    );
+  }
+  return getCampRatioText(count, language);
 }
 
 interface RoleRuleCopy {
@@ -619,10 +773,10 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
 }
 
 export function App() {
-  const [playerCount, setPlayerCount] = useState(7);
-  const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
-  const [humanEnabled, setHumanEnabled] = useState(false);
-  const [humanPlayerId, setHumanPlayerId] = useState("p1");
+  const [playerCount, setPlayerCount] = useState(initialPlayerCount);
+  const [debugScenario, setDebugScenario] = useState<DebugScenario>(initialDebugScenario);
+  const [humanEnabled, setHumanEnabled] = useState(initialHumanEnabled);
+  const [humanPlayerId, setHumanPlayerId] = useState(initialHumanPlayerId);
   const [settingsConfirmed, setSettingsConfirmed] = useState(false);
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -633,7 +787,7 @@ export function App() {
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
-  const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
+  const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>(initialSpectatorMode);
   const [activeOverlay, setActiveOverlay] = useState<"vote" | "history" | "recent" | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -710,12 +864,13 @@ export function App() {
     () => getRoleDistributionItems(effectivePlayerCount),
     [effectivePlayerCount]
   );
+  const compactHeaderRoleList = roleDistributionItems.length >= 8;
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
   );
   const allPlayers = snapshot?.players ?? [];
-  const activeSpeakerImage = currentEvent ? getCharacterImage(currentEvent.playerId) : null;
+  const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
   const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
   const heroCastDensity = heroCast.length >= 8 ? "cast-large" : heroCast.length === 7 ? "cast-medium" : "";
   const leadingVote = latestVoteTotalsSorted[0];
@@ -826,6 +981,8 @@ export function App() {
     revealFirstEventRef.current = false;
     resetHumanInputState();
     setPaused(false);
+    setActiveOverlay(null);
+    setSelectedRoleRule(null);
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
@@ -837,6 +994,15 @@ export function App() {
     setSettingsConfirmed(false);
     statusBeforePauseRef.current = "待機中";
     setStatus("待機中");
+  }
+
+  function resetToInitialSetup() {
+    resetToSetup();
+    setPlayerCount(initialPlayerCount);
+    setDebugScenario(initialDebugScenario);
+    setHumanEnabled(initialHumanEnabled);
+    setHumanPlayerId(initialHumanPlayerId);
+    setSpectatorMode(initialSpectatorMode);
   }
 
   function pauseGame() {
@@ -1572,8 +1738,8 @@ export function App() {
         {runControlState.resetVisible ? (
           <button
             className="icon-button story-run-button story-reset-button"
-            onClick={() => startGame({ revealFirstEvent: true })}
-            title="ゲームをリセットして最初から開始"
+            onClick={resetToInitialSetup}
+            title="ゲームをリセットして設定画面に戻る"
             type="button"
           >
             <RotateCcw size={15} />
@@ -1639,10 +1805,12 @@ export function App() {
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
 
     return (
-      <section className="header-role-distribution" aria-label="役職内訳">
+      <section className={`header-role-distribution ${compactHeaderRoleList ? "compact-roles" : ""}`} aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
-          <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
+          <strong className={`header-camp-ratio ${compactHeaderRoleList ? "split" : ""}`}>
+            {renderHeaderCampRatio(effectivePlayerCount, compactHeaderRoleList, language)}
+          </strong>
         </div>
         <div className="header-role-list" role="list">
           {roleDistributionItems.map(([role, count]) => (
@@ -1650,13 +1818,14 @@ export function App() {
               <button
                 aria-controls={selectedRoleRule === role ? "role-rule-panel" : undefined}
                 aria-expanded={selectedRoleRule === role}
+                aria-label={`${displayRoleLabel(role, language)} ${count}人のルールを表示`}
                 className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
                 onClick={() => setSelectedRoleRule(selectedRoleRule === role ? null : role)}
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
-                <span>{displayRoleLabel(role, language)}</span>
-                <strong>{count}人</strong>
+                <span>{headerRoleLabel(role, compactHeaderRoleList, language)}</span>
+                <strong>{compactHeaderRoleList ? count : `${count}人`}</strong>
               </button>
             </span>
           ))}
@@ -1745,7 +1914,7 @@ export function App() {
                     onClick={() => selectHumanPlayer(player.id)}
                     type="button"
                   >
-                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} />
+                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} fetchPriority="high" />
                     <span>{player.name}</span>
                   </button>
                 ))}
@@ -1855,6 +2024,8 @@ export function App() {
               {alivePlayers.length > 0 ? (
                 alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
+                  const roleLabel = roleDisplay(player, spectatorMode, language);
+                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language);
                   return (
                     <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
@@ -1878,8 +2049,8 @@ export function App() {
                           <strong>{player.name}</strong>
                           <span className="persona-pill">{personaLabel(player.persona, language)}</span>
                         </div>
-                        <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                          {roleDisplay(player, spectatorMode, language)}
+                        <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`} title={roleLabel}>
+                          {compactRoleLabel}
                         </span>
                       </div>
                       {humanPlayer ? renderHumanPlayerBadge() : null}
