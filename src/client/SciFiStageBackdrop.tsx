@@ -31,18 +31,18 @@ const toneConfig: Record<StageTone, ToneConfig> = {
     secondary: "#5eead4",
     fill: "#062a25",
     alienOpacity: 0.34,
-    cameraX: 0.1,
-    cameraY: 2.35,
-    cameraZ: 8.4
+    cameraX: 0.06,
+    cameraY: 1.62,
+    cameraZ: 7.45
   },
   day: {
     accent: "#35d082",
     secondary: "#67e8f9",
     fill: "#08253a",
     alienOpacity: 0.36,
-    cameraX: 0.32,
-    cameraY: 2.45,
-    cameraZ: 8.1
+    cameraX: 0.24,
+    cameraY: 1.68,
+    cameraZ: 7.25
   },
   night: {
     accent: "#fb7185",
@@ -50,17 +50,17 @@ const toneConfig: Record<StageTone, ToneConfig> = {
     fill: "#210e1a",
     alienOpacity: 0.54,
     cameraX: -0.18,
-    cameraY: 2.36,
-    cameraZ: 7.9
+    cameraY: 1.6,
+    cameraZ: 7.1
   },
   vote: {
     accent: "#f59e0b",
     secondary: "#fb7185",
     fill: "#24180a",
     alienOpacity: 0.42,
-    cameraX: 0.48,
-    cameraY: 2.5,
-    cameraZ: 8
+    cameraX: 0.36,
+    cameraY: 1.68,
+    cameraZ: 7.2
   },
   summary: {
     accent: "#86efac",
@@ -68,17 +68,17 @@ const toneConfig: Record<StageTone, ToneConfig> = {
     fill: "#082f49",
     alienOpacity: 0.38,
     cameraX: 0,
-    cameraY: 2.48,
-    cameraZ: 8.35
+    cameraY: 1.66,
+    cameraZ: 7.42
   },
   danger: {
     accent: "#ef4444",
     secondary: "#f97316",
     fill: "#260c0c",
     alienOpacity: 0.66,
-    cameraX: -0.38,
-    cameraY: 2.28,
-    cameraZ: 7.65
+    cameraX: -0.34,
+    cameraY: 1.55,
+    cameraZ: 7.0
   }
 };
 
@@ -248,16 +248,66 @@ function createGlowBar(width: number, height: number, depth: number, color: stri
   return new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
 }
 
+function createMetalPanel(
+  width: number,
+  height: number,
+  depth: number,
+  color = "#182228",
+  metalness = 0.7,
+  roughness = 0.54
+): THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> {
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    new THREE.MeshStandardMaterial({
+      color,
+      metalness,
+      roughness,
+      emissive: new THREE.Color(color).multiplyScalar(0.06)
+    })
+  );
+}
+
+function createGlassPane(width: number, height: number, color: string, opacity = 0.16): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+  return new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    })
+  );
+}
+
+function createLiquidSpill(width: number, depth: number, color: string, opacity = 0.24): THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> {
+  const spill = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 48),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    })
+  );
+  spill.rotation.x = -Math.PI / 2;
+  spill.scale.set(width, depth, 1);
+  return spill;
+}
+
 function createContainmentGlass(height: number, radius: number, color: string): THREE.Mesh<THREE.CylinderGeometry, THREE.MeshPhysicalMaterial> {
   const material = new THREE.MeshPhysicalMaterial({
     color,
     emissive: new THREE.Color(color),
-    emissiveIntensity: 0.18,
+    emissiveIntensity: 0.2,
     metalness: 0,
-    roughness: 0.18,
+    roughness: 0.14,
     transparent: true,
-    opacity: 0.22,
-    transmission: 0.38,
+    opacity: 0.28,
+    transmission: 0.46,
     thickness: 0.4,
     depthWrite: false,
     side: THREE.DoubleSide
@@ -267,6 +317,12 @@ function createContainmentGlass(height: number, radius: number, color: string): 
 
 function clonePrepared(root: THREE.Object3D): THREE.Object3D {
   const clone = root.clone(true);
+  clone.traverse((object) => {
+    if (!isMesh(object)) {
+      return;
+    }
+    object.material = Array.isArray(object.material) ? object.material.map((material) => material.clone()) : object.material.clone();
+  });
   prepareModel(clone);
   return clone;
 }
@@ -277,12 +333,12 @@ async function loadPrepared(loader: GLTFLoader, path: string): Promise<GLTF> {
   return gltf;
 }
 
-function playFirstAnimation(gltf: GLTF, mixers: THREE.AnimationMixer[]): void {
+function playFirstAnimation(gltf: GLTF, root: THREE.Object3D, mixers: THREE.AnimationMixer[]): void {
   const clip = gltf.animations[0];
   if (!clip) {
     return;
   }
-  const mixer = new THREE.AnimationMixer(gltf.scene);
+  const mixer = new THREE.AnimationMixer(root);
   mixer.clipAction(clip).play();
   mixers.push(mixer);
 }
@@ -304,10 +360,10 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
     let disposed = false;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2("#051017", 0.067);
+    scene.fog = new THREE.FogExp2("#051017", 0.056);
 
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 90);
-    camera.position.set(0.1, 2.35, 8.4);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 90);
+    camera.position.set(0.06, 1.62, 7.45);
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: "high-performance" });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -317,20 +373,21 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
     renderer.domElement.setAttribute("aria-hidden", "true");
     rootElement.appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.AmbientLight("#b8fff2", 0.54);
-    const hemiLight = new THREE.HemisphereLight("#8bfff1", "#031117", 1.24);
-    const keyLight = new THREE.DirectionalLight("#ffffff", 2.05);
-    keyLight.position.set(-2.4, 5.6, 5.5);
-    const accentLight = new THREE.PointLight("#35d082", 5.8, 16, 1.45);
-    accentLight.position.set(2.8, 1.35, -0.9);
-    const rearLight = new THREE.PointLight("#70ff76", 4.2, 18, 1.7);
-    rearLight.position.set(0, 2.8, -5.8);
+    const ambientLight = new THREE.AmbientLight("#b8fff2", 0.42);
+    const hemiLight = new THREE.HemisphereLight("#8bfff1", "#031117", 1.06);
+    const keyLight = new THREE.DirectionalLight("#ffffff", 2.35);
+    keyLight.position.set(-2.6, 4.8, 4.2);
+    const accentLight = new THREE.PointLight("#35d082", 6.2, 17, 1.45);
+    accentLight.position.set(2.6, 1.2, 0.1);
+    const rearLight = new THREE.PointLight("#70ff76", 5.4, 18, 1.65);
+    rearLight.position.set(0, 2.05, -5.3);
     scene.add(ambientLight, hemiLight, keyLight, accentLight, rearLight);
 
     const stageGroup = new THREE.Group();
     const alienGroup = new THREE.Group();
+    const backgroundAlienGroup = new THREE.Group();
     const hologramGroup = new THREE.Group();
-    stageGroup.add(alienGroup);
+    stageGroup.add(backgroundAlienGroup, alienGroup);
     scene.add(stageGroup, hologramGroup);
 
     const hologramMaterial = new THREE.MeshBasicMaterial({
@@ -343,14 +400,14 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
     const ringGeometry = new THREE.TorusGeometry(0.92, 0.012, 8, 90);
     const ringA = new THREE.Mesh(ringGeometry, hologramMaterial);
     const ringB = new THREE.Mesh(ringGeometry, hologramMaterial);
-    ringA.position.set(0.42, 0.075, -1.82);
+    ringA.position.set(0.22, 0.075, -1.32);
     ringB.position.copy(ringA.position);
     ringB.scale.setScalar(1.34);
     ringA.rotation.x = Math.PI / 2;
     ringB.rotation.x = Math.PI / 2;
     hologramGroup.add(ringA, ringB);
 
-    const target = new THREE.Vector3(0, 1.38, -1.55);
+    const target = new THREE.Vector3(0, 1.2, -1.95);
     const manager = new THREE.LoadingManager();
     manager.setURLModifier((url) => {
       const name = fileNameFromUrl(url);
@@ -364,6 +421,7 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
     const pulseMaterials: Array<THREE.MeshBasicMaterial | THREE.MeshPhysicalMaterial> = [];
     const tankLights: THREE.PointLight[] = [];
     const animatedPods: Array<{ object: THREE.Object3D; baseY: number; baseZ: number }> = [];
+    const specimenRoots: THREE.Object3D[] = [];
     const accentColor = new THREE.Color(toneConfig.setup.accent);
 
     function addModel(source: GLTF, position: THREE.Vector3, rotation = new THREE.Euler(), scale = 1): THREE.Object3D {
@@ -402,6 +460,24 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       stageGroup.add(mesh);
     }
 
+    function addPanel(mesh: THREE.Mesh, position: THREE.Vector3, rotation = new THREE.Euler()): void {
+      mesh.position.copy(position);
+      mesh.rotation.copy(rotation);
+      stageGroup.add(mesh);
+    }
+
+    function addPane(mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>, position: THREE.Vector3, rotation = new THREE.Euler()): void {
+      mesh.position.copy(position);
+      mesh.rotation.copy(rotation);
+      stageGroup.add(mesh);
+    }
+
+    function addLiquid(mesh: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>, position: THREE.Vector3, rotationY = 0): void {
+      mesh.position.copy(position);
+      mesh.rotation.z = rotationY;
+      stageGroup.add(mesh);
+    }
+
     function createSpecimenPod(
       holder: GLTF,
       position: THREE.Vector3,
@@ -421,6 +497,19 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       pulseMaterials.push(glass.material);
       pod.add(glass);
 
+      const liquid = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius * 0.92, radius * 0.84, height * 0.5, 40, 1, false),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.13,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+      liquid.position.y = height * 0.42;
+      pod.add(liquid);
+
       const baseGlow = new THREE.Mesh(
         new THREE.TorusGeometry(radius * 1.08, 0.015, 8, 64),
         new THREE.MeshBasicMaterial({
@@ -436,6 +525,23 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       pulseMaterials.push(baseGlow.material);
       pod.add(baseGlow);
 
+      for (const y of [height * 0.34, height * 0.58]) {
+        const scanRing = new THREE.Mesh(
+          new THREE.TorusGeometry(radius * 0.9, 0.006, 6, 48),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.46,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+          })
+        );
+        scanRing.position.y = y;
+        scanRing.rotation.x = Math.PI / 2;
+        pulseMaterials.push(scanRing.material);
+        pod.add(scanRing);
+      }
+
       const fillLight = new THREE.PointLight(color, 2.6, 3.2, 1.4);
       fillLight.position.set(0, height * 0.52, 0);
       tankLights.push(fillLight);
@@ -449,15 +555,41 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       return pod;
     }
 
-    function addSpecimen(gltf: GLTF, position: THREE.Vector3, height: number, rotationY: number): void {
-      const specimen = gltf.scene;
+    function addSpecimen(gltf: GLTF, position: THREE.Vector3, height: number, rotationY: number): THREE.Object3D {
+      const specimen = clonePrepared(gltf.scene);
       normalizeVisibleHeight(specimen, height);
       specimen.position.set(position.x, 0, position.z);
       specimen.rotation.y = rotationY;
       settleOnFloor(specimen, position.y);
       setObjectOpacity(specimen, toneConfig[toneRef.current].alienOpacity);
+      specimenRoots.push(specimen);
       alienGroup.add(specimen);
-      playFirstAnimation(gltf, mixers);
+      playFirstAnimation(gltf, specimen, mixers);
+      return specimen;
+    }
+
+    function addSpecimenToPod(gltf: GLTF, pod: THREE.Object3D, localPosition: THREE.Vector3, height: number, rotationY: number): THREE.Object3D {
+      const specimen = clonePrepared(gltf.scene);
+      normalizeVisibleHeight(specimen, height);
+      specimen.position.copy(localPosition);
+      specimen.rotation.y = rotationY;
+      setObjectOpacity(specimen, toneConfig[toneRef.current].alienOpacity);
+      specimenRoots.push(specimen);
+      pod.add(specimen);
+      playFirstAnimation(gltf, specimen, mixers);
+      return specimen;
+    }
+
+    function addBackgroundSpecimen(gltf: GLTF, position: THREE.Vector3, height: number, rotationY: number): THREE.Object3D {
+      const specimen = clonePrepared(gltf.scene);
+      normalizeVisibleHeight(specimen, height);
+      specimen.position.set(position.x, 0, position.z);
+      specimen.rotation.y = rotationY;
+      settleOnFloor(specimen, position.y);
+      setObjectOpacity(specimen, toneConfig[toneRef.current].alienOpacity * 0.36);
+      backgroundAlienGroup.add(specimen);
+      playFirstAnimation(gltf, specimen, mixers);
+      return specimen;
     }
 
     async function buildScene() {
@@ -517,12 +649,27 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
         }
       }
 
-      addModel(centerPlate, new THREE.Vector3(0, 0.015, -1.8), new THREE.Euler(0, 0, 0), 1.08);
+      addModel(centerPlate, new THREE.Vector3(0.22, 0.015, -1.32), new THREE.Euler(0, 0, 0), 1.08);
+      addPanel(createMetalPanel(2.05, 0.045, 9.5, "#101a1f", 0.78, 0.58), new THREE.Vector3(0, 0.035, -0.55));
+      addPanel(createMetalPanel(0.08, 0.055, 9.7, "#2a3638", 0.82, 0.48), new THREE.Vector3(-1.18, 0.07, -0.55));
+      addPanel(createMetalPanel(0.08, 0.055, 9.7, "#2a3638", 0.82, 0.48), new THREE.Vector3(1.18, 0.07, -0.55));
+      addLiquid(createLiquidSpill(0.9, 0.24, "#78ff5f", 0.18), new THREE.Vector3(-0.64, 0.088, 1.28), 0.25);
+      addLiquid(createLiquidSpill(0.55, 0.16, "#78ff5f", 0.15), new THREE.Vector3(0.72, 0.09, 0.48), -0.5);
+      addLiquid(createLiquidSpill(0.42, 0.12, "#78ff5f", 0.13), new THREE.Vector3(1.45, 0.09, 2.08), 0.18);
 
       for (const x of [-4, 0, 4]) {
         addModel(wallWindow, new THREE.Vector3(x, 0, -6.35), new THREE.Euler(0, Math.PI / 2, 0));
         addFloatingModel(topWindow, new THREE.Vector3(x, 2.75, -6.32), new THREE.Euler(0, Math.PI / 2, 0), 1);
       }
+
+      addPane(createGlassPane(5.7, 2.15, "#70ff76", 0.13), new THREE.Vector3(0, 1.55, -5.92));
+      addPanel(createMetalPanel(6.1, 0.12, 0.16, "#10191f", 0.84, 0.46), new THREE.Vector3(0, 2.66, -5.88));
+      addPanel(createMetalPanel(6.1, 0.12, 0.16, "#10191f", 0.84, 0.46), new THREE.Vector3(0, 0.47, -5.88));
+      addPanel(createMetalPanel(0.12, 2.2, 0.16, "#10191f", 0.84, 0.46), new THREE.Vector3(-2.93, 1.55, -5.88));
+      addPanel(createMetalPanel(0.12, 2.2, 0.16, "#10191f", 0.84, 0.46), new THREE.Vector3(2.93, 1.55, -5.88));
+      addGlow(createGlowBar(4.4, 0.025, 0.05, "#a3ff9b", 0.48), new THREE.Vector3(0, 2.54, -5.82));
+      addGlow(createGlowBar(3.4, 0.025, 0.05, "#a3ff9b", 0.36), new THREE.Vector3(0, 0.58, -5.82));
+      addBackgroundSpecimen(scolitex, new THREE.Vector3(0.15, 0.54, -5.62), 2.65, Math.PI);
 
       for (const z of [-5.6, -1.8, 2, 5.8]) {
         addModel(wallFlat, new THREE.Vector3(-6.05, 0, z), new THREE.Euler(0, Math.PI, 0));
@@ -536,9 +683,48 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
         addFloatingModel(topCables, new THREE.Vector3(2.1, 3.1, z), new THREE.Euler(0, Math.PI / 2, 0), 0.9);
       }
 
+      for (const x of [-2.35, 2.35]) {
+        addPanel(createMetalPanel(0.16, 0.13, 10.4, "#0b1217", 0.86, 0.48), new THREE.Vector3(x, 3.08, -1.05));
+      }
+
+      for (const z of [-5.55, -3.55, -1.55, 0.45, 2.45]) {
+        addPanel(createMetalPanel(5.65, 0.11, 0.16, "#141d22", 0.82, 0.48), new THREE.Vector3(0, 3.1, z));
+        addPanel(createMetalPanel(1.55, 0.08, 0.64, "#0e171c", 0.78, 0.52), new THREE.Vector3(-1.2, 3.18, z + 0.34));
+        addPanel(createMetalPanel(1.55, 0.08, 0.64, "#0e171c", 0.78, 0.52), new THREE.Vector3(1.2, 3.18, z + 0.34));
+      }
+
       for (const z of [-5.4, -2.2, 1.1, 4.2]) {
         addNormalizedModel(supportColumn, new THREE.Vector3(-4.85, 0, z), 3.25, new THREE.Euler(0, Math.PI, 0));
         addNormalizedModel(supportColumn, new THREE.Vector3(4.85, 0, z), 3.25);
+      }
+
+      for (const side of [-1, 1] as const) {
+        const inwardTilt = side < 0 ? -0.34 : 0.34;
+        addPanel(
+          createMetalPanel(0.42, 3.45, 0.42, "#c8d8d5", 0.34, 0.42),
+          new THREE.Vector3(side * 4.95, 1.54, -0.55),
+          new THREE.Euler(0, 0, inwardTilt)
+        );
+        addPanel(
+          createMetalPanel(0.22, 3.05, 0.2, "#19242a", 0.74, 0.44),
+          new THREE.Vector3(side * 4.62, 1.55, -0.58),
+          new THREE.Euler(0, 0, inwardTilt)
+        );
+        addPanel(
+          createMetalPanel(2.05, 0.18, 0.58, "#151f24", 0.78, 0.48),
+          new THREE.Vector3(side * 4.65, 2.72, -1.02),
+          new THREE.Euler(0, side * 0.12, 0)
+        );
+        addPanel(
+          createMetalPanel(0.2, 3.1, 0.28, "#dde8e3", 0.26, 0.38),
+          new THREE.Vector3(side * 3.85, 1.34, 0.34),
+          new THREE.Euler(0, 0, inwardTilt)
+        );
+        addGlow(
+          createGlowBar(0.045, 2.65, 0.035, "#f4fffb", 0.26),
+          new THREE.Vector3(side * 3.7, 1.44, 0.31),
+          new THREE.Euler(0, 0, inwardTilt)
+        );
       }
 
       for (const x of [-1.65, 1.65]) {
@@ -550,15 +736,18 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
         addModel(rail, new THREE.Vector3(x, 0.06, -3.25), new THREE.Euler(0, Math.PI / 2, 0), 1.05);
       }
 
-      createSpecimenPod(holder, new THREE.Vector3(0.42, 0, -1.82), -0.08, 0, 2.48, 0.58);
-      createSpecimenPod(holder, new THREE.Vector3(-3.55, 0, 0.8), 0.52, 0.13, 2.15, 0.48);
-      createSpecimenPod(holder, new THREE.Vector3(-4.35, 0, -2.2), 0.45, 0.1, 2.04, 0.45);
-      createSpecimenPod(holder, new THREE.Vector3(3.72, 0, 0.15), -0.52, -0.13, 2.2, 0.49);
-      createSpecimenPod(holder, new THREE.Vector3(4.42, 0, -2.85), -0.45, -0.1, 2.04, 0.45);
+      const centerPod = createSpecimenPod(holder, new THREE.Vector3(0.22, 0, -1.32), -0.06, 0, 2.82, 0.66);
+      const leftFrontPod = createSpecimenPod(holder, new THREE.Vector3(-4.55, 0, 1.5), 0.72, -0.28, 2.72, 0.62);
+      const leftRearPod = createSpecimenPod(holder, new THREE.Vector3(-4.52, 0, -1.65), 0.58, -0.18, 2.2, 0.5);
+      const rightFrontPod = createSpecimenPod(holder, new THREE.Vector3(4.68, 0, 1.2), -0.72, 0.28, 2.74, 0.62);
+      const rightRearPod = createSpecimenPod(holder, new THREE.Vector3(4.56, 0, -2.1), -0.58, 0.18, 2.22, 0.5);
 
-      addSpecimen(cyclop, new THREE.Vector3(0.42, 0.46, -1.82), 1.28, -0.24);
-      addSpecimen(oculichrysalis, new THREE.Vector3(-3.55, 0.44, 0.8), 1.08, 0.78);
-      addSpecimen(scolitex, new THREE.Vector3(0.12, 0.48, -5.05), 2.2, Math.PI);
+      addSpecimenToPod(cyclop, centerPod, new THREE.Vector3(0, 0.66, 0.02), 1.32, -0.12);
+      addSpecimenToPod(oculichrysalis, leftFrontPod, new THREE.Vector3(0.02, 0.64, 0.02), 1.12, 0.34);
+      addSpecimenToPod(cyclop, leftRearPod, new THREE.Vector3(0, 0.52, 0.03), 0.86, 0.46);
+      addSpecimenToPod(scolitex, rightFrontPod, new THREE.Vector3(0.02, 0.65, 0.02), 1.02, -0.28);
+      addSpecimenToPod(oculichrysalis, rightRearPod, new THREE.Vector3(0, 0.52, 0.03), 0.86, -0.46);
+      addSpecimen(oculichrysalis, new THREE.Vector3(-0.86, 0.08, 2.54), 0.44, 0.95);
 
       addModel(pipeHolder, new THREE.Vector3(-5.15, 0, 3.6), new THREE.Euler(0, Math.PI * 0.78, 0), 0.9);
       addModel(pipeHolder, new THREE.Vector3(5.1, 0, 3.05), new THREE.Euler(0, -Math.PI * 0.78, 0), 0.9);
@@ -629,6 +818,10 @@ export function SciFiStageBackdrop({ eventType, phase, secret }: SciFiStageBackd
       rearLight.color.set(config.accent);
       hologramMaterial.color.set(config.accent);
       setObjectOpacity(alienGroup, config.alienOpacity);
+      setObjectOpacity(backgroundAlienGroup, Math.min(0.26, config.alienOpacity * 0.36));
+      for (const specimen of specimenRoots) {
+        setObjectOpacity(specimen, config.alienOpacity);
+      }
       accentColor.set(config.accent);
 
       const pulse = 0.78 + Math.sin(elapsed * 1.7) * 0.12;
