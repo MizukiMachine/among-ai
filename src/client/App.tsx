@@ -608,17 +608,7 @@ function getCampRatioText(count: number, language: string): string {
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
 
-function renderHeaderCampRatio(count: number, compact: boolean, language: string): ReactNode {
-  const { villagers, werewolves } = getCampRatioCounts(count);
-
-  if (compact && isJapaneseLanguage(language)) {
-    return (
-      <>
-        <span>人間側{villagers}</span>
-        <span>狼陣営{werewolves}</span>
-      </>
-    );
-  }
+function renderHeaderCampRatio(count: number, language: string): ReactNode {
   return getCampRatioText(count, language);
 }
 
@@ -845,7 +835,6 @@ export function App() {
     () => getRoleDistributionItems(effectivePlayerCount),
     [effectivePlayerCount]
   );
-  const expandedHeaderRoleList = roleDistributionItems.length >= 8;
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
@@ -1786,11 +1775,11 @@ export function App() {
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
 
     return (
-      <section className={`header-role-distribution ${expandedHeaderRoleList ? "expanded-roles" : ""}`} aria-label="役職内訳">
+      <section className="header-role-distribution" aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
           <strong className="header-camp-ratio">
-            {renderHeaderCampRatio(effectivePlayerCount, false, language)}
+            {renderHeaderCampRatio(effectivePlayerCount, language)}
           </strong>
         </div>
         <div className="header-role-list" role="list">
@@ -1960,7 +1949,7 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <header className={`topbar ${expandedHeaderRoleList ? "expanded-roles" : ""}`}>
+      <header className="topbar">
         <div className="brand-lockup">
           <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
           <div>
