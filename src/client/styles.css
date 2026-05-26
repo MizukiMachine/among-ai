@@ -20,7 +20,7 @@
   --ship-accent: #2fc581;
   --ship-cyan: #67d8df;
   --ship-amber: #e3a64f;
-  --main-panel-image: url("/assets/background-candidates/scifi-bg-top-left-b-observation.png");
+  --main-panel-image: url("/assets/background-candidates/scifi-bg-left-holo-d-brighter.png");
   color: #e8eef1;
   background: #0b1015;
   font-family:
@@ -320,6 +320,31 @@ textarea:focus-visible {
   overflow-y: auto;
   padding: 2px 2px 4px;
   scrollbar-width: thin;
+}
+
+.topbar.expanded-roles {
+  align-items: start;
+}
+
+.topbar.expanded-roles .header-role-distribution {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.topbar.expanded-roles .info-bar {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+}
+
+.header-role-distribution.expanded-roles {
+  min-height: 0;
+  align-items: start;
+}
+
+.header-role-distribution.expanded-roles .header-role-list {
+  max-height: none;
+  overflow: visible;
 }
 
 .header-role-distribution.compact-roles {
@@ -1078,18 +1103,28 @@ textarea:focus-visible {
 
 .graveyard {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
   padding: 12px;
 }
 
 .dead-player {
   display: grid;
+  min-height: 68px;
   align-items: center;
-  gap: 9px;
-  grid-template-columns: 46px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  border: 1px solid rgba(218, 230, 236, 0.1);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(31, 42, 50, 0.52), rgba(11, 18, 25, 0.72)),
+    var(--ship-trim-texture),
+    #111b23;
+  background-position: center, var(--ship-trim-position), center;
+  background-size: auto, 150px 150px, auto;
   color: var(--ship-muted);
-  font-size: 15px;
+  padding: 7px 9px 7px 7px;
+  font-size: 16px;
 }
 
 .dead-player.human-player {
@@ -1100,14 +1135,33 @@ textarea:focus-visible {
     var(--ship-decal-texture);
   background-blend-mode: normal, soft-light;
   color: #ffe7ad;
-  padding: 4px 6px 4px 4px;
 }
 
 .dead-player strong {
   overflow: hidden;
   color: #d3dde2;
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 840;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dead-player .player-avatar.small,
+.dead-player .avatar-fallback.small {
+  width: 52px;
+  height: 52px;
+}
+
+.dead-role-chip {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  border: 1px solid rgba(218, 230, 236, 0.14);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 15px;
+  font-weight: 820;
+  line-height: 1.15;
   white-space: nowrap;
 }
 
@@ -1582,8 +1636,8 @@ input[type="range"] {
   bottom: 0;
   z-index: 1;
   width: auto;
-  height: 100%;
-  max-width: 48%;
+  height: 90%;
+  max-width: 42%;
   object-fit: cover;
   object-position: 30% 100%;
   opacity: 0.86;
@@ -3628,6 +3682,12 @@ input[type="range"] {
     gap: 8px;
   }
 
+  .topbar.expanded-roles .header-role-distribution,
+  .topbar.expanded-roles .info-bar {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
   .info-bar {
     justify-content: flex-start;
   }
@@ -3671,8 +3731,8 @@ input[type="range"] {
     right: 0;
     bottom: 0;
     width: auto;
-    height: 100%;
-    max-width: 72%;
+    height: 86%;
+    max-width: 58%;
     opacity: 0.62;
   }
 
