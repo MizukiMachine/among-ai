@@ -328,6 +328,11 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
 }
 
+function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
+  const label = roleDisplay(player, mode, language);
+  return isJapaneseLanguage(language) && label === displayRoleLabel("AlphaWolf", language) ? "α人狼" : label;
+}
+
 function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, humanPlayerId: string): string {
   const role = String(player.role);
   const roleVisible = mode === "omniscient" || (mode === "player" && player.id === humanPlayerId && role !== "Hidden");
@@ -1855,6 +1860,8 @@ export function App() {
               {alivePlayers.length > 0 ? (
                 alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
+                  const roleLabel = roleDisplay(player, spectatorMode, language);
+                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language);
                   return (
                     <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
@@ -1878,8 +1885,8 @@ export function App() {
                           <strong>{player.name}</strong>
                           <span className="persona-pill">{personaLabel(player.persona, language)}</span>
                         </div>
-                        <span className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`}>
-                          {roleDisplay(player, spectatorMode, language)}
+                        <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`} title={roleLabel}>
+                          {compactRoleLabel}
                         </span>
                       </div>
                       {humanPlayer ? renderHumanPlayerBadge() : null}

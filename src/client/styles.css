@@ -524,7 +524,7 @@ textarea:focus-visible {
   min-height: 0;
   align-self: stretch;
   gap: 14px;
-  grid-template-columns: clamp(560px, 36vw, 760px) minmax(0, 1fr);
+  grid-template-columns: clamp(470px, 30vw, 570px) minmax(0, 1fr);
 }
 
 .story-column {
@@ -674,7 +674,7 @@ textarea:focus-visible {
     #18232b;
   background-blend-mode: normal, soft-light, soft-light, normal;
   background-size: auto, 420px 420px, 300px 300px, auto;
-  padding: 16px 22px 14px;
+  padding: 15px 16px 13px;
   color: var(--ship-text);
   font-size: 18px;
   font-weight: 800;
@@ -687,7 +687,7 @@ textarea:focus-visible {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: rgba(103, 216, 223, 0.46) rgba(7, 12, 17, 0.38);
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
 }
 
 .player-list-scroll::-webkit-scrollbar {
@@ -715,8 +715,8 @@ textarea:focus-visible {
 .roster {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-  padding: 13px 18px 15px;
+  gap: 8px;
+  padding: 12px 10px 14px;
 }
 
 .winner-row {
@@ -752,10 +752,10 @@ textarea:focus-visible {
   display: grid;
   position: relative;
   min-width: 0;
-  min-height: 84px;
+  min-height: 104px;
   align-items: center;
-  gap: 12px;
-  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 10px;
+  grid-template-columns: 80px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -786,7 +786,7 @@ textarea:focus-visible {
 }
 
 .player-card.human-player {
-  grid-template-columns: 68px minmax(0, 1fr) auto;
+  grid-template-columns: 80px minmax(0, 1fr);
   border-color: rgba(227, 166, 79, 0.76);
   background:
     linear-gradient(90deg, rgba(111, 72, 14, 0.62), rgba(13, 22, 30, 0.9) 76%),
@@ -820,28 +820,28 @@ textarea:focus-visible {
 }
 
 .large-roster .roster {
-  gap: 6px;
-  padding: 11px 14px 12px;
+  gap: 8px;
+  padding: 11px 8px 12px;
 }
 
 .large-roster .player-card {
-  min-height: 64px;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 8px;
-  padding: 5px 8px 5px 5px;
+  min-height: 98px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 7px 6px 6px;
 }
 
 .large-roster .player-card.human-player {
-  grid-template-columns: 50px minmax(0, 1fr) auto;
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .large-roster .player-avatar {
-  width: 48px;
-  height: 48px;
+  width: 76px;
+  height: 76px;
 }
 
 .large-roster .player-main {
-  gap: 4px;
+  gap: 5px;
 }
 
 .large-roster .player-name-row strong {
@@ -849,9 +849,9 @@ textarea:focus-visible {
 }
 
 .large-roster .persona-pill {
-  max-width: 92px;
-  padding-inline: 6px;
-  font-size: 11px;
+  max-width: 100%;
+  padding-inline: 7px;
+  font-size: 14px;
 }
 
 .large-roster .human-player-badge {
@@ -866,14 +866,14 @@ textarea:focus-visible {
 }
 
 .large-roster .role-chip {
-  min-height: 22px;
+  min-height: 25px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .player-avatar {
-  width: 66px;
-  height: 66px;
+  width: 78px;
+  height: 78px;
   border: 1px solid rgba(218, 230, 236, 0.26);
   border-radius: 8px;
   background: rgba(13, 20, 26, 0.7);
@@ -896,17 +896,21 @@ textarea:focus-visible {
 .player-main {
   display: grid;
   min-width: 0;
-  gap: 8px;
+  grid-template-columns: minmax(0, 0.7fr) minmax(72px, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 5px 7px;
+  justify-items: start;
 }
 
 .player-name-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
+  display: contents;
 }
 
 .player-name-row strong {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
   overflow: hidden;
   color: var(--ship-text);
   font-size: 18px;
@@ -916,16 +920,20 @@ textarea:focus-visible {
 }
 
 .persona-pill {
+  grid-column: 2;
+  grid-row: 1;
   flex: 0 1 auto;
   overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.16);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--ship-muted);
-  padding: 3px 8px;
-  font-size: 13px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  font-size: 15px;
   font-weight: 760;
-  line-height: 1.2;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -933,7 +941,7 @@ textarea:focus-visible {
 .human-player-badge {
   display: inline-flex;
   flex: 0 0 auto;
-  min-height: 24px;
+  min-height: 22px;
   align-items: center;
   align-self: start;
   justify-self: end;
@@ -942,12 +950,18 @@ textarea:focus-visible {
   border-radius: 6px;
   background: rgba(111, 72, 14, 0.54);
   color: #ffe7ad;
-  padding: 3px 8px;
-  font-size: 13px;
+  padding: 3px 7px;
+  font-size: 12px;
   font-weight: 880;
-  line-height: 1.1;
+  line-height: 1.2;
   white-space: nowrap;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.player-card > .human-player-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
 }
 
 .human-player-badge svg {
@@ -955,19 +969,25 @@ textarea:focus-visible {
 }
 
 .role-chip {
+  grid-column: 2;
+  grid-row: 2;
   display: inline-flex;
+  min-width: 0;
   width: fit-content;
   max-width: 100%;
-  min-height: 28px;
+  min-height: 30px;
   align-items: center;
+  overflow: hidden;
   border-radius: 6px;
   border: 1px solid rgba(218, 230, 236, 0.14);
   background: rgba(255, 255, 255, 0.06);
   color: #c8d4db;
-  padding: 4px 9px;
-  font-size: 14px;
+  padding: 5px 9px;
+  font-size: 15px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .role-werewolf {
@@ -1009,7 +1029,7 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  padding: 13px 18px 15px;
+  padding: 12px;
 }
 
 .dead-player {
@@ -3541,7 +3561,7 @@ input[type="range"] {
   }
 
   .workspace {
-    grid-template-columns: minmax(520px, 620px) minmax(0, 1fr);
+    grid-template-columns: minmax(470px, 540px) minmax(0, 1fr);
   }
 
   .info-bar-btn {
