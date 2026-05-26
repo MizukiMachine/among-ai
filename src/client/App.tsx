@@ -78,6 +78,77 @@ const characterImageMap: Record<string, string> = {
 const defaultCharacterImages = Object.values(characterImageMap);
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
+const initialPlayerCount = 7;
+const initialDebugScenario: DebugScenario = "none";
+const initialHumanEnabled = false;
+const initialHumanPlayerId = "p1";
+const initialSpectatorMode: SpectatorMode = "omniscient";
+
+type CharacterImageLoadState = "loading" | "loaded" | "failed";
+
+const loadedCharacterImages = new Set<string>();
+const failedCharacterImages = new Set<string>();
+const pendingCharacterImageLoads = new Map<string, Promise<boolean>>();
+
+function preloadCharacterImage(src: string): Promise<boolean> {
+  if (loadedCharacterImages.has(src)) {
+    return Promise.resolve(true);
+  }
+  if (failedCharacterImages.has(src)) {
+    return Promise.resolve(false);
+  }
+
+  const pending = pendingCharacterImageLoads.get(src);
+  if (pending) {
+    return pending;
+  }
+
+  if (typeof Image === "undefined") {
+    return Promise.resolve(false);
+  }
+
+  const promise = new Promise<boolean>((resolve) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      pendingCharacterImageLoads.delete(src);
+      failedCharacterImages.delete(src);
+      loadedCharacterImages.add(src);
+      resolve(true);
+    };
+    image.onerror = () => {
+      pendingCharacterImageLoads.delete(src);
+      loadedCharacterImages.delete(src);
+      failedCharacterImages.add(src);
+      resolve(false);
+    };
+    image.src = src;
+  });
+
+  pendingCharacterImageLoads.set(src, promise);
+  return promise;
+}
+
+function preloadCharacterImages(srcs: string[]) {
+  if (typeof Image === "undefined") {
+    return;
+  }
+  for (const src of srcs) {
+    void preloadCharacterImage(src);
+  }
+}
+
+function characterImageLoadState(src: string | null | undefined): CharacterImageLoadState {
+  if (!src || failedCharacterImages.has(src)) {
+    return "failed";
+  }
+  if (loadedCharacterImages.has(src)) {
+    return "loaded";
+  }
+  return "loading";
+}
+
+preloadCharacterImages(defaultCharacterImages);
 
 interface StreamSystemPayload {
   gameId?: string | null;
@@ -107,35 +178,33 @@ interface CharacterImageProps {
 }
 
 function CharacterImage({ alt = "", className, fallback, src }: CharacterImageProps) {
-  const [loaded, setLoaded] = useState(false);
+  const [loadState, setLoadState] = useState<CharacterImageLoadState>(() => characterImageLoadState(src));
 
   useEffect(() => {
     if (!src) {
-      setLoaded(false);
+      setLoadState("failed");
       return;
     }
 
     let active = true;
-    const image = new Image();
-    image.onload = () => {
-      if (active) setLoaded(true);
-    };
-    image.onerror = () => {
-      if (active) setLoaded(false);
-    };
-    setLoaded(false);
-    image.src = src;
+    const nextState = characterImageLoadState(src);
+    setLoadState(nextState);
+    if (nextState === "loading") {
+      void preloadCharacterImage(src).then((loaded) => {
+        if (active) setLoadState(loaded ? "loaded" : "failed");
+      });
+    }
 
     return () => {
       active = false;
     };
   }, [src]);
 
-  if (!src || !loaded) {
+  if (!src || loadState !== "loaded") {
     return <>{fallback}</>;
   }
 
-  return <img className={className} src={src} alt={alt} onError={() => setLoaded(false)} />;
+  return <img className={className} src={src} alt={alt} onError={() => setLoadState("failed")} />;
 }
 
 function playerIndexFromId(playerId: string): number {
@@ -624,10 +693,10 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
 }
 
 export function App() {
-  const [playerCount, setPlayerCount] = useState(7);
-  const [debugScenario, setDebugScenario] = useState<DebugScenario>("none");
-  const [humanEnabled, setHumanEnabled] = useState(false);
-  const [humanPlayerId, setHumanPlayerId] = useState("p1");
+  const [playerCount, setPlayerCount] = useState(initialPlayerCount);
+  const [debugScenario, setDebugScenario] = useState<DebugScenario>(initialDebugScenario);
+  const [humanEnabled, setHumanEnabled] = useState(initialHumanEnabled);
+  const [humanPlayerId, setHumanPlayerId] = useState(initialHumanPlayerId);
   const [settingsConfirmed, setSettingsConfirmed] = useState(false);
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -638,7 +707,7 @@ export function App() {
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
-  const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
+  const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>(initialSpectatorMode);
   const [activeOverlay, setActiveOverlay] = useState<"vote" | "history" | "recent" | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -831,6 +900,8 @@ export function App() {
     revealFirstEventRef.current = false;
     resetHumanInputState();
     setPaused(false);
+    setActiveOverlay(null);
+    setSelectedRoleRule(null);
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
@@ -842,6 +913,15 @@ export function App() {
     setSettingsConfirmed(false);
     statusBeforePauseRef.current = "待機中";
     setStatus("待機中");
+  }
+
+  function resetToInitialSetup() {
+    resetToSetup();
+    setPlayerCount(initialPlayerCount);
+    setDebugScenario(initialDebugScenario);
+    setHumanEnabled(initialHumanEnabled);
+    setHumanPlayerId(initialHumanPlayerId);
+    setSpectatorMode(initialSpectatorMode);
   }
 
   function pauseGame() {
@@ -1577,8 +1657,8 @@ export function App() {
         {runControlState.resetVisible ? (
           <button
             className="icon-button story-run-button story-reset-button"
-            onClick={() => startGame({ revealFirstEvent: true })}
-            title="ゲームをリセットして最初から開始"
+            onClick={resetToInitialSetup}
+            title="ゲームをリセットして設定画面に戻る"
             type="button"
           >
             <RotateCcw size={15} />
@@ -1642,15 +1722,18 @@ export function App() {
   function renderHeaderRoleDistribution() {
     const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
+    const compactRoleList = roleDistributionItems.length >= 8;
+    const visibleRoleDistributionItems = compactRoleList ? roleDistributionItems.slice(0, 1) : roleDistributionItems;
+    const hiddenRoleCount = roleDistributionItems.length - visibleRoleDistributionItems.length;
 
     return (
-      <section className="header-role-distribution" aria-label="役職内訳">
+      <section className={`header-role-distribution ${compactRoleList ? "compact-roles" : ""}`} aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
           <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
         </div>
         <div className="header-role-list" role="list">
-          {roleDistributionItems.map(([role, count]) => (
+          {visibleRoleDistributionItems.map(([role, count]) => (
             <span key={role} role="listitem">
               <button
                 aria-controls={selectedRoleRule === role ? "role-rule-panel" : undefined}
@@ -1665,6 +1748,11 @@ export function App() {
               </button>
             </span>
           ))}
+          {hiddenRoleCount > 0 ? (
+            <span className="header-role-more" role="listitem">
+              +{hiddenRoleCount}役職
+            </span>
+          ) : null}
         </div>
         {selectedRoleRule && selectedRule ? (
           <section className={`role-rule-popover ${roleClassName(selectedRoleRule)}-rule`} id="role-rule-panel" role="dialog" aria-label={`${selectedRoleLabel}のルール`}>

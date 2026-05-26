@@ -80,6 +80,15 @@ test("hero cast mirrors selected and active player counts", () => {
   assert.equal(cast[8].alive, false);
 });
 
+test("setup character portraits preload the full roster", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const loadedCharacterImages = new Set<string>\(\);/);
+  assert.match(source, /const pendingCharacterImageLoads = new Map<string, Promise<boolean>>\(\);/);
+  assert.match(source, /preloadCharacterImages\(defaultCharacterImages\);/);
+  assert.match(source, /void preloadCharacterImage\(src\)\.then/);
+});
+
 test("read clusters count each source-target pair once", () => {
   const reads = [
     { sourceId: "p1", sourceName: "Ada", targetId: "p2", targetName: "Byron", reason: "first pass" },
@@ -134,6 +143,8 @@ test("vote result data is visible from either individual votes or totals", () =>
 });
 
 test("story run controls switch between pause, resume, and reset", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
   assert.deepEqual(storyRunControlState(false, false), {
     pauseLabel: "一時停止",
     pauseDisabled: true,
@@ -149,6 +160,11 @@ test("story run controls switch between pause, resume, and reset", () => {
     pauseDisabled: false,
     resetVisible: true
   });
+  assert.match(source, /function resetToInitialSetup\(\)/);
+  assert.match(source, /setPlayerCount\(initialPlayerCount\);/);
+  assert.match(source, /setHumanEnabled\(initialHumanEnabled\);/);
+  assert.match(source, /onClick=\{resetToInitialSetup\}/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => startGame\(\{ revealFirstEvent: true \}\)\}/);
 });
 
 test("mobile layout CSS keeps spectator panels in a single column", () => {
@@ -165,6 +181,7 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
 
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.match(css, /\.workspace\s*\{[^}]*height:\s*clamp\(680px,\s*calc\(100dvh - 128px\),\s*970px\)/s);
   assert.match(css, /\.story-panel\s*\{[^}]*min-height:\s*0/s);
@@ -178,6 +195,11 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.header-role-chip\s*\{[^}]*min-height:\s*46px/s);
+  assert.match(source, /const compactRoleList = roleDistributionItems\.length >= 8;/);
+  assert.match(source, /const visibleRoleDistributionItems = compactRoleList \? roleDistributionItems\.slice\(0, 1\) : roleDistributionItems;/);
+  assert.match(source, /<span className="header-role-more" role="listitem">/);
+  assert.match(css, /\.header-role-distribution\.compact-roles \.header-role-list\s*\{[^}]*flex-wrap:\s*nowrap[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*hidden/s);
+  assert.match(css, /\.header-role-more\s*\{[^}]*min-height:\s*44px/s);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 
