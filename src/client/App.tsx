@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
-  CircleDot,
   Crosshair,
   Eye,
   EyeOff,
@@ -488,6 +487,111 @@ function getCampRatioText(count: number, language: string): string {
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
 
+interface RoleRuleCopy {
+  goal: string;
+  ability: string;
+  timing: string;
+  note: string;
+}
+
+const roleRuleJa: Record<Role, RoleRuleCopy> = {
+  Werewolf: {
+    goal: "人狼が人間側と同数以上になると勝利します。",
+    ability: "夜に人狼同士で相談し、襲撃する相手を1人決めます。",
+    timing: "夜の人狼相談と襲撃で行動します。",
+    note: "昼は正体を隠し、投票で処刑されないように議論を誘導します。"
+  },
+  AlphaWolf: {
+    goal: "人狼陣営として、人間側を追い詰めることを目指します。",
+    ability: "通常の人狼行動に加えて、死亡時に一度だけ道連れの一撃を放てます。",
+    timing: "夜は人狼として行動し、死亡時に追加効果が発動します。",
+    note: "処刑や死亡の場面で盤面を大きく動かせる人狼です。"
+  },
+  WolfBeauty: {
+    goal: "人狼陣営として勝利を目指します。",
+    ability: "夜に1人を魅了し、美女狼が死亡したときに魅了相手も道連れにします。",
+    timing: "夜に魅了対象を選び、死亡時に連鎖死亡が発生します。",
+    note: "生存中は通常の人狼として襲撃にも参加します。"
+  },
+  Seer: {
+    goal: "人間側として人狼を見つけ、投票で追放します。",
+    ability: "夜に生存者を1人占い、人間側か人狼側かを知ります。",
+    timing: "夜の占いフェーズで行動します。",
+    note: "結果をいつ公開するかが重要です。早すぎる公開は襲撃対象になりやすくなります。"
+  },
+  Witch: {
+    goal: "人間側として人狼を処刑に導きます。",
+    ability: "救命薬と毒薬をそれぞれ一度だけ使えます。救命薬は襲撃死を防ぎ、毒薬は1人を死亡させます。",
+    timing: "夜の魔女フェーズで行動します。",
+    note: "薬の使用タイミングで村の人数差が大きく変わります。"
+  },
+  Guard: {
+    goal: "人間側として重要な人物を守り、議論の時間を稼ぎます。",
+    ability: "夜に1人を護衛し、その人への人狼襲撃を防ぎます。",
+    timing: "夜の護衛フェーズで行動します。",
+    note: "占い師候補や襲撃されそうな人物を読む役職です。"
+  },
+  Hunter: {
+    goal: "人間側として人狼を道連れにする機会を狙います。",
+    ability: "死亡時に一度だけ1人を撃つことができます。",
+    timing: "処刑や襲撃などで死亡したときに発動します。",
+    note: "撃つ相手を誤ると人間側に不利になるため、昼の情報整理が重要です。"
+  },
+  Raven: {
+    goal: "人間側として投票を補助し、人狼候補に圧力をかけます。",
+    ability: "夜に1人へ印を付け、次の処刑投票でその人に追加票を与えます。",
+    timing: "夜の鴉フェーズで行動し、次の投票で効果が出ます。",
+    note: "疑い先を投票面で強調できる支援役です。"
+  },
+  Idiot: {
+    goal: "人間側として議論に参加し、人狼を探します。",
+    ability: "初めて投票で処刑されると正体が公開されて生存しますが、その後は投票権を失います。",
+    timing: "処刑投票で最多票になったときに発動します。",
+    note: "生存はできますが、以後の投票影響力がなくなります。"
+  },
+  Elder: {
+    goal: "人間側として生き残り、能力者を守る議論を支えます。",
+    ability: "投票で処刑されると、残っている人間側の特殊能力が無効化されます。",
+    timing: "処刑投票で死亡したときに発動します。",
+    note: "人間側にとって処刑してはいけない重要人物です。"
+  },
+  Lover: {
+    goal: "恋人陣営として、ペアで最後まで生き残ることを狙います。",
+    ability: "恋人の片方が死亡すると、もう片方も後追いで死亡します。",
+    timing: "ゲーム開始時にペアが決まり、死亡時に連鎖します。",
+    note: "元の陣営と恋人としての勝ち筋が衝突することがあります。"
+  },
+  Jester: {
+    goal: "中立役職として、自分が投票で処刑されると勝利します。",
+    ability: "特殊な夜能力はありませんが、処刑されること自体が勝利条件です。",
+    timing: "処刑投票で自分が死亡したときに勝利します。",
+    note: "怪しまれすぎず、襲撃されず、投票で吊られる立ち回りが必要です。"
+  },
+  Villager: {
+    goal: "人間側として人狼を全員処刑します。",
+    ability: "特殊能力はありません。発言、推理、投票で人狼を探します。",
+    timing: "昼の議論と投票で行動します。",
+    note: "情報を整理し、能力者の発言と投票行動から矛盾を探します。"
+  }
+};
+
+function getRoleRuleCopy(role: Role): RoleRuleCopy {
+  return roleRuleJa[role];
+}
+
+function roleRuleCampLabel(role: Role, language: string): string {
+  if (role === "Jester") {
+    return campLabel("neutral", language);
+  }
+  if (role === "Lover") {
+    return campLabel("lover", language);
+  }
+  if (role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty") {
+    return campLabel("werewolf", language);
+  }
+  return campLabel("village", language);
+}
+
 function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
@@ -531,6 +635,7 @@ export function App() {
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>("omniscient");
   const [activeOverlay, setActiveOverlay] = useState<"vote" | "history" | "recent" | null>(null);
+  const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [humanSpeech, setHumanSpeech] = useState("");
@@ -601,6 +706,10 @@ export function App() {
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
   const largeRunMode = effectivePlayerCount >= 13;
+  const roleDistributionItems = useMemo(
+    () => getRoleDistributionItems(effectivePlayerCount),
+    [effectivePlayerCount]
+  );
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
@@ -936,6 +1045,25 @@ export function App() {
       setStatus("入力待ち");
     }
   }, [pendingHumanInput, paused, queuedEvents.length]);
+
+  useEffect(() => {
+    if (!selectedRoleRule) {
+      return undefined;
+    }
+    if (!roleDistributionItems.some(([role]) => role === selectedRoleRule)) {
+      setSelectedRoleRule(null);
+      return undefined;
+    }
+
+    function closeRoleRule(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedRoleRule(null);
+      }
+    }
+
+    window.addEventListener("keydown", closeRoleRule);
+    return () => window.removeEventListener("keydown", closeRoleRule);
+  }, [roleDistributionItems, selectedRoleRule]);
 
   useEffect(() => {
     function handleStoryShortcut(event: KeyboardEvent) {
@@ -1506,8 +1634,70 @@ export function App() {
     );
   }
 
+  function renderHeaderRoleDistribution() {
+    const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
+    const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
+
+    return (
+      <section className="header-role-distribution" aria-label="役職内訳">
+        <div className="header-role-summary">
+          <span>役職内訳</span>
+          <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
+        </div>
+        <div className="header-role-list" role="list">
+          {roleDistributionItems.map(([role, count]) => (
+            <span key={role} role="listitem">
+              <button
+                aria-controls={selectedRoleRule === role ? "role-rule-panel" : undefined}
+                aria-expanded={selectedRoleRule === role}
+                className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
+                onClick={() => setSelectedRoleRule(selectedRoleRule === role ? null : role)}
+                title={`${displayRoleLabel(role, language)}のルールを表示`}
+                type="button"
+              >
+                <span>{displayRoleLabel(role, language)}</span>
+                <strong>{count}人</strong>
+              </button>
+            </span>
+          ))}
+        </div>
+        {selectedRoleRule && selectedRule ? (
+          <section className={`role-rule-popover ${roleClassName(selectedRoleRule)}-rule`} id="role-rule-panel" role="dialog" aria-label={`${selectedRoleLabel}のルール`}>
+            <div className="role-rule-header">
+              <div>
+                <span>役職ルール</span>
+                <h2>{selectedRoleLabel}</h2>
+              </div>
+              <span className="role-rule-camp">{roleRuleCampLabel(selectedRoleRule, language)}</span>
+              <button className="role-rule-close" onClick={() => setSelectedRoleRule(null)} type="button" aria-label="役職ルールを閉じる">
+                <X size={16} />
+              </button>
+            </div>
+            <dl className="role-rule-body">
+              <div>
+                <dt>勝利条件</dt>
+                <dd>{selectedRule.goal}</dd>
+              </div>
+              <div>
+                <dt>能力</dt>
+                <dd>{selectedRule.ability}</dd>
+              </div>
+              <div>
+                <dt>発動タイミング</dt>
+                <dd>{selectedRule.timing}</dd>
+              </div>
+              <div>
+                <dt>立ち回り</dt>
+                <dd>{selectedRule.note}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
+      </section>
+    );
+  }
+
   function renderSetupControls() {
-    const roleDistributionItems = getRoleDistributionItems(effectivePlayerCount);
     const modeClass = runModeClass(effectivePlayerCount);
 
     return (
@@ -1591,21 +1781,6 @@ export function App() {
                 ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
               </span>
             ) : null}
-
-            <div className="setup-breakdown" aria-label="役職内訳">
-              <div className="setup-ratio">
-                <span>役職</span>
-                <strong>{getCampRatioText(effectivePlayerCount, language)}</strong>
-              </div>
-              <div className="setup-role-list">
-                {roleDistributionItems.map(([role, count]) => (
-                  <span className={`setup-role-chip ${roleClassName(role)}`} key={role}>
-                    {displayRoleLabel(role, language)}
-                    <strong>{count}</strong>
-                  </span>
-                ))}
-              </div>
-            </div>
           </div>
 
         </div>
@@ -1644,23 +1819,7 @@ export function App() {
           </div>
         </div>
 
-        <section className="status-strip" aria-label="ゲーム状態">
-          <div className="status-item">
-            {storyWaitingForStream ? <LoaderCircle className="status-spinner" size={18} /> : <CircleDot size={18} />}
-            <span>状態</span>
-            <strong>{status}</strong>
-          </div>
-          <div className="status-item">
-            <Activity size={18} />
-            <span>ラウンド</span>
-            <strong>{snapshot?.round ?? 0}</strong>
-          </div>
-          <div className="status-item">
-            <Sun size={18} />
-            <span>フェーズ</span>
-            <strong>{phaseLabel(snapshot?.phase ?? "setup", language)}</strong>
-          </div>
-        </section>
+        {renderHeaderRoleDistribution()}
 
         <nav className="info-bar" aria-label="情報パネル切替">
           <button className={`info-bar-btn ${activeOverlay === "vote" ? "active" : ""}`} onClick={() => setActiveOverlay(activeOverlay === "vote" ? null : "vote")} type="button">

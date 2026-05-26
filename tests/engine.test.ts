@@ -13,6 +13,7 @@ import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/st
 import type { RuleState } from "../src/game/rules/types";
 import type {
   Agent,
+  AgentBooleanInput,
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
@@ -200,6 +201,136 @@ class DelayedNightActionAgent implements Agent {
       targetId: input.candidates[0]?.id ?? null,
       reason: `${this.name} delayed night target`
     };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
+class DelayedTargetRaceAgent implements Agent {
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  abortedTargets = 0;
+  private calls = 0;
+
+  constructor(
+    readonly name: string,
+    readonly model: string,
+    private readonly delays: number[],
+    private readonly targets: Array<string | null>
+  ) {}
+
+  async speak(): Promise<AgentSpeech> {
+    return {
+      messages: [`${this.name} speaks.`],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    const call = this.calls;
+    this.calls += 1;
+    this.targetInputs.push(input);
+    try {
+      await sleepWithAbort(this.delays[call] ?? this.delays.at(-1) ?? 0, input.abortSignal);
+    } catch (error) {
+      this.abortedTargets += 1;
+      throw error;
+    }
+    return {
+      targetId: this.targets[call] ?? input.candidates[0]?.id ?? null,
+      reason: `${this.name} target race ${call}`
+    };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
+  }
+}
+
+class DelayedBooleanRaceAgent implements Agent {
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+  readonly booleanInputs: AgentBooleanInput[] = [];
+  abortedDecisions = 0;
+  private calls = 0;
+
+  constructor(
+    readonly name: string,
+    readonly model: string,
+    private readonly delays: number[],
+    private readonly decisions: boolean[]
+  ) {}
+
+  async speak(): Promise<AgentSpeech> {
+    return {
+      messages: [`${this.name} speaks.`],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    return {
+      targetId: input.candidates[0]?.id ?? null,
+      reason: `${this.name} target`
+    };
+  }
+
+  async decide(input: AgentBooleanInput): Promise<boolean> {
+    const call = this.calls;
+    this.calls += 1;
+    this.booleanInputs.push(input);
+    try {
+      await sleepWithAbort(this.delays[call] ?? this.delays.at(-1) ?? 0, input.abortSignal);
+    } catch (error) {
+      this.abortedDecisions += 1;
+      throw error;
+    }
+    return this.decisions[call] ?? false;
+  }
+}
+
+type ActiveTargetCounter = {
+  active: number;
+  calls: number;
+  maxActive: number;
+};
+
+class CountingTargetRaceAgent implements Agent {
+  readonly speechInputs: AgentSpeechInput[] = [];
+  readonly targetInputs: AgentTargetInput[] = [];
+
+  constructor(
+    readonly name: string,
+    readonly model: string,
+    private readonly counter: ActiveTargetCounter,
+    private readonly delayMs = 30
+  ) {}
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speechInputs.push(input);
+    return {
+      messages: [`${this.name} speaks.`],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    this.counter.active += 1;
+    this.counter.calls += 1;
+    this.counter.maxActive = Math.max(this.counter.maxActive, this.counter.active);
+    try {
+      await sleepWithAbort(this.delayMs, input.abortSignal);
+      return {
+        targetId: input.candidates[0]?.id ?? null,
+        reason: `${this.name} counted target`
+      };
+    } finally {
+      this.counter.active -= 1;
+    }
   }
 
   async decide(): Promise<boolean> {
@@ -1692,6 +1823,165 @@ test("werewolf attack target generation waits until private discussion finishes"
   assert.ok(completedTargetInputs.length >= 2);
   assert.ok(completedTargetInputs.every((input) => input.phase === "night"));
   await run.return(undefined);
+});
+
+test("LLM target decisions race duplicate requests and accept the fastest result", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    provider: "llm",
+    model: "target-racer",
+    prefetchConcurrency: 5
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Guard" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const agent = new DelayedTargetRaceAgent(
+    players[0].name,
+    "target-racer",
+    [80, 5, 80, 80, 80],
+    ["p2", "p3", "p4", "p5", "p6"]
+  );
+  game.agents.set(players[0].id, agent);
+
+  const events = await collect(game.runGuardAction());
+
+  assert.equal(events[0]?.type, "night_action");
+  assert.equal(events[0]?.targetId, "p3");
+  assert.equal(agent.targetInputs.length, 5);
+  assert.ok(agent.targetInputs.every((input) => input.phase === "guard_action"));
+  await waitUntil(() => agent.abortedTargets >= 4);
+  assert.equal(players[0].memories.some((memory) => memory.includes("LLM error") || memory.includes("対象選択中")), false);
+});
+
+test("LLM boolean decisions race duplicate requests and accept the fastest result", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    provider: "llm",
+    model: "boolean-racer",
+    prefetchConcurrency: 5
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Witch" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const agent = new DelayedBooleanRaceAgent(players[0].name, "boolean-racer", [80, 5, 80, 80, 80], [false, true, false, false, false]);
+  game.agents.set(players[0].id, agent);
+
+  const events = await collect(game.runWitchAction(players[2]));
+
+  assert.equal(events[0]?.type, "night_action");
+  assert.equal(events[0]?.targetId, players[2].id);
+  assert.equal(events[0]?.data?.action, "witch_save");
+  assert.equal(game.witchState.savePotion, false);
+  assert.equal(agent.booleanInputs.length, 5);
+  assert.ok(agent.booleanInputs.every((input) => input.phase === "witch_action"));
+  await waitUntil(() => agent.abortedDecisions >= 4);
+  assert.equal(players[0].memories.some((memory) => memory.includes("LLM error") || memory.includes("判断中")), false);
+});
+
+test("LLM voting decisions share the five-request budget across voters", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    provider: "llm",
+    model: "budgeted-vote",
+    prefetchConcurrency: 5
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager", alive: false }
+  ]);
+  const counter: ActiveTargetCounter = { active: 0, calls: 0, maxActive: 0 };
+  for (const player of players.slice(0, 5)) {
+    game.agents.set(player.id, new CountingTargetRaceAgent(player.name, "budgeted-vote", counter));
+  }
+
+  await collect(game.runVoting());
+
+  assert.equal(counter.calls, 5);
+  assert.equal(counter.maxActive, 5);
+  assert.deepEqual(
+    players.slice(0, 5).map((player) => (game.agents.get(player.id) as CountingTargetRaceAgent).targetInputs.length),
+    [1, 1, 1, 1, 1]
+  );
+});
+
+test("LLM voting decisions use spare request budget as duplicate races", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    provider: "llm",
+    model: "budgeted-short-vote",
+    prefetchConcurrency: 5
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager", alive: false },
+    { role: "Villager", alive: false }
+  ]);
+  const counter: ActiveTargetCounter = { active: 0, calls: 0, maxActive: 0 };
+  for (const player of players.slice(0, 4)) {
+    game.agents.set(player.id, new CountingTargetRaceAgent(player.name, "budgeted-short-vote", counter));
+  }
+
+  await collect(game.runVoting());
+
+  assert.equal(counter.calls, 5);
+  assert.equal(counter.maxActive, 5);
+  assert.deepEqual(
+    players
+      .slice(0, 4)
+      .map((player) => (game.agents.get(player.id) as CountingTargetRaceAgent).targetInputs.length)
+      .sort((a, b) => b - a),
+    [2, 1, 1, 1]
+  );
+});
+
+test("LLM werewolf attack decisions distribute the five-request budget across wolves", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    provider: "llm",
+    model: "budgeted-wolf",
+    prefetchConcurrency: 5
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const counter: ActiveTargetCounter = { active: 0, calls: 0, maxActive: 0 };
+  for (const player of players.slice(0, 2)) {
+    game.agents.set(player.id, new CountingTargetRaceAgent(player.name, "budgeted-wolf", counter));
+  }
+
+  await collect(game.runNight());
+
+  assert.equal(counter.calls, 5);
+  assert.equal(counter.maxActive, 5);
+  assert.deepEqual(
+    players
+      .slice(0, 2)
+      .map((player) => (game.agents.get(player.id) as CountingTargetRaceAgent).targetInputs.length)
+      .sort((a, b) => b - a),
+    [3, 2]
+  );
 });
 
 test("witch save potion prevents the werewolf kill and consumes explicit engine state", async () => {

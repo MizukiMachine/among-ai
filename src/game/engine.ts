@@ -110,6 +110,16 @@ interface WerewolfGameOptions {
   onSpeechDiagnostics?: (diagnostic: SpeechGenerationDiagnostic) => void;
 }
 
+interface SpeculativeRunOptions {
+  signal?: AbortSignal;
+  speculative?: boolean;
+}
+
+interface SafeGenerationOptions {
+  abortSignal?: AbortSignal;
+  suppressMemorySideEffects?: boolean;
+}
+
 function speechEventData(
   speech: AgentSpeech,
   message: string,
@@ -253,6 +263,24 @@ function speechRaceSlots(players: Player[], concurrency: number): Player[] {
   return slots;
 }
 
+function decisionRaceSlotCounts(itemCount: number, concurrency: number): number[] {
+  if (itemCount <= 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, concurrency);
+  const activeItems = Math.min(itemCount, limit);
+  const counts = Array.from({ length: activeItems }, () => 1);
+  let extraSlots = limit - activeItems;
+  let index = 0;
+  while (extraSlots > 0) {
+    counts[index % activeItems] += 1;
+    extraSlots -= 1;
+    index += 1;
+  }
+  return counts;
+}
+
 async function* orderedConcurrentMap<T, R>(
   items: T[],
   concurrency: number,
@@ -329,6 +357,71 @@ async function* orderedConcurrentMap<T, R>(
     }
     report();
     yield result.value;
+  }
+}
+
+async function* orderedConcurrentDecisionMap<T, R>(
+  items: T[],
+  concurrency: number,
+  run: (item: T, index: number, raceSlots: number) => Promise<R>,
+  onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+): AsyncGenerator<R> {
+  if (items.length === 0) {
+    return;
+  }
+
+  const limit = Math.max(1, concurrency);
+  type Settled = { ok: true; value: R } | { ok: false; error: unknown };
+  let started = 0;
+  let completed = 0;
+  let activeSlots = 0;
+  const report = () => {
+    try {
+      onProgress?.({
+        total: items.length,
+        started,
+        completed,
+        active: activeSlots,
+        queued: Math.max(0, items.length - started),
+        concurrency: limit
+      });
+    } catch {
+      // Progress observers are best-effort and must not break game generation.
+    }
+  };
+
+  for (let offset = 0; offset < items.length; offset += limit) {
+    const chunk = items.slice(offset, offset + limit);
+    const slotCounts = decisionRaceSlotCounts(chunk.length, limit);
+    started += chunk.length;
+    activeSlots += slotCounts.reduce((sum, count) => sum + count, 0);
+    report();
+
+    const pending = chunk.map((item, chunkIndex) => {
+      const raceSlots = slotCounts[chunkIndex] ?? 1;
+      return run(item, offset + chunkIndex, raceSlots).then(
+        (value) => {
+          completed += 1;
+          activeSlots = Math.max(0, activeSlots - raceSlots);
+          report();
+          return { ok: true, value } as Settled;
+        },
+        (error: unknown) => {
+          completed += 1;
+          activeSlots = Math.max(0, activeSlots - raceSlots);
+          report();
+          return { ok: false, error } as Settled;
+        }
+      );
+    });
+
+    for (const promise of pending) {
+      const result = await promise;
+      if (!result.ok) {
+        throw result.error;
+      }
+      yield result.value;
+    }
   }
 }
 
@@ -617,9 +710,45 @@ export class WerewolfGame {
     }
   }
 
+  private async *orderedAiDecisionWithHumanBoundary<T, R>(
+    items: T[],
+    getPlayerId: (item: T) => string,
+    run: (item: T, index: number, raceSlots: number) => Promise<R>,
+    onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+  ): AsyncGenerator<R> {
+    const indexedItems = items.map((item, index) => ({ item, index }));
+    const humanIndex = this.config.humanPlayerId ? indexedItems.findIndex(({ item }) => getPlayerId(item) === this.config.humanPlayerId) : -1;
+
+    const runChunk = (chunk: typeof indexedItems) =>
+      orderedConcurrentDecisionMap(
+        chunk,
+        this.prefetchConcurrency,
+        ({ item, index }, _chunkIndex, raceSlots) => run(item, index, raceSlots),
+        onProgress
+      );
+
+    if (humanIndex === -1) {
+      for await (const result of runChunk(indexedItems)) {
+        yield result;
+      }
+      return;
+    }
+
+    for await (const result of runChunk(indexedItems.slice(0, humanIndex))) {
+      yield result;
+    }
+
+    const humanItem = indexedItems[humanIndex];
+    yield await run(humanItem.item, humanItem.index, 1);
+
+    for await (const result of runChunk(indexedItems.slice(humanIndex + 1))) {
+      yield result;
+    }
+  }
+
   private async *raceAiWithHumanLast<R>(
     players: Player[],
-    run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>,
+    run: (player: Player, options?: SpeculativeRunOptions) => Promise<R>,
     onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
   ): AsyncGenerator<R> {
     const aiPlayers = players.filter((player) => !this.isHumanControlledPlayer(player));
@@ -672,7 +801,7 @@ export class WerewolfGame {
 
   private async firstFinishedSpeechRace<R>(
     players: Player[],
-    run: (player: Player, options?: { signal?: AbortSignal; speculative?: boolean }) => Promise<R>
+    run: (player: Player, options?: SpeculativeRunOptions) => Promise<R>
   ): Promise<{ player: Player; value: R }> {
     type RaceResult =
       | { ok: true; slotId: string; player: Player; value: R; controller: AbortController }
@@ -719,6 +848,65 @@ export class WerewolfGame {
     }
 
     throw lastError;
+  }
+
+  private shouldRaceAiDecision(player: Player): boolean {
+    const agent = this.agents.get(player.id) ?? fallbackAgent;
+    return (
+      this.prefetchConcurrency > 1 &&
+      this.config.provider === "llm" &&
+      agent.model === this.config.model &&
+      agent.model !== "human"
+    );
+  }
+
+  private async firstFinishedDecisionRace<R>(
+    player: Player,
+    run: (options?: SpeculativeRunOptions) => Promise<R>,
+    raceSlots = this.prefetchConcurrency
+  ): Promise<R> {
+    const limit = this.normalizedDecisionRaceSlots(raceSlots);
+    type RaceResult =
+      | { ok: true; slotId: string; value: R; controller: AbortController }
+      | { ok: false; slotId: string; error: unknown; controller: AbortController };
+    const active = new Map<string, Promise<RaceResult>>();
+    const controllers = new Map<string, AbortController>();
+    let lastError: unknown;
+
+    for (let index = 0; index < limit; index += 1) {
+      const slotId = `${player.id}:decision:${index}`;
+      const controller = new AbortController();
+      controllers.set(slotId, controller);
+      const promise = run({ signal: controller.signal, speculative: true }).then(
+        (value) => ({ ok: true, slotId, value, controller }) as RaceResult,
+        (error: unknown) => ({ ok: false, slotId, error, controller }) as RaceResult
+      );
+      active.set(slotId, promise);
+    }
+
+    while (active.size > 0) {
+      const result = await Promise.race(active.values());
+      active.delete(result.slotId);
+      controllers.delete(result.slotId);
+      if (result.ok) {
+        for (const controller of controllers.values()) {
+          controller.abort();
+        }
+        return result.value;
+      }
+      result.controller.abort();
+      lastError = result.error;
+    }
+
+    throw lastError;
+  }
+
+  private normalizedDecisionRaceSlots(raceSlots: number | undefined): number {
+    const parsed = Number(raceSlots);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 1;
+    }
+    return Math.max(1, Math.min(this.prefetchConcurrency, Math.floor(parsed)));
   }
 
   async *run(): AsyncGenerator<GameEvent> {
@@ -940,7 +1128,7 @@ export class WerewolfGame {
         : this.text("No one is blocked by consecutive protection.", "連続護衛で除外される対象はいません。")
     ];
     const context = this.contextFor(guard, contextLines);
-    const decision = await this.safeChooseTarget(guard, this.text("Guard night protection", "騎士の夜護衛"), context, targets, false, contextLines);
+    const decision = await this.raceChooseTarget(guard, this.text("Guard night protection", "騎士の夜護衛"), context, targets, false, contextLines);
     if (!decision.targetId) {
       return;
     }
@@ -980,7 +1168,7 @@ export class WerewolfGame {
     }
 
     const votes: VoteRecord[] = [];
-    const collectWolfVote = async (wolf: Player): Promise<VoteRecord | null> => {
+    const collectWolfVote = async (wolf: Player, raceSlots = this.prefetchConcurrency): Promise<VoteRecord | null> => {
       const contextLines = [
         this.text(
           `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
@@ -990,15 +1178,15 @@ export class WerewolfGame {
       ];
       const decision = await this.withPhase(actionPhase, () => {
         const context = this.contextFor(wolf, contextLines);
-        return this.safeChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines);
+        return this.raceChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines, raceSlots);
       });
       return decision.targetId ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason } : null;
     };
 
-    for await (const vote of orderedConcurrentMap(
+    for await (const vote of orderedConcurrentDecisionMap(
       werewolves,
       this.prefetchConcurrency,
-      collectWolfVote,
+      (wolf, _index, raceSlots) => collectWolfVote(wolf, raceSlots),
       onProgress
     )) {
       if (vote) {
@@ -1032,7 +1220,7 @@ export class WerewolfGame {
     ];
     const decision = await this.withPhase("seer_action", () => {
       const context = this.contextFor(seer, contextLines);
-      return this.safeChooseTarget(seer, this.text("Seer identity check", "占い師の判定"), context, targets, false, contextLines);
+      return this.raceChooseTarget(seer, this.text("Seer identity check", "占い師の判定"), context, targets, false, contextLines);
     });
     if (!decision.targetId) {
       return null;
@@ -1103,7 +1291,7 @@ export class WerewolfGame {
             attackedTarget: { id: killTarget.id, name: killTarget.name }
           }
         });
-        return this.safeDecide(
+        return this.raceDecide(
           witch,
           this.text(`Use the save potion on ${killTarget.name}?`, `${killTarget.name}に蘇生薬を使いますか？`),
           context,
@@ -1131,7 +1319,7 @@ export class WerewolfGame {
             attackedTarget: killTarget ? { id: killTarget.id, name: killTarget.name } : null
           }
         });
-        return this.safeChooseTarget(witch, this.text("Witch poison potion", "魔女の毒薬"), context, poisonTargets, true, contextLines);
+        return this.raceChooseTarget(witch, this.text("Witch poison potion", "魔女の毒薬"), context, poisonTargets, true, contextLines);
       });
       if (decision.targetId) {
         const target = this.requirePlayer(decision.targetId);
@@ -1227,7 +1415,7 @@ export class WerewolfGame {
       )
     ];
     const context = this.contextFor(wolfBeauty, contextLines);
-    const decision = await this.safeChooseTarget(
+    const decision = await this.raceChooseTarget(
       wolfBeauty,
       this.text("Wolf Beauty charm", "美女狼の魅了"),
       context,
@@ -1288,7 +1476,7 @@ export class WerewolfGame {
       )
     ];
     const context = this.contextFor(raven, contextLines);
-    const decision = await this.safeChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, false, contextLines);
+    const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, false, contextLines);
     if (!decision.targetId) {
       return;
     }
@@ -1460,7 +1648,7 @@ export class WerewolfGame {
     const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
     const livingPlayers = this.alivePlayers();
     const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
-    const collectVote = async (voter: Player): Promise<{ voter: Player; decision: TargetDecision } | null> => {
+    const collectVote = async (voter: Player, raceSlots = this.prefetchConcurrency): Promise<{ voter: Player; decision: TargetDecision } | null> => {
       const targets = livingPlayers.filter((player) => player.id !== voter.id);
       if (targets.length === 0) {
         return null;
@@ -1484,13 +1672,13 @@ export class WerewolfGame {
         language: this.config.language
       });
       const context = this.contextFor(voter, contextLines, {}, speechPlan);
-      const decision = await this.safeChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines);
+      const decision = await this.raceChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines, raceSlots);
       return { voter, decision };
     };
-    const voteResults = this.orderedAiWithHumanBoundary(
+    const voteResults = this.orderedAiDecisionWithHumanBoundary(
       voters,
       (voter) => voter.id,
-      collectVote,
+      (voter, _index, raceSlots) => collectVote(voter, raceSlots),
       this.progressReporter("day_vote", this.text("Day elimination vote", "昼の処刑投票"))
     );
 
@@ -1699,7 +1887,7 @@ export class WerewolfGame {
     ];
     const context = this.contextFor(hunter, contextLines);
     const action = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf death shot", "アルファ人狼の道連れ") : this.text("Hunter death shot", "ハンターの道連れ");
-    const decision = await this.safeChooseTarget(hunter, action, context, targets, false, contextLines);
+    const decision = await this.raceChooseTarget(hunter, action, context, targets, false, contextLines);
     if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
@@ -1988,18 +2176,46 @@ export class WerewolfGame {
     };
   }
 
+  private async raceChooseTarget(
+    player: Player,
+    action: string,
+    context: string,
+    candidates: Player[],
+    allowSkip: boolean,
+    uiContext: string[] = [],
+    raceSlots = this.prefetchConcurrency
+  ): Promise<TargetDecision> {
+    const decisionRaceSlots = this.normalizedDecisionRaceSlots(raceSlots);
+    if (!this.shouldRaceAiDecision(player) || decisionRaceSlots <= 1) {
+      return this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext);
+    }
+
+    return this.firstFinishedDecisionRace(
+      player,
+      (options) =>
+        this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext, {
+          abortSignal: options?.signal,
+          suppressMemorySideEffects: options?.speculative
+        }),
+      decisionRaceSlots
+    );
+  }
+
   private async safeChooseTarget(
     player: Player,
     action: string,
     context: string,
     candidates: Player[],
     allowSkip: boolean,
-    uiContext: string[] = []
+    uiContext: string[] = [],
+    options: SafeGenerationOptions = {}
   ): Promise<TargetDecision> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const targetCandidates: TargetCandidate[] = candidates.map(({ id, name }) => ({ id, name }));
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const requestAbort = mergeAbortSignals(this.abortSignal, options.abortSignal);
+    const requestAbortSignal = requestAbort.signal;
     const input = {
       player,
       phase: this.phase,
@@ -2010,27 +2226,66 @@ export class WerewolfGame {
       allowSkip,
       publicHistory: this.publicHistory,
       privateHistory,
-      abortSignal: this.abortSignal
+      abortSignal: requestAbortSignal
     };
     try {
-      return await agent.chooseTarget(input);
+      const decision = await agent.chooseTarget(input);
+      if (requestAbortSignal?.aborted) {
+        throw new Error("Target choice request cancelled.");
+      }
+      return decision;
     } catch (error) {
-      if (this.abortSignal?.aborted) {
+      if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
         throw error;
       }
-      console.warn(`[llm-error] target ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-      player.memories.push(this.text(`LLM error during target choice: ${String(error)}`, `対象選択中のLLMエラー: ${String(error)}`));
+      if (!options.suppressMemorySideEffects) {
+        console.warn(`[llm-error] target ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
+        player.memories.push(this.text(`LLM error during target choice: ${String(error)}`, `対象選択中のLLMエラー: ${String(error)}`));
+      }
       if (shouldRethrowLlmError(agent)) {
         throw error;
       }
       return fallbackAgent.chooseTarget(input);
+    } finally {
+      requestAbort.cleanup();
     }
   }
 
-  private async safeDecide(player: Player, question: string, context: string, uiContext: string[] = []): Promise<boolean> {
+  private async raceDecide(
+    player: Player,
+    question: string,
+    context: string,
+    uiContext: string[] = [],
+    raceSlots = this.prefetchConcurrency
+  ): Promise<boolean> {
+    const decisionRaceSlots = this.normalizedDecisionRaceSlots(raceSlots);
+    if (!this.shouldRaceAiDecision(player) || decisionRaceSlots <= 1) {
+      return this.safeDecide(player, question, context, uiContext);
+    }
+
+    return this.firstFinishedDecisionRace(
+      player,
+      (options) =>
+        this.safeDecide(player, question, context, uiContext, {
+          abortSignal: options?.signal,
+          suppressMemorySideEffects: options?.speculative
+        }),
+      decisionRaceSlots
+    );
+  }
+
+  private async safeDecide(
+    player: Player,
+    question: string,
+    context: string,
+    uiContext: string[] = [],
+    options: SafeGenerationOptions = {}
+  ): Promise<boolean> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const requestAbort = mergeAbortSignals(this.abortSignal, options.abortSignal);
+    const requestAbortSignal = requestAbort.signal;
     const input = {
       player,
       phase: this.phase,
@@ -2039,20 +2294,28 @@ export class WerewolfGame {
       uiContext,
       publicHistory: this.publicHistory,
       privateHistory,
-      abortSignal: this.abortSignal
+      abortSignal: requestAbortSignal
     };
     try {
-      return await agent.decide(input);
+      const decision = await agent.decide(input);
+      if (requestAbortSignal?.aborted) {
+        throw new Error("Boolean decision request cancelled.");
+      }
+      return decision;
     } catch (error) {
-      if (this.abortSignal?.aborted) {
+      if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
         throw error;
       }
-      console.warn(`[llm-error] decision ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-      player.memories.push(this.text(`LLM error during decision: ${String(error)}`, `判断中のLLMエラー: ${String(error)}`));
+      if (!options.suppressMemorySideEffects) {
+        console.warn(`[llm-error] decision ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
+        player.memories.push(this.text(`LLM error during decision: ${String(error)}`, `判断中のLLMエラー: ${String(error)}`));
+      }
       if (shouldRethrowLlmError(agent)) {
         throw error;
       }
       return fallbackAgent.decide(input);
+    } finally {
+      requestAbort.cleanup();
     }
   }
 
