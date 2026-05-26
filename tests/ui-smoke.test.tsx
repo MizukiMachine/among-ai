@@ -245,10 +245,14 @@ test("story can advance from keyboard shortcuts outside form controls", () => {
 
 test("story controls expose back and next without read-all", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /function retreatStory/);
   assert.match(source, /className="speaker-unread-count"/);
   assert.match(source, /renderSpeakerUnreadStatus\(\)/);
+  assert.doesNotMatch(source, /自分視点/);
+  assert.doesNotMatch(source, /player-view-lock/);
+  assert.doesNotMatch(css, /player-view-lock/);
   assert.doesNotMatch(source, /function revealAll/);
   assert.doesNotMatch(source, /story-read-all/);
   assert.doesNotMatch(source, /renderQueueStatus/);

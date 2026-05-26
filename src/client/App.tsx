@@ -2183,14 +2183,7 @@ export function App() {
                           <ChevronRight className="story-next-chevron" size={20} />
                         </button>
                         {renderRunControls()}
-                        {humanEnabled ? (
-                          <div className="view-toggle view-toggle-inline player-view-lock">
-                            <button className="selected" type="button" title={`${characterName(humanPlayerId)}として表示`}>
-                              <Gamepad2 size={15} />
-                              自分視点
-                            </button>
-                          </div>
-                        ) : (
+                        {!humanEnabled ? (
                           <div className="view-toggle view-toggle-inline">
                             <button
                               className={spectatorMode === "omniscient" ? "selected" : ""}
@@ -2211,7 +2204,7 @@ export function App() {
                               人間視点
                             </button>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </article>
                   );
@@ -2254,14 +2247,7 @@ export function App() {
                       <ChevronRight className="story-next-chevron" size={20} />
                     </button>
                     {renderRunControls()}
-                    {humanEnabled ? (
-                      <div className="view-toggle view-toggle-inline player-view-lock">
-                        <button className="selected" disabled={!settingsConfirmed} type="button">
-                          <Gamepad2 size={15} />
-                          自分視点
-                        </button>
-                      </div>
-                    ) : (
+                    {!humanEnabled ? (
                       <div className="view-toggle view-toggle-inline">
                         <button
                           className={spectatorMode === "omniscient" ? "selected" : ""}
@@ -2282,7 +2268,7 @@ export function App() {
                           人間視点
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </article>
               )}
