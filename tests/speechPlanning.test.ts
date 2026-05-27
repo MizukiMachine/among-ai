@@ -62,6 +62,7 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.match(rendered, /公開上の死因: 不明/);
   assert.match(rendered, /魔女の毒薬/);
   assert.match(rendered, /自分の疑い・信頼・保留/);
+  assert.match(rendered, /質問、様子見、今後見る点だけで終えず/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
 });
 
@@ -126,6 +127,92 @@ test("speech plan review rejects death-cause recap that does not advance discuss
   assert.equal(forwardMove.ok, true);
 });
 
+test("speech plan review requires a visible stance even on quiet first day", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "シオン" },
+    { id: "p3", name: "キリエ" }
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "アカネ"), player("Villager", "p2", "シオン"), player("Seer", "p3", "キリエ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese"
+  });
+
+  assert.equal(plan.requiresForwardMove, true);
+
+  const watchOnly = reviewSpeechAgainstPlan(
+    {
+      messages: ["まだ誰も喋ってないけど、シオンとキリエから動きが出たら見たい"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(watchOnly.ok, false);
+  assert.match(watchOnly.issues.join("\n"), /visible stance/);
+
+  const questionOnly = reviewSpeechAgainstPlan(
+    {
+      messages: ["シオンを信頼できるか確認したいです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(questionOnly.ok, false);
+  assert.match(questionOnly.issues.join("\n"), /visible stance/);
+
+  const questionLikeTrust = reviewSpeechAgainstPlan(
+    {
+      messages: ["シオンを信頼できると思うか聞きたいです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(questionLikeTrust.ok, false);
+
+  const questionLikeSuspicion = reviewSpeechAgainstPlan(
+    {
+      messages: ["シオンを疑っているか確認したいです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(questionLikeSuspicion.ok, false);
+
+  const tentativeStance = reviewSpeechAgainstPlan(
+    {
+      messages: ["まだ誰も喋ってないので、シオンは保留です。キリエは役職が重いぶん暫定で保留に置きます"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(tentativeStance.ok, true);
+
+  const visibleTrust = reviewSpeechAgainstPlan(
+    {
+      messages: ["シオンは信頼できると思います", "キリエは保留寄りです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(visibleTrust.ok, true);
+});
+
 test("timeline review rejects unseen prior statements on empty first-day history", () => {
   const legalPlayers: TargetCandidate[] = [
     { id: "p2", name: "アカネ" },
@@ -148,7 +235,7 @@ test("timeline review rejects unseen prior statements on empty first-day history
 
   const characterTendency = reviewSpeechTimeline(
     {
-      messages: ["イオリは場を揺らす話し方をしがちなので、発言が出たら理由の出し方を見たいです。"],
+      messages: ["イオリは場を揺らす話し方をしがちなので、初日は保留より疑い寄りで見ます。"],
       metadata
     },
     [],
@@ -192,7 +279,7 @@ test("timeline review checks referenced speakers against visible history", () =>
 
   const naturalCharacterRole = reviewSpeechTimeline(
     {
-      messages: ["アカネは整理役として注目します。イオリは発言が出たら理由の出し方を見たいです。"],
+      messages: ["アカネは整理役として信頼寄りです。イオリは初日は保留より疑い寄りで見ます。"],
       metadata
     },
     [],

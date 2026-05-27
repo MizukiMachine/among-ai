@@ -510,7 +510,9 @@ outputFormats:
       JSON syntax, JSON keys such as messages/suspects/trusts/claims, braces,
       brackets, schema examples, or code fences inside a messages string. Do not
       mention that you are an AI, prompt, system message, hidden instruction, or
-      JSON schema.
+      JSON schema. During public discussion or voting, if the speech plan asks
+      for a read or stance, the visible messages themselves must state that
+      stance; do not leave it only in suspects/trusts/claims metadata.
     japaneseInstruction: >-
       厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
       {"messages":["短いセリフ","短いセリフ"],"suspects":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"短い補足"}]}
@@ -520,7 +522,8 @@ outputFormats:
       messages の中に入れません。suspects と trusts は、下に示された生存者 ID だけを使います。
       死亡者はセリフや結果の補足で過去の死亡、前日の投票、過去の占い結果として触れるだけにし、
       今の疑い先、信頼先、投票先にはしません。claims は、公開の役職名乗り、占い結果、
-      魔女情報、意図的な偽名乗りを出す時だけ使います。
+      魔女情報、意図的な偽名乗りを出す時だけ使います。昼議論や投票で発言設計が読みや stance を求める時は、
+      suspects/trusts/claims の metadata だけで済ませず、画面に出る messages の中で自分の stance を言います。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:
@@ -551,7 +554,7 @@ languageStyles:
       - "日本語だけで書く。中国語の語彙や簡体字・繁体字が混ざったら自然な日本語へ直す。"
       - "プレイヤーは「人」「相手」「発言している人」と呼ぶ。"
       - "中心人物は「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
-      - "限られた発言回数なので、問いかけで回さず、自分の疑い・信頼・保留の理由を先に言う。"
+      - "限られた発言回数なので、問いかけや様子見で回さず、自分の疑い・信頼・保留・投票候補を必ず先に言う。"
       - "投票まわりは「投票する」「吊る」「投票先」と言う。"
       - "人狼の夜会話では「襲撃する」「噛む」を使う。"
       - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"
@@ -560,7 +563,9 @@ languageStyles:
       - "messages はキャラクターが実際に口に出す会話だけにする。推理メモ、進行メモ、翻訳文、内部用の分類名を書かない。"
       - "messages の各セリフは文末の「。」を付けずに終える。「？」や「！」は必要な時だけ使う。"
       - "内部の方針や補助メモはセリフに混ぜない。会話では「疑っている」「信頼している」「保留する」「投票候補に入れる」「明日見返す」と具体的に言う。"
+      - "messages の公開セリフには、必ず自分の stance を入れる。stance は疑い、信頼、保留、投票候補、役職主張の信用判断のどれかです。"
       - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
+      - "今後の観察だけで発言を終えない。まだ材料が薄い時も、暫定の疑い・信頼・保留・投票候補まで言う。"
       - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
       - "不自然な比喩を作らず、「話をそらす」「ごまかす」「撹乱する」のような普通の日本語で言う。"
       - "世界観用語や人狼用語を増やさない。配信で聞いて違和感のない日本語を優先する。"
@@ -577,9 +582,9 @@ languageStyles:
         - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
         - "キャラクター設定や発言例は口調の材料であり、この試合で実際に起きた発言や行動として引用しない。"
       phaseGuidance:
-        - "昼議論は短い発言を数回交わす形式です。質問で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
+        - "昼議論は短い発言を数回交わす形式です。質問や様子見で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
         - "自分に疑いが向いているなら、先に短く答えてから自分の読みを更新する。"
-        - "一度に広げすぎず、誰をどう見ているかを具体的な一文にする。"
+        - "公開情報が少なくても、人物傾向や役職印象を根拠に、誰をどう見ているかを具体的な一文にする。"
         - "今の疑い先、信頼先、投票候補は生存者に向ける。"
         - "長い考えは短い文に分ける。"
     targetDecision:
@@ -605,9 +610,10 @@ daySituations:
   ja:
     first_day:
       - "初日昼: 公開情報が少ないので強い断定を避ける。"
-      - "質問で始めず、薄い根拠でも自分の暫定読み、保留理由、軽い投票候補を一つ出す。"
+      - "質問や様子見で始めず、薄い根拠でも自分の暫定読み、保留理由、軽い投票候補を一つ出す。"
       - "黒確定のように言わず、「気になる」「保留する」「投票候補に入れる」で止める。"
       - "まだ公開発言がない相手については、「言う通り」「発言」「反応」「動き」といった実際に見た前提の言い方をしない。"
+      - "名前を出すなら今後の観察だけで終えず、人物傾向や役職印象から暫定の疑い・信頼・保留・投票候補に置く。"
     later_day:
       - "2日目以降の昼: 昨日の投票、夜の結果、前日の疑い先の変化をつなげて話す。"
       - "前日の発言から考えが変わった理由を一つ示し、新情報で読みを更新する。"
@@ -666,8 +672,8 @@ personas:
       - Before accusing someone, summarize what is confirmed vs. what is assumed.
       - Prefer waiting one more round over making a risky call now.
     exampleLines:
-      - さんの1日目の発言、確定情報じゃないですよね。様子を見たいです
-      - 今の段階で吊るのは、まだ早いように思えます。もう1ターン情報が欲しい
+      - さんの1日目の発言は確定情報ではないので、今日は保留寄りです
+      - 今の段階で吊るのはまだ早いので、投票候補からは一段下げます
       - さんの占い結果は信用できます。ただ、タイミング的に都合が良すぎる気もして...結論は保留
     relations:
       empathetic: 協力しやすい。双方が相手を尊重する
