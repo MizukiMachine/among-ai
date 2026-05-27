@@ -267,7 +267,7 @@ export interface PublicNightDeathInfo {
 
 export type SpeechIntentKind =
   | "connect_night_death_to_living_players"
-  | "ask_living_player"
+  | "state_living_read"
   | "update_living_read"
   | "answer_or_update"
   | "vote_ready_read"

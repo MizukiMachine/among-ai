@@ -424,7 +424,7 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
     deadPlayers.length > 0
       ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
       : "死亡者: なし。",
-    `今、疑い・信頼・質問を向けられる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
+    `今、疑い・信頼・投票前の読みを向けられる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
     "死亡者は過去の材料としてだけ扱い、今の疑い先、信頼先、投票先にはしません。",
     "",
     "自分だけが見える役職情報:",

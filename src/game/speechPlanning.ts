@@ -37,8 +37,8 @@ function labels(language: string) {
     deathLine: japanese ? "昨夜の死亡" : "Last night's deaths",
     publicCause: japanese ? "公開上の死因" : "public cause",
     mustAdvance: japanese
-      ? "死因候補を並べるだけで終わらず、生存者への質問・読み・投票理由のどれかに進める。"
-      : "Do not stop at listing death causes; advance to a question, read, or vote reason about a living player.",
+      ? "死因候補を並べるだけで終わらず、生存者への読み、投票理由、役職主張の評価のどれかに進める。"
+      : "Do not stop at listing death causes; advance to a read, vote reason, or claim evaluation about a living player.",
     causeLabels: {
       werewolf_attack: japanese ? "人狼の襲撃" : "werewolf attack",
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
@@ -50,27 +50,27 @@ function labels(language: string) {
     },
     intents: {
       connect_night_death_to_living_players: japanese
-        ? "昨夜の死亡を、生存者の発言・投票・役職主張への具体的な質問につなげる。"
-        : "Connect the night death to a concrete question about a living player's speech, vote, or claim.",
-      ask_living_player: japanese
-        ? "生存者を一人以上挙げて、理由や時系列を聞く。"
-        : "Name at least one living player and ask for a reason or timeline.",
+        ? "昨夜の死亡を、生存者の発言・投票・役職主張への自分の読みにつなげる。"
+        : "Connect the night death to your own read on a living player's speech, vote, or claim.",
+      state_living_read: japanese
+        ? "生存者を一人以上挙げて、自分の疑い・信頼・保留の理由を言う。"
+        : "Name at least one living player and state your suspicion, trust, or hold reason.",
       update_living_read: japanese
         ? "死亡者ではなく、生存者への疑いか信頼を一つ更新する。"
         : "Update one suspicion or trust read about a living player, not a dead player.",
       answer_or_update: japanese
-        ? "自分への質問や疑いに答えたうえで、生存者への読みを一つ更新する。"
-        : "Answer pressure aimed at you, then update one read on a living player.",
+        ? "自分への疑いに答えたうえで、生存者への読みを一つ更新する。"
+        : "Answer suspicion aimed at you, then update one read on a living player.",
       vote_ready_read: japanese
         ? "投票先を考えられる形で、生存者への読みを一つに絞る。"
         : "Narrow to one living-player read that can support a vote.",
       open_discussion: japanese
-        ? "公開情報が少ない時は、生存者への軽い質問から議論を始める。"
-        : "When public information is thin, open with a light question to a living player."
+        ? "公開情報が少ない時も、生存者への暫定読みを一つ出して議論を始める。"
+        : "When public information is thin, open with one tentative read on a living player."
     },
     revisionHint: japanese
-      ? "前の返答は死亡理由の整理で止まっています。生存者への具体的な質問、読み、投票理由のどれかを含むセリフに直してください。"
-      : "The previous response stopped at recapping death causes. Revise it to include a concrete question, read, or vote reason about a living player."
+      ? "前の返答は死亡理由の整理で止まっています。生存者への読み、投票理由、役職主張の評価のどれかを含むセリフに直してください。"
+      : "The previous response stopped at recapping death causes. Revise it to include a read, vote reason, or claim evaluation about a living player."
   };
 }
 
@@ -152,7 +152,7 @@ export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): Public
 
   if (deaths.length > 0 && input.phase === "day_discussion") {
     intents.push(intent("connect_night_death_to_living_players", input.language));
-    intents.push(input.discussionPass && input.discussionPass > 1 ? intent("answer_or_update", input.language) : intent("ask_living_player", input.language));
+    intents.push(input.discussionPass && input.discussionPass > 1 ? intent("answer_or_update", input.language) : intent("state_living_read", input.language));
   } else if (input.phase === "day_discussion") {
     intents.push(input.discussionPass && input.discussionPass > 1 ? intent("answer_or_update", input.language) : intent("open_discussion", input.language));
   } else if (input.phase === "voting") {
@@ -211,16 +211,16 @@ export function reviewSpeechAgainstPlan(
 
   const text = speech.messages.join(" ");
   const targetIds = new Set(legalPlayers.map((player) => player.id));
-  const hasLivingTarget =
-    legalPlayers.some((player) => includesAny(text, [player.name, player.id])) ||
+  const textHasLivingTarget = legalPlayers.some((player) => includesAny(text, [player.name, player.id]));
+  const hasStructuredForwardMove =
     speech.metadata.suspects.some((read) => targetIds.has(read.targetId)) ||
     speech.metadata.trusts.some((read) => targetIds.has(read.targetId)) ||
     speech.metadata.claims.some((claim) => !claim.targetId || targetIds.has(claim.targetId));
-  const hasQuestionOrReason = isJapaneseLanguage(language)
-    ? /[？?]|誰|どの|理由|時系列|発言|投票|主張|反応|聞きたい|確認したい|答えて|疑|信頼|怪しい|見たい/.test(text)
-    : /[?]|who|which|why|reason|timeline|statement|vote|claim|reaction|answer|suspect|trust|read/i.test(text);
+  const hasForwardRead = isJapaneseLanguage(language)
+    ? /理由|時系列|発言|投票|主張|反応|疑|信頼|怪しい|気になる|保留|絞|読み|見える|評価|候補|黒|白/.test(text)
+    : /reason|timeline|statement|vote|claim|reaction|suspect|trust|read|hold|candidate|black|white|evaluate/i.test(text);
 
-  if (hasLivingTarget || hasQuestionOrReason) {
+  if (hasStructuredForwardMove || (textHasLivingTarget && hasForwardRead)) {
     return { ok: true, issues: [] };
   }
 

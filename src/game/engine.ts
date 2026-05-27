@@ -1548,17 +1548,17 @@ export class WerewolfGame {
             ),
         discussionPass === 1
           ? this.text(
-              "First pass: give one clear read, claim decision, or question so others can respond.",
-              "1巡目: 他の人が返答できるように、読み・役職主張の判断・質問のどれかを一つだけ短く出してください。"
+              "First pass: state one clear read, claim decision, or vote-leaning view from your own position.",
+              "1巡目: 自分の立場から、読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
             )
           : discussionPass === 2
           ? this.text(
-              "Second pass: answer direct questions or suspicion aimed at you first, then update one read before voting.",
-              "2巡目: 自分への質問や疑いがあれば先に短く答え、その後に投票前の読みを一つ更新してください。"
+              "Second pass: if needed, answer direct pressure briefly, then update one vote-ready read.",
+              "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
             )
           : this.text(
-              "Final follow-up: answer the strongest suspicion or claim question involving you, then give one voting-ready read.",
-              "追加発言: 自分に向いた一番強い疑いや主張への確認に答え、投票前の読みを一つだけ出してください。"
+              "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
+              "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
             )
       ];
       const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
