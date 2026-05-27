@@ -225,6 +225,7 @@ test("Japanese prompts include a natural conversation style layer", () => {
   assert.match(speech, /日本語の話し方/);
   assert.match(speech, /日本語セリフの契約/);
   assert.match(speech, /messages の各文字列は、画面にそのまま表示される実際のセリフだけ/);
+  assert.match(speech, /文末の「。」を付けず/);
   assert.match(speech, /プレイヤーは「人」「相手」「発言している人」/);
   assert.match(context, /役職ごとの発言方針/);
   assert.match(context, /人物の話し方/);

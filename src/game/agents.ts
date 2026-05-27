@@ -1,7 +1,7 @@
 import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
 import { detectDaySituations, type DaySituation } from "./daySituations";
-import { sanitizeDemoJapaneseGameText } from "./japaneseStyle";
+import { sanitizeDemoJapaneseGameText, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
   buildTargetList,
   buildBooleanSystemPrompt,
@@ -518,13 +518,18 @@ function isDialogueMetaMessage(message: string): boolean {
   );
 }
 
-function normalizeSpeechMessages(messagesSource: string[], fallback: string): string[] {
+function normalizeSpeechLine(text: string, fallback: string, language: string): string {
+  return stripJapaneseSpeechTerminalPeriod(clampText(text, fallback), language);
+}
+
+function normalizeSpeechMessages(messagesSource: string[], fallback: string, language: string): string[] {
   return messagesSource
     .flatMap(splitSpeechText)
     .map(stripDialogueLabel)
     .filter((message) => message.length > 0 && !isSpeechJsonLeak(message) && !isDialogueMetaMessage(message))
     .slice(0, maxSpeechMessages)
-    .map((message) => clampText(message, fallback));
+    .map((message) => normalizeSpeechLine(message, fallback, language))
+    .filter(Boolean);
 }
 
 function readJsonStringLiteral(text: string, startIndex: number): { value: string; endIndex: number } | null {
@@ -811,13 +816,16 @@ function parseSpeech(
   content: string,
   readCandidates: TargetCandidate[],
   fallback: string,
+  language: string,
   claimCandidates = readCandidates
 ): AgentSpeech {
   const parsed = extractJsonObject(content);
   if (!parsed) {
-    const recoveredMessages = isSpeechJsonLeak(content) ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback) : [];
+    const recoveredMessages = isSpeechJsonLeak(content)
+      ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language)
+      : [];
     return {
-      messages: recoveredMessages.length > 0 ? recoveredMessages : [clampText(isSpeechJsonLeak(content) ? fallback : content, fallback)],
+      messages: recoveredMessages.length > 0 ? recoveredMessages : [normalizeSpeechLine(isSpeechJsonLeak(content) ? fallback : content, fallback, language)],
       metadata: emptySpeechMetadata()
     };
   }
@@ -830,10 +838,10 @@ function parseSpeech(
         ? [parsed.speech]
         : [];
 
-  const messages = normalizeSpeechMessages(messagesSource, fallback);
+  const messages = normalizeSpeechMessages(messagesSource, fallback, language);
 
   return {
-    messages: messages.length > 0 ? messages : [clampText(fallback, fallback)],
+    messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, language)],
     metadata: normalizeSpeechMetadata(parsed, readCandidates, claimCandidates)
   };
 }
@@ -1145,7 +1153,7 @@ function normalizeLlmSummary(content: string): string | null {
 }
 
 function naturalizeDemoText(text: string, language: string): string {
-  return sanitizeDemoJapaneseGameText(clampText(text, text), language);
+  return stripJapaneseSpeechTerminalPeriod(sanitizeDemoJapaneseGameText(clampText(text, text), language), language);
 }
 
 function buildDemoSpeechMessages(parts: string[], language: string): string[] {
@@ -1754,6 +1762,7 @@ class LlmAgent implements Agent {
       content,
       legalPlayers,
       buildLlmSpeechFallback(input, this.language),
+      this.language,
       input.knownPlayers
     );
   }

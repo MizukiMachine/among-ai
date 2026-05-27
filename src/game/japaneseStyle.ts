@@ -127,6 +127,14 @@ export function japaneseDialogueContract(language: string): string[] {
   return [heading, ...guidelines.map((line) => `- ${line}`)];
 }
 
+export function stripJapaneseSpeechTerminalPeriod(text: string, language: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return text;
+  }
+
+  return text.trimEnd().replace(/。+(?=」?$)/u, "");
+}
+
 // Keep this scoped to deterministic demo copy. LLM output should be steered by prompts, not broad post-processing.
 export function sanitizeDemoJapaneseGameText(text: string, language: string): string {
   if (!isJapaneseLanguage(language)) {
