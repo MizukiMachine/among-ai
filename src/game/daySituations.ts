@@ -33,9 +33,9 @@ function currentRoundText(input: DaySituationInput): string {
 }
 
 function roundFromText(text: string): number | null {
-  const japanese = text.match(/ラウンド[:：]?\s*(\d+)|第(\d+)(?:昼|ラウンド)/);
+  const japanese = text.match(/ラウンド[:：]?\s*(\d+)|第(\d+)(?:昼|ラウンド)|(\d+)日目の昼/);
   if (japanese) {
-    return Number(japanese[1] ?? japanese[2]);
+    return Number(japanese[1] ?? japanese[2] ?? japanese[3]);
   }
   const english = text.match(/Round[: ]+(\d+)|Day (\d+)/i);
   if (english) {

@@ -363,7 +363,7 @@ test("no-death situation uses current round context, not stale public history", 
     round: 2,
     alivePlayers,
     deadPlayers: [{ id: "p4", name: "Darwin" }],
-    publicHistory: ["第1昼が始まりました。昨夜は誰も死亡しませんでした。", "Ada: 死体なしの理由はまだ決めつけません。"],
+    publicHistory: ["1日目の昼が始まりました", "昨夜は誰も死亡しませんでした", "Ada: 死体なしの理由はまだ決めつけません。"],
     privateHistory: [],
     language: "Japanese",
     extra: ["昨夜、Darwinが死亡しました。"]

@@ -1441,7 +1441,7 @@ export function App() {
       }
 
       const isBackKey = event.key === "ArrowLeft";
-      const canRetreat = !paused && !pendingHumanInput && events.length > 0;
+      const canRetreat = !paused && !readyHumanInput && events.length > 0;
       const canAdvance = !paused && !readyHumanInput && !isBackKey && queuedRef.current.length > 0;
       if (isBackKey && canRetreat) {
         event.preventDefault();
@@ -1847,7 +1847,7 @@ export function App() {
     return <p>{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p>;
   }
 
-  const storyBackDisabled = paused || Boolean(pendingHumanInput) || events.length === 0;
+  const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
   const storyNextDisabled =

@@ -107,8 +107,8 @@ test("progression messages display without terminal Japanese periods", () => {
 
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼たちが内通を始めました");
   assert.equal(
-    eventMessageForSpectator({ ...event, message: "第1昼が始まりました。昨夜は誰も死亡しませんでした。" }, "omniscient"),
-    "第1昼が始まりました。昨夜は誰も死亡しませんでした"
+    eventMessageForSpectator({ ...event, message: "1日目の昼が始まりました" }, "omniscient"),
+    "1日目の昼が始まりました"
   );
   assert.match(source, /formatMessage\(eventMessageForSpectator\(event, spectatorMode\)\)/);
 });
@@ -506,9 +506,9 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setGameStatus\(pendingHumanInput \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)\);/);
   assert.match(source, /function renderPendingHumanInputNotice/);
   assert.match(source, /次へで入力前の会話を確認してください/);
-  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(pendingHumanInput\)/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
-  assert.match(source, /const canRetreat = !paused && !pendingHumanInput/);
+  assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
   assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
