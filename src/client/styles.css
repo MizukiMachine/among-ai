@@ -1604,8 +1604,7 @@ input[type="range"] {
   z-index: 1;
   background:
     linear-gradient(90deg, rgba(218, 230, 236, 0.06) 0 1px, transparent 1px calc(100% - 1px), rgba(218, 230, 236, 0.06) calc(100% - 1px)),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
-    repeating-linear-gradient(90deg, transparent 0 92px, rgba(103, 216, 223, 0.08) 92px 93px, transparent 93px 184px);
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px);
   opacity: 0.5;
   mix-blend-mode: screen;
 }
@@ -1663,6 +1662,84 @@ input[type="range"] {
   background-position: center, center, center, center, center, center;
   background-repeat: no-repeat, no-repeat, no-repeat, repeat, no-repeat, no-repeat;
   background-size: auto, auto, auto, 720px 720px, cover, auto;
+}
+
+.scifi-texture-backdrop[data-light-tone] {
+  --stage-light-primary: rgba(103, 216, 223, 0.34);
+  --stage-light-secondary: rgba(47, 197, 129, 0.18);
+  --stage-light-rim: rgba(218, 230, 236, 0.16);
+  transition:
+    background-color 0.9s ease,
+    filter 0.9s ease;
+}
+
+.scifi-texture-backdrop[data-light-tone="rose"] {
+  --stage-light-primary: rgba(255, 105, 180, 0.36);
+  --stage-light-secondary: rgba(251, 113, 133, 0.2);
+  --stage-light-rim: rgba(255, 214, 234, 0.2);
+}
+
+.scifi-texture-backdrop[data-light-tone="emerald"] {
+  --stage-light-primary: rgba(52, 211, 153, 0.34);
+  --stage-light-secondary: rgba(134, 239, 172, 0.2);
+  --stage-light-rim: rgba(190, 255, 222, 0.18);
+}
+
+.scifi-texture-backdrop[data-light-tone="violet"] {
+  --stage-light-primary: rgba(168, 85, 247, 0.34);
+  --stage-light-secondary: rgba(236, 72, 153, 0.18);
+  --stage-light-rim: rgba(221, 214, 254, 0.18);
+}
+
+.scifi-texture-backdrop[data-light-tone="cyan"] {
+  --stage-light-primary: rgba(103, 216, 223, 0.34);
+  --stage-light-secondary: rgba(56, 189, 248, 0.16);
+  --stage-light-rim: rgba(207, 250, 254, 0.18);
+}
+
+.scifi-texture-backdrop[data-light-tone="amber"] {
+  --stage-light-primary: rgba(245, 158, 11, 0.34);
+  --stage-light-secondary: rgba(251, 191, 36, 0.18);
+  --stage-light-rim: rgba(254, 243, 199, 0.16);
+}
+
+.scifi-texture-backdrop[data-light-tone="crimson"] {
+  --stage-light-primary: rgba(239, 68, 68, 0.38);
+  --stage-light-secondary: rgba(248, 113, 113, 0.18);
+  --stage-light-rim: rgba(254, 202, 202, 0.18);
+}
+
+.scifi-texture-backdrop[data-light-tone="indigo"] {
+  --stage-light-primary: rgba(99, 102, 241, 0.34);
+  --stage-light-secondary: rgba(14, 165, 233, 0.14);
+  --stage-light-rim: rgba(199, 210, 254, 0.16);
+}
+
+.stage-light-wash,
+.stage-light-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.stage-light-wash {
+  z-index: 3;
+  background:
+    radial-gradient(ellipse at 68% 18%, var(--stage-light-primary), transparent 34%),
+    radial-gradient(ellipse at 24% 76%, var(--stage-light-secondary), transparent 44%),
+    linear-gradient(110deg, transparent 0%, var(--stage-light-rim) 58%, transparent 100%);
+  mix-blend-mode: screen;
+  opacity: 0.46;
+  animation: stage-light-arrive 1.85s cubic-bezier(0.28, 0.72, 0.24, 1);
+}
+
+.stage-light-scan {
+  z-index: 4;
+  background: linear-gradient(110deg, transparent 0 38%, rgba(255, 255, 255, 0.08) 48%, transparent 58%);
+  background-position: 6% center;
+  mix-blend-mode: screen;
+  opacity: 0.1;
+  animation: stage-light-scan 1.9s ease-out;
 }
 
 .story-hero:has(.hero-character) .chapel-backdrop::before {
@@ -2991,6 +3068,47 @@ input[type="range"] {
 
   100% {
     transform: translateX(100%);
+  }
+}
+
+@keyframes stage-light-arrive {
+  0% {
+    filter: saturate(1.12) brightness(1.08);
+    opacity: 0.34;
+    transform: scale(1.006);
+  }
+
+  42% {
+    opacity: 0.54;
+  }
+
+  100% {
+    filter: saturate(1) brightness(1);
+    opacity: 0.46;
+    transform: scale(1);
+  }
+}
+
+@keyframes stage-light-scan {
+  0% {
+    background-position: -6% center;
+    opacity: 0;
+  }
+
+  42% {
+    opacity: 0.14;
+  }
+
+  100% {
+    background-position: 6% center;
+    opacity: 0.1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-light-wash,
+  .stage-light-scan {
+    animation: none;
   }
 }
 
