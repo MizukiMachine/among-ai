@@ -25,7 +25,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
+import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
@@ -459,8 +459,127 @@ function eventTone(event: GameEvent): string {
   return "";
 }
 
-function renderStageBackdrop(phase: Phase | undefined, eventType?: GameEventType, secret?: boolean) {
-  return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} />;
+export type StageLightMood = "setup" | "neutral" | "night" | "danger" | "vote" | "summary" | "suspicion" | "trust" | "claim";
+
+const allStageLightTones: StageLightTone[] = ["rose", "emerald", "violet", "cyan", "amber", "crimson", "indigo"];
+
+const stageLightPalettes: Record<StageLightMood, StageLightTone[]> = {
+  setup: ["cyan", "emerald", "violet"],
+  neutral: ["cyan", "rose", "emerald", "violet"],
+  night: ["violet", "indigo", "rose"],
+  danger: ["crimson", "amber", "violet"],
+  vote: ["amber", "violet", "cyan"],
+  summary: ["emerald", "cyan", "amber"],
+  suspicion: ["violet", "amber", "rose"],
+  trust: ["emerald", "cyan", "rose"],
+  claim: ["cyan", "violet", "amber"]
+};
+
+const stageLightKeywords: Record<Exclude<StageLightMood, "setup" | "neutral" | "summary">, string[]> = {
+  night: ["夜", "内通", "相談", "襲撃候補", "非公開", "隠", "secret", "night", "whisper"],
+  danger: ["死亡", "死ん", "犠牲", "襲撃", "処刑", "毒", "発砲", "危険", "kill", "dead", "death", "poison", "shot", "victim"],
+  vote: ["投票", "票", "決め", "絞", "吊", "vote", "ballot", "eliminate"],
+  suspicion: ["疑", "怪し", "矛盾", "人狼", "狼", "黒", "偽", "対抗", "破綻", "不自然", "便乗", "曖昧", "suspect", "suspicious", "contradict", "fake", "wolf", "werewolf", "black"],
+  trust: ["信頼", "信用", "白", "村目", "人間側", "護衛", "守", "安心", "trust", "clear", "village", "guard", "protect", "white"],
+  claim: ["主張", "カミングアウト", "占い", "霊媒", "結果", "seer", "claim", "counterclaim"]
+};
+
+function eventDataItemCount(event: GameEvent, key: "claims" | "suspects" | "trusts"): number {
+  const value = event.data?.[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function stageLightSourceText(event: GameEvent): string {
+  return [
+    event.message,
+    dataString(event, "speech"),
+    dataString(event, "reason"),
+    dataString(event, "action"),
+    dataString(event, "cause")
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function keywordScore(source: string, keywords: string[]): number {
+  const normalized = source.toLowerCase();
+  return keywords.reduce((score, keyword) => score + (normalized.includes(keyword.toLowerCase()) ? 1 : 0), 0);
+}
+
+export function stageLightMoodForEvent(event: GameEvent | undefined, hidden = false): StageLightMood {
+  if (!event) {
+    return "setup";
+  }
+  if (hidden || event.type === "private_info" || event.type === "night_action") {
+    return "night";
+  }
+  if (event.type === "round_summary" || event.type === "game_ended") {
+    return "summary";
+  }
+  if (event.type === "death" && eventCause(event) === "no_death") {
+    return "trust";
+  }
+  if (event.type === "death" || event.type === "warning") {
+    return "danger";
+  }
+  if (event.type === "vote_cast" || event.type === "vote_result" || event.phase === "voting") {
+    return "vote";
+  }
+  if (event.phase === "night" || event.phase === "werewolf_discussion" || event.phase === "guard_action" || event.phase === "seer_action" || event.phase === "witch_action") {
+    return "night";
+  }
+  if (event.phase === "setup") {
+    return "setup";
+  }
+
+  const source = stageLightSourceText(event);
+  const scoredMoods: Array<[StageLightMood, number]> = [
+    ["danger", keywordScore(source, stageLightKeywords.danger)],
+    ["suspicion", keywordScore(source, stageLightKeywords.suspicion) + eventDataItemCount(event, "suspects") * 2],
+    ["claim", keywordScore(source, stageLightKeywords.claim) + eventDataItemCount(event, "claims") * 2],
+    ["vote", keywordScore(source, stageLightKeywords.vote)],
+    ["trust", keywordScore(source, stageLightKeywords.trust) + eventDataItemCount(event, "trusts") * 2],
+    ["night", keywordScore(source, stageLightKeywords.night)]
+  ];
+  const best = scoredMoods.sort(([, scoreA], [, scoreB]) => scoreB - scoreA)[0];
+
+  return best && best[1] > 0 ? best[0] : "neutral";
+}
+
+function stableHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+export function stageLightToneForEvent(
+  event: GameEvent | undefined,
+  hidden = false,
+  step = 0,
+  previousTone?: StageLightTone
+): StageLightTone {
+  const mood = stageLightMoodForEvent(event, hidden);
+  const palette = stageLightPalettes[mood];
+  const seed = event ? stableHash(`${event.type}:${event.phase}:${event.playerId ?? ""}:${event.message}`) : 0;
+  let tone = palette[(seed + step) % palette.length];
+
+  if (tone === previousTone) {
+    tone = palette.find((candidate) => candidate !== previousTone) ?? allStageLightTones.find((candidate) => candidate !== previousTone) ?? tone;
+  }
+
+  return tone;
+}
+
+function renderStageBackdrop(
+  phase: Phase | undefined,
+  eventType?: GameEventType,
+  secret?: boolean,
+  lightTone?: StageLightTone,
+  lightKey?: number | string
+) {
+  return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} lightTone={lightTone} lightKey={lightKey} />;
 }
 
 function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
@@ -817,6 +936,13 @@ export function App() {
   );
   const warnings = useMemo(() => events.filter((event) => event.type === "warning"), [events]);
   const currentEvent = events.at(-1);
+  const currentStageLightTone = useMemo(() => {
+    let previousTone: StageLightTone | undefined;
+    for (const [index, event] of events.entries()) {
+      previousTone = stageLightToneForEvent(event, isEventRedactedForSpectator(event, spectatorMode), index + 1, previousTone);
+    }
+    return previousTone;
+  }, [events, spectatorMode]);
   const recentHistory = events.slice(-6).reverse();
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
@@ -2146,6 +2272,7 @@ export function App() {
                   const hidden = isEventRedactedForSpectator(currentEvent, spectatorMode);
                   const tone = eventTone(currentEvent);
                   const isSpeech = currentEvent.type === "player_speech";
+                  const lightTone = currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length);
                   const speakerName =
                     isSpeech && currentEvent.playerName && !hidden
                       ? currentEvent.playerName
@@ -2154,7 +2281,7 @@ export function App() {
                         : "進行";
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                      {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden)}
+                      {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden, lightTone, currentEvent.id)}
                       {renderHeroCast()}
                       {activeSpeakerImage && !hidden && isSpeech ? (
                         <CharacterImage alt={speakerName} className="hero-character" src={activeSpeakerImage} fallback={null} />
@@ -2239,7 +2366,7 @@ export function App() {
                 })()
               ) : (
                 <article className="scene-card story-hero empty-hero">
-                  {renderStageBackdrop("setup")}
+                  {renderStageBackdrop("setup", undefined, undefined, "cyan", "setup")}
                   {renderHeroCast()}
                   <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
                     {settingsConfirmed ? (

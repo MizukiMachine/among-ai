@@ -12,6 +12,8 @@ import {
   eventRoundLabel,
   eventSpeakerForSpectator,
   heroCastForStage,
+  stageLightMoodForEvent,
+  stageLightToneForEvent,
   storyRunControlState,
   streamErrorMessageFromData,
   voteResultHasVisibleData,
@@ -81,6 +83,61 @@ test("story event meta chips stay prominent", () => {
   assert.match(css, /\.event-meta span\s*\{[^}]*min-height:\s*36px/s);
   assert.match(css, /\.event-meta span\s*\{[^}]*padding:\s*7px 16px/s);
   assert.match(css, /\.event-meta span\s*\{[^}]*font-size:\s*16px/s);
+});
+
+test("stage lighting follows speech mood and avoids repeated tones", () => {
+  const baseEvent: GameEvent = {
+    id: 12,
+    createdAt: "2026-05-24T00:00:00.000Z",
+    round: 1,
+    phase: "day_discussion",
+    type: "player_speech",
+    message: "ガクの発言には矛盾がある。ここは人狼の可能性を疑いたい。",
+    playerId: "p1",
+    playerName: "シオン",
+    data: { suspects: [{ targetId: "p2", targetName: "ガク", reason: "矛盾" }] },
+    snapshot: {
+      round: 1,
+      phase: "day_discussion",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(stageLightMoodForEvent(baseEvent), "suspicion");
+  assert.equal(stageLightMoodForEvent({ ...baseEvent, message: "ナギサは白く見えるので信頼したい。", data: { trusts: [{ targetId: "p5" }] } }), "trust");
+  assert.equal(stageLightMoodForEvent({ ...baseEvent, type: "vote_cast", phase: "voting", message: "シオンに投票します。" }), "vote");
+
+  let previousTone = stageLightToneForEvent(baseEvent, false, 1);
+  for (const [index, event] of [
+    { ...baseEvent, id: 13, phase: "night" as const, message: "人狼たちが内通を始めました。" },
+    { ...baseEvent, id: 14, phase: "werewolf_discussion" as const, message: "シオンかシュウヘイを噛むのがいいと思う" },
+    { ...baseEvent, id: 15, message: "まだ矛盾が残るので疑いを続けます。" }
+  ].entries()) {
+    const tone = stageLightToneForEvent(event, false, index + 2, previousTone);
+    assert.notEqual(tone, previousTone);
+    previousTone = tone;
+  }
+});
+
+test("stage backdrop exposes animated mood lighting layers", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const backdrop = readFileSync(new URL("../src/client/SciFiStageBackdrop.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /const currentStageLightTone = useMemo/);
+  assert.match(source, /stageLightToneForEvent\(event, isEventRedactedForSpectator\(event, spectatorMode\), index \+ 1, previousTone\)/);
+  assert.match(source, /const lightTone = currentStageLightTone \?\? stageLightToneForEvent\(currentEvent, hidden, events\.length\)/);
+  assert.match(backdrop, /data-light-tone=\{lightTone\}/);
+  assert.match(backdrop, /className="stage-light-wash"/);
+  assert.match(backdrop, /className="stage-light-scan"/);
+  assert.match(css, /\.scifi-texture-backdrop\[data-light-tone="rose"\]/);
+  assert.match(css, /\.scifi-texture-backdrop\[data-light-tone="emerald"\]/);
+  assert.match(css, /\.scifi-texture-backdrop\[data-light-tone="violet"\]/);
+  assert.match(css, /@keyframes stage-light-arrive/);
 });
 
 test("hero cast mirrors selected and active player counts", () => {
