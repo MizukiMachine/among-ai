@@ -24,7 +24,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
@@ -639,9 +639,14 @@ function readLabel(read: PlayerReadMetadata | ReadDetail): string {
   return read.reason ? `${target}: ${read.reason}` : target;
 }
 
+function displayMessageText(text: string): string {
+  return text.trimEnd().replace(/。+(?=」?$)/u, "");
+}
+
 function formatMessage(text: string) {
-  const parts = text.split(/(?<=。)/g);
-  if (parts.length <= 1) return text;
+  const displayText = displayMessageText(text);
+  const parts = displayText.split(/(?<=。)/g);
+  if (parts.length <= 1) return displayText;
   return parts.filter((p) => p).map((part, i) => <span key={i}>{part}<br /></span>);
 }
 
@@ -661,7 +666,7 @@ export function isEventRedactedForSpectator(event: GameEvent, mode: SpectatorMod
 }
 
 export function eventMessageForSpectator(event: GameEvent, mode: SpectatorMode): string {
-  return isEventRedactedForSpectator(event, mode) ? villageRedactedMessage : event.message;
+  return isEventRedactedForSpectator(event, mode) ? villageRedactedMessage : displayMessageText(event.message);
 }
 
 export function eventSpeakerForSpectator(event: GameEvent, mode: SpectatorMode, language: string): string {
@@ -768,6 +773,11 @@ interface RoleRuleCopy {
   note: string;
 }
 
+interface RoleRulePopoverPosition {
+  left: number;
+  top: number;
+}
+
 const roleRuleJa: Record<Role, RoleRuleCopy> = {
   Werewolf: {
     goal: "人狼が人間側と同数以上になると勝利します。",
@@ -853,6 +863,10 @@ function getRoleRuleCopy(role: Role): RoleRuleCopy {
   return roleRuleJa[role];
 }
 
+function roleRuleText(text: string): string {
+  return text.replace(/。+/gu, " ").trim();
+}
+
 function roleRuleCampLabel(role: Role, language: string): string {
   if (role === "Jester") {
     return campLabel("neutral", language);
@@ -910,6 +924,7 @@ export function App() {
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>(initialSpectatorMode);
   const [activeOverlay, setActiveOverlay] = useState<"history" | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
+  const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [humanSpeech, setHumanSpeech] = useState("");
@@ -924,6 +939,9 @@ export function App() {
   const revealFirstEventRef = useRef(false);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
+  const roleDistributionRef = useRef<HTMLElement | null>(null);
+  const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const roleRulePopoverRef = useRef<HTMLElement | null>(null);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -964,6 +982,51 @@ export function App() {
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
   const pendingHumanInputNotice =
     pendingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? pendingHumanInput : null;
+
+  function closeRoleRulePopover() {
+    setSelectedRoleRule(null);
+    setRoleRulePopoverPosition(null);
+    roleRuleTriggerRef.current = null;
+  }
+
+  function getRoleRulePopoverPosition(trigger: HTMLElement): RoleRulePopoverPosition {
+    const container = roleDistributionRef.current;
+    if (!container) {
+      return { left: 0, top: 0 };
+    }
+
+    const viewportPadding = 20;
+    const popoverWidth = Math.min(620, Math.max(280, window.innerWidth - viewportPadding * 2));
+    const triggerRect = trigger.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const desiredLeft = triggerRect.left - containerRect.left;
+    const maxLeft = Math.max(0, window.innerWidth - containerRect.left - popoverWidth - viewportPadding);
+
+    return {
+      left: Math.min(Math.max(0, desiredLeft), maxLeft),
+      top: triggerRect.bottom - containerRect.top + 8
+    };
+  }
+
+  function repositionRoleRulePopover() {
+    const trigger = roleRuleTriggerRef.current;
+    if (!trigger || !document.body.contains(trigger)) {
+      closeRoleRulePopover();
+      return;
+    }
+    setRoleRulePopoverPosition(getRoleRulePopoverPosition(trigger));
+  }
+
+  function toggleRoleRule(role: Role, event: ReactMouseEvent<HTMLButtonElement>) {
+    if (selectedRoleRule === role) {
+      closeRoleRulePopover();
+      return;
+    }
+
+    roleRuleTriggerRef.current = event.currentTarget;
+    setRoleRulePopoverPosition(getRoleRulePopoverPosition(event.currentTarget));
+    setSelectedRoleRule(role);
+  }
 
   function setGameStatus(nextStatus: string) {
     if (pausedRef.current) {
@@ -1284,18 +1347,52 @@ export function App() {
       return undefined;
     }
     if (!roleDistributionItems.some(([role]) => role === selectedRoleRule)) {
-      setSelectedRoleRule(null);
+      closeRoleRulePopover();
       return undefined;
     }
 
-    function closeRoleRule(event: KeyboardEvent) {
+    function closeRoleRuleOnKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setSelectedRoleRule(null);
+        closeRoleRulePopover();
       }
     }
 
-    window.addEventListener("keydown", closeRoleRule);
-    return () => window.removeEventListener("keydown", closeRoleRule);
+    function closeRoleRuleOnPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      const targetElement = target instanceof Element ? target : target.parentElement;
+      if (roleRulePopoverRef.current?.contains(target) || targetElement?.closest(".header-role-chip")) {
+        return;
+      }
+      closeRoleRulePopover();
+    }
+
+    let resizeAnimationFrame: number | null = null;
+    function scheduleRoleRuleReposition() {
+      if (resizeAnimationFrame !== null) {
+        window.cancelAnimationFrame(resizeAnimationFrame);
+      }
+      resizeAnimationFrame = window.requestAnimationFrame(() => {
+        resizeAnimationFrame = null;
+        repositionRoleRulePopover();
+      });
+    }
+
+    window.addEventListener("keydown", closeRoleRuleOnKeyDown);
+    window.addEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
+    window.addEventListener("resize", scheduleRoleRuleReposition);
+    window.addEventListener("orientationchange", scheduleRoleRuleReposition);
+    return () => {
+      if (resizeAnimationFrame !== null) {
+        window.cancelAnimationFrame(resizeAnimationFrame);
+      }
+      window.removeEventListener("keydown", closeRoleRuleOnKeyDown);
+      window.removeEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
+      window.removeEventListener("resize", scheduleRoleRuleReposition);
+      window.removeEventListener("orientationchange", scheduleRoleRuleReposition);
+    };
   }, [roleDistributionItems, selectedRoleRule]);
 
   useEffect(() => {
@@ -1665,7 +1762,7 @@ export function App() {
     const highestVoteCount = maxCount(totals);
 
     return (
-      <div className="round-summary-board" aria-label={event.message}>
+      <div className="round-summary-board" aria-label={eventMessageForSpectator(event, spectatorMode)}>
         <div className="round-summary-title">
           <span className="summary-icon"><ListChecks size={18} /></span>
           <span>
@@ -1747,7 +1844,7 @@ export function App() {
     if (event.type === "round_summary") {
       return renderRoundSummary(event, hidden);
     }
-    return <p>{hidden ? villageRedactedMessage : formatMessage(event.message)}</p>;
+    return <p>{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p>;
   }
 
   const storyBackDisabled = paused || Boolean(pendingHumanInput) || events.length === 0;
@@ -1910,9 +2007,15 @@ export function App() {
   function renderHeaderRoleDistribution() {
     const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
+    const roleRulePopoverStyle = roleRulePopoverPosition
+      ? ({
+          "--role-rule-left": `${roleRulePopoverPosition.left}px`,
+          "--role-rule-top": `${roleRulePopoverPosition.top}px`
+        } as CSSProperties)
+      : undefined;
 
     return (
-      <section className="header-role-distribution" aria-label="役職内訳">
+      <section ref={roleDistributionRef} className="header-role-distribution" aria-label="役職内訳">
         <div className="header-role-summary">
           <span>役職内訳</span>
           <strong className="header-camp-ratio">
@@ -1927,7 +2030,7 @@ export function App() {
                 aria-expanded={selectedRoleRule === role}
                 aria-label={`${displayRoleLabel(role, language)} ${count}人のルールを表示`}
                 className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
-                onClick={() => setSelectedRoleRule(selectedRoleRule === role ? null : role)}
+                onClick={(event) => toggleRoleRule(role, event)}
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
@@ -1938,33 +2041,40 @@ export function App() {
           ))}
         </div>
         {selectedRoleRule && selectedRule ? (
-          <section className={`role-rule-popover ${roleClassName(selectedRoleRule)}-rule`} id="role-rule-panel" role="dialog" aria-label={`${selectedRoleLabel}のルール`}>
+          <section
+            ref={roleRulePopoverRef}
+            className={`role-rule-popover ${roleClassName(selectedRoleRule)}-rule`}
+            id="role-rule-panel"
+            role="dialog"
+            aria-label={`${selectedRoleLabel}のルール`}
+            style={roleRulePopoverStyle}
+          >
             <div className="role-rule-header">
               <div>
                 <span>役職ルール</span>
                 <h2>{selectedRoleLabel}</h2>
               </div>
               <span className="role-rule-camp">{roleRuleCampLabel(selectedRoleRule, language)}</span>
-              <button className="role-rule-close" onClick={() => setSelectedRoleRule(null)} type="button" aria-label="役職ルールを閉じる">
-                <X size={16} />
+              <button className="role-rule-close" onClick={closeRoleRulePopover} type="button" aria-label="役職ルールを閉じる">
+                <X size={18} />
               </button>
             </div>
             <dl className="role-rule-body">
               <div>
                 <dt>勝利条件</dt>
-                <dd>{selectedRule.goal}</dd>
+                <dd>{roleRuleText(selectedRule.goal)}</dd>
               </div>
               <div>
                 <dt>能力</dt>
-                <dd>{selectedRule.ability}</dd>
+                <dd>{roleRuleText(selectedRule.ability)}</dd>
               </div>
               <div>
                 <dt>発動タイミング</dt>
-                <dd>{selectedRule.timing}</dd>
+                <dd>{roleRuleText(selectedRule.timing)}</dd>
               </div>
               <div>
                 <dt>立ち回り</dt>
-                <dd>{selectedRule.note}</dd>
+                <dd>{roleRuleText(selectedRule.note)}</dd>
               </div>
             </dl>
           </section>
@@ -2244,9 +2354,13 @@ export function App() {
                             <UserRound size={15} />
                           </span>
                         )}
-                        <strong>{player.name}</strong>
-                        {humanPlayer ? renderHumanPlayerBadge() : null}
-                        <span className={`dead-role-chip ${roleClassName(deadRole)}`}>{deadRoleLabel}</span>
+                        <div className="dead-player-main">
+                          <div className="dead-player-name-row">
+                            <strong>{player.name}</strong>
+                            {humanPlayer ? renderHumanPlayerBadge() : null}
+                          </div>
+                          <span className={`dead-role-chip ${roleClassName(deadRole)}`}>{deadRoleLabel}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -2296,16 +2410,6 @@ export function App() {
                         </div>
                         <div className="speaker-line">
                           <span>{speakerName}</span>
-                          <small>
-                            発言中
-                            <span className="voice-wave" aria-hidden="true">
-                              <i />
-                              <i />
-                              <i />
-                              <i />
-                              <i />
-                            </span>
-                          </small>
                           {renderSpeakerUnreadStatus()}
                         </div>
                         {renderStoryBody(currentEvent, hidden)}
