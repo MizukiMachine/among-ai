@@ -91,8 +91,9 @@ textarea:focus-visible {
   display: grid;
   min-height: 124px;
   align-items: center;
-  gap: 14px;
-  grid-template-columns: minmax(310px, 390px) minmax(0, 1fr) max-content;
+  column-gap: 28px;
+  row-gap: 14px;
+  grid-template-columns: max-content minmax(0, 1fr);
   margin: 0;
   border: 1px solid var(--ship-line);
   border-top: 0;
@@ -116,7 +117,6 @@ textarea:focus-visible {
   align-items: center;
   gap: 12px;
   align-self: center;
-  padding-left: 24px;
 }
 
 .brand-mark {
@@ -266,9 +266,12 @@ textarea:focus-visible {
 .header-role-distribution {
   position: relative;
   display: grid;
-  grid-column: 1 / -1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
   min-height: 0;
   align-items: start;
   gap: 12px;
@@ -3826,7 +3829,6 @@ input[type="range"] {
   .header-role-distribution {
     grid-column: 1;
     grid-row: auto;
-    width: 100%;
   }
 
   .info-bar {
@@ -3944,7 +3946,6 @@ input[type="range"] {
 
   .brand-lockup {
     gap: 7px;
-    padding-left: 10px;
   }
 
   .brand-mark {
