@@ -107,8 +107,8 @@ test("progression messages display without terminal Japanese periods", () => {
 
   assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼たちが内通を始めました");
   assert.equal(
-    eventMessageForSpectator({ ...event, message: "第1昼が始まりました。昨夜は誰も死亡しませんでした。" }, "omniscient"),
-    "第1昼が始まりました。昨夜は誰も死亡しませんでした"
+    eventMessageForSpectator({ ...event, message: "1日目の昼が始まりました" }, "omniscient"),
+    "1日目の昼が始まりました"
   );
   assert.match(source, /formatMessage\(eventMessageForSpectator\(event, spectatorMode\)\)/);
 });
@@ -455,6 +455,9 @@ test("story can advance from keyboard shortcuts outside form controls", () => {
   assert.match(source, /event\.key !== "ArrowLeft"/);
   assert.match(source, /retreatStory\(\)/);
   assert.match(source, /isEditableShortcutTarget/);
+  assert.match(source, /target\.closest\("input, select, textarea, \[contenteditable='true'\]"\)/);
+  assert.match(source, /function isButtonShortcutTarget/);
+  assert.match(source, /\(event\.key === "Enter" && isButtonShortcutTarget\(event\.target\)\)/);
 });
 
 test("story controls expose back and next without read-all", () => {
@@ -506,9 +509,9 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setGameStatus\(pendingHumanInput \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)\);/);
   assert.match(source, /function renderPendingHumanInputNotice/);
   assert.match(source, /次へで入力前の会話を確認してください/);
-  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(pendingHumanInput\)/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
-  assert.match(source, /const canRetreat = !paused && !pendingHumanInput/);
+  assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
   assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);

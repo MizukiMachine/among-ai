@@ -62,6 +62,8 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
+  assert.match(promptMaterials.outputFormats.speechJson.instruction, /visible messages themselves must state that stance/);
+  assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /画面に出る messages の中で自分の stance/);
   assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /画面や履歴に表示/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
   for (const profile of Object.values(promptMaterials.roles)) {
@@ -191,6 +193,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /"messages"/);
   assert.match(speech, /transport envelope only/);
   assert.match(speech, /Never put JSON syntax/);
+  assert.match(speech, /visible messages themselves must state that stance/);
   assert.match(speech, /Public speech must not reveal/);
   assert.match(speech, /Legal living read target ids for suspects\/trusts/);
   assert.match(speech, /two short table passes/);
@@ -282,14 +285,17 @@ test("first-day discussion prompts keep reads tentative and opinion-led", () => 
   assert.match(context, /昼の状況別話法/);
   assert.match(context, /初日昼/);
   assert.match(context, /強い断定を避ける/);
-  assert.match(context, /質問で始めず/);
+  assert.match(context, /質問や様子見で始めず/);
   assert.match(context, /暫定読み/);
   assert.match(context, /保留理由/);
   assert.match(context, /投票候補/);
+  assert.match(context, /自分の疑い先と信頼先/);
   assert.match(context, /まだ、この昼の公開発言はありません/);
   assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
   assert.match(context, /誰かの言う通り/);
   assert.match(context, /既に起きた事実として話さない/);
+  assert.match(context, /今後の観察だけで終えず/);
+  assert.doesNotMatch(context, /発言が出たら見たい/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
@@ -357,7 +363,7 @@ test("no-death situation uses current round context, not stale public history", 
     round: 2,
     alivePlayers,
     deadPlayers: [{ id: "p4", name: "Darwin" }],
-    publicHistory: ["第1昼が始まりました。昨夜は誰も死亡しませんでした。", "Ada: 死体なしの理由はまだ決めつけません。"],
+    publicHistory: ["1日目の昼が始まりました", "昨夜は誰も死亡しませんでした", "Ada: 死体なしの理由はまだ決めつけません。"],
     privateHistory: [],
     language: "Japanese",
     extra: ["昨夜、Darwinが死亡しました。"]

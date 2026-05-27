@@ -1515,12 +1515,7 @@ export class WerewolfGame {
     const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
     yield this.emit(
       "phase_changed",
-      deathNames.length > 0
-        ? this.text(
-            `Day ${this.round} begins. Last night's deaths: ${deathNames.join(", ")}.`,
-            `第${this.round}昼が始まりました。昨夜の死亡者: ${deathNames.join(", ")}。`
-          )
-        : this.text(`Day ${this.round} begins. No one died last night.`, `第${this.round}昼が始まりました。昨夜は誰も死亡しませんでした。`)
+      this.text(`Day ${this.round} begins.`, `${this.round}日目の昼が始まりました`)
     );
 
     const speakers = this.daySpeakerOrder();

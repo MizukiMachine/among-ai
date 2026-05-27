@@ -1106,7 +1106,7 @@ test("speech diagnostics record review retries and reasons", async () => {
         metadata: emptyMetadata
       },
       {
-        messages: [`${players[2].name}さん、昨日の発言と${players[1].name}さんの死亡をどう見ていますか。`],
+        messages: [`${players[2].name}さんは昨日の発言と${players[1].name}さんの死亡のつながりが薄いので、疑い寄りで見ます。`],
         metadata: emptyMetadata
       }
     ])
@@ -1116,7 +1116,7 @@ test("speech diagnostics record review retries and reasons", async () => {
 
   const rejected = diagnostics.find((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id);
   assert.ok(rejected);
-  assert.deepEqual(rejected.speechPlanIssues, ["speech stops at night-death recap without a living-player move"]);
+  assert.deepEqual(rejected.speechPlanIssues, ["speech stops at night-death recap without a visible stance"]);
   assert.equal(rejected.attempts, 1);
   assert.equal(diagnostics.filter((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id).length, 1);
   assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id && diagnostic.retried));
@@ -1146,7 +1146,7 @@ test("speech diagnostics reject unseen prior statements on quiet first day", asy
         metadata: emptyMetadata
       },
       {
-        messages: [`${players[2].name}は人物傾向として注目します。発言が出たら理由の出し方を見たいです。`],
+        messages: [`${players[2].name}は人物傾向として、初日は保留より疑い寄りで見ます。`],
         metadata: emptyMetadata
       }
     ])

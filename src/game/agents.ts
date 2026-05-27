@@ -145,9 +145,9 @@ const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
 
 const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   first_day: [
-    "初日なので決め打ちはしません。発言が少ない人と、誰かの疑いに乗った人を暫定で見ます。",
+    "初日なので決め打ちはしません。立場が薄い人を暫定で保留寄りに見ます。",
     "まだ情報が少ないので、発言量と立場の出し方で軽い仮説を置きます。",
-    "今日は強く決めるより、誰が理由を出していて誰が便乗しているのかを見たいです。"
+    "今日は強く決めませんが、理由が薄い人を投票候補に入れます。"
   ],
   later_day: [
     "昨日の投票と夜の結果をつなげて見ます。考えを変えた人を今日の投票候補に入れます。",
@@ -157,7 +157,7 @@ const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   no_death: [
     "死体なしの理由はまだ決めつけません。この結果を急いで固めた人を疑います。",
     "昨夜の死亡者がいないなら、説明はいくつかあります。一つに決めず、発言の変化を見ましょう。",
-    "死体なしは大事ですが、誰が守られたかを断定するより、急に話を固めた人を見たいです。"
+    "死体なしは大事ですが、誰が守られたかを断定する人は疑い寄りで見ます。"
   ],
   seer_claim: [
     "占い主張は結果の順番と出た理由で見ます。今は真偽を保留します。",
@@ -166,7 +166,7 @@ const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   ],
   black_result: [
     "人狼判定は重いので、今日はその人を投票候補の中心に置きます。",
-    "黒を出した人のこれまでの結果と、出された人の反応を並べて見たいです。",
+    "黒を出した人のこれまでの結果が自然なら、出された人を疑い寄りに置きます。",
     "今日その人を吊るなら、明日確認できる理由にしたいです。"
   ],
   pre_vote: [
@@ -183,8 +183,8 @@ const demoOpeningDaySituationSpeechEn = [
 ];
 
 const demoOpeningDaySituationSpeechJa = [
-  "初日なので決め打ちはしません。まず気になる相手を一人だけ暫定で見ます。",
-  "まだ誰の発言も材料にしません。最初は自分の軽い読みから出します。",
+  "初日なので決め打ちはしません。まず気になる相手を一人だけ暫定で保留寄りに置きます。",
+  "まだ誰の発言も材料にしません。最初は軽い投票候補を一人置きます。",
   "今は情報が少ないので、理由を短く出して投票前に比べます。"
 ];
 
@@ -319,7 +319,7 @@ const firstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]>
 
 const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
-    "発言が少ないので、暫定で注目している",
+    "発言が少ないので、暫定で保留寄りに見ている",
     "慎重な立場が続いていて、投票前に判断しにくい",
     "誰の疑いに乗っているのかが曖昧に見える"
   ],
@@ -356,7 +356,7 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
   passionate: [
     "信じたいけど覚悟を見せてほしい",
     "エネルギーは本物に感じるけど演技もできる",
-    "心は信じてるけど確認したい"
+    "心は信じたいけど保留に置く"
   ]
 };
 
@@ -407,7 +407,7 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
   cautious: [
     "最初の立場が薄いので保留寄りで見る",
     "後で比べやすいように早めの読みとして置く",
-    "小さい根拠ですが今は注目する"
+    "小さい根拠ですが今は保留寄りに置く"
   ],
   aggressive: [
     "最初から自分の見方を出さないのが怪しい",
@@ -421,13 +421,13 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
   ],
   opportunistic: [
     "早めの立場は後で見返しやすい",
-    "早めに注目先を置くと後で比べやすい",
+    "早めに保留先を置くと後で比べやすい",
     "最初の投票候補として置きやすい"
   ],
   empathetic: [
-    "強く読む前の保留枠として見たい",
+    "強く読む前の保留枠に置く",
     "柔らかい態度ですが立場はまだ薄い",
-    "最初の注目先として見やすい"
+    "最初の保留先として見やすい"
   ],
   trickster: [
     "普通すぎる始まりが逆に読みにくい",
@@ -440,8 +440,8 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
     "観察は最初の返答から始まる"
   ],
   passionate: [
-    "早めに覚悟を見たい",
-    "最初の答えにも熱があるか見たい",
+    "早めに投票候補を置く方が覚悟が出る",
+    "最初の答えが薄ければ疑い寄りに置く",
     "後で信じられる理由がほしい"
   ]
 };
@@ -1528,7 +1528,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
         suspect
           ? openingFirstDay
             ? japanese
-              ? `${suspect.name}を暫定で見ます。${japaneseReasonSentence(personaReason)}`
+              ? `${suspect.name}は暫定で保留より疑い寄りです。${japaneseReasonSentence(personaReason)}`
               : `${suspect.name} is my tentative read because ${personaReason}.`
             : japanese
               ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`

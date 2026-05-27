@@ -39,6 +39,9 @@ function labels(language: string) {
     mustAdvance: japanese
       ? "死因候補を並べるだけで終わらず、生存者への読み、投票理由、役職主張の評価のどれかに進める。"
       : "Do not stop at listing death causes; advance to a read, vote reason, or claim evaluation about a living player.",
+    mustStateStance: japanese
+      ? "発言ターンを使うので、質問、様子見、今後見る点だけで終えず、自分の疑い・信頼・保留・投票候補・役職主張の信用判断のどれかを必ず言う。"
+      : "Because speech turns are limited, do not end with only a question, wait-and-see note, or future watch point; state your suspicion, trust, hold, vote candidate, or claim-trust stance.",
     causeLabels: {
       werewolf_attack: japanese ? "人狼の襲撃" : "werewolf attack",
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
@@ -65,15 +68,15 @@ function labels(language: string) {
         ? "投票先を考えられる形で、生存者への読みを一つに絞る。"
         : "Narrow to one living-player read that can support a vote.",
       open_discussion: japanese
-        ? "公開情報が少ない時も、生存者への暫定読みを一つ出して議論を始める。"
-        : "When public information is thin, open with one tentative read on a living player."
+        ? "公開情報が少ない時も、自分の意見として生存者への暫定の疑い・信頼・保留・投票候補を一つ出して議論を始める。"
+        : "When public information is thin, open with one tentative suspicion, trust, hold, or vote-candidate read on a living player."
     },
     revisionHint: japanese
-      ? "前の返答は死亡理由の整理で止まっています。生存者への読み、投票理由、役職主張の評価のどれかを含むセリフに直してください。"
-      : "The previous response stopped at recapping death causes. Revise it to include a read, vote reason, or claim evaluation about a living player.",
+      ? "前の返答は自分の stance が足りません。生存者への疑い・信頼・保留・投票候補、または役職主張の信用判断を、画面に出るセリフ内ではっきり言ってください。"
+      : "The previous response did not state your stance. Revise the displayed dialogue to include suspicion, trust, hold, a vote candidate, or a claim-trust judgment.",
     emptyHistoryRevisionHint: japanese
-      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向として注目する、または発言が出たら見たい、という言い方に直してください。"
-      : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character-based watch, not observed evidence."
+      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかを自分の意見として言ってください。"
+      : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance."
   };
 }
 
@@ -172,7 +175,7 @@ export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): Public
     lastNightDeaths: deaths,
     possibleNightDeathCauses: possibleNightDeathCauses(input.players, input.language),
     intents,
-    requiresForwardMove: deaths.length > 0 && (input.phase === "day_discussion" || input.phase === "voting")
+    requiresForwardMove: input.legalPlayers.length > 0 && (input.phase === "day_discussion" || input.phase === "voting")
   };
 }
 
@@ -194,7 +197,8 @@ export function renderPublicSpeechPlan(plan: PublicSpeechPlan, language: string)
     "",
     text.speechPlanTitle + ":",
     ...plan.intents.map((item) => `- ${item.instruction}`),
-    ...(plan.requiresForwardMove ? [`- ${text.mustAdvance}`] : [])
+    ...(plan.requiresForwardMove ? [`- ${text.mustStateStance}`] : []),
+    ...(plan.requiresForwardMove && plan.lastNightDeaths.length > 0 ? [`- ${text.mustAdvance}`] : [])
   ];
 }
 
@@ -204,6 +208,60 @@ function includesAny(text: string, needles: string[]): boolean {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasVisibleStance(text: string, legalPlayers: TargetCandidate[], language: string): boolean {
+  if (isJapaneseLanguage(language)) {
+    const stanceTail = "(?:$|\\s|[。！？!、]|ので|から|けど|が)";
+    const assertiveStance =
+      [
+        `疑い寄り(?:です|で見(?:ます|る)?|に置(?:きます|く)?)?${stanceTail}`,
+        `疑って(?:います|いる|ます)${stanceTail}`,
+        `疑う理由(?:があります|です)${stanceTail}`,
+        `疑い(?:を向け(?:ます|る)|を置(?:きます|く)|があります|です)${stanceTail}`,
+        `怪しい(?:です|と思(?:います|う)|と見(?:ます|る)|ので|から)${stanceTail}`,
+        `気にな(?:ります|る(?:ので|から))${stanceTail}`,
+        `不自然(?:です|だと思(?:います|う)|と見(?:ます|る)|なので|だから)${stanceTail}`,
+        `信頼寄り(?:です|で見(?:ます|る)?|に置(?:きます|く)?)?${stanceTail}`,
+        `信頼して(?:います|いる|ます)${stanceTail}`,
+        `信頼でき(?:ます|ると思(?:います|う)|ると見(?:ます|る))${stanceTail}`,
+        `信じ(?:たい|ます|ています|ている)(?:です)?${stanceTail}`,
+        `信用寄り(?:です|で見(?:ます|る)?|に置(?:きます|く)?)?${stanceTail}`,
+        `信用して(?:います|いる|ます)${stanceTail}`,
+        `信用でき(?:ます|ると思(?:います|う)|ると見(?:ます|る))${stanceTail}`,
+        `信用を保留(?:します|する|です)${stanceTail}`,
+        `(?:白|村|黒|狼|真|偽)寄り(?:です|で見(?:ます|る)?|に置(?:きます|く)?)?${stanceTail}`,
+        `保留(?:です|します|する|にします|に置(?:きます|く)?|で見(?:ます|る)?|寄り(?:です|で見(?:ます|る)?|に置(?:きます|く)?)?)${stanceTail}`,
+        `投票候補(?:です|に入れ(?:ます|る)|に置(?:きます|く)|として)${stanceTail}`,
+        `投票先(?:です|にします|にする|として)${stanceTail}`,
+        `投票(?:します|する)${stanceTail}`,
+        `吊(?:る|りたい|り候補|り先)${stanceTail}`,
+        `候補に入れ(?:ます|る)${stanceTail}`,
+        `重く見(?:ます|る)${stanceTail}`
+      ].join("|");
+    const targetStance = legalPlayers.some((player) => {
+      const name = `${escapeRegExp(player.name)}(?:さん)?|${escapeRegExp(player.id)}`;
+      return new RegExp(`(?:${name})[^。！？!?]{0,36}(?:${assertiveStance})`, "u").test(text);
+    });
+    const claimStance = new RegExp(
+      [
+        "(?:占い|霊媒|狩人|ハンター|魔女|役職|主張|CO|名乗)[^。！？!?]{0,36}(?:",
+        assertiveStance,
+        ")",
+        "|(?:",
+        assertiveStance,
+        ")[^。！？!?]{0,36}(?:占い|霊媒|狩人|ハンター|魔女|役職|主張|CO|名乗)"
+      ].join(""),
+      "u"
+    ).test(text);
+    return targetStance || claimStance;
+  }
+
+  const assertiveStance =
+    /(?:suspect|am suspicious of|trust|hold|lean (?:trust|suspicion|village|wolf)|vote candidate|vote target|vote for|would eliminate|black lean|white lean|wolf lean|village lean|true claim|fake claim|claim trust|claim suspicion)/i;
+  const textHasLivingTarget = legalPlayers.some((player) => includesAny(text, [player.name, player.id]));
+  const claimStance = /claim|seer|medium|guard|hunter|witch|role/i.test(text) && assertiveStance.test(text);
+  return (textHasLivingTarget && assertiveStance.test(text)) || claimStance;
 }
 
 export function reviewSpeechTimeline(
@@ -267,29 +325,17 @@ export function reviewSpeechAgainstPlan(
   }
 
   const text = speech.messages.join(" ");
-  const targetIds = new Set(legalPlayers.map((player) => player.id));
-  const textHasLivingTarget = legalPlayers.some((player) => includesAny(text, [player.name, player.id]));
-  const hasStructuredForwardMove =
-    speech.metadata.suspects.some((read) => targetIds.has(read.targetId)) ||
-    speech.metadata.trusts.some((read) => targetIds.has(read.targetId)) ||
-    speech.metadata.claims.some((claim) => !claim.targetId || targetIds.has(claim.targetId));
-  const hasForwardRead = isJapaneseLanguage(language)
-    ? /理由|時系列|発言|投票|主張|反応|疑|信頼|怪しい|気になる|保留|絞|読み|見える|評価|候補|黒|白/.test(text)
-    : /reason|timeline|statement|vote|claim|reaction|suspect|trust|read|hold|candidate|black|white|evaluate/i.test(text);
-
-  if (hasStructuredForwardMove || (textHasLivingTarget && hasForwardRead)) {
-    return { ok: true, issues: [] };
-  }
+  const hasStance = hasVisibleStance(text, legalPlayers, language);
 
   const deathNames = plan.lastNightDeaths.map((death) => death.playerName);
   const mentionsNightDeath = includesAny(text, deathNames) || /死亡|死|噛|襲撃|毒|died|death|dead|killed|attack|poison/i.test(text);
-  if (!mentionsNightDeath) {
+  if (hasStance) {
     return { ok: true, issues: [] };
   }
 
   return {
     ok: false,
-    issues: ["speech stops at night-death recap without a living-player move"],
+    issues: [mentionsNightDeath ? "speech stops at night-death recap without a visible stance" : "speech does not state a visible stance"],
     revisionHint: labels(language).revisionHint
   };
 }
