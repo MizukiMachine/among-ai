@@ -12,12 +12,12 @@ import {
   eventRoundLabel,
   eventSpeakerForSpectator,
   heroCastForStage,
-  shouldShowVisibilityMeta,
   storyRunControlState,
   streamErrorMessageFromData,
   voteResultHasVisibleData,
   winnerLabelForRoster
 } from "../src/client/App";
+import { roleLabel as displayRoleLabel } from "../src/game/i18n";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 
 test("app shell renders spectator controls and info overlay buttons", () => {
@@ -60,16 +60,18 @@ test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
 });
 
-test("story event meta labels are readable and avoid duplicate werewolf chips", () => {
+test("story event meta labels are readable and omit visibility chips", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
   assert.equal(eventRoundLabel(1, "Japanese"), "ラウンド1");
   assert.equal(eventRoundLabel(2, "English"), "Round 2");
   assert.equal(eventPhaseMetaLabel("werewolf_discussion", "Japanese"), "人狼相談フェーズ");
   assert.equal(eventPhaseMetaLabel("guard_action", "Japanese"), "護衛決定フェーズ");
   assert.equal(eventPhaseMetaLabel("seer_action", "Japanese"), "占い決定フェーズ");
   assert.equal(eventPhaseMetaLabel("day_discussion", "Japanese"), "昼議論");
-  assert.equal(shouldShowVisibilityMeta("werewolf", "omniscient"), false);
-  assert.equal(shouldShowVisibilityMeta("private", "omniscient"), true);
-  assert.equal(shouldShowVisibilityMeta("werewolf", "village"), false);
+  assert.doesNotMatch(source, /visibilityLabel/);
+  assert.doesNotMatch(source, /eventVisibility\(currentEvent\)/);
+  assert.doesNotMatch(source, /shouldShowVisibilityMeta/);
 });
 
 test("story event meta chips stay prominent", () => {
@@ -104,7 +106,7 @@ test("hero cast mirrors selected and active player counts", () => {
   assert.equal(cast[8].alive, false);
 });
 
-test("setup character portraits preload the full roster", () => {
+test("setup character thumbnails preload and portrait images warm in the background", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
@@ -115,11 +117,17 @@ test("setup character portraits preload the full roster", () => {
   assert.match(source, /function getCharacterPortrait\(playerId\?: string\): string \| null/);
   assert.match(source, /const loadedCharacterImages = new Set<string>\(\);/);
   assert.match(source, /const pendingCharacterImageLoads = new Map<string, Promise<boolean>>\(\);/);
-  assert.match(source, /preloadCharacterImages\(characterThumbnailImages\);/);
-  assert.match(source, /scheduleIdleCharacterPreload\(characterPortraitImages\);/);
+  assert.match(source, /preloadCharacterImages\(characterThumbnailImages, "high"\);/);
+  assert.match(source, /function scheduleBackgroundCharacterPreload\(srcs: string\[\]\)/);
+  assert.match(source, /preloadCharacterImage\(src, "low"\)/);
+  assert.match(source, /scheduleBackgroundCharacterPreload\(characterPortraitImages\);/);
+  assert.match(source, /function renderCharacterImageWarmup\(\)/);
+  assert.match(source, /className="character-image-warmup"/);
+  assert.match(source, /decoding="sync" fetchPriority="high" loading="eager"/);
   assert.match(source, /fetchPriority=\{fetchPriority\}/);
   assert.match(source, /loading=\{loading\}/);
   assert.match(source, /fetchPriority="high"/);
+  assert.match(source, /decoding=\{decoding\}/);
   assert.match(source, /void preloadCharacterImage\(src\)\.then/);
   assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p1_shion\.webp"/);
   assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p7_kirie\.webp"/);
@@ -128,6 +136,17 @@ test("setup character portraits preload the full roster", () => {
     shell.match(/rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p\d+_[^"]+\.webp"/g)?.length,
     15
   );
+});
+
+test("only the active speaker uses full portrait character images", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 2);
+  assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
+  assert.match(source, /className="hero-character" src=\{activeSpeakerImage\}/);
+  assert.match(source, /className="setup-cast-grid selectable"[\s\S]*<CharacterImage[\s\S]*src=\{getCharacterImage\(player\.id\)\}[\s\S]*decoding="sync"[\s\S]*fetchPriority="high"/);
+  assert.doesNotMatch(source, /setup-cast-grid[\s\S]*getCharacterPortrait/);
+  assert.doesNotMatch(source, /player-avatar[\s\S]{0,240}getCharacterPortrait/);
 });
 
 test("read clusters count each source-target pair once", () => {
@@ -274,6 +293,24 @@ test("player roster scrolls inside the fixed gameplay panel", () => {
   assert.match(source, /className="player-list-scroll"/);
   assert.match(css, /\.intelligence-panel\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0[^}]*flex-direction:\s*column/s);
   assert.match(css, /\.player-list-scroll\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+});
+
+test("player roster distinguishes persona and hidden role labels", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
+  assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && player\.id === humanPlayerId && role !== "Hidden"\);/);
+  assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, humanPlayerId\);/);
+  assert.match(source, /function personaClassName\(persona: PlayerSnapshot\["persona"\] \| string \| undefined\): string/);
+  assert.match(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);
+  assert.match(css, /\.player-main\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*0\.7fr\)\s*minmax\(72px,\s*1fr\)[^}]*grid-template-rows:\s*auto auto/s);
+  assert.match(css, /\.player-name-row strong\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*1 \/ 3/s);
+  assert.match(css, /\.persona-pill\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*1/s);
+  assert.match(css, /\.role-chip\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*2/s);
+  for (const persona of ["cautious", "aggressive", "logical", "opportunistic", "empathetic", "trickster", "stoic", "passionate"]) {
+    assert.match(css, new RegExp(`\\.persona-${persona}\\s*\\{[^}]*border-color:[^}]*background:[^}]*color:`, "s"));
+  }
 });
 
 test("story can advance from keyboard shortcuts outside form controls", () => {

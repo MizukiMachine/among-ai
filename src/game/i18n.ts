@@ -20,7 +20,7 @@ const roleJa: Record<Role | "Hidden", string> = {
   Lover: "恋人",
   Jester: "道化師",
   Villager: "人間",
-  Hidden: "非公開"
+  Hidden: "不明"
 };
 
 const personaJa: Record<Persona, string> = {
