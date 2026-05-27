@@ -7,9 +7,12 @@ import {
   App,
   clusterReads,
   dedupeReadsBySourceTarget,
+  eventPhaseMetaLabel,
   eventMessageForSpectator,
+  eventRoundLabel,
   eventSpeakerForSpectator,
   heroCastForStage,
+  shouldShowVisibilityMeta,
   storyRunControlState,
   streamErrorMessageFromData,
   voteResultHasVisibleData,
@@ -57,6 +60,27 @@ test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
 });
 
+test("story event meta labels are readable and avoid duplicate werewolf chips", () => {
+  assert.equal(eventRoundLabel(1, "Japanese"), "ラウンド1");
+  assert.equal(eventRoundLabel(2, "English"), "Round 2");
+  assert.equal(eventPhaseMetaLabel("werewolf_discussion", "Japanese"), "人狼相談フェーズ");
+  assert.equal(eventPhaseMetaLabel("guard_action", "Japanese"), "護衛決定フェーズ");
+  assert.equal(eventPhaseMetaLabel("seer_action", "Japanese"), "占い決定フェーズ");
+  assert.equal(eventPhaseMetaLabel("day_discussion", "Japanese"), "昼議論");
+  assert.equal(shouldShowVisibilityMeta("werewolf", "omniscient"), false);
+  assert.equal(shouldShowVisibilityMeta("private", "omniscient"), true);
+  assert.equal(shouldShowVisibilityMeta("werewolf", "village"), false);
+});
+
+test("story event meta chips stay prominent", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.event-meta\s*\{[^}]*gap:\s*10px/s);
+  assert.match(css, /\.event-meta span\s*\{[^}]*min-height:\s*36px/s);
+  assert.match(css, /\.event-meta span\s*\{[^}]*padding:\s*7px 16px/s);
+  assert.match(css, /\.event-meta span\s*\{[^}]*font-size:\s*16px/s);
+});
+
 test("hero cast mirrors selected and active player counts", () => {
   assert.equal(heroCastForStage([], 9).length, 9);
   assert.equal(heroCastForStage([], 15).length, 15);
@@ -86,17 +110,24 @@ test("setup character portraits preload the full roster", () => {
 
   assert.match(source, /const CHARACTER_THUMBNAIL_ROOT = `\$\{CHARACTER_ASSET_ROOT\}\/thumbs`;/);
   assert.match(source, /p15:\s*`\$\{CHARACTER_THUMBNAIL_ROOT\}\/p15_akiomi\.webp`/);
+  assert.match(source, /const characterThumbnailImages = Object\.values\(characterImageMap\);/);
+  assert.match(source, /const characterPortraitImages = Object\.values\(characterPortraitMap\);/);
   assert.match(source, /function getCharacterPortrait\(playerId\?: string\): string \| null/);
   assert.match(source, /const loadedCharacterImages = new Set<string>\(\);/);
   assert.match(source, /const pendingCharacterImageLoads = new Map<string, Promise<boolean>>\(\);/);
-  assert.match(source, /preloadCharacterImages\(defaultCharacterImages\);/);
+  assert.match(source, /preloadCharacterImages\(characterThumbnailImages\);/);
+  assert.match(source, /scheduleIdleCharacterPreload\(characterPortraitImages\);/);
   assert.match(source, /fetchPriority=\{fetchPriority\}/);
   assert.match(source, /loading=\{loading\}/);
   assert.match(source, /fetchPriority="high"/);
   assert.match(source, /void preloadCharacterImage\(src\)\.then/);
   assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p1_shion\.webp"/);
   assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p7_kirie\.webp"/);
-  assert.doesNotMatch(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p15_akiomi\.webp"/);
+  assert.match(shell, /rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p15_akiomi\.webp"/);
+  assert.equal(
+    shell.match(/rel="preload" as="image" type="image\/webp" href="\/assets\/characters\/thumbs\/p\d+_[^"]+\.webp"/g)?.length,
+    15
+  );
 });
 
 test("read clusters count each source-target pair once", () => {
