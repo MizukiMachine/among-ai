@@ -897,7 +897,7 @@ textarea:focus-visible {
     #131e26;
   background-blend-mode: normal, soft-light, normal, normal;
   background-position: center, center, var(--ship-trim-position), center;
-  background-size: auto, auto, 155px 155px, auto;
+  background-size: auto, auto, 140px 140px, auto;
   padding: 8px 10px 8px 8px;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
@@ -1237,11 +1237,8 @@ textarea:focus-visible {
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
-    linear-gradient(90deg, rgba(31, 42, 50, 0.52), rgba(11, 18, 25, 0.72)),
-    var(--ship-trim-texture),
-    #111b23;
-  background-position: center, var(--ship-trim-position), center;
-  background-size: auto, 150px 150px, auto;
+    linear-gradient(90deg, rgba(11, 15, 20, 0.9), rgba(3, 7, 11, 0.96)),
+    #070b10;
   color: var(--ship-muted);
   padding: 7px 9px 7px 7px;
   font-size: 14px;
@@ -1251,9 +1248,8 @@ textarea:focus-visible {
   border: 1px solid rgba(227, 166, 79, 0.44);
   border-radius: 8px;
   background:
-    linear-gradient(90deg, rgba(111, 72, 14, 0.32), rgba(13, 22, 30, 0.62)),
-    var(--ship-decal-texture);
-  background-blend-mode: normal, soft-light;
+    linear-gradient(90deg, rgba(62, 43, 19, 0.74), rgba(5, 8, 12, 0.94)),
+    #0a0907;
   color: #ffe7ad;
 }
 
@@ -2570,7 +2566,7 @@ input[type="range"] {
     #17212a;
   background-blend-mode: normal, soft-light, normal, normal;
   background-position: center, center, var(--ship-trim-position), center;
-  background-size: auto, auto, 140px 140px, auto;
+  background-size: auto, auto, var(--ship-trim-size), auto;
   color: rgba(255, 255, 255, 0.84);
   padding: 7px 8px;
   text-align: center;
@@ -3842,7 +3838,7 @@ input[type="range"] {
 
 .player-card {
   background-position: center, center, var(--ship-trim-position), center;
-  background-size: auto, auto, var(--ship-trim-size), auto;
+  background-size: auto, auto, 140px 140px, auto;
 }
 
 .setup-edit-button {
