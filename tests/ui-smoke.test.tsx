@@ -455,6 +455,9 @@ test("story can advance from keyboard shortcuts outside form controls", () => {
   assert.match(source, /event\.key !== "ArrowLeft"/);
   assert.match(source, /retreatStory\(\)/);
   assert.match(source, /isEditableShortcutTarget/);
+  assert.match(source, /target\.closest\("input, select, textarea, \[contenteditable='true'\]"\)/);
+  assert.match(source, /function isButtonShortcutTarget/);
+  assert.match(source, /\(event\.key === "Enter" && isButtonShortcutTarget\(event\.target\)\)/);
 });
 
 test("story controls expose back and next without read-all", () => {

@@ -884,7 +884,14 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
   }
-  return Boolean(target.closest("button, input, select, textarea, [contenteditable='true']"));
+  return Boolean(target.closest("input, select, textarea, [contenteditable='true']"));
+}
+
+function isButtonShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest("button"));
 }
 
 export function storyRunControlState(gameStarted: boolean, paused: boolean): {
@@ -1435,7 +1442,8 @@ export function App() {
         event.altKey ||
         event.shiftKey ||
         (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
-        isEditableShortcutTarget(event.target)
+        isEditableShortcutTarget(event.target) ||
+        (event.key === "Enter" && isButtonShortcutTarget(event.target))
       ) {
         return;
       }
