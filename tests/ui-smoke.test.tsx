@@ -409,6 +409,16 @@ test("graveyard cards stay compact like the living roster", () => {
   assert.match(css, /\.dead-role-chip\s*\{[^}]*font-size:\s*13px/s);
 });
 
+test("roster and setup character surfaces use the requested texture treatment", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.dead-player\s*\{[^}]*background:\s*linear-gradient\([^}]*#070b10/s);
+  assert.doesNotMatch(css, /\.dead-player\s*\{[^}]*var\(--ship-[^)]+-texture\)/s);
+  assert.doesNotMatch(css, /\.dead-player\.human-player\s*\{[^}]*var\(--ship-[^)]+-texture\)/s);
+  assert.match(css, /\.player-card\s*\{[^}]*background-size:\s*auto,\s*auto,\s*140px 140px,\s*auto/s);
+  assert.match(css, /\.setup-cast-grid button\s*\{[^}]*background-size:\s*auto,\s*auto,\s*var\(--ship-trim-size\),\s*auto/s);
+});
+
 test("story speaker header omits the speaking status label", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
