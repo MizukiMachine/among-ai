@@ -70,7 +70,10 @@ function labels(language: string) {
     },
     revisionHint: japanese
       ? "前の返答は死亡理由の整理で止まっています。生存者への読み、投票理由、役職主張の評価のどれかを含むセリフに直してください。"
-      : "The previous response stopped at recapping death causes. Revise it to include a read, vote reason, or claim evaluation about a living player."
+      : "The previous response stopped at recapping death causes. Revise it to include a read, vote reason, or claim evaluation about a living player.",
+    emptyHistoryRevisionHint: japanese
+      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向として注目する、または発言が出たら見たい、という言い方に直してください。"
+      : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character-based watch, not observed evidence."
   };
 }
 
@@ -197,6 +200,60 @@ export function renderPublicSpeechPlan(plan: PublicSpeechPlan, language: string)
 
 function includesAny(text: string, needles: string[]): boolean {
   return needles.some((needle) => needle.length > 0 && text.includes(needle));
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function reviewSpeechTimeline(
+  speech: AgentSpeech,
+  publicHistory: string[],
+  legalPlayers: TargetCandidate[],
+  phase: Phase,
+  language: string
+): SpeechPlanReview {
+  if (!isJapaneseLanguage(language) || phase !== "day_discussion") {
+    return { ok: true, issues: [] };
+  }
+
+  const text = speech.messages.join(" ");
+  const genericUnseenReference =
+    publicHistory.length === 0 &&
+    /(?:の言う通り|が言う通り|言った通り|指摘に同意|整理に同意|さっき|先ほど|今の反応|今の発言|乗っただけ|便乗|煙幕|煙に巻)/u.test(text);
+
+  const citesUnseenPlayer = legalPlayers.some((player) => {
+    const name = `${escapeRegExp(player.name)}(?:さん)?`;
+    const speakerHistory = new RegExp(`^\\s*${escapeRegExp(player.name)}\\s*:`, "u");
+    const hasVisibleSpeech = publicHistory.some((line) => speakerHistory.test(line));
+    if (hasVisibleSpeech) {
+      return false;
+    }
+
+    const observedReference = new RegExp(
+      [
+        `${name}(?:の|が|は)?(?:言う通り|言った通り)`,
+        `${name}の(?:指摘|整理)(?:に同意|の通り|通り|を受けて|から|に一つ|に乗)`,
+        `${name}(?:に同意|に乗った|に乗る)`,
+        `${name}の発言(?!が出たら)(?:が|は|も|だけ|から|で|を)[^。！？!?]{0,20}(?:少な|薄|曖昧|弱|強|気になる|不自然|怪し|見え|変わ|ずれ|乗|便乗|ごまか|そら)`,
+        `${name}の(?:反応|返答)(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
+        `${name}の(?:今の|さっきの|先ほどの)?動き(?:が|は|も|だけ|から|で)?[^。！？!?]{0,20}(?:気になる|不自然|怪し|見え|変わ|ずれ|便乗|ごまか|そら)`,
+        `${name}(?:が|は)?(?:便乗|ごまか|話をそら|煙に巻)`
+      ].join("|"),
+      "u"
+    );
+    return observedReference.test(text);
+  });
+
+  if (genericUnseenReference || citesUnseenPlayer) {
+    return {
+      ok: false,
+      issues: ["speech cites unseen prior public speech or action"],
+      revisionHint: labels(language).emptyHistoryRevisionHint
+    };
+  }
+
+  return { ok: true, issues: [] };
 }
 
 export function reviewSpeechAgainstPlan(

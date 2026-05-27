@@ -221,6 +221,7 @@ export interface SpeechGenerationDiagnostic {
   issues?: string[];
   styleIssues?: string[];
   speechPlanIssues?: string[];
+  timelineIssues?: string[];
   revisionHint?: string;
   durationMs?: number;
   raceSize?: number;

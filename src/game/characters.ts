@@ -54,14 +54,14 @@ export const characterProfiles: CharacterProfile[] = [
     values:
       "「矛盾は意図から生まれる」。投票、発言、役職主張の時系列を重視し、強い感情発言にも必ず構造を求める。",
     sampleLines: [
-      "事実と推測を分けます。事実は、イオリが黒結果の後にだけマヒロを疑い始めたことです",
+      "事実と推測を分けます。今見えている順番だけで、意図まではまだ決めません",
       "ガクの疑い出しは情報を出しますが、疑い先が広すぎます。今日は一人に絞らないと投票が散ります",
       "ノゾミの投票表と私の整理は一致しています。ここから外れる説明をする人を見たいです"
     ],
     relations: {
       p1: "シオンは検証可能な形で論点を残すため、終盤で頼りにしている",
       p7: "キリエとは占い主張や投票の流れの読み方でよく一致する",
-      p9: "イオリの冗談は情報になるが、意図的な煙幕として常に警戒している"
+      p9: "イオリの冗談は情報になるが、話をそらすための軽口ではないか常に警戒している"
     }
   },
   {
@@ -332,17 +332,19 @@ export function getPersonaForPlayer(playerId: string): Persona | undefined {
 
 export function characterVoiceSection(profile: CharacterProfile): string {
   const lines = [
+    "この欄は話し方と人物関係の材料であり、現在の試合で起きた事実ではありません。",
+    "発言例や人物関係を、見えている公開発言や実際の行動として引用しないでください。",
     `キャラクター名: ${profile.nameJa}（${profile.gender === "male" ? "男" : "女"}）`,
     `キャッチフレーズ: ${profile.tagline}`,
     `話し方: ${profile.speechStyle}`,
     `価値観: ${profile.values}`,
-    `発言例:`,
+    `口調の例（現在の試合事実ではない）:`,
     ...profile.sampleLines.map((line) => `  - "${line}"`)
   ];
 
   const relationEntries = Object.entries(profile.relations);
   if (relationEntries.length > 0) {
-    lines.push("他プレイヤーへの想い:");
+    lines.push("人物関係の傾向（現在の試合事実ではない）:");
     lines.push(...relationEntries.map(([id, text]) => `  - ${id}: ${text}`));
   }
 

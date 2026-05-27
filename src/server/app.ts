@@ -197,6 +197,7 @@ function createSpeechDiagnosticsLogger(streamId: string): {
           issues: diagnostic.issues,
           styleIssues: diagnostic.styleIssues,
           speechPlanIssues: diagnostic.speechPlanIssues,
+          timelineIssues: diagnostic.timelineIssues,
           error: diagnostic.error
         })}`
       );

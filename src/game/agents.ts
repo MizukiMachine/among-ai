@@ -421,13 +421,13 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
   ],
   opportunistic: [
     "早めの立場は後で見返しやすい",
-    "今の動きが後で比べやすい",
+    "早めに注目先を置くと後で比べやすい",
     "最初の投票候補として置きやすい"
   ],
   empathetic: [
     "強く読む前の保留枠として見たい",
     "柔らかい態度ですが立場はまだ薄い",
-    "最初の動きとして相手を見やすい"
+    "最初の注目先として見やすい"
   ],
   trickster: [
     "普通すぎる始まりが逆に読みにくい",
