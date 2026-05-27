@@ -11,7 +11,9 @@ import {
   eventMessageForSpectator,
   eventRoundLabel,
   eventSpeakerForSpectator,
-  heroCastForStage,
+  formatMessage,
+  mentionedCharactersForEvent,
+  mentionedCharactersForText,
   stageLightMoodForEvent,
   stageLightToneForEvent,
   storyRunControlState,
@@ -20,7 +22,7 @@ import {
   winnerLabelForRoster
 } from "../src/client/App";
 import { roleLabel as displayRoleLabel } from "../src/game/i18n";
-import type { GameEvent, PlayerSnapshot } from "../src/game/types";
+import type { GameEvent } from "../src/game/types";
 
 test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -59,6 +61,100 @@ test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster(null, "Japanese"), null);
   assert.equal(winnerLabelForRoster("village", "Japanese"), "勝者: 人間側");
   assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
+});
+
+test("dialogue keeps character names as ordinary text", () => {
+  const html = renderToStaticMarkup(createElement("p", null, formatMessage("シオンがガクを疑う。キリエは保留です。")));
+
+  assert.match(html, /シオンがガクを疑う/);
+  assert.match(html, /キリエは保留です/);
+  assert.doesNotMatch(html, /character-name-mention/);
+  assert.doesNotMatch(html, /--character-name-color/);
+});
+
+test("dialogue mentions resolve to transparent character portraits", () => {
+  const mentions = mentionedCharactersForText("シオンがガクを疑う。キリエは保留です。シオンは継続。");
+
+  assert.deepEqual(mentions.map((mention) => mention.id), ["p1", "p2", "p7"]);
+  assert.deepEqual(mentions.map((mention) => mention.name), ["シオン", "ガク", "キリエ"]);
+  assert.match(mentions[0].image ?? "", /\/assets\/characters\/p1_shion\.png$/);
+  assert.match(mentions[1].image ?? "", /\/assets\/characters\/p2_gaku\.png$/);
+});
+
+test("event mention thumbnails include visible detail data", () => {
+  const event: GameEvent = {
+    id: 99,
+    createdAt: "2026-05-27T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "vote_result",
+    message: "投票結果が出ました。",
+    data: {
+      reason: "キリエの指摘が決め手",
+      totals: [
+        { targetId: "p1", targetName: "シオン", count: 3 },
+        { targetId: "p2", targetName: "ガク", count: 2 }
+      ]
+    },
+    snapshot: {
+      round: 1,
+      phase: "voting",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p7", "p1", "p2"]);
+});
+
+test("round summary mention thumbnails include summary board names", () => {
+  const event: GameEvent = {
+    id: 100,
+    createdAt: "2026-05-27T00:00:00.000Z",
+    round: 2,
+    phase: "day_discussion",
+    type: "round_summary",
+    message: "ラウンド2の集計です。",
+    data: {
+      nightDeaths: [{ playerId: "p5", playerName: "ナギサ" }],
+      claims: [
+        {
+          speakerId: "p9",
+          speakerName: "イオリ",
+          claim: { type: "seer_result", role: "Seer", targetId: "p12", targetName: "コハル", camp: "village" }
+        }
+      ],
+      suspects: [{ sourceId: "p1", sourceName: "シオン", targetId: "p7", targetName: "キリエ", reason: "発言が揺れた" }],
+      trusts: [{ sourceId: "p2", sourceName: "ガク", targetId: "p3", targetName: "アカネ", reason: "投票筋が自然" }],
+      totals: [{ targetId: "p4", targetName: "マヒロ", count: 4 }]
+    },
+    snapshot: {
+      round: 2,
+      phase: "day_discussion",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p5", "p9", "p12", "p7", "p1", "p3", "p2", "p4"]);
+});
+
+test("setup cast character names stay neutral before game start", () => {
+  const html = renderToStaticMarkup(createElement(App));
+  const start = html.indexOf('class="setup-cast-grid selectable"');
+  const end = html.indexOf('class="field setup-field player-count-field"', start);
+  const castHtml = html.slice(start, end);
+
+  assert.ok(start >= 0);
+  assert.ok(end > start);
+  assert.match(castHtml, />シオン</);
+  assert.doesNotMatch(castHtml, /character-name/);
 });
 
 test("story event meta labels are readable and omit visibility chips", () => {
@@ -168,27 +264,27 @@ test("stage backdrop exposes animated mood lighting layers", () => {
   assert.match(css, /@keyframes stage-light-arrive/);
 });
 
-test("hero cast mirrors selected and active player counts", () => {
-  assert.equal(heroCastForStage([], 9).length, 9);
-  assert.equal(heroCastForStage([], 15).length, 15);
+test("story uses mention thumbnails instead of the ambient hero cast row", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  const players: PlayerSnapshot[] = Array.from({ length: 15 }, (_, index) => ({
-    id: `p${index + 1}`,
-    name: `Player ${index + 1}`,
-    role: "Villager",
-    camp: "village",
-    persona: "cautious",
-    alive: index !== 8,
-    model: "demo",
-    memoryCount: 0
-  }));
-  const cast = heroCastForStage(players, 15);
-
-  assert.equal(cast.length, 15);
-  assert.equal(cast.at(-1)?.id, "p15");
-  assert.match(cast.at(-1)?.image ?? "", /\/assets\/characters\/thumbs\/p15_akiomi\.webp$/);
-  assert.equal(cast.at(-1)?.alive, true);
-  assert.equal(cast[8].alive, false);
+  assert.match(source, /const maxMentionedCharacterCards = 5;/);
+  assert.match(source, /function renderMentionedCharacterStrip/);
+  assert.match(source, /mentionedCharactersForEvent\(currentEvent, hidden, spectatorMode, language\)/);
+  assert.match(source, /className="mentioned-character-strip"/);
+  assert.match(source, /mentioned-character-more/);
+  assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
+  assert.doesNotMatch(source, /function renderHeroCast/);
+  assert.doesNotMatch(source, /className=\{`hero-cast/);
+  assert.match(css, /\.mentioned-character-strip\s*\{[^}]*left:\s*84px[^}]*top:\s*50%[^}]*transform:\s*translateY\(-50%\)/s);
+  assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 154px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*56px/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 230px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*32px/s);
+  assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*width:\s*112px[^}]*height:\s*128px[^}]*background:\s*transparent/s);
+  assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*object-fit:\s*contain/s);
+  assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(css, /\.mentioned-character-more-token/);
+  assert.match(css, /@keyframes mentioned-character-arrive/);
+  assert.doesNotMatch(css, /\.hero-cast\s*\{/);
 });
 
 test("setup character thumbnails preload and portrait images warm in the background", () => {
@@ -223,11 +319,12 @@ test("setup character thumbnails preload and portrait images warm in the backgro
   );
 });
 
-test("only the active speaker uses full portrait character images", () => {
+test("full portrait images stay limited to active speaker and mention cues", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 2);
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 3);
   assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
+  assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
   assert.match(source, /className="hero-character" src=\{activeSpeakerImage\}/);
   assert.match(source, /className="setup-cast-grid selectable"[\s\S]*<CharacterImage[\s\S]*src=\{getCharacterImage\(player\.id\)\}[\s\S]*decoding="sync"[\s\S]*fetchPriority="high"/);
   assert.doesNotMatch(source, /setup-cast-grid[\s\S]*getCharacterPortrait/);
@@ -524,7 +621,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     round: 1,
     phase: "werewolf_discussion",
     type: "player_speech",
-    message: "人狼だけに見える相談内容",
+    message: "シオンとガクだけに見える相談内容",
     playerId: "p1",
     playerName: "シオン",
     role: "Werewolf",
@@ -542,6 +639,8 @@ test("village spectator history redacts secret event messages and speakers", () 
 
   assert.equal(eventMessageForSpectator(event, "village"), "あなたの視点では非公開情報です\n次へ進んでください");
   assert.equal(eventSpeakerForSpectator(event, "village", "Japanese"), "進行");
-  assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼だけに見える相談内容");
+  assert.deepEqual(mentionedCharactersForEvent(event, false, "village").map((mention) => mention.id), []);
+  assert.equal(eventMessageForSpectator(event, "omniscient"), "シオンとガクだけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
+  assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p1", "p2"]);
 });
