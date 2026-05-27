@@ -94,7 +94,9 @@ const characterImageMap: Record<string, string> = {
   p15: `${CHARACTER_THUMBNAIL_ROOT}/p15_akiomi.webp`
 };
 
-const defaultCharacterImages = Object.values(characterImageMap);
+const characterThumbnailImages = Object.values(characterImageMap);
+const characterPortraitImages = Object.values(characterPortraitMap);
+const defaultCharacterImages = characterThumbnailImages;
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
 const initialPlayerCount = 7;
@@ -157,6 +159,22 @@ function preloadCharacterImages(srcs: string[]) {
   }
 }
 
+function scheduleIdleCharacterPreload(srcs: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const preload = () => preloadCharacterImages(srcs);
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  };
+  if (idleWindow.requestIdleCallback) {
+    idleWindow.requestIdleCallback(preload, { timeout: 2500 });
+    return;
+  }
+  window.setTimeout(preload, 600);
+}
+
 function characterImageLoadState(src: string | null | undefined): CharacterImageLoadState {
   if (!src || failedCharacterImages.has(src)) {
     return "failed";
@@ -167,7 +185,8 @@ function characterImageLoadState(src: string | null | undefined): CharacterImage
   return "loading";
 }
 
-preloadCharacterImages(defaultCharacterImages);
+preloadCharacterImages(characterThumbnailImages);
+scheduleIdleCharacterPreload(characterPortraitImages);
 
 interface StreamSystemPayload {
   gameId?: string | null;
@@ -359,6 +378,29 @@ function visibilityLabel(visibility: string): string {
     return "人狼";
   }
   return visibility;
+}
+
+export function eventRoundLabel(round: number, language = defaultLanguage): string {
+  return isJapaneseLanguage(language) ? `ラウンド${round}` : `Round ${round}`;
+}
+
+export function eventPhaseMetaLabel(phase: Phase, language = defaultLanguage): string {
+  if (isJapaneseLanguage(language)) {
+    if (phase === "werewolf_discussion") {
+      return "人狼相談フェーズ";
+    }
+    if (phase === "guard_action") {
+      return "護衛決定フェーズ";
+    }
+    if (phase === "seer_action") {
+      return "占い決定フェーズ";
+    }
+  }
+  return phaseLabel(phase, language);
+}
+
+export function shouldShowVisibilityMeta(visibility: string, spectatorMode: SpectatorMode): boolean {
+  return spectatorMode === "omniscient" && visibility !== "public" && visibility !== "werewolf";
 }
 
 export function streamErrorMessageFromData(data: string | undefined): string {
@@ -2104,9 +2146,9 @@ export function App() {
                       ) : null}
                       <div className="story-copy">
                         <div className="event-meta hero-meta">
-                          <span>R{currentEvent.round}</span>
-                          <span>{phaseLabel(currentEvent.phase, language)}</span>
-                          {visibility !== "public" && spectatorMode === "omniscient" ? <span>{visibilityLabel(visibility)}</span> : null}
+                          <span>{eventRoundLabel(currentEvent.round, language)}</span>
+                          <span>{eventPhaseMetaLabel(currentEvent.phase, language)}</span>
+                          {shouldShowVisibilityMeta(visibility, spectatorMode) ? <span>{visibilityLabel(visibility)}</span> : null}
                           {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
                             <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
                           ) : null}

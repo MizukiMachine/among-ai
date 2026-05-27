@@ -1605,20 +1605,20 @@ input[type="range"] {
 .event-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
 .event-meta span {
   display: inline-flex;
-  min-height: 27px;
+  min-height: 36px;
   align-items: center;
   border: 1px solid rgba(218, 230, 236, 0.34);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
-  padding: 4px 12px;
-  font-size: 13px;
-  font-weight: 850;
+  padding: 7px 16px;
+  font-size: 16px;
+  font-weight: 880;
   line-height: 1.1;
 }
 
