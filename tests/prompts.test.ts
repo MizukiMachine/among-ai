@@ -266,7 +266,7 @@ test("Japanese voting target prompts keep displayed reasons separate from Englis
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
 });
 
-test("first-day discussion prompts keep reads tentative and question-led", () => {
+test("first-day discussion prompts keep reads tentative and opinion-led", () => {
   const context = buildPromptContext({
     player: player("Villager"),
     phase: "day_discussion",
@@ -281,10 +281,10 @@ test("first-day discussion prompts keep reads tentative and question-led", () =>
   assert.match(context, /昼の状況別話法/);
   assert.match(context, /初日昼/);
   assert.match(context, /強い断定を避ける/);
-  assert.match(context, /質問する/);
-  assert.match(context, /発言量/);
-  assert.match(context, /実際に誰かが疑いに乗った後/);
-  assert.match(context, /仮説として軽く疑う/);
+  assert.match(context, /質問で始めず/);
+  assert.match(context, /暫定読み/);
+  assert.match(context, /保留理由/);
+  assert.match(context, /投票候補/);
   assert.match(context, /まだ、この昼の公開発言はありません/);
   assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
   assert.doesNotMatch(context, /Recent public discussion/);
@@ -368,7 +368,7 @@ test("Japanese demo text sanitizer rewrites only contextual translationese terms
   assert.match(text, /議論をまとめそうな人/);
   assert.match(text, /襲撃して/);
   assert.match(text, /投票先/);
-  assert.match(text, /理由を聞く/);
+  assert.match(text, /疑いを向ける/);
   assert.match(text, /状況/);
   assert.equal(unrelated, "信用を落としてはいけません。");
 });
