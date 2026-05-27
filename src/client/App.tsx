@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
-import { characterNames } from "../game/characters";
+import { characterNames, characterProfiles } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
@@ -92,7 +92,15 @@ const characterImageMap: Record<string, string> = {
 
 const characterThumbnailImages = Object.values(characterImageMap);
 const characterPortraitImages = Object.values(characterPortraitMap);
-const defaultCharacterImages = characterThumbnailImages;
+const characterNameByIdMap = new Map(characterProfiles.map((profile) => [profile.playerId, profile.nameJa]));
+const characterNameIdMap = new Map(characterProfiles.map((profile) => [profile.nameJa, profile.playerId]));
+const characterNamePattern = new RegExp(
+  characterProfiles
+    .map((profile) => escapeRegExp(profile.nameJa))
+    .sort((a, b) => b.length - a.length)
+    .join("|"),
+  "gu"
+);
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
 const initialPlayerCount = 7;
@@ -222,11 +230,10 @@ interface StreamSystemPayload {
   view?: SpectatorMode;
 }
 
-interface HeroCastItem {
+interface MentionedCharacterItem {
   id: string;
   image: string | null;
-  label: string;
-  alive: boolean;
+  name: string;
 }
 
 function getCharacterImage(playerId?: string): string | null {
@@ -237,6 +244,20 @@ function getCharacterImage(playerId?: string): string | null {
 function getCharacterPortrait(playerId?: string): string | null {
   if (!playerId) return null;
   return characterPortraitMap[playerId] ?? getCharacterImage(playerId);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface CharacterNameProps {
+  children: ReactNode;
+  className?: string;
+  playerId?: string;
+}
+
+function CharacterName({ children, className }: CharacterNameProps) {
+  return <span className={["character-name", className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
 interface CharacterImageProps {
@@ -296,25 +317,30 @@ function playerIndexFromId(playerId: string): number {
 }
 
 function characterName(playerId: string): string {
-  const index = playerIndexFromId(playerId);
-  return characterNames[index] ?? playerId;
+  return characterNameByIdMap.get(playerId) ?? playerId;
 }
 
-export function heroCastForStage(players: Pick<PlayerSnapshot, "id" | "alive">[], playerCount: number): HeroCastItem[] {
-  if (players.length > 0) {
-    return players.map((player) => ({
-      id: player.id,
-      image: getCharacterImage(player.id),
-      label: characterName(player.id),
-      alive: player.alive
-    }));
+export function mentionedCharactersForText(text: string): MentionedCharacterItem[] {
+  if (!text) {
+    return [];
   }
 
-  return Array.from({ length: playerCount }, (_, index) => ({
-    id: `pending-${index}`,
-    image: defaultCharacterImages[index] ?? null,
-    label: characterNames[index] ?? `P${index + 1}`,
-    alive: true
+  const mentionedIds: string[] = [];
+  const seenIds = new Set<string>();
+  characterNamePattern.lastIndex = 0;
+
+  for (const match of text.matchAll(characterNamePattern)) {
+    const playerId = characterNameIdMap.get(match[0]);
+    if (playerId && !seenIds.has(playerId)) {
+      seenIds.add(playerId);
+      mentionedIds.push(playerId);
+    }
+  }
+
+  return mentionedIds.map((id) => ({
+    id,
+    image: getCharacterPortrait(id),
+    name: characterName(id)
   }));
 }
 
@@ -643,11 +669,16 @@ function displayMessageText(text: string): string {
   return text.trimEnd().replace(/。+(?=」?$)/u, "");
 }
 
-function formatMessage(text: string) {
+function renderTextWithCharacterNames(text: string, keyPrefix = "character-name"): ReactNode {
+  void keyPrefix;
+  return text;
+}
+
+export function formatMessage(text: string) {
   const displayText = displayMessageText(text);
   const parts = displayText.split(/(?<=。)/g);
-  if (parts.length <= 1) return displayText;
-  return parts.filter((p) => p).map((part, i) => <span key={i}>{part}<br /></span>);
+  if (parts.length <= 1) return renderTextWithCharacterNames(displayText, "message");
+  return parts.filter((p) => p).map((part, i) => <span key={i}>{renderTextWithCharacterNames(part, `message-${i}`)}<br /></span>);
 }
 
 function shortText(text: string, maxLength: number): string {
@@ -667,6 +698,85 @@ export function isEventRedactedForSpectator(event: GameEvent, mode: SpectatorMod
 
 export function eventMessageForSpectator(event: GameEvent, mode: SpectatorMode): string {
   return isEventRedactedForSpectator(event, mode) ? villageRedactedMessage : displayMessageText(event.message);
+}
+
+function claimMentionText(claimOrSummary: ClaimMetadata | ClaimSummary, language: string): string {
+  if ("claim" in claimOrSummary) {
+    return `${claimOrSummary.speakerName} ${formatClaim(claimOrSummary.claim, language)}`;
+  }
+  return formatClaim(claimOrSummary, language);
+}
+
+function visibleDetailMentionSourceText(event: GameEvent, mode: SpectatorMode, language: string): string {
+  const sourceText = [
+    eventMessageForSpectator(event, mode),
+    event.targetName,
+    dataString(event, "hunterName"),
+    dataString(event, "protectedTargetName"),
+    dataString(event, "reason")
+  ];
+
+  for (const death of dataArray<NightDeathSummary>(event, "nightDeaths")) {
+    sourceText.push(death.playerName);
+  }
+  for (const claim of dataArray<ClaimMetadata | ClaimSummary>(event, "claims")) {
+    sourceText.push(claimMentionText(claim, language));
+  }
+  for (const read of [
+    ...dataArray<PlayerReadMetadata | ReadDetail>(event, "suspects"),
+    ...dataArray<PlayerReadMetadata | ReadDetail>(event, "trusts")
+  ]) {
+    sourceText.push(readLabel(read));
+  }
+  for (const total of dataArray<VoteTotal>(event, "totals")) {
+    sourceText.push(total.targetName);
+  }
+
+  return sourceText.filter(Boolean).join(" ");
+}
+
+function visibleSummaryMentionSourceText(event: GameEvent, mode: SpectatorMode, language: string): string {
+  const sourceText = [eventMessageForSpectator(event, mode)];
+  const totals = [...dataArray<VoteTotal>(event, "totals")].sort(
+    (a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName)
+  );
+
+  for (const death of dataArray<NightDeathSummary>(event, "nightDeaths")) {
+    sourceText.push(death.playerName);
+  }
+  for (const claim of dataArray<ClaimSummary>(event, "claims").slice(0, 3)) {
+    sourceText.push(claimMentionText(claim, language));
+  }
+  for (const cluster of clusterReads(dataArray<ReadDetail>(event, "suspects")).slice(0, 2)) {
+    sourceText.push(cluster.targetName, ...cluster.sources.slice(0, 3));
+  }
+  for (const cluster of clusterReads(dataArray<ReadDetail>(event, "trusts")).slice(0, 2)) {
+    sourceText.push(cluster.targetName, ...cluster.sources.slice(0, 3));
+  }
+  for (const total of totals.slice(0, 4)) {
+    sourceText.push(total.targetName);
+  }
+
+  return sourceText.filter(Boolean).join(" ");
+}
+
+function visibleMentionSourceText(event: GameEvent, mode: SpectatorMode, language: string): string {
+  if (event.type === "round_summary") {
+    return visibleSummaryMentionSourceText(event, mode, language);
+  }
+  return visibleDetailMentionSourceText(event, mode, language);
+}
+
+export function mentionedCharactersForEvent(
+  event: GameEvent | undefined,
+  hidden = false,
+  spectatorMode: SpectatorMode = initialSpectatorMode,
+  language = defaultLanguage
+): MentionedCharacterItem[] {
+  if (!event || hidden || isEventRedactedForSpectator(event, spectatorMode)) {
+    return [];
+  }
+  return mentionedCharactersForText(visibleMentionSourceText(event, spectatorMode, language));
 }
 
 export function eventSpeakerForSpectator(event: GameEvent, mode: SpectatorMode, language: string): string {
@@ -713,6 +823,7 @@ const playerCountOptions = Array.from(
 );
 const minPlayerCount = minSupportedPlayers;
 const humanInputNoticeLeadCount = 2;
+const maxMentionedCharacterCards = 5;
 
 function normalizePlayerCount(count: number): number {
   return normalizeSupportedPlayerCount(count);
@@ -980,10 +1091,7 @@ export function App() {
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
   );
-  const allPlayers = snapshot?.players ?? [];
   const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
-  const heroCast = heroCastForStage(allPlayers, effectivePlayerCount);
-  const heroCastDensity = heroCast.length >= 8 ? "cast-large" : heroCast.length === 7 ? "cast-medium" : "";
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
@@ -1510,7 +1618,7 @@ export function App() {
         <span>{title}</span>
         <ul>
           {lines.map((line, index) => (
-            <li key={`${title}-${index}`}>{line}</li>
+            <li key={`${title}-${index}`}>{renderTextWithCharacterNames(line, `${title}-${index}`)}</li>
           ))}
         </ul>
       </div>
@@ -1549,7 +1657,7 @@ export function App() {
       <section className="human-input-panel" aria-label="操作入力">
         <div className="human-input-header">
           <div>
-            <span>{prompt.playerName}</span>
+            <span><CharacterName playerId={prompt.playerId}>{prompt.playerName}</CharacterName></span>
             <strong>{title}</strong>
           </div>
           <small>{role}</small>
@@ -1589,7 +1697,7 @@ export function App() {
                   type="button"
                 >
                   <CharacterImage src={getCharacterImage(candidate.id)} fallback={<UserRound size={18} />} />
-                  <span>{candidate.name}</span>
+                  <span><CharacterName playerId={candidate.id}>{candidate.name}</CharacterName></span>
                 </button>
               ))}
             </div>
@@ -1618,7 +1726,7 @@ export function App() {
                 type="button"
               >
                 <Check size={16} />
-                <span>{selectedTarget ? `${selectedTarget.name}を選ぶ` : "選ぶ"}</span>
+                <span>{selectedTarget ? <><CharacterName playerId={selectedTarget.id}>{selectedTarget.name}</CharacterName>を選ぶ</> : "選ぶ"}</span>
               </button>
             </div>
           </div>
@@ -1682,30 +1790,35 @@ export function App() {
         {targetRole ? <span className="detail-chip role-info">役職: {displayRoleLabel(targetRole, language)}</span> : null}
         {hunterName ? (
           <span className="detail-chip hunter">
-            発砲: {hunterName} {"->"} {event.targetName ?? "対象"}
+            発砲: {renderTextWithCharacterNames(hunterName, `hunter-${event.id}`)} {"->"}{" "}
+            {event.targetName ? renderTextWithCharacterNames(event.targetName, `hunter-target-${event.id}`) : "対象"}
           </span>
         ) : null}
-        {action === "guard_protect" && protectedTarget ? <span className="detail-chip guard">{protectedTarget}を護衛</span> : null}
-        {action === "guard_success" && protectedTarget ? <span className="detail-chip guard">{protectedTarget}の護衛成功</span> : null}
-        {reason ? <span className="detail-chip vote-reason">理由: {reason}</span> : null}
+        {action === "guard_protect" && protectedTarget ? (
+          <span className="detail-chip guard">{renderTextWithCharacterNames(protectedTarget, `guard-${event.id}`)}を護衛</span>
+        ) : null}
+        {action === "guard_success" && protectedTarget ? (
+          <span className="detail-chip guard">{renderTextWithCharacterNames(protectedTarget, `guard-success-${event.id}`)}の護衛成功</span>
+        ) : null}
+        {reason ? <span className="detail-chip vote-reason">理由: {renderTextWithCharacterNames(reason, `reason-${event.id}`)}</span> : null}
         {claims.map((claim, index) => (
           <span className="detail-chip claim" key={`claim-${index}`}>
-            {formatClaim(claim, language)}
+            {renderTextWithCharacterNames(formatClaim(claim, language), `claim-${event.id}-${index}`)}
           </span>
         ))}
         {suspects.map((read, index) => (
           <span className="detail-chip suspect" key={`suspect-${index}`}>
-            疑い {readLabel(read)}
+            疑い {renderTextWithCharacterNames(readLabel(read), `suspect-${event.id}-${index}`)}
           </span>
         ))}
         {trusts.map((read, index) => (
           <span className="detail-chip trust" key={`trust-${index}`}>
-            信頼 {readLabel(read)}
+            信頼 {renderTextWithCharacterNames(readLabel(read), `trust-${event.id}-${index}`)}
           </span>
         ))}
         {totals.map((total) => (
           <span className="detail-chip total" key={total.targetId}>
-            {total.targetName}: {total.count}
+            <CharacterName playerId={total.targetId}>{total.targetName}</CharacterName>: {total.count}
           </span>
         ))}
       </div>
@@ -1717,7 +1830,7 @@ export function App() {
     return (
       <span className={`summary-person ${tone}`} key={key}>
         <CharacterImage src={image} fallback={<UserRound size={15} />} />
-        <span>{playerName}</span>
+        <span><CharacterName playerId={playerId}>{playerName}</CharacterName></span>
       </span>
     );
   }
@@ -1803,8 +1916,8 @@ export function App() {
                   {claims.length > 0 ? (
                     claims.slice(0, 3).map((item, index) => (
                       <span className="summary-claim" key={`${item.speakerId}-${index}`}>
-                        <strong>{item.speakerName}</strong>
-                        <span>{formatClaim(item.claim, language)}</span>
+                        <strong><CharacterName playerId={item.speakerId}>{item.speakerName}</CharacterName></strong>
+                        <span>{renderTextWithCharacterNames(formatClaim(item.claim, language), `summary-claim-${item.speakerId}-${index}`)}</span>
                       </span>
                     ))
                   ) : (
@@ -1964,27 +2077,51 @@ export function App() {
     );
   }
 
-  function renderHeroCast() {
+  function renderMentionedCharacterStrip(items: MentionedCharacterItem[], eventId: number | string) {
+    if (items.length === 0) {
+      return null;
+    }
+
+    const shownItems = items.slice(0, maxMentionedCharacterCards);
+    const overflowCount = items.length - shownItems.length;
+
     return (
-      <div className={`hero-cast ${heroCastDensity}`} aria-hidden="true">
-        {heroCast.map((item) =>
-          item.image ? (
-            <CharacterImage
-              className={item.alive ? "" : "fallen"}
-              fallback={(
-                <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`}>
-                  <UserRound size={18} />
-                </span>
-              )}
-              key={item.id}
-              src={item.image}
-            />
-          ) : (
-            <span className={`hero-cast-token ${item.alive ? "" : "fallen"}`} key={item.id}>
-              <UserRound size={18} />
-            </span>
-          )
-        )}
+      <div className="mentioned-character-strip" aria-label="発言に出てきたキャラクター">
+        {shownItems.map((item, index) => (
+          <span
+            className="mentioned-character-card"
+            key={`${eventId}-${item.id}`}
+            style={{ animationDelay: `${index * 70}ms` }}
+          >
+            {item.image ? (
+              <CharacterImage
+                alt={item.name}
+                className="mentioned-character-thumb"
+                fallback={(
+                  <span className="mentioned-character-fallback">
+                    <UserRound size={18} />
+                  </span>
+                )}
+                src={item.image}
+              />
+            ) : (
+              <span className="mentioned-character-fallback">
+                <UserRound size={18} />
+              </span>
+            )}
+            <span>{item.name}</span>
+          </span>
+        ))}
+        {overflowCount > 0 ? (
+          <span
+            className="mentioned-character-card mentioned-character-more"
+            key={`${eventId}-more`}
+            style={{ animationDelay: `${shownItems.length * 70}ms` }}
+          >
+            <span className="mentioned-character-more-token">+{overflowCount}</span>
+            <span>他</span>
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -2234,7 +2371,7 @@ export function App() {
                   return (
                     <p key={event.id}>
                       <span>R{event.round} {phaseLabel(event.phase, language)}</span>
-                      {shortText(message, 76)}
+                      {renderTextWithCharacterNames(shortText(message, 76), `history-${event.id}`)}
                     </p>
                   );
                 })
@@ -2317,7 +2454,7 @@ export function App() {
                       )}
                       <div className="player-main">
                         <div className="player-name-row">
-                          <strong>{player.name}</strong>
+                          <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                           <span className={`persona-pill ${personaClassName(player.persona)}`}>{personaLabel(player.persona, language)}</span>
                         </div>
                         <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`} title={roleLabel}>
@@ -2364,7 +2501,7 @@ export function App() {
                         )}
                         <div className="dead-player-main">
                           <div className="dead-player-name-row">
-                            <strong>{player.name}</strong>
+                            <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                             {humanPlayer ? renderHumanPlayerBadge() : null}
                           </div>
                           <span className={`dead-role-chip ${roleClassName(deadRole)}`}>{deadRoleLabel}</span>
@@ -2383,7 +2520,7 @@ export function App() {
           {warnings.length > 0 ? (
             <section className="warning-banner" role="status">
               <AlertTriangle size={19} />
-              <span>{warnings[warnings.length - 1].message}</span>
+              <span>{renderTextWithCharacterNames(warnings[warnings.length - 1].message, "warning")}</span>
             </section>
           ) : null}
 
@@ -2395,6 +2532,7 @@ export function App() {
                   const tone = eventTone(currentEvent);
                   const isSpeech = currentEvent.type === "player_speech";
                   const lightTone = currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length);
+                  const mentionedCharacters = mentionedCharactersForEvent(currentEvent, hidden, spectatorMode, language);
                   const speakerName =
                     isSpeech && currentEvent.playerName && !hidden
                       ? currentEvent.playerName
@@ -2404,7 +2542,6 @@ export function App() {
                   return (
                     <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
                       {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden, lightTone, currentEvent.id)}
-                      {renderHeroCast()}
                       {activeSpeakerImage && !hidden && isSpeech ? (
                         <CharacterImage alt={speakerName} className="hero-character" src={activeSpeakerImage} fallback={null} />
                       ) : null}
@@ -2417,12 +2554,19 @@ export function App() {
                           ) : null}
                         </div>
                         <div className="speaker-line">
-                          <span>{speakerName}</span>
+                          <span>
+                            {isSpeech && currentEvent.playerId && !hidden ? (
+                              <CharacterName playerId={currentEvent.playerId}>{speakerName}</CharacterName>
+                            ) : (
+                              speakerName
+                            )}
+                          </span>
                           {renderSpeakerUnreadStatus()}
                         </div>
                         {renderStoryBody(currentEvent, hidden)}
                         {renderEventDetails(currentEvent, hidden)}
                       </div>
+                      {renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id)}
                       {renderHumanInputPanel(readyHumanInput)}
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}
@@ -2479,7 +2623,6 @@ export function App() {
               ) : (
                 <article className="scene-card story-hero empty-hero">
                   {renderStageBackdrop("setup", undefined, undefined, "cyan", "setup")}
-                  {renderHeroCast()}
                   <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
                     {settingsConfirmed ? (
                       <div className="scene-placeholder">
