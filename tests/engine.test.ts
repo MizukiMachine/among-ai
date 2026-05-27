@@ -1122,6 +1122,45 @@ test("speech diagnostics record review retries and reasons", async () => {
   assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id && diagnostic.retried));
 });
 
+test("speech diagnostics reject unseen prior statements on quiet first day", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  game.agents.set(
+    players[0].id,
+    new ScriptedAgent(players[0].name, [], [], [
+      {
+        messages: [`${players[1].name}の言う通り、${players[2].name}の煙幕っぽい動きは気になります。`],
+        metadata: emptyMetadata
+      },
+      {
+        messages: [`${players[2].name}は人物傾向として注目します。発言が出たら理由の出し方を見たいです。`],
+        metadata: emptyMetadata
+      }
+    ])
+  );
+
+  await collect(game.runDay());
+
+  const rejected = diagnostics.find((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id);
+  assert.ok(rejected);
+  assert.deepEqual(rejected.timelineIssues, ["speech cites unseen prior public speech or action"]);
+  assert.equal(rejected.attempts, 1);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id));
+});
+
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [

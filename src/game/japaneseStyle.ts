@@ -2,7 +2,17 @@ import { isJapaneseLanguage } from "./i18n";
 import { promptMaterials } from "./prompts/materials";
 
 // Output-only audit list; prompts may mention these terms as examples of wording to avoid.
-export const awkwardJapaneseOutputTerms = ["位置", "盤面", "処理枠", "処理", "圧", "落とす", "落として", "陣営の軸"];
+export const awkwardJapaneseOutputTerms = [
+  "位置",
+  "盤面",
+  "処理枠",
+  "処理",
+  "圧",
+  "落とす",
+  "落として",
+  "陣営の軸",
+  "煙幕"
+];
 
 // Chinese-specific word patterns that should never appear in Japanese output.
 // Only includes patterns using simplified Chinese characters (简体字) that have

@@ -8,6 +8,7 @@ import {
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
 import { containsAwkwardJapaneseOutputTerm, sanitizeDemoJapaneseGameText } from "../src/game/japaneseStyle";
+import { getCharacterProfile } from "../src/game/characters";
 import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
 import type { Camp, Persona, Player, Role } from "../src/game/types";
 
@@ -287,8 +288,36 @@ test("first-day discussion prompts keep reads tentative and opinion-led", () => 
   assert.match(context, /投票候補/);
   assert.match(context, /まだ、この昼の公開発言はありません/);
   assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
+  assert.match(context, /誰かの言う通り/);
+  assert.match(context, /既に起きた事実として話さない/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
+});
+
+test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {
+  const akane = {
+    ...player("Villager", "p3", "アカネ", "logical"),
+    characterProfile: getCharacterProfile("p3")
+  };
+  const context = buildPromptContext({
+    player: akane,
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers: [
+      { id: "p3", name: "アカネ" },
+      { id: "p9", name: "イオリ" }
+    ],
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese"
+  });
+
+  assert.match(context, /現在の試合で起きた事実ではありません/);
+  assert.match(context, /口調の例（現在の試合事実ではない）/);
+  assert.match(context, /人物関係の傾向（現在の試合事実ではない）/);
+  assert.match(context, /話をそらすための軽口/);
+  assert.doesNotMatch(context, /意図的な煙幕|煙幕っぽい動き/);
 });
 
 test("day situation prompts cover no-death, Seer claim, black result, and pre-vote", () => {
@@ -371,4 +400,5 @@ test("Japanese demo text sanitizer rewrites only contextual translationese terms
   assert.match(text, /疑いを向ける/);
   assert.match(text, /状況/);
   assert.equal(unrelated, "信用を落としてはいけません。");
+  assert.equal(containsAwkwardJapaneseOutputTerm("煙幕に見える発言です。"), true);
 });

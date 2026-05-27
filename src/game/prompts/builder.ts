@@ -440,7 +440,9 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
       "",
       "見えている公開発言:",
       "- まだ、この昼の公開発言はありません。",
-      "- 具体的な発言、反応、矛盾、発言量を見たことにしない。"
+      "- 具体的な発言、反応、矛盾、発言量を見たことにしない。",
+      "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
+      "- 名前を出す場合は、人物傾向として「注目する」「発言が出たら見たい」までにする。"
     );
   } else {
     lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));

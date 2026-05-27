@@ -5,7 +5,7 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
-import { buildPublicSpeechPlan, reviewSpeechAgainstPlan } from "./speechPlanning";
+import { buildPublicSpeechPlan, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "./speechPlanning";
 import {
   canUseDeathTrigger,
   createDeathResolutionEffects,
@@ -2020,6 +2020,7 @@ export class WerewolfGame {
       abortSignal: requestAbortSignal
     };
     const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
+    const shouldReviewSpeechTimeline = Boolean(this.config.provider === "llm" && agent.model === this.config.model);
     const diagnosticBase = {
       playerId: player.id,
       playerName: player.name,
@@ -2040,19 +2041,29 @@ export class WerewolfGame {
     };
     const reviewGeneratedSpeech = (
       candidate: AgentSpeech
-    ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; revisionHint?: string } => {
+    ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; timelineIssues: string[]; revisionHint?: string } => {
       const styleReview = reviewJapaneseOutput(candidate.messages.join(" "), this.config.language);
       const planReview = shouldReviewSpeechPlan
         ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
         : { ok: true, issues: [] };
+      const timelineReview = shouldReviewSpeechTimeline
+        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language)
+        : { ok: true, issues: [] };
       const styleIssues = styleReview.issues;
       const speechPlanIssues = planReview.issues;
+      const timelineIssues = timelineReview.issues;
       return {
-        ok: styleReview.ok && planReview.ok,
-        issues: [...styleIssues, ...speechPlanIssues],
+        ok: styleReview.ok && planReview.ok && timelineReview.ok,
+        issues: [...styleIssues, ...speechPlanIssues, ...timelineIssues],
         styleIssues,
         speechPlanIssues,
-        revisionHint: "revisionHint" in planReview ? planReview.revisionHint : undefined
+        timelineIssues,
+        revisionHint:
+          "revisionHint" in planReview && planReview.revisionHint
+            ? planReview.revisionHint
+            : "revisionHint" in timelineReview
+            ? timelineReview.revisionHint
+            : undefined
       };
     };
     emitSpeechAttemptDiagnostic({ kind: "speech_started" });
@@ -2076,6 +2087,7 @@ export class WerewolfGame {
           issues: review.issues,
           styleIssues: review.styleIssues,
           speechPlanIssues: review.speechPlanIssues,
+          timelineIssues: review.timelineIssues,
           revisionHint: review.revisionHint
         });
         if (!options.suppressMemorySideEffects) {
@@ -2117,6 +2129,7 @@ export class WerewolfGame {
           issues: retryReview.issues,
           styleIssues: retryReview.styleIssues,
           speechPlanIssues: retryReview.speechPlanIssues,
+          timelineIssues: retryReview.timelineIssues,
           revisionHint: retryReview.revisionHint
         });
         if (!options.suppressMemorySideEffects) {
