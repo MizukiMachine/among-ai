@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPublicSpeechPlan, renderPublicSpeechPlan, reviewSpeechAgainstPlan } from "../src/game/speechPlanning";
+import { buildPublicSpeechPlan, renderPublicSpeechPlan, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "../src/game/speechPlanning";
 import type { AgentSpeech, Camp, Persona, Player, Role, TargetCandidate } from "../src/game/types";
 
 function player(role: Role, id: string, name: string, persona: Persona = "logical"): Player {
@@ -124,4 +124,81 @@ test("speech plan review rejects death-cause recap that does not advance discuss
     "Japanese"
   );
   assert.equal(forwardMove.ok, true);
+});
+
+test("timeline review rejects unseen prior statements on empty first-day history", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "アカネ" },
+    { id: "p3", name: "イオリ" }
+  ];
+
+  const unseenReference = reviewSpeechTimeline(
+    {
+      messages: ["アカネの言う通り、イオリの煙幕っぽい動きは気になります。"],
+      metadata
+    },
+    [],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(unseenReference.ok, false);
+  assert.match(unseenReference.issues.join("\n"), /unseen prior public speech/);
+  assert.match(unseenReference.revisionHint ?? "", /人物傾向/);
+
+  const characterTendency = reviewSpeechTimeline(
+    {
+      messages: ["イオリは場を揺らす話し方をしがちなので、発言が出たら理由の出し方を見たいです。"],
+      metadata
+    },
+    [],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(characterTendency.ok, true);
+});
+
+test("timeline review checks referenced speakers against visible history", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "アカネ" },
+    { id: "p3", name: "イオリ" }
+  ];
+
+  const existingSpeakerReference = reviewSpeechTimeline(
+    {
+      messages: ["アカネの言う通り、今日は強い断定を避けます。"],
+      metadata
+    },
+    ["アカネ: 初日は強い断定を避けたいです。"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(existingSpeakerReference.ok, true);
+
+  const unseenOtherPlayerReference = reviewSpeechTimeline(
+    {
+      messages: ["アカネの言う通り、イオリの発言が曖昧なのは気になります。"],
+      metadata
+    },
+    ["アカネ: 初日は強い断定を避けたいです。"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(unseenOtherPlayerReference.ok, false);
+  assert.match(unseenOtherPlayerReference.issues.join("\n"), /unseen prior public speech/);
+
+  const naturalCharacterRole = reviewSpeechTimeline(
+    {
+      messages: ["アカネは整理役として注目します。イオリは発言が出たら理由の出し方を見たいです。"],
+      metadata
+    },
+    [],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(naturalCharacterRole.ok, true);
 });
