@@ -593,6 +593,7 @@ test("Japanese demo agents produce Japanese speech", async () => {
 
   const messageText = speech.messages.join(" ");
   assert.match(messageText, /[ぁ-んァ-ヶ一-龠]/);
+  assert.ok(speech.messages.every((message) => !message.endsWith("。")));
   assert.ok(speech.metadata.suspects.every((read) => /[ぁ-んァ-ヶ一-龠]/.test(read.reason ?? "")));
 });
 
@@ -624,6 +625,7 @@ test("Japanese demo werewolf private chat uses night-kill context instead of day
   const messageText = speech.messages.join(" ");
   assert.match(messageText, /今夜|襲撃候補/);
   assert.match(messageText, /Curie|Darwin/);
+  assert.ok(speech.messages.every((message) => !message.endsWith("。")));
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
   assert.doesNotMatch(messageText, /証拠が薄い|疑いが急に動いた|その主張/);
   assert.ok(speech.metadata.suspects.every((read) => read.targetId === "p3" || read.targetId === "p4"));
@@ -697,7 +699,7 @@ test("Japanese demo day speech uses legal living read targets instead of dead kn
   assert.ok(speech.metadata.trusts.every((read) => read.targetId === "p2"));
 });
 
-test("Japanese demo first-day speech stays tentative and question-led", async () => {
+test("Japanese demo first-day speech stays tentative and opinion-led", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Villager" }]);
   const agent = new DemoAgent("demo", "demo", "Japanese");
@@ -717,9 +719,11 @@ test("Japanese demo first-day speech stays tentative and question-led", async ()
   });
 
   const messageText = speech.messages.join(" ");
-  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|軽い質問|理由を出す流れ|最初の考え/);
+  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|軽い読み|暫定|注目|投票前/);
   assert.doesNotMatch(messageText, /人狼判定|確定|決めつけ/);
-  assert.doesNotMatch(messageText, /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
+  assert.doesNotMatch(messageText, /返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧|聞きたい|質問/);
+  assert.ok(speech.metadata.suspects.length > 0);
+  assert.ok(speech.metadata.suspects.every((read) => read.weight !== undefined && read.weight < 0.5));
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
@@ -749,6 +753,7 @@ test("Japanese demo speech is split into short sentence messages", async () => {
     assert.ok(speech.messages.length <= 3);
     for (const message of speech.messages) {
       assert.ok(message.length <= 150);
+      assert.doesNotMatch(message, /。$/);
       assert.ok((message.match(/[。！？!?]/g)?.length ?? 0) <= 1);
     }
   } finally {
@@ -1046,7 +1051,7 @@ test("day discussion gives each living player a second response pass", async () 
   const firstAgent = game.agents.get(players[0].id) as ScriptedAgent;
   assert.equal(firstAgent.speechInputs.length, 2);
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
-  assert.match(firstAgent.speechInputs[1].context, /Second pass: answer direct questions/);
+  assert.match(firstAgent.speechInputs[1].context, /Second pass: if needed, answer direct pressure/);
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
@@ -1431,11 +1436,15 @@ test("human Lover receives partner info in private input context", async () => {
   game.agents.set(players[3].id, new HumanInputAgent(players[3].name, humanInput, "Japanese"));
   players[3].model = "human";
 
-  await collect(game.runDay());
+  const events = await collect(game.runDay());
 
   const speechRequest = requests.find((request) => request.kind === "speech");
   assert.ok(speechRequest);
   assert.ok(speechRequest.context.privateHistory.some((line) => line.includes(`恋人の相方は${players[4].name}`)));
+  assert.equal(
+    events.find((event) => event.type === "player_speech" && event.playerId === players[3].id)?.message,
+    "相方の生存も見ながら話します"
+  );
 });
 
 test("progress observer failures do not abort game generation", async () => {
@@ -2932,7 +2941,7 @@ test("LLM speech messages discard planning notes and keep displayed dialogue", a
           {
             type: "text",
             text: JSON.stringify({
-              messages: ["方針: サクラコへの質問を増やす。", "実際の発話: サクラコ、投票理由をもう一度聞かせてください。"],
+              messages: ["方針: サクラコへの疑いを強める。", "実際の発話: サクラコは投票理由が薄いので疑い寄りで見ます。"],
               suspects: [{ targetId: "p2", reason: "投票理由がまだ弱い", weight: 0.6 }]
             })
           }
@@ -2963,7 +2972,7 @@ test("LLM speech messages discard planning notes and keep displayed dialogue", a
       privateHistory: []
     });
 
-    assert.deepEqual(speech.messages, ["サクラコ、投票理由をもう一度聞かせてください。"]);
+    assert.deepEqual(speech.messages, ["サクラコは投票理由が薄いので疑い寄りで見ます"]);
     assert.doesNotMatch(speech.messages.join(" "), /方針|実際の発話|質問を増やす/);
     assert.equal(speech.metadata.suspects[0].targetName, "サクラコ");
   } finally {
@@ -3092,8 +3101,9 @@ test("LLM unrecoverable speech JSON uses fallback instead of raw schema text", a
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /messages|^\{|```/);
-    assert.match(speech.messages[0], /初日|誰の発言も材料|軽い質問|理由を出す流れ/);
-    assert.doesNotMatch(speech.messages[0], /発言が少ない|返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧/);
+    assert.doesNotMatch(speech.messages[0], /。$/);
+    assert.match(speech.messages[0], /初日|誰の発言も材料|軽い読み|暫定|投票前/);
+    assert.doesNotMatch(speech.messages[0], /返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧|聞きたい|質問/);
     assert.deepEqual(speech.metadata, { suspects: [], trusts: [], claims: [] });
   } finally {
     globalThis.fetch = originalFetch;

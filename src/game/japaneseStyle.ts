@@ -91,8 +91,8 @@ const demoOutputReplacements: Array<[RegExp, string]> = [
   [/信用できる位置/g, "信用できる人"],
   [/守られて見える位置/g, "守られたように見える人"],
   [/処理枠/g, "投票先"],
-  [/圧をかけたい/g, "理由を聞きたい"],
-  [/圧をかける/g, "理由を聞く"],
+  [/圧をかけたい/g, "疑いを向けたい"],
+  [/圧をかける/g, "疑いを向ける"],
   [/圧が強まった/g, "疑われ始めた"],
   [/圧が強い/g, "疑いが集まっている"],
   [/投票圧/g, "投票の流れ"],
@@ -125,6 +125,14 @@ export function japaneseDialogueContract(language: string): string[] {
 
   const [heading, ...guidelines] = promptMaterials.languageStyles.japanese.dialogueContract;
   return [heading, ...guidelines.map((line) => `- ${line}`)];
+}
+
+export function stripJapaneseSpeechTerminalPeriod(text: string, language: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return text;
+  }
+
+  return text.trimEnd().replace(/。+(?=」?$)/u, "");
 }
 
 // Keep this scoped to deterministic demo copy. LLM output should be steered by prompts, not broad post-processing.

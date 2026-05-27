@@ -61,7 +61,7 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.match(rendered, /公開知識/);
   assert.match(rendered, /公開上の死因: 不明/);
   assert.match(rendered, /魔女の毒薬/);
-  assert.match(rendered, /生存者への質問/);
+  assert.match(rendered, /自分の疑い・信頼・保留/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
 });
 
@@ -92,9 +92,31 @@ test("speech plan review rejects death-cause recap that does not advance discuss
   assert.equal(recapOnly.ok, false);
   assert.match(recapOnly.issues.join("\n"), /night-death recap/);
 
+  const livingNameOnly = reviewSpeechAgainstPlan(
+    {
+      messages: ["アカネの死亡を踏まえて、ミナトさんについて話します。"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(livingNameOnly.ok, false);
+
+  const forwardWordsOnly = reviewSpeechAgainstPlan(
+    {
+      messages: ["アカネの死亡から、今日は投票理由を考えます。"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(forwardWordsOnly.ok, false);
+
   const forwardMove = reviewSpeechAgainstPlan(
     {
-      messages: ["ミナトさん、昨日の投票理由とアカネさんの死亡をどうつなげていますか。"],
+      messages: ["ミナトさんは昨日の投票理由とアカネさんの死亡がつながりすぎていて、今日は疑い寄りで見ます。"],
       metadata
     },
     plan,

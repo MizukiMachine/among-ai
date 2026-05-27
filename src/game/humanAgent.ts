@@ -1,4 +1,5 @@
 import { defaultLanguage, isJapaneseLanguage } from "./i18n";
+import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import type {
   Agent,
   AgentBooleanInput,
@@ -23,6 +24,10 @@ function compactText(value: unknown, fallback: string, maxLength: number): strin
     return fallback;
   }
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
+}
+
+function compactSpeechText(value: unknown, fallback: string, maxLength: number, language: string): string {
+  return stripJapaneseSpeechTerminalPeriod(compactText(value, fallback, maxLength), language);
 }
 
 function defaultSpeech(language: string): string {
@@ -81,7 +86,7 @@ export class HumanInputAgent implements Agent {
     });
 
     return {
-      messages: [compactText(response.speech, defaultSpeech(this.language), maxHumanSpeechLength)],
+      messages: [compactSpeechText(response.speech, defaultSpeech(this.language), maxHumanSpeechLength, this.language)],
       metadata: emptySpeechMetadata()
     };
   }

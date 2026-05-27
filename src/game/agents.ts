@@ -1,7 +1,7 @@
 import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
 import { detectDaySituations, type DaySituation } from "./daySituations";
-import { sanitizeDemoJapaneseGameText } from "./japaneseStyle";
+import { sanitizeDemoJapaneseGameText, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
   buildTargetList,
   buildBooleanSystemPrompt,
@@ -43,17 +43,17 @@ const maxSpeechMessages = 3;
 const demoSpeechEn: Partial<Record<Role, string[]>> = {
   Werewolf: [
     "I do not like how quickly the suspicion moved without evidence. We should pressure the quiet players before committing.",
-    "That claim feels convenient, especially after the night result. I want to hear a timeline before we trust it.",
+    "That claim feels convenient, especially after the night result. I am holding it as suspicious until the timeline fits.",
     "The safest vote is the player avoiding a clear stance. Wolves benefit when the village argues in circles."
   ],
   Seer: [
-    "I have a result that changes how I read the table, but I want one more answer before I reveal everything.",
+    "I have a result that changes how I read the table, so I am watching the statements that do not fit it.",
     "The voting pattern matters here. Someone is trying to make a weak case look inevitable.",
     "I am watching the players who immediately accepted the easiest explanation after nightfall."
   ],
   Witch: [
     "The lack of a clean night result matters. We should not assume the obvious story is true.",
-    "I am more concerned by people pushing certainty than by people asking careful questions.",
+    "I am more concerned by people pushing certainty than by people keeping a careful read.",
     "There is enough pressure on the table now that a rushed vote would help the wolves."
   ],
   Guard: [
@@ -67,26 +67,26 @@ const demoSpeechEn: Partial<Record<Role, string[]>> = {
     "I am watching who treats my slot as disposable without explaining the follow-up."
   ],
   Villager: [
-    "I want specific reasons, not just vibes. Who benefits most from last night's outcome?",
+    "I am reading by concrete benefit, not vibes. The player helped most by last night's outcome is suspicious.",
     "The contradiction is in the timing: the suspicion appeared only after a safer target was available.",
-    "I am not convinced by a broad accusation. Please name one statement that changed your read."
+    "I am not convinced by a broad accusation. The read needs to connect to one changed statement."
   ]
 };
 
 const demoSpeechJa: Partial<Record<Role, string[]>> = {
   Werewolf: [
-    "まだ根拠が薄いので、発言の少ない人に理由を聞いてみたいです。",
-    "その主張は夜の結果を見てから出したように見えます。信用する前に、時系列を確認したいです。",
+    "まだ根拠は薄いですが、発言の少ない人を暫定の投票候補に入れます。",
+    "その主張は夜の結果を見てから出したように見えます。今は信用を保留します。",
     "明確な意見を避けている人に投票したいです。人間側が迷うほど人狼は動きやすくなります。"
   ],
   Seer: [
-    "私には状況の見え方が変わる結果があります。ただ、全部話す前にもう一人の反応を見たいです。",
+    "私には状況の見え方が変わる結果があります。今はその結果とずれる発言を疑っています。",
     "投票の流れが重要です。弱い根拠を既定路線に見せようとしている人がいます。",
     "夜明け後に一番簡単な説明へすぐ乗った人を見ています。"
   ],
   Witch: [
     "夜の結果が単純ではない点は大事です。見た目どおりの話だと決めつけない方がいいです。",
-    "慎重に質問している人より、妙に断定して押している人の方が気になります。",
+    "慎重に考えている人より、妙に断定して押している人を疑っています。",
     "今は疑いが十分に出ています。急いだ投票は人狼を助けます。"
   ],
   Guard: [
@@ -95,14 +95,14 @@ const demoSpeechJa: Partial<Record<Role, string[]>> = {
     "夜の結果で守られたように見える人と、本当に信用できる人は分けて考えるべきです。"
   ],
   Hunter: [
-    "私を安易な投票先にする前に、次に誰を疑うのかまで理由を話してください。",
-    "誰を疑っているのか、順番をはっきりさせたいです。雑な便乗は危険です。",
+    "私を安易な投票先にする流れは怪しいです。次の疑い先まで見えない押し方だからです。",
+    "今は疑い先を一人に絞るべきです。雑な便乗は危険です。",
     "私を雑に吊ろうとしている人が、次にどう進めるつもりなのか見ています。"
   ],
   Villager: [
-    "雰囲気ではなく具体的な理由が欲しいです。昨夜の結果で一番得をしたのは誰ですか。",
+    "雰囲気ではなく具体的な得で見ます。昨夜の結果で一番得をした人が怪しいです。",
     "矛盾しているのはタイミングです。投票しやすい相手が見えてから疑いが出ています。",
-    "広い疑いだけでは納得できません。どの発言で考えが変わったのか一つ挙げてください。"
+    "広い疑いだけでは納得できません。考えが急に変わった人を投票候補に入れます。"
   ]
 };
 
@@ -112,8 +112,8 @@ function demoSpeechForRole(pool: Partial<Record<Role, string[]>>, role: Role): s
 
 const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
   first_day: [
-    "It is too early to lock anyone in. I want to ask who is staying quiet and who is following another person's suspicion.",
-    "With so little public information, I would rather compare speaking volume and ask one concrete question before committing.",
+    "It is too early to lock anyone in, but I am holding the quiet and follower slots as tentative vote candidates.",
+    "With so little public information, I am starting from speaking volume and early stance instead of waiting for others.",
     "My read is only a hypothesis for now. The useful thing today is to see who gives reasons and who only follows along."
   ],
   later_day: [
@@ -123,16 +123,16 @@ const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
   ],
   no_death: [
     "No one died last night, but I do not want to decide why too quickly. The reactions to that result matter.",
-    "A missing death can come from several causes. I want to hear who is treating one explanation as certain.",
+    "A missing death can come from several causes. I suspect the players treating one explanation as certain.",
     "The no-death result is useful, but only if we separate possibilities before voting."
   ],
   seer_claim: [
-    "Before trusting the Seer claim, I want the result order, timing, and reason for coming out now.",
-    "The claim gives us something testable. Please compare the result history with yesterday's votes.",
-    "I am not deciding true or fake yet. I want concrete answers about timing and counterclaims."
+    "Before trusting the Seer claim, I am weighing the result order, timing, and reason for coming out now.",
+    "The claim gives us something testable: the result history needs to line up with yesterday's votes.",
+    "I am not deciding true or fake yet. I am holding the claim by timing and counterclaim risk."
   ],
   black_result: [
-    "A black result is important, but I want to hear the accused player's answer before treating it as settled.",
+    "A black result is important, so the accused player's reaction is central before I treat it as settled.",
     "The result, the Seer's timing, and the accused reaction all need to line up before I vote.",
     "If we vote the black result today, I want a clear reason we can revisit tomorrow."
   ],
@@ -145,27 +145,27 @@ const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
 
 const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   first_day: [
-    "初日なので決め打ちはしません。発言が少ない人と、誰かの疑いに乗った人へ理由を聞きたいです。",
-    "まだ情報が少ないので、発言量を見ながら一つずつ質問したいです。今は軽い仮説で止めます。",
+    "初日なので決め打ちはしません。発言が少ない人と、誰かの疑いに乗った人を暫定で見ます。",
+    "まだ情報が少ないので、発言量と立場の出し方で軽い仮説を置きます。",
     "今日は強く決めるより、誰が理由を出していて誰が便乗しているのかを見たいです。"
   ],
   later_day: [
-    "昨日の投票と夜の結果をつなげて見たいです。考えを変えた人は、その理由を出してください。",
-    "ここからは昨日の発言も材料になります。誰の疑い先が変わったのかを確認したいです。",
+    "昨日の投票と夜の結果をつなげて見ます。考えを変えた人を今日の投票候補に入れます。",
+    "ここからは昨日の発言も材料になります。疑い先が変わった人を重く見ます。",
     "前日の投票理由と今日の反応が合っているかを見ます。そこがずれている人が気になります。"
   ],
   no_death: [
-    "死体なしの理由はまだ決めつけません。まず、この結果を見た後の反応を見たいです。",
+    "死体なしの理由はまだ決めつけません。この結果を急いで固めた人を疑います。",
     "昨夜の死亡者がいないなら、説明はいくつかあります。一つに決めず、発言の変化を見ましょう。",
     "死体なしは大事ですが、誰が守られたかを断定するより、急に話を固めた人を見たいです。"
   ],
   seer_claim: [
-    "占い主張が出たなら、結果の順番と出た理由を確認したいです。すぐ真偽は決めません。",
-    "占い師を名乗る人には、いつ誰を占ったのかをはっきり出してほしいです。",
+    "占い主張は結果の順番と出た理由で見ます。今は真偽を保留します。",
+    "占い師を名乗る人の結果が昨日の投票と合うかを見ます。",
     "対抗がいるか、昨日の投票と結果が合うかを見てから判断したいです。"
   ],
   black_result: [
-    "人狼判定は重いですが、出された人の返答を聞いてから投票を考えたいです。",
+    "人狼判定は重いので、今日はその人を投票候補の中心に置きます。",
     "黒を出した人のこれまでの結果と、出された人の反応を並べて見たいです。",
     "今日その人を吊るなら、明日確認できる理由にしたいです。"
   ],
@@ -177,15 +177,15 @@ const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
 };
 
 const demoOpeningDaySituationSpeechEn = [
-  "It is day one, so I am not locking anyone in. I want each person to give one early reason.",
-  "I am not using anyone's statement as evidence yet. I want to start with a light question.",
+  "It is day one, so I am not locking anyone in. I am placing one early tentative read.",
+  "I am not using anyone's statement as evidence yet. I will start with a light read of my own.",
   "With so little information, I want us to build a record of reasons first."
 ];
 
 const demoOpeningDaySituationSpeechJa = [
-  "初日なので決め打ちはしません。まず一人ずつ、気になる相手と理由を聞きたいです。",
-  "まだ誰の発言も材料にしません。最初は軽い質問から始めます。",
-  "今は情報が少ないので、理由を出す流れを作りたいです。"
+  "初日なので決め打ちはしません。まず気になる相手を一人だけ暫定で見ます。",
+  "まだ誰の発言も材料にしません。最初は自分の軽い読みから出します。",
+  "今は情報が少ないので、理由を短く出して投票前に比べます。"
 ];
 
 const personaReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
@@ -210,7 +210,7 @@ const personaReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> 
     "their late movement creates a useful pressure point"
   ],
   empathetic: [
-    "their reaction became defensive when asked for details",
+    "their reaction became defensive when pressed for details",
     "their tone changed after the night result",
     "they are not engaging with the concerns aimed at them"
   ],
@@ -238,7 +238,7 @@ const personaReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> 
     "疑われ始めた時に明確な考えを避けた"
   ],
   aggressive: [
-    "弱い弁明の後なので理由を深く聞きたい",
+    "弱い弁明の後なので疑いを強めたい",
     "その押し方は誤投票を作るために無理をしているように見える",
     "十分な根拠なしに議論を誘導している"
   ],
@@ -250,7 +250,7 @@ const personaReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> 
   opportunistic: [
     "人狼が利用しやすい一番楽な立場を取っている",
     "その主張は確かめれば手がかりになる",
-    "終盤の動きが質問する材料になる"
+    "終盤の動きが投票材料になる"
   ],
   empathetic: [
     "詳細を聞かれた時に防御的になった",
@@ -276,33 +276,33 @@ const personaReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> 
 
 const firstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
-    "their early stance is careful, so I want one concrete answer",
+    "their early stance is careful, so I am holding them as difficult to verify",
     "they have spoken less than others and should leave a clearer read",
-    "I want to know whose suspicion they are actually following"
+    "whose suspicion they are following is still unclear"
   ],
   aggressive: [
-    "their first answer did not give enough reasoning",
-    "they followed the easiest question without adding their own view",
-    "they should name one person they want to hear from next"
+    "their first stance did not give enough reasoning",
+    "they followed the easiest line without adding their own view",
+    "they are avoiding a clear stance of their own"
   ],
   logical: [
     "their first-day reasoning is still hard to compare",
-    "their question does not yet connect to a clear read",
+    "their stated concern does not yet connect to a clear read",
     "their reaction is useful to test before the vote"
   ],
   opportunistic: [
     "they are taking a flexible early stance that needs a reason",
-    "their timing makes them a useful person to question first",
+    "their timing makes them a useful first vote candidate",
     "they are following the discussion without shaping it"
   ],
   empathetic: [
-    "their tone changed when asked for details",
-    "they have not answered the concern aimed at them yet",
-    "I want to hear their reasoning before reading them too strongly"
+    "their tone changed when pressed for details",
+    "they have not addressed the concern aimed at them yet",
+    "I am holding them lightly before reading them too strongly"
   ],
   trickster: [
     "their seriousness feels like a mask",
-    "I want to see how they handle a weird question",
+    "their safe reaction is more interesting than it looks",
     "everyone is playing it safe and that is boring"
   ],
   stoic: [
@@ -319,33 +319,33 @@ const firstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]>
 
 const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
-    "発言が少ないので、一つ具体的な考えを聞きたい",
-    "慎重な立場なので、誰を見ているのか確認したい",
-    "誰の疑いに乗っているのかをはっきりさせたい"
+    "発言が少ないので、暫定で注目している",
+    "慎重な立場が続いていて、投票前に判断しにくい",
+    "誰の疑いに乗っているのかが曖昧に見える"
   ],
   aggressive: [
-    "最初の返答に理由が少ないので、もう少し聞きたい",
-    "楽な質問に乗っただけに見えるので、自分の考えを聞きたい",
-    "次に誰の話を聞きたいのか出してほしい"
+    "最初の返答に理由が少ないので、投票候補に入れる",
+    "楽な流れに乗っただけに見える",
+    "自分の見方を出さない姿勢が怪しい"
   ],
   logical: [
     "初日の理由としてまだ比べにくい",
-    "質問と疑い先がまだつながっていない",
-    "投票前に反応を見ておきたい"
+    "疑い先と理由がまだつながっていない",
+    "投票前に一度疑い寄りで置いておきたい"
   ],
   opportunistic: [
-    "初日の立場が広すぎるので理由を聞きたい",
-    "話に乗るタイミングを確認したい",
+    "初日の立場が広すぎるので疑い寄りで見る",
+    "話に乗るタイミングが都合よく見える",
     "議論についてきているが、自分の見方がまだ薄い"
   ],
   empathetic: [
-    "詳細を聞かれた時の反応をもう少し見たい",
-    "向けられた質問にまだ答えきっていない",
-    "強く読む前に本人の理由を聞きたい"
+    "詳細に触れられた時の反応が防御的に見える",
+    "向けられた疑いにまだ答えきっていない",
+    "強く読む前の保留枠として残したい"
   ],
   trickster: [
     "真面目すぎるのが逆に怪しい",
-    "変な質問にどう答えるか見たい",
+    "安全な反応だけを選んでいるように見える",
     "みんな安全牌すぎて面白くない"
   ],
   stoic: [
@@ -362,57 +362,57 @@ const firstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]>
 
 const openingFirstDayReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
-    "I want one concrete opening thought",
+    "their opening stance is still thin",
     "an early read will be easier to compare later",
-    "starting with a small question keeps the table readable"
+    "starting with a small read keeps the table readable"
   ],
   aggressive: [
-    "I want them to give their own view from the start",
-    "early pressure should create useful answers",
+    "not giving their own view from the start looks suspicious",
+    "early pressure should create useful vote movement",
     "someone needs to open with a clear stance"
   ],
   logical: [
     "I want material we can compare later",
     "an opening reason gives the table a baseline",
-    "the first answer helps structure later votes"
+    "the first stance helps structure later votes"
   ],
   opportunistic: [
     "an early stance is useful to revisit later",
-    "hearing them now makes later movement easier to judge",
+    "their movement now will be easier to judge later",
     "the table needs a first point to test"
   ],
   empathetic: [
-    "I want to hear their reason before reading them strongly",
-    "a light question should make the start easier",
+    "I am holding them lightly before reading them strongly",
+    "a soft read should make the start easier",
     "their first thought will help me understand them"
   ],
   trickster: [
-    "I want to see how they handle a weird first question",
+    "a normal opening is a little too safe",
     "opening with something odd can reveal useful reactions",
     "safe starts are boring and hard to read"
   ],
   stoic: [
     "even a short first word is useful",
-    "I need one answer before judging",
+    "I need one stance before judging",
     "observation starts with the first response"
   ],
   passionate: [
     "I want to see their conviction early",
-    "the first answer should carry some heart",
+    "the first stance should carry some heart",
     "I want a reason I can believe in later"
   ]
 };
 
 const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], string[]> = {
   cautious: [
-    "最初の考えを一つ聞きたい",
-    "後で比べやすいように早めの読みを出してほしい",
-    "小さい質問から始める方が整理しやすい"
+    "最初の立場が薄いので保留寄りで見る",
+    "後で比べやすいように早めの読みとして置く",
+    "小さい根拠ですが今は注目する"
   ],
   aggressive: [
-    "最初から自分の見方を出してほしい",
-    "早めに理由を聞く方が答えを見やすい",
-    "誰かがはっきりした立場を開くべき"
+    "最初から自分の見方を出さないのが怪しい",
+    "早めに疑い先を置く方が票をまとめやすい",
+    "ここははっきりした立場を開くべき"
   ],
   logical: [
     "後で比べられる材料を作りたい",
@@ -421,22 +421,22 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
   ],
   opportunistic: [
     "早めの立場は後で見返しやすい",
-    "今聞くと後の動きが比べやすい",
-    "最初に確かめる点を一つ作りたい"
+    "今の動きが後で比べやすい",
+    "最初の投票候補として置きやすい"
   ],
   empathetic: [
-    "強く読む前に本人の理由を聞きたい",
-    "軽い質問の方が話し始めやすい",
-    "最初の考えを聞くと相手を見やすい"
+    "強く読む前の保留枠として見たい",
+    "柔らかい態度ですが立場はまだ薄い",
+    "最初の動きとして相手を見やすい"
   ],
   trickster: [
-    "変な最初の質問にどう答えるか見たい",
-    "少し変な始まりの方が反応を見やすい",
+    "普通すぎる始まりが逆に読みにくい",
+    "少し揺らすと反応が見えやすい",
     "安全な始まりだけだと読みにくい"
   ],
   stoic: [
     "短くても最初の一言は材料になる",
-    "判断する前に一つ答えがほしい",
+    "判断する前の仮置きにする",
     "観察は最初の返答から始まる"
   ],
   passionate: [
@@ -518,13 +518,18 @@ function isDialogueMetaMessage(message: string): boolean {
   );
 }
 
-function normalizeSpeechMessages(messagesSource: string[], fallback: string): string[] {
+function normalizeSpeechLine(text: string, fallback: string, language: string): string {
+  return stripJapaneseSpeechTerminalPeriod(clampText(text, fallback), language);
+}
+
+function normalizeSpeechMessages(messagesSource: string[], fallback: string, language: string): string[] {
   return messagesSource
     .flatMap(splitSpeechText)
     .map(stripDialogueLabel)
     .filter((message) => message.length > 0 && !isSpeechJsonLeak(message) && !isDialogueMetaMessage(message))
     .slice(0, maxSpeechMessages)
-    .map((message) => clampText(message, fallback));
+    .map((message) => normalizeSpeechLine(message, fallback, language))
+    .filter(Boolean);
 }
 
 function readJsonStringLiteral(text: string, startIndex: number): { value: string; endIndex: number } | null {
@@ -811,13 +816,16 @@ function parseSpeech(
   content: string,
   readCandidates: TargetCandidate[],
   fallback: string,
+  language: string,
   claimCandidates = readCandidates
 ): AgentSpeech {
   const parsed = extractJsonObject(content);
   if (!parsed) {
-    const recoveredMessages = isSpeechJsonLeak(content) ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback) : [];
+    const recoveredMessages = isSpeechJsonLeak(content)
+      ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language)
+      : [];
     return {
-      messages: recoveredMessages.length > 0 ? recoveredMessages : [clampText(isSpeechJsonLeak(content) ? fallback : content, fallback)],
+      messages: recoveredMessages.length > 0 ? recoveredMessages : [normalizeSpeechLine(isSpeechJsonLeak(content) ? fallback : content, fallback, language)],
       metadata: emptySpeechMetadata()
     };
   }
@@ -830,10 +838,10 @@ function parseSpeech(
         ? [parsed.speech]
         : [];
 
-  const messages = normalizeSpeechMessages(messagesSource, fallback);
+  const messages = normalizeSpeechMessages(messagesSource, fallback, language);
 
   return {
-    messages: messages.length > 0 ? messages : [clampText(fallback, fallback)],
+    messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, language)],
     metadata: normalizeSpeechMetadata(parsed, readCandidates, claimCandidates)
   };
 }
@@ -1145,7 +1153,7 @@ function normalizeLlmSummary(content: string): string | null {
 }
 
 function naturalizeDemoText(text: string, language: string): string {
-  return sanitizeDemoJapaneseGameText(clampText(text, text), language);
+  return stripJapaneseSpeechTerminalPeriod(sanitizeDemoJapaneseGameText(clampText(text, text), language), language);
 }
 
 function buildDemoSpeechMessages(parts: string[], language: string): string[] {
@@ -1360,7 +1368,7 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
   }
 
   if (situation === "black_result") {
-    return `${target.name}'s answer to the black result is still the weakest vote reason.`;
+    return `${target.name}'s reaction to the black result is still the weakest vote reason.`;
   }
   if (situation === "seer_claim") {
     return `${target.name}'s reaction to the Seer claim stayed unclear.`;
@@ -1369,7 +1377,7 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
     return `${target.name} rushed an explanation after the no-death night.`;
   }
   if (situation === "first_day") {
-    return `${target.name} has the least developed first-day reasoning, so this vote asks for a clearer stance.`;
+    return `${target.name} has the least developed first-day reasoning, so this vote marks the unclear stance.`;
   }
   if (situation === "later_day") {
     return `${target.name}'s vote reason yesterday does not connect with today's statement.`;
@@ -1401,12 +1409,12 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   const trusted = trustPool.length > 0 ? sample(trustPool) : null;
   const personaReason = sample(reasonPool);
 
-  if (suspect && !openingFirstDay) {
+  if (suspect) {
     metadata.suspects.push({
       targetId: suspect.id,
       targetName: suspect.name,
       reason: personaReason,
-      weight: input.player.persona === "aggressive" ? 0.78 : 0.58
+      weight: openingFirstDay ? (input.player.persona === "aggressive" ? 0.46 : 0.34) : input.player.persona === "aggressive" ? 0.78 : 0.58
     });
   }
 
@@ -1444,7 +1452,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
               : `I am claiming Seer now: ${name} checked as ${camp}.`,
             suspect
               ? japanese
-                ? `${suspect.name}にも理由を聞きたいです。${japaneseReasonSentence(personaReason)}`
+                ? `${suspect.name}も投票候補に入れます。${japaneseReasonSentence(personaReason)}`
                 : `${suspect.name} still needs pressure because ${personaReason}.`
               : fallback
           ],
@@ -1520,8 +1528,8 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
         suspect
           ? openingFirstDay
             ? japanese
-              ? `${suspect.name}にも最初の考えを聞きたいです。${japaneseReasonSentence(personaReason)}`
-              : `${suspect.name}, I want your opening read too because ${personaReason}.`
+              ? `${suspect.name}を暫定で見ます。${japaneseReasonSentence(personaReason)}`
+              : `${suspect.name} is my tentative read because ${personaReason}.`
             : japanese
               ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`
               : `${suspect.name} stands out because ${personaReason}.`
@@ -1754,6 +1762,7 @@ class LlmAgent implements Agent {
       content,
       legalPlayers,
       buildLlmSpeechFallback(input, this.language),
+      this.language,
       input.knownPlayers
     );
   }

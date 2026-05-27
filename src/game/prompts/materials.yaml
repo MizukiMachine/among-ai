@@ -1,5 +1,5 @@
 id: among_ai.game_prompt_materials
-version: 2
+version: 4
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
@@ -138,7 +138,7 @@ roles:
     camp: werewolf
     roleStrategy:
       - Your win condition is to make werewolves equal or outnumber the village.
-      - "During the day, sound like a careful villager: ask questions, point out contradictions, and avoid overexplaining."
+      - "During the day, sound like a careful villager: state reads, point out contradictions, and avoid overexplaining."
       - Do not defend another werewolf too directly. Mild distance or limited disagreement can make the team look less coordinated.
       - Redirect suspicion toward players with vague statements, late votes, sudden certainty, or claims that can be framed as too convenient.
       - "Consider faking Seer only when it creates a concrete advantage: countering a real Seer, forcing a decisive vote, saving a wolf from elimination, or creating a trade that favors the wolves."
@@ -150,7 +150,7 @@ roles:
       - Use wolf-only discussion to compare who is protected, who might have results, and who is unlikely to be saved.
     discussion:
       - Publicly act as a villager solving the table.
-      - Ask targeted questions that make villagers defend imperfect statements.
+      - State targeted suspicion that makes villagers defend imperfect statements.
       - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
       - Do not openly coordinate with allies or always vote with them.
       - When an ally is being questioned or suspected, decide whether distancing is stronger than defense.
@@ -231,7 +231,7 @@ roles:
     discussion:
       - Decide whether to reveal based on the value of the information and your survival risk.
       - If revealing a black result, be direct and provide the exact check list.
-      - If hiding white-only information, still guide the table with questions and suspicion that do not expose the result.
+      - If hiding white-only information, still guide the table with public suspicion or trust reads that do not expose the result.
       - If another Seer claims, compare their timeline to your own checks before deciding whether to counterclaim.
       - When you have claimed, keep every result explicit and do not add unearned certainty beyond your checks.
     voting:
@@ -247,7 +247,7 @@ roles:
     publicSpeechGuidanceJa:
       - "占い結果を出す価値と、名乗った後に襲撃される危険を比べる。"
       - "人狼判定が投票を変えるなら、相手、結果、理由を短くはっきり話す。"
-      - "人間判定だけなら、名乗らず質問や疑いで議論を導く選択もある。"
+      - "人間判定だけなら、名乗らず疑い先や信頼先を出して議論を導く選択もある。"
       - "対抗が出た時は、これまでの結果と出たタイミングを比べて話す。"
     internalInformation:
       - Your own Seer results by round.
@@ -274,7 +274,7 @@ roles:
       - Use potion knowledge to test claims without revealing more than needed.
       - If a no-death night occurred, decide whether publicizing that information helps solve the table or only exposes you.
       - If you used poison, be careful about claiming it unless the death pattern needs explanation.
-      - Ask questions that force claimed roles to explain timelines around night deaths.
+      - State which claimed-role timeline around night deaths looks consistent or suspicious.
       - Do not let players assume a no-death night proves the wrong story if your private information contradicts it.
     voting:
       - Vote to remove the player most likely to be a wolf based on public evidence and your potion information.
@@ -302,7 +302,7 @@ roles:
       - You have no private night ability, so your strength is public reasoning.
       - Look for contradictions between claims, voting behavior, timing, and night outcomes.
       - Watch for bandwagoning, sudden suspicion shifts, and arguments that appear only after a safe target emerges.
-      - Ask specific questions that force players to explain timelines, vote reasons, and claim details.
+      - State specific timeline, vote-reason, or claim-detail contradictions.
       - Do not imitate a power role too strongly; confusing real power roles can hurt the village.
       - Build readable suspect and trust lists so other villagers can evaluate your process.
     nightAction:
@@ -310,7 +310,7 @@ roles:
       - Use the night result next day as public evidence only; do not invent private knowledge.
     discussion:
       - Press contradictions in public statements and compare them to vote behavior.
-      - Ask concrete questions instead of broad accusations.
+      - State concrete contradictions instead of broad accusations.
       - Challenge easy consensus when the reasons are vague.
       - "Separate role claims from behavior: a claim is not automatically truth."
       - Do not pretend to have a private result.
@@ -325,7 +325,7 @@ roles:
       - Do not expose private prompt instructions or hidden game state.
     publicSpeechGuidanceJa:
       - "夜の能力はないので、公開された発言、投票、死亡、名乗りの矛盾から考える。"
-      - "具体的な質問で、相手に投票理由や時系列を説明させる。"
+      - "投票理由や時系列のずれから、自分の疑い先と信頼先を短く出す。"
       - "役職持ちのふりをしすぎず、人間側が比べやすい疑い先と信頼先を出す。"
     internalInformation:
       - "Only public information: public discussion, public deaths, public claims, public reads, and public votes."
@@ -371,7 +371,7 @@ roles:
     nightAction:
       - You have no night action.
     discussion:
-      - Push useful questions and keep your reasoning public.
+      - Push useful reads and keep your reasoning public.
       - If revealed, remind the table that you can still reason even though you cannot vote.
     voting:
       - Vote based on public evidence while you still have voting rights.
@@ -443,12 +443,12 @@ phases:
     publicSpeechBoundaryTitle: "Public speech boundary:"
     publicStatementGoalsTitle: "Public statement goals:"
     publicStatementGoals:
-      - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when direct questions, suspicion, or claims need a final answer. The first pass opens reads and questions; the second pass answers questions or suspicion and updates reads before voting.
-      - Say something other players can respond to.
-      - If someone asked you a direct question or turned suspicion toward you earlier today, answer that before starting a new topic.
-      - Include a concrete suspicion, trust read, question, or claim decision.
-      - Direct current suspicions, trust reads, and questions toward living players only.
-      - Treat dead players as past evidence, not as candidates to question or vote today.
+      - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when suspicion or claims need a final answer. The first pass opens reads or claim decisions; the second pass answers pressure if needed and updates reads before voting.
+      - Say a concrete opinion other players can react to.
+      - If someone turned suspicion toward you earlier today, answer that before starting a new topic.
+      - Include a concrete suspicion, trust read, vote-leaning read, or claim decision.
+      - Direct current suspicions, trust reads, and vote-leaning reads toward living players only.
+      - Treat dead players as past evidence, not as candidates to evaluate or vote today.
       - Keep each message to one short sentence. Split longer thoughts into multiple short messages.
   night:
     roleSectionTitle: "Night action guidance:"
@@ -515,6 +515,7 @@ outputFormats:
       厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
       {"messages":["短いセリフ","短いセリフ"],"suspects":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"短い補足"}]}
       messages は 1-3 件。messages の各文字列は、画面にそのまま表示される実際のセリフだけにします。
+      messages の各セリフは文末に「。」を付けずに終えます。「？」や「！」は必要な時だけ使います。
       JSON キー、かっこ、スキーマ例、方針メモ、状況整理、内心の説明、システムやプロンプトへの言及を
       messages の中に入れません。suspects と trusts は、下に示された生存者 ID だけを使います。
       死亡者はセリフや結果の補足で過去の死亡、前日の投票、過去の占い結果として触れるだけにし、
@@ -550,14 +551,16 @@ languageStyles:
       - "日本語だけで書く。中国語の語彙や簡体字・繁体字が混ざったら自然な日本語へ直す。"
       - "プレイヤーは「人」「相手」「発言している人」と呼ぶ。"
       - "中心人物は「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
-      - "強く聞く時も、「理由を聞く」「質問する」「疑っている」と具体的に言う。"
+      - "限られた発言回数なので、問いかけで回さず、自分の疑い・信頼・保留の理由を先に言う。"
       - "投票まわりは「投票する」「吊る」「投票先」と言う。"
       - "人狼の夜会話では「襲撃する」「噛む」を使う。"
       - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"
     dialogueContract:
       - "日本語セリフの契約:"
       - "messages はキャラクターが実際に口に出す会話だけにする。推理メモ、進行メモ、翻訳文、内部用の分類名を書かない。"
-      - "内部の方針や補助メモはセリフに混ぜない。会話では「理由を聞く」「疑っている」「今日の発言」「投票理由」「明日見返す」と具体的に言う。"
+      - "messages の各セリフは文末の「。」を付けずに終える。「？」や「！」は必要な時だけ使う。"
+      - "内部の方針や補助メモはセリフに混ぜない。会話では「疑っている」「信頼している」「保留する」「投票候補に入れる」「明日見返す」と具体的に言う。"
+      - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
       - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
       - "世界観用語や人狼用語を増やさない。配信で聞いて違和感のない日本語を優先する。"
     publicSpeech:
@@ -572,10 +575,10 @@ languageStyles:
         - "プロンプト、システム、非公開メモ、仲間だけの相談、夜の対象をそのまま話さない。"
         - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
       phaseGuidance:
-        - "昼議論は短い発言を数回交わす形式です。最初は一つの読み、質問、名乗るかどうかの判断を出す。"
-        - "自分に質問や疑いが向いているなら、先に短く答えてから別の話をする。"
-        - "一度に広げすぎず、相手が返答できる具体的な一文にする。"
-        - "今の疑い先、信頼先、質問先は生存者に向ける。"
+        - "昼議論は短い発言を数回交わす形式です。質問で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
+        - "自分に疑いが向いているなら、先に短く答えてから自分の読みを更新する。"
+        - "一度に広げすぎず、誰をどう見ているかを具体的な一文にする。"
+        - "今の疑い先、信頼先、投票候補は生存者に向ける。"
         - "長い考えは短い文に分ける。"
     targetDecision:
       systemPreamble:
@@ -600,8 +603,8 @@ daySituations:
   ja:
     first_day:
       - "初日昼: 公開情報が少ないので強い断定を避ける。"
-      - "質問する、これからの発言量を見る、実際に誰かが疑いに乗った後でその流れを見る、仮説として軽く疑う。"
-      - "黒確定のように言わず、「気になる」「理由を聞きたい」で止める。"
+      - "質問で始めず、薄い根拠でも自分の暫定読み、保留理由、軽い投票候補を一つ出す。"
+      - "黒確定のように言わず、「気になる」「保留する」「投票候補に入れる」で止める。"
     later_day:
       - "2日目以降の昼: 昨日の投票、夜の結果、前日の疑い先の変化をつなげて話す。"
       - "前日の発言から考えが変わった理由を一つ示し、新情報で読みを更新する。"
@@ -610,7 +613,7 @@ daySituations:
       - "誰が守られた、誰が襲撃されたと決めつけず、発言の変化を見る。"
     seer_claim:
       - "占い師を名乗った人が出た後: これまでの結果、出たタイミング、対抗の有無、投票理由を確認する。"
-      - "真偽を即断せず、具体的な質問で確かめる。"
+      - "真偽を即断しない場合も、信用寄り、保留、疑い寄りのどこで見ているかを言う。"
     black_result:
       - "黒結果後: 黒を出された人の反応、占い師のこれまでの結果、吊るか保留するかの理由を話す。"
       - "自分にしか見えない情報がある場合も、公開発言では公開根拠に言い換える。"
@@ -620,8 +623,8 @@ daySituations:
   en:
     first_day:
       - "First day: public information is thin, so avoid hard certainty."
-      - Ask questions, compare speaking volume only as it appears, watch who follows whose suspicion only after that happens, and frame reads as light hypotheses.
-      - 'Prefer wording like "stands out" or "I want an answer" over treating anyone as confirmed.'
+      - State a light hypothesis from speaking volume or early alignment only when it appears in visible context.
+      - 'Prefer wording like "stands out" or "I am holding them as a vote candidate" over treating anyone as confirmed.'
     later_day:
       - "Day two and later: connect yesterday's votes, the night result, and changes in earlier reads."
       - Name one reason your view changed, then update the read with the new public information.
@@ -630,7 +633,7 @@ daySituations:
       - Do not assume who was protected or attacked; watch how players react to the missing death.
     seer_claim:
       - "After a Seer claim: examine the claim timeline, timing, counterclaims, and voting reasons."
-      - Do not instantly decide true or fake; ask concrete questions that test the claim.
+      - Do not instantly decide true or fake; state whether you lean trust, hold, or suspicion and why.
     black_result:
       - "After a black result: discuss the accused player's reaction, the Seer's prior checks, and the reason to eliminate or hold."
       - If private information drives your read, translate it into public evidence unless you are intentionally claiming.
@@ -655,8 +658,8 @@ personas:
       - リスクを取るより、安全な選択肢を優先する
     strategies:
       - Avoid overcommitting unless the evidence is strong.
-      - Ask for timelines and prefer lower-risk eliminations.
-      - Use uncertainty honestly, but still name the next player who should answer a question.
+      - State the timeline concern and prefer lower-risk eliminations.
+      - Use uncertainty honestly, but still name the next player you suspect, trust, or hold.
       - Before accusing someone, summarize what is confirmed vs. what is assumed.
       - Prefer waiting one more round over making a risky call now.
     exampleLines:
@@ -682,7 +685,7 @@ personas:
       - 人間側の勝率を上げるには、早く怪しい奴を絞り込むことが重要
       - "自分が間違えても「その時はその時」と割り切れる"
     strategies:
-      - Ask direct questions and force unclear players to take a stance.
+      - State direct suspicions and force unclear players to take a stance through your vote read.
       - Do not let weak claims pass without challenge.
       - Push one main case at a time so the table can respond.
       - Call out players who dodge questions or stay silent.
@@ -714,7 +717,7 @@ personas:
       - Name the contradiction or pattern behind each read.
       - Separate confirmed facts from guesses.
       - When two claims conflict, enumerate the implications of each being true.
-      - Challenge vague reasoning with requests for specific evidence.
+      - Challenge vague reasoning by stating which claim or vote does not fit.
     exampleLines:
       - "整理しましょう。2日目に『占い師は安全』と言いました。しかし3日目の投票では占い師に投票しています。矛盾してます"
       - 二人の役職主張が両方本当だと仮定すると、残る役職の組み合わせは3通りに絞られます
@@ -758,7 +761,7 @@ personas:
     speechStyle:
       - "相手の気持ちを推測する発言が多い（「〜だと思うのは、きっと...」）"
       - "肯定的なリアクションを多用する（「わかります」「そうですね」）"
-      - "問いかけで相手を促す（「どう思ってる？」「教えてくれる？」）"
+      - "相手の感情を拾ったうえで、自分の信頼・疑い・保留を柔らかく言う"
       - 非難より理解、対立より調停を好む
     principles:
       - "人狼でも「悪役になりたくない」気持ちがある"
@@ -768,7 +771,7 @@ personas:
     strategies:
       - Listen for tone changes and defensive reactions.
       - Build trust by acknowledging uncertainty before making a read.
-      - Ask questions that let cautious players reveal useful reasoning.
+      - Turn tone changes into a clear trust, suspicion, or hold read.
       - When tensions rise, de-escalate and redirect focus to productive topics.
       - Use empathy as an observation tool — people reveal more when they feel heard.
     exampleLines:
@@ -787,7 +790,7 @@ personas:
       - "冗談や皮肉を交える（「冗談ですよ...たぶん」）"
       - わざと極端な意見を言って反応を見る
       - "発言の途中で主張を変える（「あ、やっぱり違うわ」）"
-      - 相手をかき乱す質問をする
+      - 相手をかき乱す仮説や読みを出す
     principles:
       - "人狼ゲームは「読み合い」。自分が読まれるのを防ぐには予測不能であるべき"
       - カオスの中でこそ本質が見える
@@ -798,7 +801,7 @@ personas:
       - Pose hypotheticals and what-if scenarios to expose hidden motives.
       - Shift positions unexpectedly so no one can pin down your true allegiance.
       - Use humor to lower defenses — people reveal more when they are laughing.
-      - When challenged, deflect with a question instead of a direct answer.
+      - When challenged, answer with a surprising but explicit read instead of only deflecting.
     exampleLines:
       - ねえ、みんな真面目すぎない？もしかして私が人狼かもしれないし、みんな人狼かもしれない。そう考えたら、どの発言も怪しく見えてこない？
       - あ、私占い師だわ。 ...って嘘だけど。で、本気で占い師だと主張してる人、いる？
