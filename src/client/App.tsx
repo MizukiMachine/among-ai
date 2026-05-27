@@ -32,7 +32,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SciFiStageBackdrop } from "./SciFiStageBackdrop";
 import { characterNames } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
-import { eventVisibility, isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
+import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
   createRoles,
   maxSupportedPlayers,
@@ -106,12 +106,14 @@ const initialHumanPlayerId = "p1";
 const initialSpectatorMode: SpectatorMode = "omniscient";
 
 type CharacterImageLoadState = "loading" | "loaded" | "failed";
+type CharacterImageFetchPriority = "high" | "low" | "auto";
 
 const loadedCharacterImages = new Set<string>();
 const failedCharacterImages = new Set<string>();
 const pendingCharacterImageLoads = new Map<string, Promise<boolean>>();
+let backgroundCharacterPreloadScheduled = false;
 
-function preloadCharacterImage(src: string): Promise<boolean> {
+function preloadCharacterImage(src: string, fetchPriority: CharacterImageFetchPriority = "auto"): Promise<boolean> {
   if (loadedCharacterImages.has(src)) {
     return Promise.resolve(true);
   }
@@ -131,11 +133,15 @@ function preloadCharacterImage(src: string): Promise<boolean> {
   const promise = new Promise<boolean>((resolve) => {
     const image = new Image();
     image.decoding = "async";
+    (image as HTMLImageElement & { fetchPriority?: CharacterImageFetchPriority }).fetchPriority = fetchPriority;
     image.onload = () => {
-      pendingCharacterImageLoads.delete(src);
-      failedCharacterImages.delete(src);
-      loadedCharacterImages.add(src);
-      resolve(true);
+      const decode = typeof image.decode === "function" ? image.decode() : Promise.resolve();
+      void decode.catch(() => undefined).then(() => {
+        pendingCharacterImageLoads.delete(src);
+        failedCharacterImages.delete(src);
+        loadedCharacterImages.add(src);
+        resolve(true);
+      });
     };
     image.onerror = () => {
       pendingCharacterImageLoads.delete(src);
@@ -150,29 +156,54 @@ function preloadCharacterImage(src: string): Promise<boolean> {
   return promise;
 }
 
-function preloadCharacterImages(srcs: string[]) {
+function preloadCharacterImages(srcs: string[], fetchPriority: CharacterImageFetchPriority = "auto") {
   if (typeof Image === "undefined") {
     return;
   }
   for (const src of srcs) {
-    void preloadCharacterImage(src);
+    void preloadCharacterImage(src, fetchPriority);
   }
 }
 
-function scheduleIdleCharacterPreload(srcs: string[]) {
-  if (typeof window === "undefined") {
+function scheduleBackgroundCharacterPreload(srcs: string[]) {
+  if (typeof window === "undefined" || backgroundCharacterPreloadScheduled) {
     return;
   }
 
-  const preload = () => preloadCharacterImages(srcs);
+  backgroundCharacterPreloadScheduled = true;
   const idleWindow = window as Window & {
     requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
   };
-  if (idleWindow.requestIdleCallback) {
-    idleWindow.requestIdleCallback(preload, { timeout: 2500 });
+  let index = 0;
+
+  const scheduleNext = (callback: () => void, delay = 0) => {
+    if (idleWindow.requestIdleCallback) {
+      idleWindow.requestIdleCallback(callback, { timeout: 3500 });
+      return;
+    }
+    window.setTimeout(callback, delay);
+  };
+
+  const loadNext = () => {
+    const src = srcs[index];
+    index += 1;
+    if (!src) {
+      return;
+    }
+
+    void preloadCharacterImage(src, "low").finally(() => {
+      if (index < srcs.length) {
+        scheduleNext(loadNext, 160);
+      }
+    });
+  };
+
+  const start = () => scheduleNext(loadNext, 800);
+  if (document.readyState === "complete") {
+    window.setTimeout(start, 500);
     return;
   }
-  window.setTimeout(preload, 600);
+  window.addEventListener("load", () => window.setTimeout(start, 500), { once: true });
 }
 
 function characterImageLoadState(src: string | null | undefined): CharacterImageLoadState {
@@ -185,8 +216,7 @@ function characterImageLoadState(src: string | null | undefined): CharacterImage
   return "loading";
 }
 
-preloadCharacterImages(characterThumbnailImages);
-scheduleIdleCharacterPreload(characterPortraitImages);
+preloadCharacterImages(characterThumbnailImages, "high");
 
 interface StreamSystemPayload {
   gameId?: string | null;
@@ -216,13 +246,14 @@ function getCharacterPortrait(playerId?: string): string | null {
 interface CharacterImageProps {
   alt?: string;
   className?: string;
+  decoding?: "async" | "sync" | "auto";
   fetchPriority?: "high" | "low" | "auto";
   fallback: ReactNode;
   loading?: "eager" | "lazy";
   src: string | null | undefined;
 }
 
-function CharacterImage({ alt = "", className, fallback, fetchPriority = "auto", loading = "eager", src }: CharacterImageProps) {
+function CharacterImage({ alt = "", className, decoding = "async", fallback, fetchPriority = "auto", loading = "eager", src }: CharacterImageProps) {
   const [loadState, setLoadState] = useState<CharacterImageLoadState>(() => characterImageLoadState(src));
 
   useEffect(() => {
@@ -254,7 +285,7 @@ function CharacterImage({ alt = "", className, fallback, fetchPriority = "auto",
       className={className}
       src={src}
       alt={alt}
-      decoding="async"
+      decoding={decoding}
       fetchPriority={fetchPriority}
       loading={loading}
       onLoad={() => setLoadState("loaded")}
@@ -309,6 +340,20 @@ const roleClass: Partial<Record<Role, string>> = {
 
 function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
+}
+
+function personaClassName(persona: PlayerSnapshot["persona"] | string | undefined): string {
+  const map: Record<string, string> = {
+    cautious: "persona-cautious",
+    aggressive: "persona-aggressive",
+    logical: "persona-logical",
+    opportunistic: "persona-opportunistic",
+    empathetic: "persona-empathetic",
+    trickster: "persona-trickster",
+    stoic: "persona-stoic",
+    passionate: "persona-passionate"
+  };
+  return map[persona ?? ""] ?? "persona-unknown";
 }
 
 function headerRoleLabel(role: Role, language: string): string {
@@ -370,16 +415,6 @@ function eventCause(event: GameEvent): string {
   return dataString(event, "cause");
 }
 
-function visibilityLabel(visibility: string): string {
-  if (visibility === "private") {
-    return "非公開";
-  }
-  if (visibility === "werewolf") {
-    return "人狼";
-  }
-  return visibility;
-}
-
 export function eventRoundLabel(round: number, language = defaultLanguage): string {
   return isJapaneseLanguage(language) ? `ラウンド${round}` : `Round ${round}`;
 }
@@ -397,10 +432,6 @@ export function eventPhaseMetaLabel(phase: Phase, language = defaultLanguage): s
     }
   }
   return phaseLabel(phase, language);
-}
-
-export function shouldShowVisibilityMeta(visibility: string, spectatorMode: SpectatorMode): boolean {
-  return spectatorMode === "omniscient" && visibility !== "public" && visibility !== "werewolf";
 }
 
 export function streamErrorMessageFromData(data: string | undefined): string {
@@ -467,9 +498,10 @@ function renderStageBackdrop(phase: Phase | undefined, eventType?: GameEventType
   return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} />;
 }
 
-function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
+function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
   const role = String(player.role);
-  if (mode === "village" || role === "Hidden") {
+  const roleVisible = mode === "omniscient" || (mode === "player" && player.id === humanPlayerId && role !== "Hidden");
+  if (!roleVisible || role === "Hidden") {
     return displayRoleLabel("Hidden", language);
   }
   if (role !== "Witch" || !player.witch) {
@@ -480,8 +512,8 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
 }
 
-function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string): string {
-  const label = roleDisplay(player, mode, language);
+function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
+  const label = roleDisplay(player, mode, language, humanPlayerId);
   return isJapaneseLanguage(language) && label === displayRoleLabel("AlphaWolf", language) ? "α人狼" : label;
 }
 
@@ -1219,6 +1251,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    scheduleBackgroundCharacterPreload(characterPortraitImages);
+  }, []);
+
+  useEffect(() => {
     if (pendingHumanInput && queuedEvents.length === 0 && !paused) {
       setStatus("入力待ち");
     }
@@ -1803,6 +1839,16 @@ export function App() {
     return humanEnabled && humanPlayerId === playerId;
   }
 
+  function renderCharacterImageWarmup() {
+    return (
+      <div className="character-image-warmup" aria-hidden="true">
+        {characterThumbnailImages.map((src) => (
+          <img key={src} src={src} alt="" decoding="sync" fetchPriority="high" loading="eager" />
+        ))}
+      </div>
+    );
+  }
+
   function renderHumanPlayerBadge() {
     return (
       <span className="human-player-badge">
@@ -1926,7 +1972,12 @@ export function App() {
                     onClick={() => selectHumanPlayer(player.id)}
                     type="button"
                   >
-                    <CharacterImage src={getCharacterImage(player.id)} fallback={<UserRound size={16} />} fetchPriority="high" />
+                    <CharacterImage
+                      src={getCharacterImage(player.id)}
+                      fallback={<UserRound size={16} />}
+                      decoding="sync"
+                      fetchPriority="high"
+                    />
                     <span>{player.name}</span>
                   </button>
                 ))}
@@ -1991,6 +2042,7 @@ export function App() {
 
   return (
     <main className="app-shell">
+      {renderCharacterImageWarmup()}
       <header className="topbar">
         <div className="brand-lockup">
           <img className="brand-mark" src="/assets/brand/among-ai-logo.png" alt="" aria-hidden="true" draggable={false} />
@@ -2036,8 +2088,8 @@ export function App() {
               {alivePlayers.length > 0 ? (
                 alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
-                  const roleLabel = roleDisplay(player, spectatorMode, language);
-                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language);
+                  const roleLabel = roleDisplay(player, spectatorMode, language, humanPlayerId);
+                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language, humanPlayerId);
                   return (
                     <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
                       {getCharacterImage(player.id) ? (
@@ -2059,7 +2111,7 @@ export function App() {
                       <div className="player-main">
                         <div className="player-name-row">
                           <strong>{player.name}</strong>
-                          <span className="persona-pill">{personaLabel(player.persona, language)}</span>
+                          <span className={`persona-pill ${personaClassName(player.persona)}`}>{personaLabel(player.persona, language)}</span>
                         </div>
                         <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`} title={roleLabel}>
                           {compactRoleLabel}
@@ -2127,7 +2179,6 @@ export function App() {
             <div className={`novel-stage ${currentEvent ? "" : "empty"}`}>
               {currentEvent ? (
                 (() => {
-                  const visibility = eventVisibility(currentEvent);
                   const hidden = isEventRedactedForSpectator(currentEvent, spectatorMode);
                   const tone = eventTone(currentEvent);
                   const isSpeech = currentEvent.type === "player_speech";
@@ -2148,7 +2199,6 @@ export function App() {
                         <div className="event-meta hero-meta">
                           <span>{eventRoundLabel(currentEvent.round, language)}</span>
                           <span>{eventPhaseMetaLabel(currentEvent.phase, language)}</span>
-                          {shouldShowVisibilityMeta(visibility, spectatorMode) ? <span>{visibilityLabel(visibility)}</span> : null}
                           {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
                             <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
                           ) : null}

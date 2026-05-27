@@ -889,6 +889,20 @@ textarea:focus-visible {
   height: 34px;
 }
 
+.character-image-warmup {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.character-image-warmup img {
+  width: 1px;
+  height: 1px;
+}
+
 .avatar-fallback {
   display: grid;
   place-items: center;
@@ -938,6 +952,54 @@ textarea:focus-visible {
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.persona-cautious {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: rgba(37, 99, 235, 0.18);
+  color: #bfdbfe;
+}
+
+.persona-aggressive {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(153, 27, 27, 0.22);
+  color: #fecaca;
+}
+
+.persona-logical {
+  border-color: rgba(129, 140, 248, 0.42);
+  background: rgba(67, 56, 202, 0.2);
+  color: #c7d2fe;
+}
+
+.persona-opportunistic {
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(146, 64, 14, 0.22);
+  color: #fde68a;
+}
+
+.persona-empathetic {
+  border-color: rgba(52, 211, 153, 0.42);
+  background: rgba(6, 95, 70, 0.22);
+  color: #a7f3d0;
+}
+
+.persona-trickster {
+  border-color: rgba(244, 114, 182, 0.42);
+  background: rgba(157, 23, 77, 0.22);
+  color: #fbcfe8;
+}
+
+.persona-stoic {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: rgba(51, 65, 85, 0.34);
+  color: #dbeafe;
+}
+
+.persona-passionate {
+  border-color: rgba(251, 146, 60, 0.44);
+  background: rgba(154, 52, 18, 0.24);
+  color: #fed7aa;
 }
 
 .human-player-badge {
