@@ -22,14 +22,13 @@ import {
 import { roleLabel as displayRoleLabel } from "../src/game/i18n";
 import type { GameEvent, PlayerSnapshot } from "../src/game/types";
 
-test("app shell renders spectator controls and info overlay buttons", () => {
+test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /among ai/);
   assert.match(html, /自分も参加してプレイ/);
   assert.match(html, /全情報/);
   assert.match(html, /人間視点/);
-  assert.match(html, /info-bar-btn/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
@@ -83,6 +82,35 @@ test("story event meta chips stay prominent", () => {
   assert.match(css, /\.event-meta span\s*\{[^}]*min-height:\s*36px/s);
   assert.match(css, /\.event-meta span\s*\{[^}]*padding:\s*7px 16px/s);
   assert.match(css, /\.event-meta span\s*\{[^}]*font-size:\s*16px/s);
+});
+
+test("progression messages display without terminal Japanese periods", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const event: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-27T00:00:00.000Z",
+    round: 1,
+    phase: "werewolf_discussion",
+    type: "phase_changed",
+    message: "人狼たちが内通を始めました。",
+    data: {},
+    snapshot: {
+      round: 1,
+      phase: "werewolf_discussion",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(eventMessageForSpectator(event, "omniscient"), "人狼たちが内通を始めました");
+  assert.equal(
+    eventMessageForSpectator({ ...event, message: "第1昼が始まりました。昨夜は誰も死亡しませんでした。" }, "omniscient"),
+    "第1昼が始まりました。昨夜は誰も死亡しませんでした"
+  );
+  assert.match(source, /formatMessage\(eventMessageForSpectator\(event, spectatorMode\)\)/);
 });
 
 test("stage lighting follows speech mood and avoids repeated tones", () => {
@@ -311,8 +339,8 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-back,\s*\.story-next\s*\{[^}]*min-width:\s*164px/s);
   assert.match(css, /\.story-button-label\s*\{[^}]*justify-content:\s*center/s);
   assert.match(css, /\.story-run-controls\s*\{[^}]*display:\s*inline-flex/s);
-  assert.match(css, /\.header-role-distribution\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
-  assert.match(css, /\.header-role-distribution\s*\{[^}]*grid-row:\s*2/s);
+  assert.match(css, /\.header-role-distribution\s*\{[^}]*grid-column:\s*2/s);
+  assert.match(css, /\.header-role-distribution\s*\{[^}]*grid-row:\s*1/s);
   assert.match(css, /\.header-role-distribution\s*\{[^}]*min-height:\s*0/s);
   assert.match(css, /\.header-role-list\s*\{[^}]*max-height:\s*none[^}]*overflow:\s*visible/s);
   assert.match(css, /\.header-role-chip\s*\{[^}]*min-height:\s*46px/s);
@@ -343,6 +371,24 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 
+test("header role rule popover follows the selected chip", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /roleRuleTriggerRef = useRef<HTMLButtonElement \| null>\(null\)/);
+  assert.match(source, /roleRuleTriggerRef\.current = event\.currentTarget/);
+  assert.match(source, /setRoleRulePopoverPosition\(getRoleRulePopoverPosition\(event\.currentTarget\)\)/);
+  assert.match(source, /window\.addEventListener\("pointerdown", closeRoleRuleOnPointerDown, true\)/);
+  assert.match(source, /window\.addEventListener\("resize", scheduleRoleRuleReposition\)/);
+  assert.match(source, /window\.addEventListener\("orientationchange", scheduleRoleRuleReposition\)/);
+  assert.match(source, /function roleRuleText\(text: string\): string \{\s*return text\.replace\(/s);
+  assert.match(source, /<dd>\{roleRuleText\(selectedRule\.ability\)\}<\/dd>/);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*top:\s*var\(--role-rule-top/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*left:\s*var\(--role-rule-left/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*calc\(100vw - 40px\)\)/s);
+  assert.match(css, /\.role-rule-body dd\s*\{[^}]*font-size:\s*17px/s);
+});
+
 test("player roster scrolls inside the fixed gameplay panel", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
@@ -350,6 +396,27 @@ test("player roster scrolls inside the fixed gameplay panel", () => {
   assert.match(source, /className="player-list-scroll"/);
   assert.match(css, /\.intelligence-panel\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0[^}]*flex-direction:\s*column/s);
   assert.match(css, /\.player-list-scroll\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+});
+
+test("graveyard cards stay compact like the living roster", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /className="dead-player-main"/);
+  assert.match(css, /\.graveyard\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.dead-player\s*\{[^}]*grid-template-columns:\s*58px minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.dead-player-main\s*\{[^}]*display:\s*grid[^}]*gap:\s*6px/s);
+  assert.match(css, /\.dead-role-chip\s*\{[^}]*font-size:\s*13px/s);
+});
+
+test("story speaker header omits the speaking status label", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /発言中/);
+  assert.doesNotMatch(source, /voice-wave/);
+  assert.doesNotMatch(css, /\.voice-wave/);
+  assert.doesNotMatch(css, /\.speaker-line small/);
 });
 
 test("player roster distinguishes persona and hidden role labels", () => {

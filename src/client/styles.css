@@ -419,10 +419,11 @@ textarea:focus-visible {
 
 .role-rule-popover {
   position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
+  top: var(--role-rule-top, calc(100% + 10px));
+  left: var(--role-rule-left, 0);
   z-index: 30;
-  width: min(580px, calc(100vw - 40px));
+  width: min(620px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
   overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.22);
   border-radius: 8px;
@@ -442,17 +443,17 @@ textarea:focus-visible {
 
 .role-rule-header {
   display: grid;
-  min-height: 64px;
+  min-height: 78px;
   align-items: center;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto 36px;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto 40px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 14px 16px;
+  padding: 18px 20px;
 }
 
 .role-rule-header span {
   color: var(--ship-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1;
 }
@@ -460,26 +461,26 @@ textarea:focus-visible {
 .role-rule-header h2 {
   margin: 4px 0 0;
   color: #f1f5f9;
-  font-size: 20px;
+  font-size: 26px;
   font-weight: 880;
   line-height: 1.1;
 }
 
 .role-rule-camp {
   display: inline-flex;
-  min-height: 32px;
+  min-height: 36px;
   align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 13px !important;
+  padding: 8px 12px;
+  font-size: 14px !important;
   white-space: nowrap;
 }
 
 .role-rule-close {
   display: inline-flex;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(218, 230, 236, 0.15);
@@ -498,19 +499,19 @@ textarea:focus-visible {
 
 .role-rule-body {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   margin: 0;
-  padding: 16px;
+  padding: 20px 22px 22px;
 }
 
 .role-rule-body div {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .role-rule-body dt {
   color: rgba(218, 230, 236, 0.66);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 860;
   line-height: 1;
 }
@@ -518,9 +519,9 @@ textarea:focus-visible {
 .role-rule-body dd {
   margin: 0;
   color: #e5edf0;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 650;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .workspace {
@@ -1220,17 +1221,19 @@ textarea:focus-visible {
 
 .graveyard {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  padding: 12px;
+  padding: 12px 10px 14px;
 }
 
 .dead-player {
   display: grid;
-  min-height: 68px;
+  position: relative;
+  min-width: 0;
+  min-height: 88px;
   align-items: center;
   gap: 10px;
-  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  grid-template-columns: 58px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -1241,7 +1244,7 @@ textarea:focus-visible {
   background-size: auto, 150px 150px, auto;
   color: var(--ship-muted);
   padding: 7px 9px 7px 7px;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .dead-player.human-player {
@@ -1254,31 +1257,54 @@ textarea:focus-visible {
   color: #ffe7ad;
 }
 
+.dead-player-main {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.dead-player-name-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
 .dead-player strong {
   overflow: hidden;
   color: #d3dde2;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 840;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.dead-player .human-player-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
 .dead-player .player-avatar.small,
 .dead-player .avatar-fallback.small {
-  width: 52px;
-  height: 52px;
+  width: 58px;
+  height: 58px;
 }
 
 .dead-role-chip {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.14);
   border-radius: 6px;
-  padding: 5px 9px;
-  font-size: 15px;
+  padding: 4px 8px;
+  font-size: 13px;
   font-weight: 820;
   line-height: 1.15;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1905,43 +1931,6 @@ input[type="range"] {
   font-size: 28px;
   font-weight: 850;
   line-height: 1.2;
-}
-
-.speaker-line small {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.voice-wave {
-  display: inline-flex;
-  height: 18px;
-  align-items: center;
-  gap: 3px;
-}
-
-.voice-wave i {
-  display: block;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--ship-cyan);
-}
-
-.voice-wave i:nth-child(1),
-.voice-wave i:nth-child(5) {
-  height: 7px;
-}
-
-.voice-wave i:nth-child(2),
-.voice-wave i:nth-child(4) {
-  height: 13px;
-}
-
-.voice-wave i:nth-child(3) {
-  height: 18px;
 }
 
 .story-copy > p {
@@ -4102,14 +4091,13 @@ input[type="range"] {
   }
 
   .role-rule-popover {
-    left: 0;
-    width: min(520px, calc(100vw - 34px));
+    width: min(620px, calc(100vw - 34px));
     max-height: calc(100vh - 190px);
     overflow-y: auto;
   }
 
   .role-rule-header {
-    grid-template-columns: minmax(0, 1fr) auto 32px;
+    grid-template-columns: minmax(0, 1fr) auto 40px;
   }
 
   .info-bar {
