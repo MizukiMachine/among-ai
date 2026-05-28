@@ -605,7 +605,14 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setGameStatus\(statusForPendingHumanInput\(queuedRef\.current\.length\)\);/);
   assert.match(source, /setGameStatus\(pendingHumanInput \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)\);/);
   assert.match(source, /function renderPendingHumanInputNotice/);
+  assert.match(source, /あなたの意思決定が近づいています/);
   assert.match(source, /次へで入力前の会話を確認してください/);
+  assert.match(source, /submitHumanInput\(\{ targetId: humanTargetId \}\)/);
+  assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
+  assert.doesNotMatch(source, /あなたの判断が近づいています/);
+  assert.doesNotMatch(source, /humanReason/);
+  assert.doesNotMatch(source, /setHumanReason/);
+  assert.doesNotMatch(source, /placeholder="理由"/);
   assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);

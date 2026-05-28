@@ -3240,8 +3240,7 @@ input[type="range"] {
   gap: 9px;
 }
 
-.human-speech-form textarea,
-.human-target-form input {
+.human-speech-form textarea {
   width: 100%;
   border: 1px solid rgba(218, 230, 236, 0.18);
   border-radius: 7px;

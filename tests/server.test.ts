@@ -112,8 +112,8 @@ test("human input session rejects responses that do not match the pending reques
   assert.ok(requestId);
   assert.deepEqual(session.submit(requestId, { speech: "wrong shape" }), { ok: false, error: "invalid_input" });
   assert.deepEqual(session.submit(requestId, { targetId: "p3" }), { ok: false, error: "invalid_input" });
-  assert.deepEqual(session.submit(requestId, { targetId: "p2", reason: "  盤面から判断  " }), { ok: true });
-  assert.deepEqual(await requestPromise, { targetId: "p2", reason: "盤面から判断" });
+  assert.deepEqual(session.submit(requestId, { targetId: "p2" }), { ok: true });
+  assert.deepEqual(await requestPromise, { targetId: "p2", reason: undefined });
   session.close();
 });
 
