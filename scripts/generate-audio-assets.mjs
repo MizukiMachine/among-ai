@@ -80,7 +80,7 @@ const sfxAssets = [
     title: "Game Start",
     src: "assets/sfx/game-start.mp3",
     durationSeconds: 2.2,
-    volume: 0.56,
+    volume: 0.32,
     prompt: "Futuristic match start stinger, spacecraft systems powering on, holographic sweep, low cinematic pulse, tense but polished."
   },
   {
@@ -183,8 +183,7 @@ const sfxAssets = [
 
 const adoptedBgmRotation = {
   ids: ["orbital_mindgame", "synthetic_night_watch"],
-  startId: "orbital_mindgame",
-  alternateStart: true
+  startId: "orbital_mindgame"
 };
 
 const manifest = {
@@ -209,17 +208,17 @@ const manifest = {
   bgmRotation: adoptedBgmRotation,
   eventSfx: {
     game_started: "game_start",
-    phase_changed: "phase_shift",
-    warning: "warning",
+    phase_changed: "speech",
+    warning: "speech",
     player_speech: "speech",
     private_info: "private_info",
-    night_action: "night_action",
+    night_action: "speech",
     death: "death_reveal",
     vote_cast: "vote_cast",
     vote_result: "vote_result",
-    round_summary: "round_summary",
+    round_summary: "speech",
     game_ended: "game_end",
-    system: "warning"
+    system: "speech"
   }
 };
 

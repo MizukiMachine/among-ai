@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../src/client/App";
 import {
   getAdoptedBgmAssets,
+  getDefaultBgmId,
   normalizeAudioManifest,
   resolveAssetUrl,
   sfxIdForGameEvent,
@@ -53,6 +54,7 @@ test("audio manifest exposes four 90 second bgm candidates and existing sfx file
   assert.equal(manifest.bgm.length, 4);
   assert.deepEqual(manifest.bgmRotation?.ids, ["orbital_mindgame", "synthetic_night_watch"]);
   assert.equal(manifest.bgmRotation?.startId, "orbital_mindgame");
+  assert.equal(getDefaultBgmId(manifest), "orbital_mindgame");
   assert.deepEqual(getAdoptedBgmAssets(manifest).map((asset) => asset.id), ["orbital_mindgame", "synthetic_night_watch"]);
   for (const bgm of manifest.bgm) {
     assert.equal(bgm.durationMs, 90000);
@@ -91,12 +93,16 @@ test("audio manifest exposes four 90 second bgm candidates and existing sfx file
 
 test("game events map to the intended sound effect ids", () => {
   assert.equal(sfxIdForGameEvent(event("game_started")), "game_start");
+  assert.equal(sfxIdForGameEvent(event("phase_changed")), "speech");
+  assert.equal(sfxIdForGameEvent(event("warning")), "speech");
+  assert.equal(sfxIdForGameEvent(event("night_action")), "speech");
   assert.equal(sfxIdForGameEvent(event("vote_cast")), "vote_cast");
   assert.equal(sfxIdForGameEvent(event("vote_result")), "vote_result");
-  assert.equal(sfxIdForGameEvent(event("round_summary")), "round_summary");
+  assert.equal(sfxIdForGameEvent(event("round_summary")), "speech");
+  assert.equal(sfxIdForGameEvent(event("system")), "speech");
   assert.equal(sfxIdForGameEvent(event("private_info", { action: "guard_success" })), "guard_success");
   assert.equal(sfxIdForGameEvent(event("death", { cause: "no_death" })), "guard_success");
-  assert.equal(sfxIdForGameEvent(event("death", { cause: "hunter" })), "hunter_shot");
+  assert.equal(sfxIdForGameEvent(event("death", { cause: "hunter" })), "speech");
   assert.equal(sfxIdForGameEvent(event("death", { cause: "vote" })), "death_reveal");
 });
 
