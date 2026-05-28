@@ -1046,7 +1046,6 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [humanSpeech, setHumanSpeech] = useState("");
-  const [humanReason, setHumanReason] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
@@ -1205,7 +1204,6 @@ export function App() {
   function resetHumanInputState() {
     setPendingHumanInput(null);
     setHumanSpeech("");
-    setHumanReason("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
     setHumanInputError("");
@@ -1336,7 +1334,6 @@ export function App() {
       setGenerationProgress(null);
       setPendingHumanInput(request);
       setHumanSpeech("");
-      setHumanReason("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
       setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
@@ -1701,18 +1698,12 @@ export function App() {
                 </button>
               ))}
             </div>
-            <input
-              value={humanReason}
-              onChange={(event) => setHumanReason(event.target.value)}
-              maxLength={120}
-              placeholder="理由"
-            />
             <div className="human-action-row">
               {prompt.allowSkip ? (
                 <button
                   className="icon-button"
                   disabled={humanSubmitting}
-                  onClick={() => submitHumanInput({ targetId: null, reason: humanReason })}
+                  onClick={() => submitHumanInput({ targetId: null })}
                   type="button"
                 >
                   <X size={16} />
@@ -1722,7 +1713,7 @@ export function App() {
               <button
                 className="icon-button primary"
                 disabled={humanSubmitting || !selectedTarget}
-                onClick={() => submitHumanInput({ targetId: humanTargetId, reason: humanReason })}
+                onClick={() => submitHumanInput({ targetId: humanTargetId })}
                 type="button"
               >
                 <Check size={16} />
@@ -2021,7 +2012,7 @@ export function App() {
       return null;
     }
 
-    const title = pendingHumanInputNotice.kind === "speech" ? "あなたの発言が近づいています" : "あなたの判断が近づいています";
+    const title = pendingHumanInputNotice.kind === "speech" ? "あなたの発言が近づいています" : "あなたの意思決定が近づいています";
 
     return (
       <section className="story-pending-input-hud" role="status" aria-live="polite">
