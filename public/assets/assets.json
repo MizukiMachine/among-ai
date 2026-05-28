@@ -1,0 +1,171 @@
+{
+  "version": 1,
+  "generatedBy": "ElevenLabs Music and Sound Effects",
+  "bgm": [
+    {
+      "id": "neon_suspicion",
+      "title": "Neon Suspicion",
+      "description": "冷たい船内照明と疑心暗鬼の会話に合う、緊張感のあるシンセ・アンビエント。",
+      "src": "assets/bgm/neon-suspicion-loop.mp3",
+      "durationMs": 90000,
+      "loop": true,
+      "volume": 0.34
+    },
+    {
+      "id": "orbital_mindgame",
+      "title": "Orbital Mindgame",
+      "description": "推理と心理戦を支える、精密なアルペジオと低域パルスのSFスコア。",
+      "src": "assets/bgm/orbital-mindgame-loop.mp3",
+      "durationMs": 90000,
+      "loop": true,
+      "volume": 0.32
+    },
+    {
+      "id": "silent_vote_protocol",
+      "title": "Silent Vote Protocol",
+      "description": "投票直前の圧力と静けさを強める、暗いドローンと拍動の候補。",
+      "src": "assets/bgm/silent-vote-protocol-loop.mp3",
+      "durationMs": 90000,
+      "loop": true,
+      "volume": 0.31
+    },
+    {
+      "id": "synthetic_night_watch",
+      "title": "Synthetic Night Watch",
+      "description": "夜フェーズや非公開情報に合う、ステルス感のある暗い電子音楽。",
+      "src": "assets/bgm/synthetic-night-watch-loop.mp3",
+      "durationMs": 90000,
+      "loop": true,
+      "volume": 0.3
+    }
+  ],
+  "sfx": [
+    {
+      "id": "ui_confirm",
+      "title": "UI Confirm",
+      "src": "assets/sfx/ui-confirm.mp3",
+      "volume": 0.5,
+      "durationMs": 800
+    },
+    {
+      "id": "ui_back",
+      "title": "UI Back",
+      "src": "assets/sfx/ui-back.mp3",
+      "volume": 0.45,
+      "durationMs": 700
+    },
+    {
+      "id": "game_start",
+      "title": "Game Start",
+      "src": "assets/sfx/game-start.mp3",
+      "volume": 0.56,
+      "durationMs": 2200
+    },
+    {
+      "id": "phase_shift",
+      "title": "Phase Shift",
+      "src": "assets/sfx/phase-shift.mp3",
+      "volume": 0.46,
+      "durationMs": 1600
+    },
+    {
+      "id": "speech",
+      "title": "Speech",
+      "src": "assets/sfx/speech.mp3",
+      "volume": 0.28,
+      "durationMs": 650
+    },
+    {
+      "id": "private_info",
+      "title": "Private Info",
+      "src": "assets/sfx/private-info.mp3",
+      "volume": 0.5,
+      "durationMs": 1300
+    },
+    {
+      "id": "night_action",
+      "title": "Night Action",
+      "src": "assets/sfx/night-action.mp3",
+      "volume": 0.5,
+      "durationMs": 1600
+    },
+    {
+      "id": "guard_success",
+      "title": "Guard Success",
+      "src": "assets/sfx/guard-success.mp3",
+      "volume": 0.56,
+      "durationMs": 1700
+    },
+    {
+      "id": "hunter_shot",
+      "title": "Hunter Shot",
+      "src": "assets/sfx/hunter-shot.mp3",
+      "volume": 0.6,
+      "durationMs": 1500
+    },
+    {
+      "id": "death_reveal",
+      "title": "Death Reveal",
+      "src": "assets/sfx/death-reveal.mp3",
+      "volume": 0.62,
+      "durationMs": 2000
+    },
+    {
+      "id": "vote_cast",
+      "title": "Vote Cast",
+      "src": "assets/sfx/vote-cast.mp3",
+      "volume": 0.48,
+      "durationMs": 900
+    },
+    {
+      "id": "vote_result",
+      "title": "Vote Result",
+      "src": "assets/sfx/vote-result.mp3",
+      "volume": 0.58,
+      "durationMs": 1800
+    },
+    {
+      "id": "round_summary",
+      "title": "Round Summary",
+      "src": "assets/sfx/round-summary.mp3",
+      "volume": 0.44,
+      "durationMs": 1400
+    },
+    {
+      "id": "game_end",
+      "title": "Game End",
+      "src": "assets/sfx/game-end.mp3",
+      "volume": 0.62,
+      "durationMs": 3000
+    },
+    {
+      "id": "warning",
+      "title": "Warning",
+      "src": "assets/sfx/warning.mp3",
+      "volume": 0.52,
+      "durationMs": 1200
+    }
+  ],
+  "bgmRotation": {
+    "ids": [
+      "orbital_mindgame",
+      "synthetic_night_watch"
+    ],
+    "startId": "orbital_mindgame",
+    "alternateStart": true
+  },
+  "eventSfx": {
+    "game_started": "game_start",
+    "phase_changed": "phase_shift",
+    "warning": "warning",
+    "player_speech": "speech",
+    "private_info": "private_info",
+    "night_action": "night_action",
+    "death": "death_reveal",
+    "vote_cast": "vote_cast",
+    "vote_result": "vote_result",
+    "round_summary": "round_summary",
+    "game_ended": "game_end",
+    "system": "warning"
+  }
+}
