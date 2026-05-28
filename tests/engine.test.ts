@@ -2117,7 +2117,10 @@ test("guard protection miss does not block the werewolf kill or emit success inf
   const events = await collect(game.runNight());
 
   assert.equal(players[2].alive, false);
-  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "werewolf"));
+  const death = events.find((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "werewolf");
+  assert.ok(death);
+  assert.equal(death.phase, "night");
+  assert.doesNotMatch(death.message, /werewolf|attack|人狼|襲撃/);
   assert.ok(!events.some((event) => event.type === "private_info" && event.data?.action === "guard_success"));
 });
 
@@ -2406,7 +2409,7 @@ test("linked deaths from a death shot cannot overwrite a simultaneous pending de
   assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm"));
 });
 
-test("AlphaWolf gets the same death-shot path with its own public cause", async () => {
+test("AlphaWolf gets the same death-shot path with internal cause data", async () => {
   const game = createGame();
   const players = setTable(game, [
     { role: "Villager", targets: ["p4"] },
@@ -2421,7 +2424,9 @@ test("AlphaWolf gets the same death-shot path with its own public cause", async 
 
   assert.equal(players[3].alive, false);
   assert.equal(players[0].alive, false);
-  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "alpha_wolf"));
+  const alphaWolfDeath = events.find((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "alpha_wolf");
+  assert.ok(alphaWolfDeath);
+  assert.doesNotMatch(alphaWolfDeath.message, /Alpha Wolf|shot|アルファ人狼|撃/);
   assert.ok((game.agents.get("p4") as ScriptedAgent).targetInputs.some((input) => input.action === "Alpha Wolf death shot"));
 });
 
@@ -2442,7 +2447,9 @@ test("Lover role links paired lovers and resolves heartbreak deaths", async () =
   assert.match(context, new RegExp(`Lover partner: ${players[4].name}`));
   assert.equal(players[3].alive, false);
   assert.equal(players[4].alive, false);
-  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover"));
+  const loverDeath = events.find((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover");
+  assert.ok(loverDeath);
+  assert.doesNotMatch(loverDeath.message, /Lover|heartbreak|恋人|後を追/);
 });
 
 test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () => {
@@ -2465,7 +2472,9 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
 
   assert.equal(players[0].alive, false);
   assert.equal(players[3].alive, false);
-  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm"));
+  const charmedDeath = events.find((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm");
+  assert.ok(charmedDeath);
+  assert.doesNotMatch(charmedDeath.message, /Wolf Beauty|charm|美女狼|魅了/);
 });
 
 test("lover victory is exposed as winnerCamp while keeping winner fallback compatible", () => {
@@ -2541,7 +2550,9 @@ test("hunter shot debug scenario forces an observable night shot", async () => {
   assert.equal(game.players.length, 9);
   assert.equal(game.players[2].alive, false);
   assert.equal(game.players[0].alive, false);
-  assert.ok(events.some((event) => event.type === "death" && event.data?.cause === "hunter" && event.targetId === "p1"));
+  const hunterDeath = events.find((event) => event.type === "death" && event.data?.cause === "hunter" && event.targetId === "p1");
+  assert.ok(hunterDeath);
+  assert.doesNotMatch(hunterDeath.message, /Hunter|shot|ハンター|撃/);
 });
 
 test("public death events keep target roles in data for village-view redaction", async () => {
@@ -2562,6 +2573,7 @@ test("public death events keep target roles in data for village-view redaction",
   for (const event of deathEvents) {
     const role = String(event.data?.targetRole);
     assert.ok(!event.message.includes(role));
+    assert.doesNotMatch(event.message, /Hunter|Alpha Wolf|Wolf Beauty|heartbreak|shot|charm|ハンター|アルファ人狼|美女狼|恋人|撃|魅了/);
   }
 });
 
@@ -2584,8 +2596,16 @@ test("village redaction helper removes public target role payloads", async () =>
 
   assert.equal(redacted.message, publicDeath.message);
   assert.equal(redacted.data.targetRole, undefined);
+  assert.equal(redacted.data.cause, undefined);
+  assert.equal(redacted.data.sourceId, undefined);
+  assert.equal(redacted.data.sourceName, undefined);
   assert.equal(redacted.role, undefined);
   assert.equal(redacted.snapshot.players.every((player) => player.role === "Hidden"), true);
+
+  const playerView = redactEventForPlayer(publicDeath, "p1");
+  assert.equal(playerView.data.targetRole, undefined);
+  assert.equal(playerView.data.cause, undefined);
+  assert.equal(playerView.data.sourceId, undefined);
 });
 
 test("LLM target selection retries malformed JSON and falls back to a random legal target", async () => {

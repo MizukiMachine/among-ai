@@ -84,20 +84,7 @@ function cause(kind: PublicNightDeathCause["kind"], language: string): PublicNig
   return { kind, label: labels(language).causeLabels[kind] };
 }
 
-function publicCauseLabel(death: DeathRecord, language: string): string | null {
-  const text = labels(language).causeLabels;
-  if (death.cause === "hunter") {
-    return text.hunter_death_shot;
-  }
-  if (death.cause === "alpha_wolf") {
-    return text.alpha_wolf_death_shot;
-  }
-  if (death.cause === "lover") {
-    return text.lover_linked_death;
-  }
-  if (death.cause === "wolf_beauty_charm") {
-    return text.wolf_beauty_charm_linked_death;
-  }
+function publicCauseLabel(): string | null {
   return null;
 }
 
@@ -148,7 +135,7 @@ function publicNightDeathInfo(death: DeathRecord, players: Player[], language: s
   return {
     playerId: death.playerId,
     playerName: player?.name ?? death.playerId,
-    publicCauseLabel: publicCauseLabel(death, language)
+    publicCauseLabel: publicCauseLabel()
   };
 }
 
