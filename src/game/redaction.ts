@@ -125,6 +125,7 @@ export function redactEventDataForVillage(
   delete publicData.visibleTo;
   delete publicData.result;
   redactPublicVoteData(eventType, publicData);
+  redactPublicDeathData(eventType, publicData);
   return publicData;
 }
 
@@ -170,6 +171,20 @@ function redactPublicVoteData(eventType: GameEvent["type"], data: Record<string,
   }
 }
 
+function redactPublicDeathData(eventType: GameEvent["type"], data: Record<string, unknown>): void {
+  if (eventType !== "death" || data.cause === "no_death") {
+    return;
+  }
+  delete data.cause;
+  delete data.sourceId;
+  delete data.sourceName;
+  delete data.hunterId;
+  delete data.hunterName;
+  delete data.alphaWolfId;
+  delete data.alphaWolfName;
+  delete data.chainDepth;
+}
+
 function stripReason(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
@@ -195,6 +210,7 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
   if (!secret) {
     delete publicData.targetRole;
     delete publicData.result;
+    redactPublicDeathData(event.type, publicData);
   }
   return publicData;
 }

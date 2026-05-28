@@ -158,3 +158,18 @@ test("omniscient stream still exposes debug scenario role events", async () => {
   assert.ok(gameEvents.some((event) => event.type === "death" && event.data?.cause === "hunter"));
   assert.ok(gameEvents.some((event) => event.role === "Hunter" || event.data?.targetRole === "Hunter"));
 });
+
+test("village stream hides public death causes", async () => {
+  const app = createApp();
+  const response = await app.request(
+    "/api/games/stream?players=9&speed=0&view=village&scenario=hunter_shot&maxRounds=3"
+  );
+  const frames = parseSse(await response.text());
+  const gameEvents = frames.filter((frame) => frame.event === "game").map((frame) => frame.data as GameEvent);
+  const deathEvents = gameEvents.filter((event) => event.type === "death" && event.data?.cause !== "no_death");
+
+  assert.ok(deathEvents.length > 0);
+  assert.ok(deathEvents.every((event) => event.data?.cause === undefined));
+  assert.ok(deathEvents.every((event) => event.data?.sourceId === undefined));
+  assert.ok(deathEvents.every((event) => !/Hunter|shot|ハンター|撃/.test(event.message)));
+});

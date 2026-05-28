@@ -1048,6 +1048,7 @@ export class WerewolfGame {
       poisonTargetId: this.witchState.poisonTargetId
     });
 
+    this.phase = "night";
     if (deaths.length === 0) {
       yield this.emit("death", this.text("No one died during the night.", "昨夜は誰も死亡しませんでした。"), { cause: "no_death" });
       return;
@@ -1813,25 +1814,7 @@ export class WerewolfGame {
     if (death.cause === "vote") {
       return this.text(`${player.name} was eliminated by vote.`, `${player.name}が投票で処刑されました。`);
     }
-    if (death.cause === "hunter") {
-      const hunter = death.sourceId ? this.requirePlayer(death.sourceId) : null;
-      return hunter
-        ? this.text(`${player.name} was shot by Hunter ${hunter.name}.`, `${player.name}はハンターの${hunter.name}に撃たれました。`)
-        : this.text(`${player.name} was shot by the Hunter.`, `${player.name}はハンターに撃たれました。`);
-    }
-    if (death.cause === "alpha_wolf") {
-      const alpha = death.sourceId ? this.requirePlayer(death.sourceId) : null;
-      return alpha
-        ? this.text(`${player.name} was shot by Alpha Wolf ${alpha.name}.`, `${player.name}はアルファ人狼の${alpha.name}に撃たれました。`)
-        : this.text(`${player.name} was shot by the Alpha Wolf.`, `${player.name}はアルファ人狼に撃たれました。`);
-    }
-    if (death.cause === "lover") {
-      return this.text(`${player.name} died of heartbreak.`, `${player.name}は恋人の後を追って死亡しました。`);
-    }
-    if (death.cause === "wolf_beauty_charm") {
-      return this.text(`${player.name} died from Wolf Beauty's charm.`, `${player.name}は美女狼の魅了により死亡しました。`);
-    }
-    return this.text(`${player.name} died during the night.`, `${player.name}が夜の間に死亡しました。`);
+    return this.text(`${player.name} died.`, `${player.name}が死亡しました。`);
   }
 
   private deathEventData(player: Player, death: DeathRecord, chainDepth: number): Record<string, unknown> {

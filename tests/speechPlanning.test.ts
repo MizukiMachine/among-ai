@@ -57,6 +57,21 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.ok(plan.possibleNightDeathCauses.some((cause) => cause.kind === "witch_poison"));
   assert.ok(plan.possibleNightDeathCauses.some((cause) => cause.kind === "hunter_death_shot"));
 
+  const hiddenCausePlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 2,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [
+      { playerId: "p2", cause: "hunter", sourceId: "p4" },
+      { playerId: "p3", cause: "lover", sourceId: "p2" }
+    ],
+    legalPlayers,
+    language: "Japanese"
+  });
+
+  assert.deepEqual(hiddenCausePlan.lastNightDeaths.map((death) => death.publicCauseLabel), [null, null]);
+
   const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
   assert.match(rendered, /公開知識/);
   assert.match(rendered, /公開上の死因: 不明/);
