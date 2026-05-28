@@ -1102,7 +1102,7 @@ textarea:focus-visible {
 .player-main {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 0.82fr) minmax(70px, 1fr);
+  grid-template-columns: minmax(0, 0.7fr) minmax(72px, 1fr);
   grid-template-rows: auto auto;
   align-items: center;
   gap: 5px 7px;
@@ -1420,7 +1420,7 @@ textarea:focus-visible {
   min-width: 0;
   align-items: stretch;
   gap: 12px;
-  grid-template-columns: 94px minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr);
   border: 1px solid rgba(103, 216, 223, 0.2);
   border-radius: 8px;
   background:
@@ -1437,8 +1437,8 @@ textarea:focus-visible {
 
 .character-profile-thumb {
   display: block;
-  width: 94px;
-  height: 112px;
+  width: 68px;
+  height: 68px;
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.24);
@@ -1480,16 +1480,6 @@ textarea:focus-visible {
   grid-row: auto;
   justify-self: start;
   margin: 0;
-}
-
-.character-profile-tagline {
-  margin: 0;
-  color: #f4fbfb;
-  font-size: 18px;
-  font-weight: 780;
-  line-height: 1.64;
-  overflow-wrap: anywhere;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.34);
 }
 
 .character-profile-section {
@@ -4799,13 +4789,13 @@ input[type="range"] {
 @media (max-width: 760px) {
   .character-profile-summary {
     align-items: stretch;
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: 68px minmax(0, 1fr);
     gap: 10px;
   }
 
   .character-profile-thumb {
-    width: 72px;
-    height: 90px;
+    width: 68px;
+    height: 68px;
   }
 
   .character-profile-relations li {

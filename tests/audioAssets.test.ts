@@ -86,6 +86,10 @@ test("audio manifest exposes four 90 second bgm candidates and existing sfx file
     assert.ok(existsSync(path.join(rootDir, "public", sfx.src)));
   }
 
+  const gameStartSfx = manifest.sfx.find((asset) => asset.id === "game_start");
+  assert.ok(gameStartSfx);
+  assert.ok((gameStartSfx.volume ?? 0.5) <= 0.2, "game_start should stay quiet for the Game Start button");
+
   for (const sfxId of Object.values(manifest.eventSfx)) {
     assert.ok(sfxIds.has(sfxId));
   }
