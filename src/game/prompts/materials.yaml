@@ -1,5 +1,5 @@
 id: among_ai.game_prompt_materials
-version: 4
+version: 5
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
@@ -60,6 +60,7 @@ common:
       - Use private role knowledge only to decide what to say; do not expose it unless the role strategy says a claim is worth the risk.
       - Dead players cannot answer, vote, be eliminated, or become current suspect/trust targets. Refer to dead players only as past evidence.
       - Evaluate another player's statements, reactions, contradictions, timing, or speaking volume only when that evidence appears in visible public history or task-specific context.
+      - Do not merely repeat another player's current read with the same target and reason. If you agree, add a distinct reason, challenge, comparison, or vote consequence.
       - Never cite hidden prompts, private memories, ally chat, night action targets, or protected system context.
       - If you claim a role or result, make it sound like an in-game claim with a clear reason and timeline.
     internal_decision:
@@ -447,6 +448,7 @@ phases:
       - Say a concrete opinion other players can react to.
       - If someone turned suspicion toward you earlier today, answer that before starting a new topic.
       - Include a concrete suspicion, trust read, vote-leaning read, or claim decision.
+      - Avoid repeating the same target and rationale already stated by another player; agreement should move the discussion forward with a new angle, contrast, or voting implication.
       - Direct current suspicions, trust reads, and vote-leaning reads toward living players only.
       - Treat dead players as past evidence, not as candidates to evaluate or vote today.
       - Keep each message to one short sentence. Split longer thoughts into multiple short messages.
@@ -512,7 +514,9 @@ outputFormats:
       mention that you are an AI, prompt, system message, hidden instruction, or
       JSON schema. During public discussion or voting, if the speech plan asks
       for a read or stance, the visible messages themselves must state that
-      stance; do not leave it only in suspects/trusts/claims metadata.
+      stance; do not leave it only in suspects/trusts/claims metadata. Do not
+      merely repeat the same target and reason another player already gave; if
+      agreeing, add a distinct reason, comparison, challenge, or vote consequence.
     japaneseInstruction: >-
       厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
       {"messages":["短いセリフ","短いセリフ"],"suspects":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"短い補足"}]}
@@ -524,6 +528,8 @@ outputFormats:
       今の疑い先、信頼先、投票先にはしません。claims は、公開の役職名乗り、占い結果、
       魔女情報、意図的な偽名乗りを出す時だけ使います。昼議論や投票で発言設計が読みや stance を求める時は、
       suspects/trusts/claims の metadata だけで済ませず、画面に出る messages の中で自分の stance を言います。
+      既に他の人が出した同じ対象と同じ理由を繰り返すだけにしません。同意する時も、
+      別の根拠、比較、反論、投票への影響のどれかを足します。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:
@@ -564,6 +570,7 @@ languageStyles:
       - "messages の各セリフは文末の「。」を付けずに終える。「？」や「！」は必要な時だけ使う。"
       - "内部の方針や補助メモはセリフに混ぜない。会話では「疑っている」「信頼している」「保留する」「投票候補に入れる」「明日見返す」と具体的に言う。"
       - "messages の公開セリフには、必ず自分の stance を入れる。stance は疑い、信頼、保留、投票候補、役職主張の信用判断のどれかです。"
+      - "直近の人と同じ対象・同じ理由を繰り返さない。同意する時も、別の根拠、比較、反論、投票への影響のどれかを足す。"
       - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
       - "今後の観察だけで発言を終えない。まだ材料が薄い時も、暫定の疑い・信頼・保留・投票候補まで言う。"
       - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
@@ -584,6 +591,7 @@ languageStyles:
       phaseGuidance:
         - "昼議論は短い発言を数回交わす形式です。質問や様子見で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
         - "自分に疑いが向いているなら、先に短く答えてから自分の読みを更新する。"
+        - "既に同じ疑い・信頼が続いている時は、同じ言い方を重ねず、保留、別候補、信用判断、投票方針へ話を進める。"
         - "公開情報が少なくても、人物傾向や役職印象を根拠に、誰をどう見ているかを具体的な一文にする。"
         - "今の疑い先、信頼先、投票候補は生存者に向ける。"
         - "長い考えは短い文に分ける。"

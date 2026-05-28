@@ -64,7 +64,9 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /visible messages themselves must state that stance/);
+  assert.match(promptMaterials.outputFormats.speechJson.instruction, /same target and reason/);
   assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /画面に出る messages の中で自分の stance/);
+  assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /同じ対象と同じ理由/);
   assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /公開画面や公開履歴には表示されません/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
   for (const profile of Object.values(promptMaterials.roles)) {
@@ -200,6 +202,7 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
   assert.match(speech, /two short table passes/);
   assert.match(speech, /follow-up statements/);
   assert.match(speech, /answer that before starting a new topic/);
+  assert.match(speech, /same target and rationale/);
   assert.match(speech, /Evaluate another player's statements/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
@@ -232,6 +235,7 @@ test("Japanese prompts include a natural conversation style layer", () => {
   assert.match(speech, /messages の各文字列は、画面にそのまま表示される実際のセリフだけ/);
   assert.match(speech, /文末の「。」を付けず/);
   assert.match(speech, /プレイヤーは「人」「相手」「発言している人」/);
+  assert.match(speech, /同じ対象・同じ理由を繰り返さない/);
   assert.match(context, /役職ごとの発言方針/);
   assert.match(context, /人物の話し方/);
   assert.match(context, /見えている公開発言/);

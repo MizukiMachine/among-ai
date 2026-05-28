@@ -5,7 +5,14 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
-import { buildPublicSpeechPlan, firstDayOpeningMove, firstDayOpeningMoveKinds, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "./speechPlanning";
+import {
+  buildPublicSpeechPlan,
+  firstDayOpeningMove,
+  firstDayOpeningMoveKinds,
+  renderPublicSpeechDiversityContext,
+  reviewSpeechAgainstPlan,
+  reviewSpeechTimeline
+} from "./speechPlanning";
 import {
   canUseDeathTrigger,
   createDeathResolutionEffects,
@@ -1591,7 +1598,8 @@ export class WerewolfGame {
                 ? `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
                 : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
             ]
-          : [])
+          : []),
+        ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
       ];
       const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
       const speechPlan = buildPublicSpeechPlan({
