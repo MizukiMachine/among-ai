@@ -3104,6 +3104,98 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
   }
 });
 
+test("LLM speech rate limits retry immediately", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalZaiTimeout = process.env.ZAI_TIMEOUT_MS;
+  const originalLlmTimeout = process.env.LLM_TIMEOUT_MS;
+  let calls = 0;
+  let backoffTimerAttempts = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: {
+            type: "rate_limit_error",
+            message: "rate limit reached"
+          }
+        }),
+        {
+          status: 429,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages: ["retried speech"],
+              suspects: [],
+              trusts: [],
+              claims: []
+            })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    if (args[1] === 1_000) {
+      backoffTimerAttempts += 1;
+      throw new Error("429 retry scheduled exponential backoff.");
+    }
+    return originalSetTimeout(...args);
+  }) as typeof setTimeout;
+  process.env.ZAI_TIMEOUT_MS = "60000";
+  process.env.LLM_TIMEOUT_MS = "60000";
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const client = new Anthropic({
+      apiKey: "test-key",
+      baseURL: "https://example.test",
+      timeout: 60_000,
+      maxRetries: 0
+    });
+    const agent = new AnthropicAgent("llm", client, "test-model", "English", 1024);
+    const knownPlayers = [
+      { id: "p1", name: "Ada" },
+      { id: "p2", name: "Byron" }
+    ];
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Make a public statement.",
+      context: "Public context.",
+      knownPlayers,
+      legalPlayers: knownPlayers,
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.deepEqual(speech.messages, ["retried speech"]);
+    assert.equal(calls, 2);
+    assert.equal(backoffTimerAttempts, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    restoreEnvVar("ZAI_TIMEOUT_MS", originalZaiTimeout);
+    restoreEnvVar("LLM_TIMEOUT_MS", originalLlmTimeout);
+  }
+});
+
 test("LLM speech messages discard planning notes and keep displayed dialogue", async () => {
   const originalFetch = globalThis.fetch;
 
