@@ -925,11 +925,11 @@ textarea:focus-visible {
   display: grid;
   position: relative;
   min-width: 0;
-  min-height: 104px;
+  min-height: 108px;
   align-items: center;
   overflow: hidden;
   gap: 8px;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -960,7 +960,7 @@ textarea:focus-visible {
 }
 
 .player-card.human-player {
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   border-color: rgba(227, 166, 79, 0.76);
   background:
     linear-gradient(90deg, rgba(111, 72, 14, 0.62), rgba(13, 22, 30, 0.9) 76%),
@@ -999,19 +999,19 @@ textarea:focus-visible {
 }
 
 .large-roster .player-card {
-  min-height: 90px;
-  grid-template-columns: 52px minmax(0, 1fr);
+  min-height: 96px;
+  grid-template-columns: 60px minmax(0, 1fr);
   gap: 8px;
   padding: 6px 7px 6px 6px;
 }
 
 .large-roster .player-card.human-player {
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
 }
 
 .large-roster .player-avatar {
-  width: 52px;
-  height: 52px;
+  width: 60px;
+  height: 60px;
 }
 
 .large-roster .player-main {
@@ -1046,8 +1046,8 @@ textarea:focus-visible {
 }
 
 .player-avatar {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border: 1px solid rgba(218, 230, 236, 0.26);
   border-radius: 8px;
   background: rgba(13, 20, 26, 0.7);
@@ -1204,8 +1204,11 @@ textarea:focus-visible {
 
 .player-card > .human-player-badge {
   position: absolute;
-  top: 5px;
-  right: 8px;
+  top: 6px;
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
 }
 
 .human-player-badge svg {
