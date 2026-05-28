@@ -2801,17 +2801,15 @@ export function App() {
                 </span>
               )}
 
-              <div className="character-profile-tags" aria-label="公開ステータス">
-                <span className={`persona-pill ${personaClassName(profile.persona)}`}>{personaLabel(profile.persona, language)}</span>
-                <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
-                {humanPlayer ? renderHumanPlayerBadge() : null}
+              <div className="character-profile-identity">
+                <div className="character-profile-tags" aria-label="公開ステータス">
+                  <span className={`persona-pill ${personaClassName(profile.persona)}`}>{personaLabel(profile.persona, language)}</span>
+                  <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
+                  {humanPlayer ? renderHumanPlayerBadge() : null}
+                </div>
+                <p className="character-profile-tagline">{profile.tagline}</p>
               </div>
             </div>
-
-            <section className="character-profile-section">
-              <h3>人物像</h3>
-              <p>{profile.values}</p>
-            </section>
 
             {relationEntries.length > 0 ? (
               <section className="character-profile-section character-profile-relations">
@@ -2826,6 +2824,11 @@ export function App() {
                 </ul>
               </section>
             ) : null}
+
+            <section className="character-profile-section">
+              <h3>人物像</h3>
+              <p>{profile.values}</p>
+            </section>
           </div>
         </section>
       </>
