@@ -387,7 +387,6 @@ interface VoteDetail {
   voterName: string;
   targetId: string;
   targetName: string;
-  reason?: string;
 }
 
 interface VoteTotal {
@@ -427,6 +426,13 @@ export interface ReadCluster {
 function dataString(event: GameEvent | undefined, key: string): string {
   const value = event?.data?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function visibleEventReason(event: GameEvent, hidden = false): string {
+  if (hidden || event.type === "vote_cast" || event.type === "vote_result") {
+    return "";
+  }
+  return dataString(event, "reason");
 }
 
 function eventAction(event: GameEvent): string {
@@ -713,7 +719,7 @@ function visibleDetailMentionSourceText(event: GameEvent, mode: SpectatorMode, l
     event.targetName,
     dataString(event, "hunterName"),
     dataString(event, "protectedTargetName"),
-    dataString(event, "reason")
+    visibleEventReason(event)
   ];
 
   for (const death of dataArray<NightDeathSummary>(event, "nightDeaths")) {
@@ -1040,7 +1046,7 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>(initialSpectatorMode);
-  const [activeOverlay, setActiveOverlay] = useState<"history" | null>(null);
+  const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -1055,6 +1061,7 @@ export function App() {
   const statusBeforePauseRef = useRef("待機中");
   const revealFirstEventRef = useRef(false);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const voteResultsButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
   const roleDistributionRef = useRef<HTMLElement | null>(null);
   const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1079,6 +1086,7 @@ export function App() {
     return previousTone;
   }, [events, spectatorMode]);
   const recentHistory = events.slice(-6).reverse();
+  const latestVoteResult = useMemo(() => events.filter(voteResultHasVisibleData).at(-1), [events]);
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
   const largeRunMode = effectivePlayerCount >= 13;
@@ -1508,32 +1516,36 @@ export function App() {
   }, [roleDistributionItems, selectedRoleRule]);
 
   useEffect(() => {
-    if (activeOverlay !== "history") {
+    if (!activeOverlay) {
       return undefined;
     }
 
-    function closeConversationLogOnPointerDown(event: PointerEvent) {
+    function closeRosterOverlayOnPointerDown(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
       }
-      if (historyPopoverRef.current?.contains(target) || historyButtonRef.current?.contains(target)) {
+      if (
+        historyPopoverRef.current?.contains(target) ||
+        historyButtonRef.current?.contains(target) ||
+        voteResultsButtonRef.current?.contains(target)
+      ) {
         return;
       }
       setActiveOverlay(null);
     }
 
-    function closeConversationLogOnEscape(event: KeyboardEvent) {
+    function closeRosterOverlayOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setActiveOverlay(null);
       }
     }
 
-    document.addEventListener("pointerdown", closeConversationLogOnPointerDown, true);
-    window.addEventListener("keydown", closeConversationLogOnEscape);
+    document.addEventListener("pointerdown", closeRosterOverlayOnPointerDown, true);
+    window.addEventListener("keydown", closeRosterOverlayOnEscape);
     return () => {
-      document.removeEventListener("pointerdown", closeConversationLogOnPointerDown, true);
-      window.removeEventListener("keydown", closeConversationLogOnEscape);
+      document.removeEventListener("pointerdown", closeRosterOverlayOnPointerDown, true);
+      window.removeEventListener("keydown", closeRosterOverlayOnEscape);
     };
   }, [activeOverlay]);
 
@@ -1756,7 +1768,7 @@ export function App() {
     const suspects = hidden ? [] : dataArray<PlayerReadMetadata>(event, "suspects");
     const trusts = hidden ? [] : dataArray<PlayerReadMetadata>(event, "trusts");
     const totals = hidden ? [] : dataArray<VoteTotal>(event, "totals");
-    const reason = hidden ? "" : dataString(event, "reason");
+    const reason = visibleEventReason(event, hidden);
     const targetRole = !hidden && spectatorMode === "omniscient" ? dataString(event, "targetRole") : "";
     const action = eventAction(event);
     const hunterName = !hidden ? dataString(event, "hunterName") : "";
@@ -2376,6 +2388,85 @@ export function App() {
     );
   }
 
+  function renderVoteResultsPopover() {
+    if (activeOverlay !== "votes") {
+      return null;
+    }
+
+    const votes = dataArray<VoteDetail>(latestVoteResult, "votes");
+    const totals = [...dataArray<VoteTotal>(latestVoteResult, "totals")].sort(
+      (a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName)
+    );
+    const highestVoteCount = maxCount(totals);
+
+    return (
+      <>
+        <div className="player-history-panel-dismiss" aria-hidden="true" />
+        <section className="player-history-popover vote-result-popover" ref={historyPopoverRef} role="dialog" aria-label="投票結果">
+          <div className="overlay-header">
+            <div className="overlay-title">
+              <Vote size={20} />
+              <h2>投票結果</h2>
+              <span>{latestVoteResult ? `ラウンド${latestVoteResult.round}` : "未確定"}</span>
+            </div>
+            <button className="overlay-close" onClick={() => setActiveOverlay(null)} type="button" aria-label="投票結果を閉じる">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="overlay-body">
+            {latestVoteResult ? (
+              <div className="vote-result-detail">
+                <section className="vote-result-section">
+                  <header>
+                    <span>得票</span>
+                    <small>{eventMessageForSpectator(latestVoteResult, spectatorMode)}</small>
+                  </header>
+                  {totals.length > 0 ? (
+                    <div className="summary-vote-list vote-result-total-list">
+                      {totals.map((total) => (
+                        <div className="summary-vote-row" key={total.targetId}>
+                          {renderSummaryPerson(total.targetId, total.targetName, "vote")}
+                          <span className="summary-vote-meter" aria-hidden="true">
+                            <i style={{ width: `${Math.max(16, Math.round((total.count / highestVoteCount) * 100))}%` }} />
+                          </span>
+                          <strong>{total.count}票</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-note">得票なし</p>
+                  )}
+                </section>
+
+                <section className="vote-result-section">
+                  <header>
+                    <span>投票先</span>
+                    <small>理由は非公開</small>
+                  </header>
+                  {votes.length > 0 ? (
+                    <div className="vote-cast-list">
+                      {votes.map((vote) => (
+                        <p key={`${vote.voterId}-${vote.targetId}`}>
+                          <span><CharacterName playerId={vote.voterId}>{vote.voterName}</CharacterName></span>
+                          <ChevronRight size={14} aria-hidden="true" />
+                          <strong><CharacterName playerId={vote.targetId}>{vote.targetName}</CharacterName></strong>
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-note">投票先なし</p>
+                  )}
+                </section>
+              </div>
+            ) : (
+              <p className="empty-note">投票結果なし</p>
+            )}
+          </div>
+        </section>
+      </>
+    );
+  }
+
   return (
     <main className="app-shell">
       {renderCharacterImageWarmup()}
@@ -2392,22 +2483,35 @@ export function App() {
 
       </header>
 
-      {activeOverlay === "history" ? <div className="history-dismiss-layer" aria-hidden="true" onClick={() => setActiveOverlay(null)} /> : null}
+      {activeOverlay ? <div className="history-dismiss-layer" aria-hidden="true" onClick={() => setActiveOverlay(null)} /> : null}
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
-        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""} ${activeOverlay === "history" ? "history-open" : ""}`}>
+        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""} ${activeOverlay ? "history-open" : ""}`}>
           <div className="player-section-title">
             <div className="player-section-heading">
               <span>生存プレイヤー（{alivePlayers.length}人）</span>
-              <button
-                className={`player-history-button ${activeOverlay === "history" ? "active" : ""}`}
-                onClick={() => setActiveOverlay(activeOverlay === "history" ? null : "history")}
-                ref={historyButtonRef}
-                type="button"
-              >
-                <History size={14} />
-                <span>会話ログ</span>
-              </button>
+              <div className="player-section-actions">
+                <button
+                  aria-pressed={activeOverlay === "history"}
+                  className={`player-history-button ${activeOverlay === "history" ? "active" : ""}`}
+                  onClick={() => setActiveOverlay(activeOverlay === "history" ? null : "history")}
+                  ref={historyButtonRef}
+                  type="button"
+                >
+                  <History size={14} />
+                  <span>会話ログ</span>
+                </button>
+                <button
+                  aria-pressed={activeOverlay === "votes"}
+                  className={`player-history-button vote-results-button ${activeOverlay === "votes" ? "active" : ""}`}
+                  onClick={() => setActiveOverlay(activeOverlay === "votes" ? null : "votes")}
+                  ref={voteResultsButtonRef}
+                  type="button"
+                >
+                  <Vote size={14} />
+                  <span>投票結果</span>
+                </button>
+              </div>
             </div>
             <ChevronDown size={16} />
           </div>
@@ -2505,6 +2609,7 @@ export function App() {
             ) : null}
           </div>
           {renderConversationLogPopover()}
+          {renderVoteResultsPopover()}
         </aside>
 
         <section className="story-column">

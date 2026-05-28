@@ -109,6 +109,7 @@ export function redactSnapshotForPlayer(snapshot: GameSnapshot, playerId: string
 }
 
 export function redactEventDataForVillage(
+  eventType: GameEvent["type"],
   data: GameEvent["data"] = {},
   secret = false
 ): VillageGameEvent["data"] {
@@ -123,6 +124,7 @@ export function redactEventDataForVillage(
   delete publicData.targetRole;
   delete publicData.visibleTo;
   delete publicData.result;
+  redactPublicVoteData(eventType, publicData);
   return publicData;
 }
 
@@ -139,7 +141,7 @@ export function redactEventForVillage(event: GameEvent): VillageGameEvent {
     playerName: secret ? undefined : event.playerName,
     targetId: secret ? undefined : event.targetId,
     targetName: secret ? undefined : event.targetName,
-    data: redactEventDataForVillage(event.data, secret),
+    data: redactEventDataForVillage(event.type, event.data, secret),
     role: undefined,
     snapshot: redactSnapshotForVillage(event.snapshot)
   };
@@ -156,6 +158,27 @@ function isEventVisibleToPlayer(event: GameEvent, playerId: string): boolean {
   return event.playerId === playerId && (event.data?.visibility === "private" || event.data?.visibility === "werewolf");
 }
 
+function redactPublicVoteData(eventType: GameEvent["type"], data: Record<string, unknown>): void {
+  if (eventType === "vote_cast") {
+    delete data.reason;
+  }
+  if (eventType === "vote_result" || eventType === "round_summary") {
+    if (Array.isArray(data.votes)) {
+      data.votes = data.votes.map((vote) => stripReason(vote));
+    }
+    delete data.modifiers;
+  }
+}
+
+function stripReason(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy.reason;
+  return copy;
+}
+
 function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerViewGameEvent["data"] {
   const secret = isSecretEvent(event);
   const visible = isEventVisibleToPlayer(event, playerId);
@@ -168,11 +191,7 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
 
   const publicData: Record<string, unknown> = { ...(event.data ?? {}) };
   delete publicData.visibleTo;
-  delete publicData.votes;
-  delete publicData.modifiers;
-  if (event.type === "vote_cast" && event.playerId !== playerId) {
-    delete publicData.reason;
-  }
+  redactPublicVoteData(event.type, publicData);
   if (!secret) {
     delete publicData.targetRole;
     delete publicData.result;
@@ -182,20 +201,19 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
 
 export function redactEventForPlayer(event: GameEvent, playerId: string): PlayerViewGameEvent {
   const visible = isEventVisibleToPlayer(event, playerId);
-  const hiddenVoteCast = visible && event.type === "vote_cast" && event.playerId !== playerId;
   const redactedEvent: PlayerViewGameEvent = {
     id: event.id,
     createdAt: event.createdAt,
     round: event.round,
     phase: event.phase,
     type: event.type,
-    message: hiddenVoteCast ? "投票が行われました。" : visible ? event.message : redactedMessage,
-    playerId: visible && !hiddenVoteCast ? event.playerId : undefined,
-    playerName: visible && !hiddenVoteCast ? event.playerName : undefined,
-    targetId: visible && !hiddenVoteCast ? event.targetId : undefined,
-    targetName: visible && !hiddenVoteCast ? event.targetName : undefined,
+    message: visible ? event.message : redactedMessage,
+    playerId: visible ? event.playerId : undefined,
+    playerName: visible ? event.playerName : undefined,
+    targetId: visible ? event.targetId : undefined,
+    targetName: visible ? event.targetName : undefined,
     data: redactEventDataForPlayer(event, playerId),
-    role: visible && !hiddenVoteCast && event.playerId === playerId ? event.role : undefined,
+    role: visible && event.playerId === playerId ? event.role : undefined,
     snapshot: redactSnapshotForPlayer(event.snapshot, playerId)
   };
   return redactedEvent;

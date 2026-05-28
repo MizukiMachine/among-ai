@@ -1694,7 +1694,7 @@ export class WerewolfGame {
       yield this.emit(
         "vote_cast",
         this.text(`${voter.name} votes for ${target.name}.`, `${voter.name}が${target.name}に投票しました。`),
-        { reason: decision.reason },
+        {},
         voter,
         target
       );
@@ -1712,16 +1712,9 @@ export class WerewolfGame {
     }
 
     const voteResolution = resolveVote(eligibleVotes, voteModifiers);
+    this.publicHistory.push(this.formatVoteHistoryLine(eligibleVotes, voteResolution.totals));
     yield this.emit("vote_result", this.text("Vote totals are in.", "投票結果が出ました。"), {
       votes: this.voteDetails(eligibleVotes),
-      modifiers: voteModifiers.map((modifier) => ({
-        targetId: modifier.targetId,
-        targetName: this.requirePlayer(modifier.targetId).name,
-        count: modifier.count,
-        sourceId: modifier.sourceId,
-        sourceName: modifier.sourceId ? this.requirePlayer(modifier.sourceId).name : undefined,
-        reason: modifier.reason
-      })),
       totals: voteResolution.totals.map(({ targetId, count }) => ({
         targetId,
         targetName: this.requirePlayer(targetId).name,
@@ -2523,7 +2516,6 @@ export class WerewolfGame {
     voterName: string;
     targetId: string;
     targetName: string;
-    reason?: string;
   }> {
     return votes.map((vote) => {
       const voter = this.requirePlayer(vote.voterId);
@@ -2532,10 +2524,30 @@ export class WerewolfGame {
         voterId: voter.id,
         voterName: voter.name,
         targetId: target.id,
-        targetName: target.name,
-        reason: vote.reason
+        targetName: target.name
       };
     });
+  }
+
+  private formatVoteHistoryLine(votes: VoteRecord[], totals: Array<{ targetId: string; count: number }>): string {
+    const voteText =
+      votes.length > 0
+        ? votes
+            .map((vote) => `${this.requirePlayer(vote.voterId).name} -> ${this.requirePlayer(vote.targetId).name}`)
+            .join(", ")
+        : this.text("none", "なし");
+    const totalText =
+      totals.length > 0
+        ? totals
+            .map(({ targetId, count }) =>
+              this.text(`${this.requirePlayer(targetId).name} ${count}`, `${this.requirePlayer(targetId).name} ${count}票`)
+            )
+            .join(", ")
+        : this.text("none", "なし");
+    return this.text(
+      `Round ${this.round} votes: ${voteText}. Totals: ${totalText}.`,
+      `第${this.round}ラウンド投票: ${voteText}。得票: ${totalText}。`
+    );
   }
 
   private formatClaimSummary(speakerName: string, claim: ClaimMetadata): string {

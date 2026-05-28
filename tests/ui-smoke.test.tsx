@@ -35,6 +35,8 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
   assert.match(html, /一時停止/);
+  assert.match(html, /会話ログ/);
+  assert.match(html, /投票結果/);
   assert.match(html, /header-role-distribution/);
   assert.match(html, /header-role-chip/);
   assert.match(html, /役職内訳/);
@@ -55,6 +57,21 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /要約方法/);
   assert.doesNotMatch(html, /insight-grid/);
   assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
+});
+
+test("roster vote result overlay is wired next to the conversation log", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /useState<"history" \| "votes" \| null>/);
+  assert.match(source, /const latestVoteResult = useMemo\(\(\) => events\.filter\(voteResultHasVisibleData\)\.at\(-1\)/);
+  assert.match(source, /function renderVoteResultsPopover/);
+  assert.match(source, /aria-label="投票結果"/);
+  assert.match(source, /dataArray<VoteDetail>\(latestVoteResult, "votes"\)/);
+  assert.match(source, /理由は非公開/);
+  assert.match(css, /\.player-section-actions\s*\{/);
+  assert.match(css, /\.vote-result-popover/);
+  assert.match(css, /\.vote-cast-list\s*\{/);
 });
 
 test("winner label appears only when a winner exists", () => {
@@ -107,7 +124,7 @@ test("event mention thumbnails include visible detail data", () => {
     }
   };
 
-  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p7", "p1", "p2"]);
+  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p1", "p2"]);
 });
 
 test("round summary mention thumbnails include summary board names", () => {

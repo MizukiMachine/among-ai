@@ -64,7 +64,7 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
   assert.match(promptMaterials.outputFormats.speechJson.instruction, /visible messages themselves must state that stance/);
   assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /画面に出る messages の中で自分の stance/);
-  assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /画面や履歴に表示/);
+  assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /公開画面や公開履歴には表示されません/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
   for (const profile of Object.values(promptMaterials.roles)) {
     assert.ok(profile.publicSpeechGuidanceJa.length > 0, profile.role);
@@ -241,7 +241,7 @@ test("Japanese prompts include a natural conversation style layer", () => {
   assert.doesNotMatch(context, /No prior public statements|vagueness as observed evidence|Task-specific visible context/);
 });
 
-test("Japanese voting target prompts keep displayed reasons separate from English strategy labels", () => {
+test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {
   const target = buildTargetSystemPrompt({
     player: player("Werewolf"),
     phase: "voting",
@@ -261,7 +261,7 @@ test("Japanese voting target prompts keep displayed reasons separate from Englis
   });
   const generatedPrompt = `${target}\n${context}`;
 
-  assert.match(target, /reason は画面や履歴に表示/);
+  assert.match(target, /reason は公開表示されません/);
   assert.match(target, /短い日本語の理由だけ/);
   assert.match(context, /投票理由の前提/);
   assert.match(context, /投票判断の方針/);
