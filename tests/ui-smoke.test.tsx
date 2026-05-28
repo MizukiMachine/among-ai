@@ -485,6 +485,18 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
 });
 
+test("view toggle hover follows next button treatment", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const hoverRule = css.match(
+    /\.icon-button\.primary\.setup-confirm-button:not\(:disabled\):hover,\s*\.icon-button\.primary\.story-next:not\(:disabled\):hover,\s*\.view-toggle button:not\(:disabled\):hover\s*\{[^}]*\}/s
+  );
+
+  assert.ok(hoverRule);
+  assert.match(hoverRule[0], /border-color:\s*rgba\(164,\s*246,\s*232,\s*0\.72\)/);
+  assert.match(hoverRule[0], /#171f21/);
+  assert.match(hoverRule[0], /transform:\s*translateY\(-1px\)/);
+});
+
 test("header role rule popover follows the selected chip", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
@@ -510,6 +522,34 @@ test("player roster scrolls inside the fixed gameplay panel", () => {
   assert.match(source, /className="player-list-scroll"/);
   assert.match(css, /\.intelligence-panel\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0[^}]*flex-direction:\s*column/s);
   assert.match(css, /\.player-list-scroll\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+});
+
+test("living roster cards open public character profile popover", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const characterProfileByIdMap = new Map\(characterProfiles\.map/);
+  assert.match(source, /function openCharacterProfile\(playerId: string, trigger\?: HTMLButtonElement\)/);
+  assert.match(source, /onClick=\{\(event\) => openCharacterProfile\(player\.id, event\.currentTarget\)\}/);
+  assert.match(source, /aria-label=\{`\$\{player\.name\}の公開プロフィールを表示`\}/);
+  assert.match(source, /function renderCharacterProfilePopover\(\)/);
+  assert.match(source, /className="player-history-popover character-profile-popover"/);
+  assert.doesNotMatch(source, /aria-modal="true"/);
+  assert.match(source, /公開人物メモ/);
+  assert.match(source, /roleDisplay\(player, spectatorMode, language, humanPlayerId\)/);
+  assert.match(source, /profile\.values/);
+  assert.match(source, /characterRelationEntries\(selectedCharacterId, new Set/);
+  assert.match(source, /availablePlayerIds\.has\(id\)/);
+  assert.doesNotMatch(source, /profile\.speechStyle/);
+  assert.doesNotMatch(source, /profile\.sampleLines\.slice\(0, 2\)/);
+  assert.doesNotMatch(source, /character-profile-tagline/);
+  assert.doesNotMatch(source, /character-profile-lines/);
+  assert.doesNotMatch(source, /event\.key !== "Tab"/);
+  assert.doesNotMatch(css, /\.character-profile-backdrop/);
+  assert.doesNotMatch(css, /\.character-profile-dialog/);
+  assert.match(css, /\.character-profile-popover \.overlay-body\s*\{/);
+  assert.match(css, /\.character-profile-body\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.character-profile-thumb\s*\{[^}]*width:\s*68px[^}]*height:\s*68px/s);
 });
 
 test("graveyard cards stay compact like the living roster", () => {

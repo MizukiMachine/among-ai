@@ -21,11 +21,24 @@ import {
   Square,
   Send,
   UserRound,
+  Volume2,
+  VolumeX,
   Vote,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
+import {
+  audioManifestPath,
+  getAdoptedBgmAssets,
+  getDefaultBgmId,
+  normalizeAudioManifest,
+  resolveAssetUrl,
+  sfxIdForGameEvent,
+  type AudioAssetManifest,
+  type AudioSfxId
+} from "./audioAssets";
+import { createGameAudioController, type GameAudioController } from "./audioController";
 import { characterNames, characterProfiles } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
@@ -93,6 +106,7 @@ const characterImageMap: Record<string, string> = {
 
 const characterThumbnailImages = Object.values(characterImageMap);
 const characterPortraitImages = Object.values(characterPortraitMap);
+const characterProfileByIdMap = new Map(characterProfiles.map((profile) => [profile.playerId, profile]));
 const characterNameByIdMap = new Map(characterProfiles.map((profile) => [profile.playerId, profile.nameJa]));
 const characterNameIdMap = new Map(characterProfiles.map((profile) => [profile.nameJa, profile.playerId]));
 const characterNamePattern = new RegExp(
@@ -319,6 +333,29 @@ function playerIndexFromId(playerId: string): number {
 
 function characterName(playerId: string): string {
   return characterNameByIdMap.get(playerId) ?? playerId;
+}
+
+function getCharacterProfile(playerId: string | null | undefined) {
+  return playerId ? characterProfileByIdMap.get(playerId) ?? null : null;
+}
+
+function characterRelationEntries(
+  playerId: string,
+  availablePlayerIds?: Set<string>,
+  limit = 3
+): Array<{ id: string; name: string; text: string }> {
+  const profile = getCharacterProfile(playerId);
+  if (!profile) {
+    return [];
+  }
+  return Object.entries(profile.relations)
+    .filter(([id]) => id !== playerId && (!availablePlayerIds || availablePlayerIds.has(id)))
+    .slice(0, limit)
+    .map(([id, text]) => ({
+      id,
+      name: characterName(id),
+      text
+    }));
 }
 
 export function mentionedCharactersForText(text: string): MentionedCharacterItem[] {
@@ -1048,7 +1085,12 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState("待機中");
   const [spectatorMode, setSpectatorMode] = useState<SpectatorMode>(initialSpectatorMode);
+  const [audioManifest, setAudioManifest] = useState<AudioAssetManifest | null>(null);
+  const [selectedBgmId, setSelectedBgmId] = useState(getDefaultBgmId(null));
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [audioStarted, setAudioStarted] = useState(false);
   const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | null>(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -1070,6 +1112,10 @@ export function App() {
   const roleDistributionRef = useRef<HTMLElement | null>(null);
   const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roleRulePopoverRef = useRef<HTMLElement | null>(null);
+  const characterProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const characterProfileDialogRef = useRef<HTMLElement | null>(null);
+  const characterProfileCloseRef = useRef<HTMLButtonElement | null>(null);
+  const audioControllerRef = useRef<GameAudioController | null>(null);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -1098,6 +1144,11 @@ export function App() {
     () => getRoleDistributionItems(effectivePlayerCount),
     [effectivePlayerCount]
   );
+  const bgmOptions = useMemo(
+    () => getAdoptedBgmAssets(audioManifest),
+    [audioManifest]
+  );
+  const bgmRotationIds = useMemo(() => bgmOptions.map((asset) => asset.id), [bgmOptions]);
   const humanPlayerOptions = useMemo(
     () => Array.from({ length: effectivePlayerCount }, (_, index) => ({ id: `p${index + 1}`, name: characterNames[index] ?? `P${index + 1}` })),
     [effectivePlayerCount]
@@ -1108,6 +1159,28 @@ export function App() {
   const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
   const pendingHumanInputNotice =
     pendingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? pendingHumanInput : null;
+  const selectedCharacterPlayer = selectedCharacterId ? snapshot?.players.find((player) => player.id === selectedCharacterId) ?? null : null;
+  const selectedCharacterProfile = getCharacterProfile(selectedCharacterId);
+
+  function openCharacterProfile(playerId: string, trigger?: HTMLButtonElement) {
+    characterProfileTriggerRef.current = trigger ?? null;
+    setActiveOverlay(null);
+    setSelectedCharacterId(playerId);
+  }
+
+  function closeCharacterProfile(options: { restoreFocus?: boolean } = {}) {
+    const restoreFocus = options.restoreFocus ?? true;
+    const trigger = characterProfileTriggerRef.current;
+    setSelectedCharacterId(null);
+    characterProfileTriggerRef.current = null;
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => {
+        if (trigger && document.body.contains(trigger)) {
+          trigger.focus();
+        }
+      });
+    }
+  }
 
   function closeRoleRulePopover() {
     setSelectedRoleRule(null);
@@ -1154,6 +1227,53 @@ export function App() {
     setSelectedRoleRule(role);
   }
 
+  function getAudioController(): GameAudioController | null {
+    if (!audioControllerRef.current) {
+      audioControllerRef.current = createGameAudioController(BASE_URL);
+    }
+    return audioControllerRef.current;
+  }
+
+  function playSfx(id: AudioSfxId) {
+    if (audioMuted) {
+      return;
+    }
+    void getAudioController()?.playSfx(id);
+  }
+
+  function playEventSfx(event: GameEvent) {
+    const sfxId = sfxIdForGameEvent(event);
+    if (sfxId) {
+      playSfx(sfxId);
+    }
+  }
+
+  function playBgmRotation(startId = selectedBgmId) {
+    if (audioMuted || bgmRotationIds.length === 0 || !startId) {
+      return;
+    }
+    setAudioStarted(true);
+    void getAudioController()?.playBgmPlaylist(bgmRotationIds, startId);
+  }
+
+  function playBgmRotationFromStart() {
+    const startId = getDefaultBgmId(audioManifest);
+    setSelectedBgmId(startId);
+    playBgmRotation(startId);
+  }
+
+  function toggleAudioMuted() {
+    const nextMuted = !audioMuted;
+    const controller = getAudioController();
+    setAudioMuted(nextMuted);
+    controller?.setMuted(nextMuted);
+    if (nextMuted) {
+      controller?.stopBgm();
+      return;
+    }
+    playBgmRotationFromStart();
+  }
+
   function setGameStatus(nextStatus: string) {
     if (pausedRef.current) {
       statusBeforePauseRef.current = nextStatus;
@@ -1189,6 +1309,7 @@ export function App() {
   }
 
   function updatePlayerCount(nextCount: number) {
+    playSfx("ui_confirm");
     const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
     setPlayerCount(normalized);
     if (playerIndexFromId(humanPlayerId) >= normalized) {
@@ -1196,7 +1317,10 @@ export function App() {
     }
   }
 
-  function updateHumanEnabled(nextEnabled: boolean) {
+  function updateHumanEnabled(nextEnabled: boolean, options: { playSound?: boolean } = {}) {
+    if (options.playSound !== false) {
+      playSfx("ui_confirm");
+    }
     setHumanEnabled(nextEnabled);
     if (nextEnabled) {
       setDebugScenario("none");
@@ -1207,8 +1331,9 @@ export function App() {
   }
 
   function selectHumanPlayer(playerId: string) {
+    playSfx("ui_confirm");
     if (!humanEnabled) {
-      updateHumanEnabled(true);
+      updateHumanEnabled(true, { playSound: false });
     }
     setHumanPlayerId(playerId);
   }
@@ -1247,6 +1372,7 @@ export function App() {
 
   function resetToSetup() {
     closeGameStream();
+    audioControllerRef.current?.stopBgm();
     pausedRef.current = false;
     revealFirstEventRef.current = false;
     resetHumanInputState();
@@ -1262,6 +1388,7 @@ export function App() {
     setGameId(null);
     setSourceDone(false);
     setRunning(false);
+    setAudioStarted(false);
     setSettingsConfirmed(false);
     statusBeforePauseRef.current = "待機中";
     setStatus("待機中");
@@ -1280,6 +1407,7 @@ export function App() {
     if (!gameStarted || pausedRef.current) {
       return;
     }
+    playSfx("ui_confirm");
     statusBeforePauseRef.current = status;
     pausedRef.current = true;
     setPaused(true);
@@ -1290,6 +1418,7 @@ export function App() {
     if (!pausedRef.current) {
       return;
     }
+    playSfx("ui_confirm");
     pausedRef.current = false;
     setPaused(false);
     setStatus(statusBeforePauseRef.current);
@@ -1357,6 +1486,7 @@ export function App() {
         if (!pausedRef.current) {
           setEvents([event]);
           setSnapshot(event.snapshot);
+          playEventSfx(event);
           setGameStatus(event.type === "game_ended" ? "完了" : "生成中");
           return;
         }
@@ -1429,6 +1559,8 @@ export function App() {
     if (settingsConfirmed || running || sourceRef.current || events.length > 0 || queuedRef.current.length > 0) {
       return;
     }
+    playSfx("ui_confirm");
+    playBgmRotationFromStart();
     setSettingsConfirmed(true);
     startGame();
   }
@@ -1446,6 +1578,7 @@ export function App() {
     setQueuedEvents(remaining);
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
+    playEventSfx(next);
     setGameStatus(pendingHumanInput ? statusForPendingHumanInput(remaining.length) : statusForVisibleStory(next, remaining.length));
   }
 
@@ -1461,6 +1594,7 @@ export function App() {
     const nextQueue = [restored, ...queuedRef.current];
     const previousEvent = previousEvents.at(-1);
 
+    playSfx("ui_back");
     queuedRef.current = nextQueue;
     setQueuedEvents(nextQueue);
     setEvents(previousEvents);
@@ -1481,8 +1615,44 @@ export function App() {
     return () => {
       closeGameStream();
       clearProcessingHudHideTimer();
+      audioControllerRef.current?.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = getAudioController();
+
+    void fetch(resolveAssetUrl(BASE_URL, audioManifestPath))
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        const manifest = normalizeAudioManifest(payload);
+        if (!manifest) {
+          return;
+        }
+        controller?.setManifest(manifest);
+        setAudioManifest(manifest);
+        const adoptedAssets = getAdoptedBgmAssets(manifest);
+        setSelectedBgmId((current) => (adoptedAssets.some((asset) => asset.id === current) ? current : getDefaultBgmId(manifest)));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = getAudioController();
+    if (!controller || !audioManifest || !audioStarted || audioMuted) {
+      return;
+    }
+    controller.setManifest(audioManifest);
+    void controller.playBgmPlaylist(bgmRotationIds, selectedBgmId);
+  }, [audioManifest, audioMuted, audioStarted, bgmRotationIds, selectedBgmId]);
 
   useEffect(() => {
     scheduleBackgroundCharacterPreload(characterPortraitImages);
@@ -1493,6 +1663,46 @@ export function App() {
       setStatus("入力待ち");
     }
   }, [pendingHumanInput, paused, queuedEvents.length]);
+
+  useEffect(() => {
+    if (selectedCharacterId && snapshot && !snapshot.players.some((player) => player.id === selectedCharacterId && player.alive)) {
+      closeCharacterProfile();
+    }
+  }, [selectedCharacterId, snapshot]);
+
+  useEffect(() => {
+    if (!selectedCharacterId) {
+      return undefined;
+    }
+
+    characterProfileCloseRef.current?.focus();
+
+    function closeCharacterProfileOnKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeCharacterProfile();
+      }
+    }
+
+    function closeCharacterProfileOnPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (characterProfileDialogRef.current?.contains(target) || characterProfileTriggerRef.current?.contains(target)) {
+        return;
+      }
+
+      closeCharacterProfile();
+    }
+
+    window.addEventListener("keydown", closeCharacterProfileOnKeyDown);
+    document.addEventListener("pointerdown", closeCharacterProfileOnPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", closeCharacterProfileOnKeyDown);
+      document.removeEventListener("pointerdown", closeCharacterProfileOnPointerDown, true);
+    };
+  }, [selectedCharacterId]);
 
   useEffect(() => {
     if (!selectedRoleRule) {
@@ -1590,6 +1800,7 @@ export function App() {
         event.ctrlKey ||
         event.altKey ||
         event.shiftKey ||
+        selectedCharacterId ||
         (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
         isEditableShortcutTarget(event.target) ||
         (event.key === "Enter" && isButtonShortcutTarget(event.target))
@@ -1614,7 +1825,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, paused, pendingHumanInput, readyHumanInput, running]);
+  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId]);
 
   async function submitHumanInput(payload: {
     speech?: string;
@@ -2288,6 +2499,21 @@ export function App() {
     );
   }
 
+  function renderAudioMuteButton() {
+    return (
+      <button
+        aria-pressed={audioMuted}
+        className="audio-mute-button prominent"
+        onClick={toggleAudioMuted}
+        title={audioMuted ? "BGMをオンにする" : "BGMをオフにする"}
+        type="button"
+      >
+        {audioMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        <span>{audioMuted ? "BGMオフ" : "BGMオン"}</span>
+      </button>
+    );
+  }
+
   function renderSetupControls() {
     const modeClass = runModeClass(effectivePlayerCount);
 
@@ -2524,6 +2750,88 @@ export function App() {
     );
   }
 
+  function renderCharacterProfilePopover() {
+    if (!selectedCharacterId || !selectedCharacterProfile) {
+      return null;
+    }
+
+    const profile = selectedCharacterProfile;
+    const player = selectedCharacterPlayer;
+    const humanPlayer = isHumanPlayer(selectedCharacterId);
+    const portrait = getCharacterPortrait(selectedCharacterId);
+    const visibleRoleLabel = player ? roleDisplay(player, spectatorMode, language, humanPlayerId) : displayRoleLabel("Hidden", language);
+    const visibleRoleClass = player ? roleChipClass(player, spectatorMode, humanPlayerId) : "role-hidden";
+    const relationEntries = characterRelationEntries(selectedCharacterId, new Set(snapshot?.players.map((candidate) => candidate.id) ?? []));
+
+    return (
+      <>
+        <div className="player-history-panel-dismiss" aria-hidden="true" />
+        <section
+          aria-labelledby="character-profile-title"
+          className="player-history-popover character-profile-popover"
+          ref={characterProfileDialogRef}
+          role="dialog"
+        >
+          <div className="overlay-header">
+            <div className="overlay-title">
+              <UserRound size={20} />
+              <h2 id="character-profile-title">
+                <CharacterName playerId={selectedCharacterId}>{profile.nameJa}</CharacterName>
+              </h2>
+              <span>公開人物メモ</span>
+            </div>
+            <button
+              className="overlay-close"
+              onClick={() => closeCharacterProfile()}
+              ref={characterProfileCloseRef}
+              type="button"
+              aria-label="キャラクター情報を閉じる"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="overlay-body character-profile-body">
+            <div className="character-profile-summary">
+              {portrait ? (
+                <CharacterImage alt={profile.nameJa} className="character-profile-thumb" src={portrait} fallback={<UserRound size={24} />} />
+              ) : (
+                <span className="character-profile-thumb character-profile-fallback">
+                  <UserRound size={24} />
+                </span>
+              )}
+
+              <div className="character-profile-tags" aria-label="公開ステータス">
+                <span className={`persona-pill ${personaClassName(profile.persona)}`}>{personaLabel(profile.persona, language)}</span>
+                <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
+                {humanPlayer ? renderHumanPlayerBadge() : null}
+              </div>
+            </div>
+
+            <section className="character-profile-section">
+              <h3>人物像</h3>
+              <p>{profile.values}</p>
+            </section>
+
+            {relationEntries.length > 0 ? (
+              <section className="character-profile-section character-profile-relations">
+                <h3>関係の傾向</h3>
+                <ul>
+                  {relationEntries.map((relation) => (
+                    <li key={relation.id}>
+                      <strong><CharacterName playerId={relation.id}>{relation.name}</CharacterName></strong>
+                      <span>{relation.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+        </section>
+      </>
+    );
+  }
+
   return (
     <main className="app-shell">
       {renderCharacterImageWarmup()}
@@ -2540,10 +2848,19 @@ export function App() {
 
       </header>
 
-      {activeOverlay ? <div className="history-dismiss-layer" aria-hidden="true" onClick={() => setActiveOverlay(null)} /> : null}
+      {activeOverlay || selectedCharacterId ? (
+        <div
+          className="history-dismiss-layer"
+          aria-hidden="true"
+          onClick={() => {
+            setActiveOverlay(null);
+            closeCharacterProfile({ restoreFocus: false });
+          }}
+        />
+      ) : null}
 
       <section className={`workspace ${setupMode ? "setup-mode" : "game-mode"}`}>
-        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""} ${activeOverlay ? "history-open" : ""}`}>
+        <aside className={`panel intelligence-panel ${largeRunMode ? "large-roster" : ""} ${activeOverlay || selectedCharacterId ? "history-open" : ""}`}>
           <div className="player-section-title">
             <div className="player-section-heading">
               <span>生存プレイヤー（{alivePlayers.length}人）</span>
@@ -2551,7 +2868,10 @@ export function App() {
                 <button
                   aria-pressed={activeOverlay === "history"}
                   className={`player-history-button ${activeOverlay === "history" ? "active" : ""}`}
-                  onClick={() => setActiveOverlay(activeOverlay === "history" ? null : "history")}
+                  onClick={() => {
+                    closeCharacterProfile({ restoreFocus: false });
+                    setActiveOverlay(activeOverlay === "history" ? null : "history");
+                  }}
                   ref={historyButtonRef}
                   type="button"
                 >
@@ -2561,7 +2881,10 @@ export function App() {
                 <button
                   aria-pressed={activeOverlay === "votes"}
                   className={`player-history-button vote-results-button ${activeOverlay === "votes" ? "active" : ""}`}
-                  onClick={() => setActiveOverlay(activeOverlay === "votes" ? null : "votes")}
+                  onClick={() => {
+                    closeCharacterProfile({ restoreFocus: false });
+                    setActiveOverlay(activeOverlay === "votes" ? null : "votes");
+                  }}
                   ref={voteResultsButtonRef}
                   type="button"
                 >
@@ -2587,7 +2910,14 @@ export function App() {
                   const roleLabel = roleDisplay(player, spectatorMode, language, humanPlayerId);
                   const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language, humanPlayerId);
                   return (
-                    <div className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                    <button
+                      aria-label={`${player.name}の公開プロフィールを表示`}
+                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`}
+                      key={player.id}
+                      onClick={(event) => openCharacterProfile(player.id, event.currentTarget)}
+                      title={`${player.name}の公開プロフィールを表示`}
+                      type="button"
+                    >
                       {getCharacterImage(player.id) ? (
                         <CharacterImage
                           alt={player.name}
@@ -2614,7 +2944,7 @@ export function App() {
                         </span>
                       </div>
                       {humanPlayer ? renderHumanPlayerBadge() : null}
-                    </div>
+                    </button>
                   );
                 })
               ) : (
@@ -2667,6 +2997,7 @@ export function App() {
           </div>
           {renderConversationLogPopover()}
           {renderVoteResultsPopover()}
+          {renderCharacterProfilePopover()}
         </aside>
 
         <section className="story-column">
@@ -2769,6 +3100,7 @@ export function App() {
                             </button>
                           </div>
                         ) : null}
+                        {renderAudioMuteButton()}
                       </div>
                     </article>
                   );
@@ -2832,6 +3164,7 @@ export function App() {
                         </button>
                       </div>
                     ) : null}
+                    {renderAudioMuteButton()}
                   </div>
                 </article>
               )}
