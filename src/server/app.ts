@@ -131,6 +131,17 @@ function createStreamLogId(): string {
   return `stream-${nextStreamLogId}`;
 }
 
+function isRateLimitErrorMessage(message: string): boolean {
+  return /(?:429|rate[_ -]?limit|\[1302\])/iu.test(message);
+}
+
+function streamErrorMessageForClient(message: string): string {
+  if (isRateLimitErrorMessage(message)) {
+    return "生成リクエストが混み合っています。少し待ってから再開してください。";
+  }
+  return message;
+}
+
 function createSpeechDiagnosticsLogger(streamId: string): {
   onDiagnostic: (diagnostic: SpeechGenerationDiagnostic) => void;
   logSummary: (status: "completed" | "cancelled" | "error") => void;
@@ -310,10 +321,19 @@ export function createApp(): Hono {
           }
         } catch (error) {
           streamStatus = "error";
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(
+            `[stream-error] ${JSON.stringify({
+              streamId: streamLogId,
+              message: errorMessage,
+              stack: error instanceof Error ? error.stack : undefined
+            })}`
+          );
           if (!cancelled && !abortController.signal.aborted) {
             controller.enqueue(
               sseFrame("error", {
-                message: error instanceof Error ? error.message : String(error)
+                message: streamErrorMessageForClient(errorMessage),
+                streamLogId
               })
             );
           }

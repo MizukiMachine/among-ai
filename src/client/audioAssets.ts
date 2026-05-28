@@ -42,7 +42,6 @@ export interface AudioAssetManifest {
   bgmRotation?: {
     ids: string[];
     startId?: string;
-    alternateStart?: boolean;
   };
   eventSfx: Partial<Record<GameEventType, AudioSfxId>>;
 }
@@ -91,17 +90,17 @@ export const fallbackBgmAssets: BgmAsset[] = [
 
 const eventSfxDefaults: Record<GameEventType, AudioSfxId | null> = {
   game_started: "game_start",
-  phase_changed: "phase_shift",
-  warning: "warning",
+  phase_changed: "speech",
+  warning: "speech",
   player_speech: "speech",
   private_info: "private_info",
-  night_action: "night_action",
+  night_action: "speech",
   death: "death_reveal",
   vote_cast: "vote_cast",
   vote_result: "vote_result",
-  round_summary: "round_summary",
+  round_summary: "speech",
   game_ended: "game_end",
-  system: "warning"
+  system: "speech"
 };
 
 const knownSfxIds: ReadonlySet<string> = new Set<AudioSfxId>([
@@ -187,8 +186,7 @@ export function normalizeAudioManifest(value: unknown): AudioAssetManifest | nul
   const bgmRotation = isRecord(value.bgmRotation) && Array.isArray(value.bgmRotation.ids)
     ? {
         ids: value.bgmRotation.ids.filter((id): id is string => typeof id === "string"),
-        startId: stringValue(value.bgmRotation, "startId") || undefined,
-        alternateStart: value.bgmRotation.alternateStart === true
+        startId: stringValue(value.bgmRotation, "startId") || undefined
       }
     : undefined;
 
@@ -209,8 +207,11 @@ export function normalizeAudioManifest(value: unknown): AudioAssetManifest | nul
   };
 }
 
-export function getDefaultBgmId(manifest: Pick<AudioAssetManifest, "bgm"> | null | undefined): string {
+export function getDefaultBgmId(manifest: Pick<AudioAssetManifest, "bgm" | "bgmRotation"> | null | undefined): string {
   const bgmIds = new Set((manifest?.bgm ?? fallbackBgmAssets).map((asset) => asset.id));
+  if (manifest?.bgmRotation?.startId && bgmIds.has(manifest.bgmRotation.startId)) {
+    return manifest.bgmRotation.startId;
+  }
   return adoptedBgmIds.find((id) => bgmIds.has(id)) ?? manifest?.bgm[0]?.id ?? fallbackBgmAssets[0].id;
 }
 
@@ -243,7 +244,7 @@ export function sfxIdForGameEvent(event: GameEvent): AudioSfxId | null {
       return "guard_success";
     }
     if (cause === "hunter" || cause === "alpha_wolf") {
-      return "hunter_shot";
+      return "speech";
     }
     return "death_reveal";
   }

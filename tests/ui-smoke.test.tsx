@@ -634,6 +634,10 @@ test("stream connection errors produce a visible Japanese message", () => {
     streamErrorMessageFromData(undefined),
     "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。"
   );
+  assert.equal(
+    streamErrorMessageFromData('{"message":"429 {\\"error\\":{\\"type\\":\\"rate_limit_error\\"}}"}'),
+    "生成リクエストが混み合っています。少し待ってから再開してください。"
+  );
   assert.equal(streamErrorMessageFromData('{"message":"upstream failed"}'), "upstream failed");
   assert.equal(streamErrorMessageFromData("plain failure"), "plain failure");
 });

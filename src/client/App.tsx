@@ -118,6 +118,7 @@ const characterNamePattern = new RegExp(
 );
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
+const streamRateLimitErrorMessage = "生成リクエストが混み合っています。少し待ってから再開してください。";
 const initialPlayerCount = 7;
 const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = false;
@@ -505,13 +506,21 @@ export function streamErrorMessageFromData(data: string | undefined): string {
     return streamConnectionErrorMessage;
   }
 
+  const isRateLimitMessage = (message: string) => /(?:429|rate[_ -]?limit|\[1302\])/iu.test(message);
+
   try {
     const payload = JSON.parse(data) as { message?: unknown };
     if (typeof payload.message === "string" && payload.message.trim()) {
+      if (isRateLimitMessage(payload.message)) {
+        return streamRateLimitErrorMessage;
+      }
       return payload.message;
     }
   } catch {
     if (data.trim()) {
+      if (isRateLimitMessage(data)) {
+        return streamRateLimitErrorMessage;
+      }
       return data;
     }
   }
@@ -2801,17 +2810,15 @@ export function App() {
                 </span>
               )}
 
-              <div className="character-profile-tags" aria-label="公開ステータス">
-                <span className={`persona-pill ${personaClassName(profile.persona)}`}>{personaLabel(profile.persona, language)}</span>
-                <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
-                {humanPlayer ? renderHumanPlayerBadge() : null}
+              <div className="character-profile-identity">
+                <div className="character-profile-tags" aria-label="公開ステータス">
+                  <span className={`persona-pill ${personaClassName(profile.persona)}`}>{personaLabel(profile.persona, language)}</span>
+                  <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
+                  {humanPlayer ? renderHumanPlayerBadge() : null}
+                </div>
+                <p className="character-profile-tagline">{profile.tagline}</p>
               </div>
             </div>
-
-            <section className="character-profile-section">
-              <h3>人物像</h3>
-              <p>{profile.values}</p>
-            </section>
 
             {relationEntries.length > 0 ? (
               <section className="character-profile-section character-profile-relations">
@@ -2826,6 +2833,11 @@ export function App() {
                 </ul>
               </section>
             ) : null}
+
+            <section className="character-profile-section">
+              <h3>人物像</h3>
+              <p>{profile.values}</p>
+            </section>
           </div>
         </section>
       </>

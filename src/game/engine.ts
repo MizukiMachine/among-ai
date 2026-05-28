@@ -250,6 +250,28 @@ function shouldRethrowLlmError(agent: Agent): boolean {
   return agent.model !== "demo" && agent.model !== "demo-fallback" && agent.model !== "debug-demo" && agent.model !== "human";
 }
 
+function isRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:429|rate[_ -]?limit|\[1302\])/iu.test(message);
+}
+
+function shouldFallbackFromLlmError(agent: Agent, error: unknown): boolean {
+  return isRateLimitError(error) || !shouldRethrowLlmError(agent);
+}
+
+function llmErrorMemoryNote(kind: "speech" | "target" | "decision", error: unknown): { english: string; japanese: string } {
+  if (isRateLimitError(error)) {
+    return {
+      english: `LLM rate limit during ${kind}; demo fallback was used.`,
+      japanese: `${kind === "speech" ? "発言" : kind === "target" ? "対象選択" : "判断"}生成中にLLMのレート制限が発生したため、デモ生成に切り替えました。`
+    };
+  }
+  return {
+    english: `LLM error during ${kind}: ${String(error)}`,
+    japanese: `${kind === "speech" ? "発言生成" : kind === "target" ? "対象選択" : "判断"}中のLLMエラー: ${String(error)}`
+  };
+}
+
 function normalizePrefetchConcurrency(value: number | undefined): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -2194,10 +2216,11 @@ export class WerewolfGame {
         error: error instanceof Error ? error.message : String(error)
       });
       if (!options.suppressMemorySideEffects) {
-        console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-        player.memories.push(this.text(`LLM error during speech: ${String(error)}`, `発言生成中のLLMエラー: ${String(error)}`));
+        const note = llmErrorMemoryNote("speech", error);
+        console.warn(`[llm-error] speech ${player.id} ${this.phase}: ${note.english}`);
+        player.memories.push(this.text(note.english, note.japanese));
       }
-      if (shouldRethrowLlmError(agent)) {
+      if (!shouldFallbackFromLlmError(agent, error)) {
         throw error;
       }
       return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
@@ -2288,10 +2311,11 @@ export class WerewolfGame {
         throw error;
       }
       if (!options.suppressMemorySideEffects) {
-        console.warn(`[llm-error] target ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-        player.memories.push(this.text(`LLM error during target choice: ${String(error)}`, `対象選択中のLLMエラー: ${String(error)}`));
+        const note = llmErrorMemoryNote("target", error);
+        console.warn(`[llm-error] target ${player.id} ${this.phase}: ${note.english}`);
+        player.memories.push(this.text(note.english, note.japanese));
       }
-      if (shouldRethrowLlmError(agent)) {
+      if (!shouldFallbackFromLlmError(agent, error)) {
         throw error;
       }
       return fallbackAgent.chooseTarget(input);
@@ -2356,10 +2380,11 @@ export class WerewolfGame {
         throw error;
       }
       if (!options.suppressMemorySideEffects) {
-        console.warn(`[llm-error] decision ${player.id} ${this.phase}: ${error instanceof Error ? error.message : String(error)}`);
-        player.memories.push(this.text(`LLM error during decision: ${String(error)}`, `判断中のLLMエラー: ${String(error)}`));
+        const note = llmErrorMemoryNote("decision", error);
+        console.warn(`[llm-error] decision ${player.id} ${this.phase}: ${note.english}`);
+        player.memories.push(this.text(note.english, note.japanese));
       }
-      if (shouldRethrowLlmError(agent)) {
+      if (!shouldFallbackFromLlmError(agent, error)) {
         throw error;
       }
       return fallbackAgent.decide(input);
