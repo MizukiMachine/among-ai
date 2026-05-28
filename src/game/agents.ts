@@ -19,6 +19,7 @@ import type {
   AgentTargetInput,
   Camp,
   ClaimMetadata,
+  FirstDayOpeningMove,
   PlayerReadMetadata,
   Role,
   SpeechMetadata,
@@ -1385,6 +1386,48 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
   return `${target.name} is the most testable vote from today's public discussion.`;
 }
 
+function demoFirstDayOpeningMoveSpeech(
+  move: FirstDayOpeningMove | undefined,
+  target: TargetCandidate | null,
+  language: string
+): string | null {
+  if (!move) {
+    return null;
+  }
+
+  const japanese = isJapaneseLanguage(language);
+  const targetName = target?.name ?? (japanese ? "誰か" : "someone");
+  if (japanese) {
+    if (move.kind === "overstate_village_side") {
+      return "私は人間側なので、初日に変な疑いで吊られるのは避けたいです。そこは先に言っておきます";
+    }
+    if (move.kind === "state_vote_criteria") {
+      return "今日は発言量だけでなく、質問に具体的に答えたかを投票基準にしたいです";
+    }
+    if (move.kind === "ask_role_claim_policy") {
+      return "占い師のCOを今日どう扱うか先に決めたいです。出すなら理由、潜るなら守り方まで合わせたいです";
+    }
+    if (move.kind === "tentative_reaction_read") {
+      return `${targetName}は少し様子が硬く見えるので、初日は暫定材料として返答を見たいです`;
+    }
+    return "占い師・魔女・騎士への触れ方は早めに決めたいです。特に占い師を出すか守るかは曖昧にしたくありません";
+  }
+
+  if (move.kind === "overstate_village_side") {
+    return "I am on the village side, so I do not want a loose day-one suspicion to become an easy elimination.";
+  }
+  if (move.kind === "state_vote_criteria") {
+    return "My vote criteria today are concrete answers and whether people actually take a position.";
+  }
+  if (move.kind === "ask_role_claim_policy") {
+    return "I want us to decide early how we handle Seer claims today, whether they come out or stay hidden.";
+  }
+  if (move.kind === "tentative_reaction_read") {
+    return `${targetName} feels a little stiff, so I want to treat that as only a tentative day-one reaction check.`;
+  }
+  return "We should talk early about how Seer, Witch, and Guard should be handled without forcing them into the open.";
+}
+
 function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech {
   const japanese = isJapaneseLanguage(language);
   const speechPool = japanese ? demoSpeechJa : demoSpeechEn;
@@ -1402,9 +1445,12 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     !situations.includes("black_result");
   const openingFirstDay = firstDaySoft && input.publicHistory.length === 0;
   const reasonPool = demoSpeechReasonPool(input, situations, language, openingFirstDay);
-  const fallback = buildDemoDaySituationSpeech(input, language) ?? sample(demoSpeechForRole(speechPool, input.player.role));
-  const metadata = emptySpeechMetadata();
   const suspect = candidates.length > 0 ? sample(candidates) : null;
+  const fallback =
+    demoFirstDayOpeningMoveSpeech(input.speechPlan?.firstDayOpeningMove, suspect, language) ??
+    buildDemoDaySituationSpeech(input, language) ??
+    sample(demoSpeechForRole(speechPool, input.player.role));
+  const metadata = emptySpeechMetadata();
   const trustPool = suspect ? candidates.filter((candidate) => candidate.id !== suspect.id) : candidates;
   const trusted = trustPool.length > 0 ? sample(trustPool) : null;
   const personaReason = sample(reasonPool);

@@ -1918,7 +1918,7 @@ input[type="range"] {
   max-width: 42%;
   object-fit: cover;
   object-position: 30% 100%;
-  opacity: 0.86;
+  opacity: 1;
   mix-blend-mode: normal;
   transform: none;
   filter: brightness(0.92) saturate(0.96) contrast(1.05) drop-shadow(0 18px 36px rgba(0, 0, 0, 0.48));
@@ -4162,7 +4162,7 @@ input[type="range"] {
     width: auto;
     height: 86%;
     max-width: 58%;
-    opacity: 0.62;
+    opacity: 1;
   }
 
   .mentioned-character-strip {

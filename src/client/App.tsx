@@ -53,7 +53,7 @@ import type {
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
-const PROCESSING_HUD_MIN_VISIBLE_MS = 800;
+const PROCESSING_HUD_MIN_VISIBLE_MS = 900;
 
 const characterPortraitMap: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,

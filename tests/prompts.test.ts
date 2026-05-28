@@ -7,6 +7,7 @@ import {
   buildTargetSystemPrompt
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
+import { buildPublicSpeechPlan, firstDayOpeningMove } from "../src/game/speechPlanning";
 import { containsAwkwardJapaneseOutputTerm, sanitizeDemoJapaneseGameText } from "../src/game/japaneseStyle";
 import { getCharacterProfile } from "../src/game/characters";
 import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
@@ -298,6 +299,41 @@ test("first-day discussion prompts keep reads tentative and opinion-led", () => 
   assert.doesNotMatch(context, /発言が出たら見たい/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
+});
+
+test("first-day opening mode allows assigned conversation sparks", () => {
+  const speechPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [
+      player("Villager", "p1", "Ada"),
+      player("Werewolf", "p2", "Byron"),
+      player("Witch", "p3", "Curie")
+    ],
+    lastNightDeaths: [],
+    legalPlayers: alivePlayers.slice(1),
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("tentative_reaction_read", "Japanese")
+  });
+  const context = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    speechPlan
+  });
+
+  assert.match(context, /初日特別モード/);
+  assert.match(context, /発言順・態度・反応を暫定材料にする/);
+  assert.match(context, /割り当てられた発言順・態度・反応の暫定材料だけを火種にし/);
+  assert.match(context, /既に公開発言があった事実として話さない/);
+  assert.doesNotMatch(context, /投票基準・役職CO方針・自己申告/);
+  assert.doesNotMatch(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
 });
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {

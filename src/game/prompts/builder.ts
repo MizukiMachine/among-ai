@@ -281,6 +281,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const mode = options.mode ?? promptModeFromGamePhase(phase);
   const profile = getRolePromptProfile(player.role);
   const japanese = isJapaneseLanguage(language);
+  const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
   const dialogueContract = mode === "public_speech" ? japaneseDialogueContract(language) : [];
   if (japanese && mode === "public_speech") {
@@ -361,7 +362,11 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       "",
       "Visible public discussion so far:",
       "- No prior public statements are included in your visible context.",
-      "- Do not describe any specific player's earlier statement, reaction, contradiction, speaking volume, or vagueness as observed evidence yet."
+      firstDayOpeningMove
+        ? firstDayOpeningMove.kind === "tentative_reaction_read"
+          ? "- First-day opening mode is active: use only the assigned tentative posture/reaction spark, and do not cite prior public statements as visible facts."
+          : "- First-day opening mode is active: use only the assigned spark, and do not cite prior public statements that are not visible."
+        : "- Do not describe any specific player's earlier statement, reaction, contradiction, speaking volume, or vagueness as observed evidence yet."
     );
   } else if (publicHistory.length > 0) {
     lines.push("", "Recent public discussion:", ...recentLines(publicHistory, 18));
@@ -388,6 +393,7 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
     extra = []
   } = options;
   const profile = getRolePromptProfile(player.role);
+  const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
   const lines = [
@@ -440,8 +446,14 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
       "",
       "見えている公開発言:",
       "- まだ、この昼の公開発言はありません。",
-      "- 具体的な発言、反応、矛盾、発言量を見たことにしない。",
-      "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
+      firstDayOpeningMove
+        ? firstDayOpeningMove.kind === "tentative_reaction_read"
+          ? "- 初日特別モードが有効です。割り当てられた発言順・態度・反応の暫定材料だけを火種にし、見えていない発言内容は引用しない。"
+          : "- 初日特別モードが有効です。割り当てられた方針だけを火種にし、見えていない公開発言は引用しない。"
+        : "- 具体的な発言、反応、矛盾、発言量を見たことにしない。",
+      firstDayOpeningMove?.kind === "tentative_reaction_read"
+        ? "- 「誰かの言う通り」「誰かの発言」のように、既に公開発言があった事実として話さない。"
+        : "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
       "- 名前を出す場合は、人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかまで言う。",
       "- 今後の観察だけで終えず、画面に出るセリフ内で自分の stance まで言う。"
     );

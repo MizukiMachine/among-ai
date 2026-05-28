@@ -280,12 +280,26 @@ export interface SpeechIntent {
   instruction: string;
 }
 
+export type FirstDayOpeningMoveKind =
+  | "overstate_village_side"
+  | "state_vote_criteria"
+  | "ask_role_claim_policy"
+  | "tentative_reaction_read"
+  | "early_power_role_attention";
+
+export interface FirstDayOpeningMove {
+  kind: FirstDayOpeningMoveKind;
+  label: string;
+  instruction: string;
+}
+
 export interface PublicSpeechPlan {
   phase: Phase;
   round: number;
   lastNightDeaths: PublicNightDeathInfo[];
   possibleNightDeathCauses: PublicNightDeathCause[];
   intents: SpeechIntent[];
+  firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;
 }
 

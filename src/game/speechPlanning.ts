@@ -2,6 +2,8 @@ import { isJapaneseLanguage } from "./i18n";
 import type { DeathRecord } from "./rules/types";
 import type {
   AgentSpeech,
+  FirstDayOpeningMove,
+  FirstDayOpeningMoveKind,
   Phase,
   Player,
   PublicNightDeathCause,
@@ -19,6 +21,7 @@ interface BuildPublicSpeechPlanInput {
   lastNightDeaths: DeathRecord[];
   legalPlayers: TargetCandidate[];
   language: string;
+  firstDayOpeningMove?: FirstDayOpeningMove;
 }
 
 interface SpeechPlanReview {
@@ -33,6 +36,7 @@ function labels(language: string) {
     unknownCause: japanese ? "不明" : "unknown",
     possibleCausesTitle: japanese ? "公開ルール上あり得る夜死亡" : "Public-rule night death causes in this setup",
     speechPlanTitle: japanese ? "この発言の設計" : "Speech plan",
+    firstDaySpecialTitle: japanese ? "初日特別モード" : "First-day opening mode",
     publicKnowledgeTitle: japanese ? "公開知識" : "Public knowledge",
     deathLine: japanese ? "昨夜の死亡" : "Last night's deaths",
     publicCause: japanese ? "公開上の死因" : "public cause",
@@ -78,6 +82,56 @@ function labels(language: string) {
       ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかを自分の意見として言ってください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance."
   };
+}
+
+export const firstDayOpeningMoveKinds = [
+  "overstate_village_side",
+  "state_vote_criteria",
+  "ask_role_claim_policy",
+  "tentative_reaction_read",
+  "early_power_role_attention"
+] as const satisfies readonly FirstDayOpeningMoveKind[];
+
+export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
+  const japanese = isJapaneseLanguage(language);
+  const definitions: Record<FirstDayOpeningMoveKind, FirstDayOpeningMove> = {
+    overstate_village_side: {
+      kind,
+      label: japanese ? "村側アピールが強すぎる" : "Overstate village-side self-defense",
+      instruction: japanese
+        ? "初日限定の火種として、自分は人間側だと少し強めに言いすぎる。周囲が防御感を拾える余地を残す。"
+        : "As a first-day spark, slightly overstate that you are on the village side, leaving room for others to read it as defensive."
+    },
+    state_vote_criteria: {
+      kind,
+      label: japanese ? "投票基準を出す" : "State vote criteria",
+      instruction: japanese
+        ? "初日の投票基準を先に出す。発言量、返答の具体性、態度の硬さなど、今後見たい基準を短く示す。"
+        : "Open by stating first-day vote criteria such as speaking volume, concrete answers, or stiffness."
+    },
+    ask_role_claim_policy: {
+      kind,
+      label: japanese ? "役職CO方針を聞く" : "Ask claim-policy preferences",
+      instruction: japanese
+        ? "占い師などの役職COを今日どう扱うか、出るべきか潜るべきかの方針を全体に聞く。"
+        : "Ask the table how role claims, especially Seer claims, should be handled today."
+    },
+    tentative_reaction_read: {
+      kind,
+      label: japanese ? "発言順・態度・反応を暫定材料にする" : "Use order, posture, or reaction as tentative material",
+      instruction: japanese
+        ? "初日限定で、発言順、態度、反応の薄さを暫定材料として扱う。ただし強い断定ではなく、反応を見るための軽い注目に留める。"
+        : "For day one only, treat speaking order, posture, or thin reactions as tentative material without hard certainty."
+    },
+    early_power_role_attention: {
+      kind,
+      label: japanese ? "能力者への触れ方が早い" : "Touch power roles early",
+      instruction: japanese
+        ? "占い師・魔女・騎士に早めに触れる。露出を強く迫りすぎず、守り方や触れ方の方針を話題にする。"
+        : "Bring up Seer, Witch, or Guard early without forcing exposure, using protection or handling policy as the topic."
+    }
+  };
+  return definitions[kind];
 }
 
 function cause(kind: PublicNightDeathCause["kind"], language: string): PublicNightDeathCause {
@@ -162,6 +216,7 @@ export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): Public
     lastNightDeaths: deaths,
     possibleNightDeathCauses: possibleNightDeathCauses(input.players, input.language),
     intents,
+    firstDayOpeningMove: input.firstDayOpeningMove,
     requiresForwardMove: input.legalPlayers.length > 0 && (input.phase === "day_discussion" || input.phase === "voting")
   };
 }
@@ -183,6 +238,12 @@ export function renderPublicSpeechPlan(plan: PublicSpeechPlan, language: string)
     `- ${text.possibleCausesTitle}: ${possibleCauses}.`,
     "",
     text.speechPlanTitle + ":",
+    ...(plan.firstDayOpeningMove
+      ? [
+          `- ${text.firstDaySpecialTitle}: ${plan.firstDayOpeningMove.label}`,
+          `- ${plan.firstDayOpeningMove.instruction}`
+        ]
+      : []),
     ...plan.intents.map((item) => `- ${item.instruction}`),
     ...(plan.requiresForwardMove ? [`- ${text.mustStateStance}`] : []),
     ...(plan.requiresForwardMove && plan.lastNightDeaths.length > 0 ? [`- ${text.mustAdvance}`] : [])
@@ -251,21 +312,63 @@ function hasVisibleStance(text: string, legalPlayers: TargetCandidate[], languag
   return (textHasLivingTarget && assertiveStance.test(text)) || claimStance;
 }
 
+function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | undefined, language: string): boolean {
+  const move = plan?.firstDayOpeningMove;
+  if (!move) {
+    return false;
+  }
+
+  if (isJapaneseLanguage(language)) {
+    if (move.kind === "overstate_village_side") {
+      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,16}(?:村側|人間側|村人|白|吊られたくない)/u.test(text);
+    }
+    if (move.kind === "state_vote_criteria") {
+      return /(?:投票基準|基準|発言量|返答|具体的|態度)/u.test(text);
+    }
+    if (move.kind === "ask_role_claim_policy") {
+      return /(?:役職CO|CO|占い師|出る|潜る|方針)/u.test(text);
+    }
+    if (move.kind === "tentative_reaction_read") {
+      return /(?:発言順|態度|反応|様子|硬く|薄さ|暫定材料|暫定)/u.test(text);
+    }
+    return /(?:占い師|魔女|騎士|護衛|守り方|能力者)/u.test(text);
+  }
+
+  if (move.kind === "overstate_village_side") {
+    return /\b(I|I'm|I am|my)\b.{0,40}\b(village|villager|town|not a wolf|should not be eliminated)\b/i.test(text);
+  }
+  if (move.kind === "state_vote_criteria") {
+    return /\b(vote criteria|criteria|concrete answers|speaking volume|take a position|stiffness)\b/i.test(text);
+  }
+  if (move.kind === "ask_role_claim_policy") {
+    return /\b(role claim|claim policy|Seer claim|come out|stay hidden)\b/i.test(text);
+  }
+  if (move.kind === "tentative_reaction_read") {
+    return /\b(tentative|reaction|posture|stiff|speaking order)\b/i.test(text);
+  }
+  return /\b(Seer|Witch|Guard|power role|protection)\b/i.test(text);
+}
+
 export function reviewSpeechTimeline(
   speech: AgentSpeech,
   publicHistory: string[],
   legalPlayers: TargetCandidate[],
   phase: Phase,
-  language: string
+  language: string,
+  plan?: PublicSpeechPlan
 ): SpeechPlanReview {
   if (!isJapaneseLanguage(language) || phase !== "day_discussion") {
     return { ok: true, issues: [] };
   }
 
   const text = speech.messages.join(" ");
+  const allowOpeningAttitudeReference =
+    publicHistory.length === 0 && plan?.firstDayOpeningMove?.kind === "tentative_reaction_read";
   const genericUnseenReference =
     publicHistory.length === 0 &&
-    /(?:の言う通り|が言う通り|言った通り|指摘に同意|整理に同意|さっき|先ほど|今の反応|今の発言|乗っただけ|便乗|煙幕|煙に巻)/u.test(text);
+    /(?:の言う通り|が言う通り|言った通り|指摘に同意|整理に同意|さっき|先ほど|今の反応|今の発言|乗っただけ|便乗|煙幕|煙に巻)/u.test(
+      text
+    );
 
   const citesUnseenPlayer = legalPlayers.some((player) => {
     const name = `${escapeRegExp(player.name)}(?:さん)?`;
@@ -281,8 +384,14 @@ export function reviewSpeechTimeline(
         `${name}の(?:指摘|整理)(?:に同意|の通り|通り|を受けて|から|に一つ|に乗)`,
         `${name}(?:に同意|に乗った|に乗る)`,
         `${name}の発言(?!が出たら)(?:が|は|も|だけ|から|で|を)[^。！？!?]{0,20}(?:少な|薄|曖昧|弱|強|気になる|不自然|怪し|見え|変わ|ずれ|乗|便乗|ごまか|そら)`,
-        `${name}の(?:反応|返答)(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
+        `${name}の返答(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
+        `${name}の(?:今の|さっきの|先ほどの)反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}の(?:今の|さっきの|先ほどの)?動き(?:が|は|も|だけ|から|で)?[^。！？!?]{0,20}(?:気になる|不自然|怪し|見え|変わ|ずれ|便乗|ごまか|そら)`,
+        ...(allowOpeningAttitudeReference
+          ? []
+          : [
+              `${name}の反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`
+            ]),
         `${name}(?:が|は)?(?:便乗|ごまか|話をそら|煙に巻)`
       ].join("|"),
       "u"
@@ -312,7 +421,7 @@ export function reviewSpeechAgainstPlan(
   }
 
   const text = speech.messages.join(" ");
-  const hasStance = hasVisibleStance(text, legalPlayers, language);
+  const hasStance = hasVisibleStance(text, legalPlayers, language) || hasFirstDayOpeningMoveStance(text, plan, language);
 
   const deathNames = plan.lastNightDeaths.map((death) => death.playerName);
   const mentionsNightDeath = includesAny(text, deathNames) || /死亡|死|噛|襲撃|毒|died|death|dead|killed|attack|poison/i.test(text);
