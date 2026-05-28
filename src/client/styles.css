@@ -722,6 +722,13 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+.player-section-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .player-history-button {
   display: inline-flex;
   position: relative;
@@ -778,6 +785,22 @@ textarea:focus-visible {
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.25),
     inset 0 0 0 1px rgba(112, 226, 223, 0.18);
+}
+
+.player-history-button.vote-results-button.active {
+  border-color: rgba(252, 192, 104, 0.62);
+  background:
+    linear-gradient(180deg, rgba(171, 105, 24, 0.7), rgba(85, 50, 12, 0.88)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16), transparent 42%, rgba(0, 0, 0, 0.18)),
+    var(--ship-control-texture),
+    #7b5216;
+  background-blend-mode: normal, overlay, luminosity, normal;
+  background-position: center, center, var(--ship-control-position), center;
+  background-size: auto, auto, 135px 135px, auto;
+  color: #fff6df;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(255, 224, 150, 0.18);
 }
 
 .history-dismiss-layer {
@@ -3786,6 +3809,88 @@ input[type="range"] {
 .conversation-log-list .empty-note {
   font-size: 18px;
   line-height: 1.6;
+}
+
+.vote-result-popover .overlay-title svg {
+  color: #fbd38d;
+}
+
+.vote-result-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.vote-result-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.vote-result-section header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #dce8ec;
+}
+
+.vote-result-section header span {
+  color: #fff6df;
+  font-size: 15px;
+  font-weight: 880;
+}
+
+.vote-result-section header small {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(220, 232, 236, 0.68);
+  font-size: 12px;
+  font-weight: 740;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vote-result-total-list {
+  gap: 9px;
+}
+
+.vote-cast-list {
+  display: grid;
+  gap: 8px;
+}
+
+.vote-cast-list p {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid rgba(218, 230, 236, 0.14);
+  border-radius: 7px;
+  background: rgba(6, 14, 20, 0.34);
+  padding: 9px 10px;
+  color: #dce8ec;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.vote-cast-list p > span,
+.vote-cast-list p > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vote-cast-list p > strong {
+  color: #fff6df;
+  font-weight: 880;
+}
+
+.vote-cast-list svg {
+  color: rgba(252, 192, 104, 0.78);
 }
 
 .recent-events {

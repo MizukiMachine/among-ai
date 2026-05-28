@@ -380,6 +380,7 @@ type TestableGame = WerewolfGame & {
   checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
   finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
   players: Player[];
+  publicHistory: string[];
   ruleState: RuleState;
   runDay(): AsyncGenerator<GameEvent>;
   runGuardAction(): AsyncGenerator<GameEvent>;
@@ -871,7 +872,14 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.equal(players[3].alive, false);
   assert.ok(events.some((event) => event.type === "vote_result"));
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4"));
-  assert.ok(events.some((event) => event.type === "vote_cast" && event.data?.reason === "シオン scripted reason"));
+  const voteCast = events.find((event) => event.type === "vote_cast" && event.playerId === "p1");
+  assert.equal(voteCast?.targetId, "p4");
+  assert.equal(voteCast?.data?.reason, undefined);
+  const totals = events.find((event) => event.type === "vote_result" && Array.isArray(event.data?.totals));
+  const voteDetails = totals?.data?.votes as Array<{ voterId: string; targetId: string; reason?: string }> | undefined;
+  assert.ok(voteDetails?.some((vote) => vote.voterId === "p1" && vote.targetId === "p4"));
+  assert.ok(voteDetails?.every((vote) => vote.reason === undefined));
+  assert.ok(game.publicHistory.some((line) => line.includes("シオン -> マヒロ") && !line.includes("scripted reason")));
   assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
 });
 
@@ -895,7 +903,7 @@ test("Raven mark adds a vote modifier to the next execution vote", async () => {
 
   assert.equal(players[4].alive, false);
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "vote"));
-  assert.ok((totals?.data?.modifiers as unknown[]).some((modifier) => (modifier as { reason?: string }).reason === "raven_marked"));
+  assert.equal(totals?.data?.modifiers, undefined);
 });
 
 test("Idiot survives first vote execution and loses future voting rights", async () => {
@@ -1631,6 +1639,7 @@ test("round summary carries claims, reads, and votes in deterministic data", asy
   assert.ok((data.suspects as unknown[]).length > 0);
   assert.ok((data.trusts as unknown[]).length > 0);
   assert.ok((data.votes as unknown[]).length > 0);
+  assert.ok((data.votes as Array<Record<string, unknown>>).every((vote) => vote.reason === undefined));
 });
 
 test("LLM summary mode falls back to deterministic summary without an API key", async () => {
@@ -2216,7 +2225,7 @@ test("player redaction reveals only the human player's role and private info", (
   assert.equal(otherView.playerId, undefined);
 });
 
-test("player view hides other players' individual vote details while keeping vote totals", () => {
+test("player and village views expose vote targets without vote reasons", () => {
   const snapshot = {
     round: 1,
     phase: "voting" as const,
@@ -2274,16 +2283,16 @@ test("player view hides other players' individual vote details while keeping vot
   };
   const otherPlayerView = redactEventForPlayer(voteCast, "p3");
 
-  assert.equal(otherPlayerView.message, "投票が行われました。");
-  assert.equal(otherPlayerView.playerId, undefined);
-  assert.equal(otherPlayerView.targetId, undefined);
+  assert.equal(otherPlayerView.message, voteCast.message);
+  assert.equal(otherPlayerView.playerId, "p2");
+  assert.equal(otherPlayerView.targetId, "p1");
   assert.equal(otherPlayerView.data.reason, undefined);
 
   const ownPlayerView = redactEventForPlayer(voteCast, "p2");
   assert.equal(ownPlayerView.message, voteCast.message);
   assert.equal(ownPlayerView.playerId, "p2");
   assert.equal(ownPlayerView.targetId, "p1");
-  assert.equal(ownPlayerView.data.reason, "発言が薄い");
+  assert.equal(ownPlayerView.data.reason, undefined);
 
   const voteResult: GameEvent = {
     ...voteCast,
@@ -2302,16 +2311,16 @@ test("player view hides other players' individual vote details while keeping vot
     }
   };
   const resultPlayerView = redactEventForPlayer(voteResult, "p3");
-  assert.equal(resultPlayerView.data.votes, undefined);
+  assert.deepEqual(resultPlayerView.data.votes, [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }]);
   assert.equal(resultPlayerView.data.modifiers, undefined);
   assert.deepEqual(resultPlayerView.data.totals, [{ targetId: "p1", targetName: "シオン", count: 1 }]);
 
   const resultSpectatorView = redactEventForVillage(voteResult);
-  assert.deepEqual(resultSpectatorView.data.votes, voteResult.data?.votes);
-  assert.deepEqual(resultSpectatorView.data.modifiers, voteResult.data?.modifiers);
+  assert.deepEqual(resultSpectatorView.data.votes, [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }]);
+  assert.equal(resultSpectatorView.data.modifiers, undefined);
 
   const summaryPlayerView = redactEventForPlayer({ ...voteResult, type: "round_summary" }, "p3");
-  assert.equal(summaryPlayerView.data.votes, undefined);
+  assert.deepEqual(summaryPlayerView.data.votes, [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }]);
   assert.equal(summaryPlayerView.data.modifiers, undefined);
   assert.deepEqual(summaryPlayerView.data.totals, [{ targetId: "p1", targetName: "シオン", count: 1 }]);
 });
@@ -2701,13 +2710,13 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
   }
 });
 
-test("Japanese LLM target decision keeps displayed vote reason free of planning notes", async () => {
+test("Japanese LLM target decision keeps private vote reason free of planning notes", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     assert.match(body.system, /対象選択/);
-    assert.match(body.system, /reason は画面や履歴に表示/);
+    assert.match(body.system, /reason は公開表示されません/);
     assert.doesNotMatch(body.system, /Role strategy|Phase guidance|Prompt mode|pressure|record|history|slot/i);
     assert.match(String(body.messages[0].content), /行動:/);
     assert.match(String(body.messages[0].content), /選べる対象:/);

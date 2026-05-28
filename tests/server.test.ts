@@ -127,6 +127,16 @@ test("village stream payload is redacted on the server before SSE delivery", asy
 
   assert.ok(gameEvents.length > 0);
   assert.ok(gameEvents.some((event) => event.data?.redacted === true));
+  const voteCasts = gameEvents.filter((event) => event.type === "vote_cast");
+  assert.ok(voteCasts.length > 0);
+  assert.ok(voteCasts.every((event) => event.playerId && event.targetId && event.data?.reason === undefined));
+  for (const voteResult of gameEvents.filter((event) => event.type === "vote_result" || event.type === "round_summary")) {
+    const votes = voteResult.data?.votes;
+    if (Array.isArray(votes)) {
+      assert.ok(votes.every((vote) => typeof vote === "object" && vote !== null && !("reason" in vote)));
+    }
+    assert.equal(voteResult.data?.modifiers, undefined);
+  }
   for (const event of gameEvents) {
     assert.equal(event.role, undefined);
     assert.equal(event.data?.targetRole, undefined);
