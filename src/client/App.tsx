@@ -118,6 +118,7 @@ const characterNamePattern = new RegExp(
 );
 const villageRedactedMessage = redactedMessage;
 const streamConnectionErrorMessage = "ゲームストリームに接続できませんでした。APIサーバーが起動しているか確認してください。";
+const streamRateLimitErrorMessage = "生成リクエストが混み合っています。少し待ってから再開してください。";
 const initialPlayerCount = 7;
 const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = false;
@@ -505,13 +506,21 @@ export function streamErrorMessageFromData(data: string | undefined): string {
     return streamConnectionErrorMessage;
   }
 
+  const isRateLimitMessage = (message: string) => /(?:429|rate[_ -]?limit|\[1302\])/iu.test(message);
+
   try {
     const payload = JSON.parse(data) as { message?: unknown };
     if (typeof payload.message === "string" && payload.message.trim()) {
+      if (isRateLimitMessage(payload.message)) {
+        return streamRateLimitErrorMessage;
+      }
       return payload.message;
     }
   } catch {
     if (data.trim()) {
+      if (isRateLimitMessage(data)) {
+        return streamRateLimitErrorMessage;
+      }
       return data;
     }
   }

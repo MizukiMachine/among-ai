@@ -33,9 +33,10 @@ const targetDecisionMaxTokens = 160;
 const booleanDecisionMaxTokens = 96;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
-const fixedLlmRequestConcurrency = 5;
+const fixedLlmRequestConcurrency = 4;
 const fixedLlmRequestMinIntervalMs = 0;
-const llmRequestAttempts = 3;
+const llmRequestRetries = 3;
+const llmRequestAttempts = llmRequestRetries + 1;
 const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
 const booleanDecisionAttempts = 2;
@@ -1043,11 +1044,8 @@ function isRetryableAnthropicError(error: unknown): boolean {
   return false;
 }
 
-function isRateLimitAnthropicError(error: unknown): boolean {
-  if (error instanceof APIError) {
-    return error.status === 429 || /(?:rate limit|429)/i.test(error.message);
-  }
-  return error instanceof Error && /(?:rate limit|429)/i.test(error.message);
+function retryDelayMs(attempt: number): number {
+  return initialLlmBackoffMs * 2 ** Math.max(0, attempt - 1);
 }
 
 function parseTargetSelection(
@@ -1723,9 +1721,7 @@ async function completeAnthropic(
       if (!isRetryableAnthropicError(error) || attempt === llmRequestAttempts) {
         throw error;
       }
-      if (!isRateLimitAnthropicError(error)) {
-        await sleep(initialLlmBackoffMs * 2 ** (attempt - 1));
-      }
+      await sleep(retryDelayMs(attempt));
     }
   }
   throw lastError;

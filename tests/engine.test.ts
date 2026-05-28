@@ -3104,13 +3104,13 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
   }
 });
 
-test("LLM speech rate limits retry immediately", async () => {
+test("LLM speech rate limits wait before retrying", async () => {
   const originalFetch = globalThis.fetch;
   const originalSetTimeout = globalThis.setTimeout;
   const originalZaiTimeout = process.env.ZAI_TIMEOUT_MS;
   const originalLlmTimeout = process.env.LLM_TIMEOUT_MS;
   let calls = 0;
-  let backoffTimerAttempts = 0;
+  const backoffDelays: number[] = [];
 
   globalThis.fetch = (async () => {
     calls += 1;
@@ -3149,12 +3149,11 @@ test("LLM speech rate limits retry immediately", async () => {
       }
     );
   }) as typeof fetch;
-  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
-    if (args[1] === 1_000) {
-      backoffTimerAttempts += 1;
-      throw new Error("429 retry scheduled exponential backoff.");
+  globalThis.setTimeout = ((handler: TimerHandler, timeout?: number) => {
+    if (timeout === 1_000 || timeout === 2_000 || timeout === 4_000) {
+      backoffDelays.push(timeout);
     }
-    return originalSetTimeout(...args);
+    return originalSetTimeout(handler, 0);
   }) as typeof setTimeout;
   process.env.ZAI_TIMEOUT_MS = "60000";
   process.env.LLM_TIMEOUT_MS = "60000";
@@ -3187,7 +3186,68 @@ test("LLM speech rate limits retry immediately", async () => {
 
     assert.deepEqual(speech.messages, ["retried speech"]);
     assert.equal(calls, 2);
-    assert.equal(backoffTimerAttempts, 0);
+    assert.deepEqual(backoffDelays, [1_000]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    restoreEnvVar("ZAI_TIMEOUT_MS", originalZaiTimeout);
+    restoreEnvVar("LLM_TIMEOUT_MS", originalLlmTimeout);
+  }
+});
+
+test("LLM speech rate limit falls back without surfacing raw API errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalZaiTimeout = process.env.ZAI_TIMEOUT_MS;
+  const originalLlmTimeout = process.env.LLM_TIMEOUT_MS;
+  let calls = 0;
+  const backoffDelays: number[] = [];
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "rate_limit_error",
+          code: "1302",
+          message: "[1302][Rate limit reached for requests][test-request]"
+        },
+        request_id: "test-request"
+      }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+  globalThis.setTimeout = ((handler: TimerHandler, timeout?: number) => {
+    if (timeout === 1_000 || timeout === 2_000 || timeout === 4_000) {
+      backoffDelays.push(timeout);
+    }
+    return originalSetTimeout(handler, 0);
+  }) as typeof setTimeout;
+  process.env.ZAI_TIMEOUT_MS = "60000";
+  process.env.LLM_TIMEOUT_MS = "60000";
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    game.agents.set(player.id, new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024));
+
+    const events = await collect(game.runDay());
+    const visibleText = events.map((event) => event.message).join("\n");
+    const memoryText = player.memories.join("\n");
+
+    assert.equal(calls % 4, 0);
+    assert.ok(calls >= 4);
+    assert.ok(backoffDelays.includes(1_000));
+    assert.ok(backoffDelays.includes(2_000));
+    assert.ok(backoffDelays.includes(4_000));
+    assert.ok(events.some((event) => event.type === "player_speech" && event.playerId === player.id));
+    assert.doesNotMatch(visibleText, /429|rate_limit_error|request_id|1302|test-request/i);
+    assert.doesNotMatch(memoryText, /rate_limit_error|request_id|test-request/i);
+    assert.match(memoryText, /rate limit/i);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.setTimeout = originalSetTimeout;
