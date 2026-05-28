@@ -925,10 +925,11 @@ textarea:focus-visible {
   display: grid;
   position: relative;
   min-width: 0;
-  min-height: 104px;
+  min-height: 108px;
   align-items: center;
-  gap: 10px;
-  grid-template-columns: 80px minmax(0, 1fr);
+  overflow: hidden;
+  gap: 8px;
+  grid-template-columns: 72px minmax(0, 1fr);
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 8px;
   background:
@@ -939,7 +940,7 @@ textarea:focus-visible {
   background-blend-mode: normal, soft-light, normal, normal;
   background-position: center, center, var(--ship-trim-position), center;
   background-size: auto, auto, 140px 140px, auto;
-  padding: 8px 10px 8px 8px;
+  padding: 8px 4px 8px 8px;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 0 0 1px rgba(0, 0, 0, 0.22);
@@ -959,7 +960,7 @@ textarea:focus-visible {
 }
 
 .player-card.human-player {
-  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   border-color: rgba(227, 166, 79, 0.76);
   background:
     linear-gradient(90deg, rgba(111, 72, 14, 0.62), rgba(13, 22, 30, 0.9) 76%),
@@ -998,19 +999,19 @@ textarea:focus-visible {
 }
 
 .large-roster .player-card {
-  min-height: 98px;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 10px;
+  min-height: 96px;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 8px;
   padding: 6px 7px 6px 6px;
 }
 
 .large-roster .player-card.human-player {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
 }
 
 .large-roster .player-avatar {
-  width: 76px;
-  height: 76px;
+  width: 60px;
+  height: 60px;
 }
 
 .large-roster .player-main {
@@ -1023,8 +1024,8 @@ textarea:focus-visible {
 
 .large-roster .persona-pill {
   max-width: 100%;
-  padding-inline: 7px;
-  font-size: 14px;
+  padding-inline: 5px;
+  font-size: 12px;
 }
 
 .large-roster .human-player-badge {
@@ -1039,14 +1040,14 @@ textarea:focus-visible {
 }
 
 .large-roster .role-chip {
-  min-height: 25px;
-  padding: 3px 8px;
-  font-size: 13px;
+  min-height: 24px;
+  padding: 3px 5px;
+  font-size: 12px;
 }
 
 .player-avatar {
-  width: 78px;
-  height: 78px;
+  width: 72px;
+  height: 72px;
   border: 1px solid rgba(218, 230, 236, 0.26);
   border-radius: 8px;
   background: rgba(13, 20, 26, 0.7);
@@ -1083,7 +1084,7 @@ textarea:focus-visible {
 .player-main {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 0.7fr) minmax(72px, 1fr);
+  grid-template-columns: minmax(0, 0.82fr) minmax(70px, 1fr);
   grid-template-rows: auto auto;
   align-items: center;
   gap: 5px 7px;
@@ -1100,7 +1101,7 @@ textarea:focus-visible {
   align-self: center;
   overflow: hidden;
   color: var(--ship-text);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 820;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1110,11 +1111,13 @@ textarea:focus-visible {
   grid-column: 2;
   grid-row: 1;
   flex: 0 1 auto;
+  justify-self: end;
+  margin-right: 8px;
   overflow: hidden;
-  border: 1px solid rgba(192, 132, 252, 0.42);
+  border: 1px solid rgba(218, 230, 236, 0.16);
   border-radius: 6px;
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ship-muted);
   width: fit-content;
   max-width: 100%;
   padding: 3px 6px;
@@ -1126,57 +1129,57 @@ textarea:focus-visible {
 }
 
 .persona-cautious {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(96, 165, 250, 0.42);
+  background: rgba(37, 99, 235, 0.18);
+  color: #bfdbfe;
 }
 
 .persona-aggressive {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(153, 27, 27, 0.22);
+  color: #fecaca;
 }
 
 .persona-logical {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(129, 140, 248, 0.42);
+  background: rgba(67, 56, 202, 0.2);
+  color: #c7d2fe;
 }
 
 .persona-opportunistic {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(146, 64, 14, 0.22);
+  color: #fde68a;
 }
 
 .persona-empathetic {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(52, 211, 153, 0.42);
+  background: rgba(6, 95, 70, 0.22);
+  color: #a7f3d0;
 }
 
 .persona-trickster {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(244, 114, 182, 0.42);
+  background: rgba(157, 23, 77, 0.22);
+  color: #fbcfe8;
 }
 
 .persona-stoic {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(148, 163, 184, 0.42);
+  background: rgba(51, 65, 85, 0.34);
+  color: #dbeafe;
 }
 
 .persona-passionate {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(251, 146, 60, 0.44);
+  background: rgba(154, 52, 18, 0.24);
+  color: #fed7aa;
 }
 
 .persona-unknown {
-  border-color: rgba(192, 132, 252, 0.42);
-  background: rgba(88, 28, 135, 0.26);
-  color: #e9d5ff;
+  border-color: rgba(218, 230, 236, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ship-muted);
 }
 
 .human-player-badge {
@@ -1201,8 +1204,11 @@ textarea:focus-visible {
 
 .player-card > .human-player-badge {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 6px;
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
 }
 
 .human-player-badge svg {
@@ -1214,6 +1220,8 @@ textarea:focus-visible {
   grid-row: 2;
   display: inline-flex;
   min-width: 0;
+  justify-self: end;
+  margin-right: 8px;
   width: fit-content;
   max-width: 100%;
   min-height: 28px;
@@ -2676,7 +2684,10 @@ input[type="range"] {
 
 .setup-card .player-count-field .player-count-note {
   display: block;
-  margin-top: -2px;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
   border: 1px solid rgba(245, 189, 93, 0.26);
   border-radius: 7px;
   background: rgba(245, 189, 93, 0.1);

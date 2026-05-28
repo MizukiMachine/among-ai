@@ -53,6 +53,7 @@ import type {
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
+const PROCESSING_HUD_MIN_VISIBLE_MS = 800;
 
 const characterPortraitMap: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
@@ -1041,6 +1042,7 @@ export function App() {
   const [queuedEvents, setQueuedEvents] = useState<GameEvent[]>([]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
+  const [processingHudVisible, setProcessingHudVisible] = useState(false);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -1060,6 +1062,8 @@ export function App() {
   const pausedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
   const revealFirstEventRef = useRef(false);
+  const processingHudShownAtRef = useRef<number | null>(null);
+  const processingHudHideTimerRef = useRef<number | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const voteResultsButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
@@ -1222,6 +1226,25 @@ export function App() {
     sourceRef.current = null;
   }
 
+  function clearProcessingHudHideTimer() {
+    if (processingHudHideTimerRef.current !== null) {
+      window.clearTimeout(processingHudHideTimerRef.current);
+      processingHudHideTimerRef.current = null;
+    }
+  }
+
+  function showProcessingHudNow() {
+    clearProcessingHudHideTimer();
+    processingHudShownAtRef.current ??= Date.now();
+    setProcessingHudVisible(true);
+  }
+
+  function hideProcessingHudNow() {
+    clearProcessingHudHideTimer();
+    processingHudShownAtRef.current = null;
+    setProcessingHudVisible(false);
+  }
+
   function resetToSetup() {
     closeGameStream();
     pausedRef.current = false;
@@ -1235,6 +1258,7 @@ export function App() {
     setQueuedEvents([]);
     setSnapshot(null);
     setGenerationProgress(null);
+    hideProcessingHudNow();
     setGameId(null);
     setSourceDone(false);
     setRunning(false);
@@ -1282,9 +1306,11 @@ export function App() {
     setQueuedEvents([]);
     setSnapshot(null);
     setGenerationProgress(null);
+    hideProcessingHudNow();
     setGameId(null);
     setSourceDone(false);
     setRunning(true);
+    showProcessingHudNow();
     statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
 
@@ -1316,6 +1342,9 @@ export function App() {
 
     source.addEventListener("progress", (message) => {
       const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
+      if (!pausedRef.current && queuedRef.current.length === 0) {
+        showProcessingHudNow();
+      }
       setGenerationProgress(progress);
       setGameStatus("生成中");
     });
@@ -1449,7 +1478,10 @@ export function App() {
   }
 
   useEffect(() => {
-    return closeGameStream;
+    return () => {
+      closeGameStream();
+      clearProcessingHudHideTimer();
+    };
   }, []);
 
   useEffect(() => {
@@ -1974,31 +2006,56 @@ export function App() {
   const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
+  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
+  const storyProcessingActive = storyWaitingForStream || processingHudVisible;
   const storyNextDisabled =
     paused ||
     Boolean(readyHumanInput) ||
     (setupMode && !settingsConfirmed) ||
     firstScenePending ||
+    storyProcessingActive ||
     (queuedEvents.length === 0 && (running || events.length > 0));
-  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
   const primaryActionIsGameStart = setupMode && settingsConfirmed;
-  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyWaitingForStream ? "処理中" : "次へ";
-  const primaryActionHint = primaryActionIsGameStart && storyWaitingForStream ? "準備中" : storyWaitingForStream ? "思考中" : "Enter / →";
+  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyProcessingActive ? "処理中" : "次へ";
+  const primaryActionHint = primaryActionIsGameStart && storyProcessingActive ? "準備中" : storyProcessingActive ? "思考中" : "Enter / →";
   const runControlState = storyRunControlState(gameStarted, paused);
 
+  useEffect(() => {
+    clearProcessingHudHideTimer();
+
+    if (storyWaitingForStream) {
+      showProcessingHudNow();
+      return undefined;
+    }
+
+    if (!processingHudVisible) {
+      processingHudShownAtRef.current = null;
+      return undefined;
+    }
+
+    const shownAt = processingHudShownAtRef.current ?? Date.now();
+    const remaining = PROCESSING_HUD_MIN_VISIBLE_MS - (Date.now() - shownAt);
+    if (remaining <= 0) {
+      hideProcessingHudNow();
+      return undefined;
+    }
+
+    processingHudHideTimerRef.current = window.setTimeout(() => {
+      hideProcessingHudNow();
+    }, remaining);
+
+    return clearProcessingHudHideTimer;
+  }, [processingHudVisible, storyWaitingForStream]);
+
   function renderStoryProcessingHud() {
-    if (!storyWaitingForStream) {
+    if (!processingHudVisible) {
       return null;
     }
 
-    const progress = generationProgress;
-    const title = progress ? progress.label : currentEvent ? "次の場面を準備中" : "対局を準備中";
+    const progress = storyWaitingForStream ? generationProgress : null;
+    const title = "AIプレイヤーが考えています";
     const passText = progress?.pass && progress.passes ? ` ${progress.pass}/${progress.passes}巡目` : "";
-    const detail = progress
-      ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}`
-      : currentEvent
-        ? "AIプレイヤーが考えています"
-        : "AIプレイヤーと最初の場面を準備しています";
+    const detail = progress ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}` : null;
     const progressPercent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
     return (
@@ -2008,7 +2065,7 @@ export function App() {
         </span>
         <span className="processing-copy">
           <strong>{title}</strong>
-          <span>{detail}</span>
+          {detail ? <span>{detail}</span> : null}
         </span>
         {progress ? (
           <span className="processing-meter" aria-hidden="true">
