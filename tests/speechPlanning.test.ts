@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildPublicSpeechPlan,
   firstDayOpeningMove,
+  renderPublicSpeechDiversityContext,
   renderPublicSpeechPlan,
   reviewSpeechAgainstPlan,
   reviewSpeechTimeline
@@ -88,6 +89,49 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.match(rendered, /自分の疑い・信頼・保留/);
   assert.match(rendered, /質問、様子見、今後見る点だけで終えず/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
+});
+
+test("public speech diversity context summarizes used reads and asks for a new angle", () => {
+  const rendered = renderPublicSpeechDiversityContext(
+    [
+      {
+        playerId: "p1",
+        playerName: "ソウタ",
+        metadata: {
+          claims: [],
+          suspects: [{ targetId: "p5", targetName: "レン", reason: "自分の前巡の読み", weight: 0.5 }],
+          trusts: []
+        }
+      },
+      {
+        playerId: "p2",
+        playerName: "アカネ",
+        metadata: {
+          claims: [],
+          suspects: [{ targetId: "p2", targetName: "ミナト", reason: "返答が硬い", weight: 0.6 }],
+          trusts: []
+        }
+      },
+      {
+        playerId: "p3",
+        playerName: "ユイ",
+        metadata: {
+          claims: [],
+          suspects: [{ targetId: "p2", targetName: "ミナト", reason: "返答が硬い", weight: 0.4 }],
+          trusts: [{ targetId: "p4", targetName: "ガク", reason: "投票理由が自然", weight: 0.3 }]
+        }
+      }
+    ],
+    "Japanese",
+    { excludePlayerId: "p1" }
+  ).join("\n");
+
+  assert.match(rendered, /他プレイヤーが直近で既に出した読み/);
+  assert.doesNotMatch(rendered, /ソウタ/);
+  assert.match(rendered, /アカネ -> ミナト: 疑い（返答が硬い）/);
+  assert.match(rendered, /ユイ -> ガク: 信頼（投票理由が自然）/);
+  assert.match(rendered, /同じ対象と同じ理由を繰り返すだけにしない/);
+  assert.match(rendered, /別の根拠/);
 });
 
 test("first-day opening moves can satisfy special opening review rules", () => {

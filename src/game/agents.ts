@@ -1022,7 +1022,7 @@ function isRetryableAnthropicError(error: unknown): boolean {
   }
   if (error instanceof APIError) {
     const status = error.status ?? 0;
-    return status >= 500;
+    return status === 429 || status >= 500 || /(?:rate limit|429)/i.test(error.message);
   }
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
@@ -1030,18 +1030,24 @@ function isRetryableAnthropicError(error: unknown): boolean {
       error.name === "AbortError" ||
       message.includes("timeout") ||
       message.includes("aborted") ||
-      message.includes("cancelled") ||
-      message.includes("rate limit") ||
-      message.includes("429")
+      message.includes("cancelled")
     ) {
       return false;
     }
     return (
       message.includes("econnreset") ||
-      message.includes("rate limit")
+      message.includes("rate limit") ||
+      message.includes("429")
     );
   }
   return false;
+}
+
+function isRateLimitAnthropicError(error: unknown): boolean {
+  if (error instanceof APIError) {
+    return error.status === 429 || /(?:rate limit|429)/i.test(error.message);
+  }
+  return error instanceof Error && /(?:rate limit|429)/i.test(error.message);
 }
 
 function parseTargetSelection(
@@ -1717,7 +1723,9 @@ async function completeAnthropic(
       if (!isRetryableAnthropicError(error) || attempt === llmRequestAttempts) {
         throw error;
       }
-      await sleep(initialLlmBackoffMs * 2 ** (attempt - 1));
+      if (!isRateLimitAnthropicError(error)) {
+        await sleep(initialLlmBackoffMs * 2 ** (attempt - 1));
+      }
     }
   }
   throw lastError;

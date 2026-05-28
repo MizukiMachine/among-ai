@@ -9,6 +9,7 @@ import type {
   PublicNightDeathCause,
   PublicNightDeathInfo,
   PublicSpeechPlan,
+  SpeechMetadata,
   SpeechIntent,
   TargetCandidate
 } from "./types";
@@ -28,6 +29,19 @@ interface SpeechPlanReview {
   ok: boolean;
   issues: string[];
   revisionHint?: string;
+}
+
+interface PublicSpeechDiversityRecord {
+  playerId: string;
+  playerName: string;
+  metadata: Pick<SpeechMetadata, "suspects" | "trusts">;
+}
+
+interface PublicReadSummary {
+  sourceName: string;
+  targetName: string;
+  kind: "suspect" | "trust";
+  reason?: string;
 }
 
 function labels(language: string) {
@@ -82,6 +96,75 @@ function labels(language: string) {
       ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかを自分の意見として言ってください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance."
   };
+}
+
+function compactReason(reason: string | undefined): string | undefined {
+  const trimmed = reason?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.length > 36 ? `${trimmed.slice(0, 36)}...` : trimmed;
+}
+
+function readSummaryLine(read: PublicReadSummary, language: string): string {
+  const japanese = isJapaneseLanguage(language);
+  const kind = japanese ? (read.kind === "suspect" ? "疑い" : "信頼") : read.kind === "suspect" ? "suspicion" : "trust";
+  const reason = compactReason(read.reason);
+  if (japanese) {
+    return `- ${read.sourceName} -> ${read.targetName}: ${kind}${reason ? `（${reason}）` : ""}`;
+  }
+  return `- ${read.sourceName} -> ${read.targetName}: ${kind}${reason ? ` (${reason})` : ""}`;
+}
+
+export function renderPublicSpeechDiversityContext(
+  records: PublicSpeechDiversityRecord[],
+  language: string,
+  options: { excludePlayerId?: string; maxReads?: number } = {}
+): string[] {
+  const japanese = isJapaneseLanguage(language);
+  const reads: PublicReadSummary[] = records
+    .filter((record) => record.playerId !== options.excludePlayerId)
+    .flatMap((record) => [
+      ...record.metadata.suspects.map((read) => ({
+        sourceName: record.playerName,
+        targetName: read.targetName ?? read.targetId,
+        kind: "suspect" as const,
+        reason: read.reason
+      })),
+      ...record.metadata.trusts.map((read) => ({
+        sourceName: record.playerName,
+        targetName: read.targetName ?? read.targetId,
+        kind: "trust" as const,
+        reason: read.reason
+      }))
+    ]);
+  const maxReads = options.maxReads ?? 8;
+  const recentReads = reads.slice(-maxReads);
+  if (recentReads.length === 0) {
+    return [];
+  }
+
+  if (japanese) {
+    return [
+      "他プレイヤーが直近で既に出した読み:",
+      ...recentReads.map((read) => readSummaryLine(read, language)),
+      "",
+      "発言の重複を避ける:",
+      "- 同じ対象と同じ理由を繰り返すだけにしない。",
+      "- 同意する時も、自分の投票への影響、別の根拠、反論、比較対象のどれかを一つ足す。",
+      "- 既に複数人が同じ読みを出しているなら、さらに重ねるより、保留、別候補、信用判断、投票方針へ話を進める。"
+    ];
+  }
+
+  return [
+    "Recent public reads already used by other players:",
+    ...recentReads.map((read) => readSummaryLine(read, language)),
+    "",
+    "Avoid repeated table angles:",
+    "- Do not merely repeat the same target and the same reason.",
+    "- If you agree, add one distinct vote consequence, evidence point, challenge, or comparison.",
+    "- If several players already share that read, move the discussion forward with a hold, alternate candidate, claim judgment, or vote plan."
+  ];
 }
 
 export const firstDayOpeningMoveKinds = [
