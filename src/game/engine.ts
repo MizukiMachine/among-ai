@@ -5,7 +5,7 @@ import { HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
-import { buildPublicSpeechPlan, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "./speechPlanning";
+import { buildPublicSpeechPlan, firstDayOpeningMove, firstDayOpeningMoveKinds, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "./speechPlanning";
 import {
   canUseDeathTrigger,
   createDeathResolutionEffects,
@@ -37,6 +37,7 @@ import type {
   ClaimMetadata,
   DebugScenario,
   EventVisibility,
+  FirstDayOpeningMoveKind,
   GameConfig,
   GameEvent,
   GameSnapshot,
@@ -1520,11 +1521,14 @@ export class WerewolfGame {
     );
 
     const speakers = this.daySpeakerOrder();
+    const firstDayOpeningMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
     const generateSpeech = async (
       player: Player,
       discussionPass: number,
       options: { signal?: AbortSignal; speculative?: boolean } = {}
     ): Promise<{ player: Player; speech: AgentSpeech }> => {
+      const openingMoveKind = discussionPass === 1 ? firstDayOpeningMoveByPlayerId.get(player.id) : undefined;
+      const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
       const contextLines = [
         deathNames.length > 0
           ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
@@ -1555,7 +1559,14 @@ export class WerewolfGame {
           : this.text(
               "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
               "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
-            )
+            ),
+        ...(openingMove
+          ? [
+              this.isJapanese()
+                ? `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
+                : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
+            ]
+          : [])
       ];
       const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
       const speechPlan = buildPublicSpeechPlan({
@@ -1565,7 +1576,8 @@ export class WerewolfGame {
         players: this.players,
         lastNightDeaths: this.lastNightDeathRecords,
         legalPlayers,
-        language: this.config.language
+        language: this.config.language,
+        firstDayOpeningMove: openingMove
       });
       const context = this.contextFor(player, contextLines, {}, speechPlan);
       const speech = await this.safeSpeak(
@@ -1603,8 +1615,20 @@ export class WerewolfGame {
     };
 
     for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
+      let passSpeakers = speakers;
+      if (discussionPass === 1 && firstDayOpeningMoveByPlayerId.size > 0) {
+        const openingSpeaker = speakers.find((player) => firstDayOpeningMoveByPlayerId.has(player.id));
+        if (openingSpeaker) {
+          const { player, speech } = await generateSpeech(openingSpeaker, discussionPass);
+          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+            yield event;
+          }
+          passSpeakers = speakers.filter((player) => player.id !== openingSpeaker.id);
+        }
+      }
+
       for await (const { player, speech } of this.raceAiWithHumanLast(
-        speakers,
+        passSpeakers,
         (player, options) => generateSpeech(player, discussionPass, options),
         this.progressReporter("day_speech", this.text("Day discussion", "昼議論"), {
           pass: discussionPass,
@@ -1634,6 +1658,14 @@ export class WerewolfGame {
     }
 
     yield* this.runVoting();
+  }
+
+  private firstDayOpeningMoveAssignments(speakers: Player[]): Map<string, FirstDayOpeningMoveKind> {
+    const firstSpeaker = speakers[0];
+    if (!firstSpeaker || this.round !== 1) {
+      return new Map();
+    }
+    return new Map([[firstSpeaker.id, sample([...firstDayOpeningMoveKinds])]]);
   }
 
   private async *runVoting(): AsyncGenerator<GameEvent> {
@@ -2018,7 +2050,7 @@ export class WerewolfGame {
         ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
         : { ok: true, issues: [] };
       const timelineReview = shouldReviewSpeechTimeline
-        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language)
+        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language, options.speechPlan)
         : { ok: true, issues: [] };
       const styleIssues = styleReview.issues;
       const speechPlanIssues = planReview.issues;

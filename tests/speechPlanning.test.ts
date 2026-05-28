@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPublicSpeechPlan, renderPublicSpeechPlan, reviewSpeechAgainstPlan, reviewSpeechTimeline } from "../src/game/speechPlanning";
+import {
+  buildPublicSpeechPlan,
+  firstDayOpeningMove,
+  renderPublicSpeechPlan,
+  reviewSpeechAgainstPlan,
+  reviewSpeechTimeline
+} from "../src/game/speechPlanning";
 import type { AgentSpeech, Camp, Persona, Player, Role, TargetCandidate } from "../src/game/types";
 
 function player(role: Role, id: string, name: string, persona: Persona = "logical"): Player {
@@ -49,7 +55,8 @@ test("public speech plan renders public death knowledge separately from speech i
     players,
     lastNightDeaths: [{ playerId: "p1", cause: "werewolf" }],
     legalPlayers,
-    language: "Japanese"
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("state_vote_criteria", "Japanese")
   });
 
   assert.equal(plan.lastNightDeaths[0].publicCauseLabel, null);
@@ -74,11 +81,78 @@ test("public speech plan renders public death knowledge separately from speech i
 
   const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
   assert.match(rendered, /公開知識/);
+  assert.match(rendered, /初日特別モード/);
+  assert.match(rendered, /投票基準を出す/);
   assert.match(rendered, /公開上の死因: 不明/);
   assert.match(rendered, /魔女の毒薬/);
   assert.match(rendered, /自分の疑い・信頼・保留/);
   assert.match(rendered, /質問、様子見、今後見る点だけで終えず/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
+});
+
+test("first-day opening moves can satisfy special opening review rules", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "ミナト" },
+    { id: "p3", name: "ユイ" }
+  ];
+  const selfDefensePlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "アカネ"), player("Villager", "p2", "ミナト"), player("Witch", "p3", "ユイ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("overstate_village_side", "Japanese")
+  });
+  const selfDefense = reviewSpeechAgainstPlan(
+    {
+      messages: ["私は人間側なので、初日に変な疑いで吊られるのは避けたいです。"],
+      metadata
+    },
+    selfDefensePlan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(selfDefense.ok, true);
+
+  const reactionPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "アカネ"), player("Villager", "p2", "ミナト"), player("Witch", "p3", "ユイ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("tentative_reaction_read", "Japanese")
+  });
+  const reaction = reviewSpeechTimeline(
+    {
+      messages: ["ミナトさんの反応が少し硬く見えるので、初日は暫定材料として返答を見たいです。"],
+      metadata
+    },
+    [],
+    legalPlayers,
+    "day_discussion",
+    "Japanese",
+    reactionPlan
+  );
+  assert.equal(reaction.ok, true);
+
+  for (const message of ["ミナトさんの先ほどの動きが怪しく見えます。", "ミナトさんの今の反応が不自然です。"]) {
+    const observedPastAction = reviewSpeechTimeline(
+      {
+        messages: [message],
+        metadata
+      },
+      [],
+      legalPlayers,
+      "day_discussion",
+      "Japanese",
+      reactionPlan
+    );
+    assert.equal(observedPastAction.ok, false);
+  }
 });
 
 test("speech plan review rejects death-cause recap that does not advance discussion", () => {

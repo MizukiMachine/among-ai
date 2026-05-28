@@ -11,6 +11,7 @@ import { maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
+import { firstDayOpeningMoveKinds } from "../src/game/speechPlanning";
 import type {
   Agent,
   AgentBooleanInput,
@@ -1061,6 +1062,56 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.match(firstAgent.speechInputs[1].context, /Second pass: if needed, answer direct pressure/);
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
+});
+
+test("first day opening speaker receives one random opening move prompt", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Guard", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  await collect(game.runDay());
+
+  const openingAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  const openingKind = openingAgent.speechInputs[0].speechPlan?.firstDayOpeningMove?.kind;
+  assert.match(openingAgent.speechInputs[0].context, /初日特別モード/);
+  assert.equal(openingAgent.speechInputs[1].speechPlan?.firstDayOpeningMove, undefined);
+
+  const allowedKinds = new Set<string>(firstDayOpeningMoveKinds);
+  assert.ok(openingKind && allowedKinds.has(openingKind));
+
+  for (const player of players.slice(1)) {
+    const agent = game.agents.get(player.id) as ScriptedAgent;
+    assert.equal(agent.speechInputs[0].speechPlan?.firstDayOpeningMove, undefined);
+    assert.doesNotMatch(agent.speechInputs[0].context, /初日特別モード/);
+  }
+});
+
+test("later day first-pass speakers do not receive opening move prompts", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Guard", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+  (game as unknown as { round: number }).round = 2;
+
+  await collect(game.runDay());
+
+  for (const player of players) {
+    const agent = game.agents.get(player.id) as ScriptedAgent;
+    assert.equal(agent.speechInputs[0].speechPlan?.firstDayOpeningMove, undefined);
+    assert.doesNotMatch(agent.speechInputs[0].context, /初日特別モード/);
+  }
 });
 
 test("day discussion context includes structured public knowledge after night deaths", async () => {
