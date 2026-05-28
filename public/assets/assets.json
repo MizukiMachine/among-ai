@@ -58,7 +58,7 @@
       "id": "game_start",
       "title": "Game Start",
       "src": "assets/sfx/game-start.mp3",
-      "volume": 0.32,
+      "volume": 0.18,
       "durationMs": 2200
     },
     {

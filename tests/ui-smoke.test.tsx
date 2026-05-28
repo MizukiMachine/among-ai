@@ -295,7 +295,7 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.doesNotMatch(source, /className=\{`hero-cast/);
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*left:\s*84px[^}]*top:\s*50%[^}]*transform:\s*translateY\(-50%\)/s);
   assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 154px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*56px/s);
-  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 230px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*32px/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 320px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*32px/s);
   assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*width:\s*112px[^}]*height:\s*128px[^}]*background:\s*transparent/s);
   assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*object-fit:\s*contain/s);
   assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*overflow:\s*hidden/s);
@@ -678,7 +678,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
-  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running\]\);/);
+  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 

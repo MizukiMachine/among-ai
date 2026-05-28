@@ -944,82 +944,82 @@ interface RoleRulePopoverPosition {
 
 const roleRuleJa: Record<Role, RoleRuleCopy> = {
   Werewolf: {
-    goal: "人狼が人間側と同数以上になると勝利します。",
-    ability: "夜に人狼同士で相談し、襲撃する相手を1人決めます。",
-    timing: "夜の人狼相談と襲撃で行動します。",
-    note: "昼は正体を隠し、投票で処刑されないように議論を誘導します。"
+    goal: "狼陣営が人間側と同数以上で勝利",
+    ability: "仲間と相談し、夜に1人を襲撃",
+    timing: "毎晩の人狼相談後",
+    note: "昼は正体を隠し、処刑を避ける"
   },
   AlphaWolf: {
-    goal: "人狼陣営として、人間側を追い詰めることを目指します。",
-    ability: "通常の人狼行動に加えて、死亡時に一度だけ道連れの一撃を放てます。",
-    timing: "夜は人狼として行動し、死亡時に追加効果が発動します。",
-    note: "処刑や死亡の場面で盤面を大きく動かせる人狼です。"
+    goal: "狼陣営が人間側と同数以上で勝利",
+    ability: "人狼行動に加え、死亡時に1人を道連れ",
+    timing: "夜は人狼行動、死亡時に反撃",
+    note: "最後の一撃で盤面を崩せる"
   },
   WolfBeauty: {
-    goal: "人狼陣営として勝利を目指します。",
-    ability: "夜に1人を魅了し、美女狼が死亡したときに魅了相手も道連れにします。",
-    timing: "夜に魅了対象を選び、死亡時に連鎖死亡が発生します。",
-    note: "生存中は通常の人狼として襲撃にも参加します。"
+    goal: "狼陣営が人間側と同数以上で勝利",
+    ability: "夜に1人を魅了し、自分の死亡時に道連れ",
+    timing: "夜に魅了、死亡時に連鎖",
+    note: "襲撃参加と道連れを両立する"
   },
   Seer: {
-    goal: "人間側として人狼を見つけ、投票で追放します。",
-    ability: "夜に生存者を1人占い、人間側か人狼側かを知ります。",
-    timing: "夜の占いフェーズで行動します。",
-    note: "結果をいつ公開するかが重要です。早すぎる公開は襲撃対象になりやすくなります。"
+    goal: "人間側として全人狼を排除",
+    ability: "夜に1人を占い、陣営を知る",
+    timing: "毎晩の占いフェーズ",
+    note: "結果を出すタイミングが重要"
   },
   Witch: {
-    goal: "人間側として人狼を処刑に導きます。",
-    ability: "救命薬と毒薬をそれぞれ一度だけ使えます。救命薬は襲撃死を防ぎ、毒薬は1人を死亡させます。",
-    timing: "夜の魔女フェーズで行動します。",
-    note: "薬の使用タイミングで村の人数差が大きく変わります。"
+    goal: "人間側として全人狼を排除",
+    ability: "救命薬と毒薬を各1回使える",
+    timing: "夜の魔女フェーズ",
+    note: "薬の使いどころで人数差が変わる"
   },
   Guard: {
-    goal: "人間側として重要な人物を守り、議論の時間を稼ぎます。",
-    ability: "夜に1人を護衛し、その人への人狼襲撃を防ぎます。",
-    timing: "夜の護衛フェーズで行動します。",
-    note: "占い師候補や襲撃されそうな人物を読む役職です。"
+    goal: "人間側として全人狼を排除",
+    ability: "夜に1人を護衛し、襲撃を防ぐ",
+    timing: "毎晩の護衛フェーズ",
+    note: "同じ相手を連続では守れない"
   },
   Hunter: {
-    goal: "人間側として人狼を道連れにする機会を狙います。",
-    ability: "死亡時に一度だけ1人を撃つことができます。",
-    timing: "処刑や襲撃などで死亡したときに発動します。",
-    note: "撃つ相手を誤ると人間側に不利になるため、昼の情報整理が重要です。"
+    goal: "人間側として全人狼を排除",
+    ability: "死亡時に1人を撃てる",
+    timing: "処刑・襲撃などで死亡した時",
+    note: "撃つ前に疑い先を絞っておく"
   },
   Raven: {
-    goal: "人間側として投票を補助し、人狼候補に圧力をかけます。",
-    ability: "夜に1人へ印を付け、次の処刑投票でその人に追加票を与えます。",
-    timing: "夜の鴉フェーズで行動し、次の投票で効果が出ます。",
-    note: "疑い先を投票面で強調できる支援役です。"
+    goal: "人間側として全人狼を排除",
+    ability: "夜に印を付け、対象へ投票1票を加算",
+    timing: "夜に指定、次の投票で反映",
+    note: "吊りたい相手への圧力になる"
   },
   Idiot: {
-    goal: "人間側として議論に参加し、人狼を探します。",
-    ability: "初めて投票で処刑されると正体が公開されて生存しますが、その後は投票権を失います。",
-    timing: "処刑投票で最多票になったときに発動します。",
-    note: "生存はできますが、以後の投票影響力がなくなります。"
+    goal: "人間側として全人狼を排除",
+    ability: "初回処刑を回避し、以後は投票権を失う",
+    timing: "処刑投票で選ばれた時",
+    note: "生き残れるが投票の力は消える"
   },
   Elder: {
-    goal: "人間側として生き残り、能力者を守る議論を支えます。",
-    ability: "投票で処刑されると、残っている人間側の特殊能力が無効化されます。",
-    timing: "処刑投票で死亡したときに発動します。",
-    note: "人間側にとって処刑してはいけない重要人物です。"
+    goal: "人間側として全人狼を排除",
+    ability: "処刑されると人間側の特殊能力が停止",
+    timing: "処刑投票で死亡した時",
+    note: "人間側が吊ってはいけない要注意役"
   },
   Lover: {
-    goal: "恋人陣営として、ペアで最後まで生き残ることを狙います。",
-    ability: "恋人の片方が死亡すると、もう片方も後追いで死亡します。",
-    timing: "ゲーム開始時にペアが決まり、死亡時に連鎖します。",
-    note: "元の陣営と恋人としての勝ち筋が衝突することがあります。"
+    goal: "恋人2人だけで生き残ると勝利",
+    ability: "片方が死亡すると相方も後追い",
+    timing: "開始時にペア決定、死亡時に連鎖",
+    note: "元陣営より恋人の生存が優先"
   },
   Jester: {
-    goal: "中立役職として、自分が投票で処刑されると勝利します。",
-    ability: "特殊な夜能力はありませんが、処刑されること自体が勝利条件です。",
-    timing: "処刑投票で自分が死亡したときに勝利します。",
-    note: "怪しまれすぎず、襲撃されず、投票で吊られる立ち回りが必要です。"
+    goal: "自分が投票で処刑されると勝利",
+    ability: "夜能力なし。処刑が勝ち筋",
+    timing: "昼の処刑投票で死亡した時",
+    note: "襲撃されず、吊られる位置を狙う"
   },
   Villager: {
-    goal: "人間側として人狼を全員処刑します。",
-    ability: "特殊能力はありません。発言、推理、投票で人狼を探します。",
-    timing: "昼の議論と投票で行動します。",
-    note: "情報を整理し、能力者の発言と投票行動から矛盾を探します。"
+    goal: "人間側として全人狼を排除",
+    ability: "特殊能力なし。発言と投票で戦う",
+    timing: "昼の議論と投票",
+    note: "発言・投票・役職主張の矛盾を見る"
   }
 };
 
@@ -2486,7 +2486,7 @@ export function App() {
             </div>
             <dl className="role-rule-body">
               <div>
-                <dt>勝利条件</dt>
+                <dt>勝利</dt>
                 <dd>{roleRuleText(selectedRule.goal)}</dd>
               </div>
               <div>
@@ -2494,11 +2494,11 @@ export function App() {
                 <dd>{roleRuleText(selectedRule.ability)}</dd>
               </div>
               <div>
-                <dt>発動タイミング</dt>
+                <dt>発動</dt>
                 <dd>{roleRuleText(selectedRule.timing)}</dd>
               </div>
               <div>
-                <dt>立ち回り</dt>
+                <dt>要点</dt>
                 <dd>{roleRuleText(selectedRule.note)}</dd>
               </div>
             </dl>
@@ -2767,7 +2767,7 @@ export function App() {
     const profile = selectedCharacterProfile;
     const player = selectedCharacterPlayer;
     const humanPlayer = isHumanPlayer(selectedCharacterId);
-    const portrait = getCharacterPortrait(selectedCharacterId);
+    const thumbnail = getCharacterImage(selectedCharacterId);
     const visibleRoleLabel = player ? roleDisplay(player, spectatorMode, language, humanPlayerId) : displayRoleLabel("Hidden", language);
     const visibleRoleClass = player ? roleChipClass(player, spectatorMode, humanPlayerId) : "role-hidden";
     const relationEntries = characterRelationEntries(selectedCharacterId, new Set(snapshot?.players.map((candidate) => candidate.id) ?? []));
@@ -2802,8 +2802,8 @@ export function App() {
 
           <div className="overlay-body character-profile-body">
             <div className="character-profile-summary">
-              {portrait ? (
-                <CharacterImage alt={profile.nameJa} className="character-profile-thumb" src={portrait} fallback={<UserRound size={24} />} />
+              {thumbnail ? (
+                <CharacterImage alt={profile.nameJa} className="character-profile-thumb" src={thumbnail} fallback={<UserRound size={24} />} />
               ) : (
                 <span className="character-profile-thumb character-profile-fallback">
                   <UserRound size={24} />
@@ -2816,7 +2816,6 @@ export function App() {
                   <span className={`role-chip ${visibleRoleClass}`}>{visibleRoleLabel}</span>
                   {humanPlayer ? renderHumanPlayerBadge() : null}
                 </div>
-                <p className="character-profile-tagline">{profile.tagline}</p>
               </div>
             </div>
 

@@ -267,7 +267,7 @@ function intent(kind: SpeechIntent["kind"], language: string): SpeechIntent {
   };
 }
 
-function publicNightDeathInfo(death: DeathRecord, players: Player[], language: string): PublicNightDeathInfo {
+function publicNightDeathInfo(death: DeathRecord, players: Player[]): PublicNightDeathInfo {
   const player = players.find((candidate) => candidate.id === death.playerId);
   return {
     playerId: death.playerId,
@@ -277,7 +277,7 @@ function publicNightDeathInfo(death: DeathRecord, players: Player[], language: s
 }
 
 export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): PublicSpeechPlan {
-  const deaths = input.lastNightDeaths.map((death) => publicNightDeathInfo(death, input.players, input.language));
+  const deaths = input.lastNightDeaths.map((death) => publicNightDeathInfo(death, input.players));
   const intents: SpeechIntent[] = [];
 
   if (deaths.length > 0 && input.phase === "day_discussion") {
