@@ -1933,6 +1933,60 @@ test("werewolf attack target generation waits until private discussion finishes"
   await run.return(undefined);
 });
 
+test("human player is protected from early werewolf attack targets by table size", async () => {
+  const cases = [
+    { playerCount: 8, protectedRound: 2, expiredRound: 3 },
+    { playerCount: 9, protectedRound: 3, expiredRound: 4 },
+    { playerCount: 14, protectedRound: 4, expiredRound: 5 }
+  ];
+
+  const table = (playerCount: number): Array<{ role: Role; targets?: Array<string | null> }> =>
+    Array.from({ length: playerCount }, (_, index) => ({
+      role: index < 2 ? "Werewolf" : "Villager",
+      targets: index < 2 ? ["p3"] : undefined
+    }));
+
+  for (const { playerCount, protectedRound, expiredRound } of cases) {
+    const protectedGame = new WerewolfGame({
+      ...baseConfig,
+      playerCount,
+      maxRounds: 8,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    }) as TestableGame;
+    const protectedPlayers = setTable(protectedGame, table(playerCount));
+    (protectedGame as unknown as { round: number }).round = protectedRound;
+
+    const protectedEvents = await collect(protectedGame.runNight());
+    const protectedWolfInputs = protectedPlayers
+      .slice(0, 2)
+      .flatMap((player) => (protectedGame.agents.get(player.id) as ScriptedAgent).targetInputs);
+
+    assert.ok(protectedWolfInputs.length > 0);
+    assert.ok(protectedWolfInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
+    assert.ok(protectedEvents.every((event) => event.type !== "death" || event.targetId !== "p3"));
+
+    const expiredGame = new WerewolfGame({
+      ...baseConfig,
+      playerCount,
+      maxRounds: 8,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    }) as TestableGame;
+    const expiredPlayers = setTable(expiredGame, table(playerCount));
+    (expiredGame as unknown as { round: number }).round = expiredRound;
+
+    const expiredEvents = await collect(expiredGame.runNight());
+    const expiredWolfInputs = expiredPlayers
+      .slice(0, 2)
+      .flatMap((player) => (expiredGame.agents.get(player.id) as ScriptedAgent).targetInputs);
+
+    assert.ok(expiredWolfInputs.length > 0);
+    assert.ok(expiredWolfInputs.every((input) => input.candidates.some((candidate) => candidate.id === "p3")));
+    assert.ok(expiredEvents.some((event) => event.type === "death" && event.targetId === "p3"));
+  }
+});
+
 test("LLM target decisions race duplicate requests and accept the fastest result", async () => {
   const game = new WerewolfGame({
     ...baseConfig,

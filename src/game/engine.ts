@@ -176,6 +176,16 @@ function forceVillageRoleForHuman(roles: Role[], humanPlayerId: string | null): 
   return forced;
 }
 
+function humanAttackProtectionRoundByPlayerCount(playerCount: number): number {
+  if (playerCount <= 8) {
+    return 2;
+  }
+  if (playerCount <= 13) {
+    return 3;
+  }
+  return 4;
+}
+
 function normalizeSummaryMode(mode: SummaryMode | undefined): SummaryMode {
   return mode === "llm" ? "llm" : "deterministic";
 }
@@ -1070,7 +1080,7 @@ export class WerewolfGame {
       werewolves,
       this.prefetchConcurrency,
       async (wolf) => {
-        const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
+        const targets = this.werewolfAttackTargets();
         const contextLines = [
           this.text(
             `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
@@ -1164,11 +1174,12 @@ export class WerewolfGame {
     onProgress = this.progressReporter("werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
   ): Promise<Player | null> {
     const actionPhase = this.phase;
-    const targets = this.alivePlayers().filter((player) => player.camp !== "werewolf");
+    const targets = this.werewolfAttackTargets();
     if (werewolves.length === 0 || targets.length === 0) {
       return null;
     }
 
+    const legalTargetIds = new Set(targets.map((player) => player.id));
     const votes: VoteRecord[] = [];
     const collectWolfVote = async (wolf: Player, raceSlots = this.prefetchConcurrency): Promise<VoteRecord | null> => {
       const contextLines = [
@@ -1182,7 +1193,9 @@ export class WerewolfGame {
         const context = this.contextFor(wolf, contextLines);
         return this.raceChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines, raceSlots);
       });
-      return decision.targetId ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason } : null;
+      return decision.targetId && legalTargetIds.has(decision.targetId)
+        ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason }
+        : null;
     };
 
     for await (const vote of orderedConcurrentDecisionMap(
@@ -1202,6 +1215,18 @@ export class WerewolfGame {
 
     const candidates = topVoted(tallyVotes(votes));
     return this.requirePlayer(sample(candidates));
+  }
+
+  private humanAttackProtectionLastRound(): number {
+    return Math.max(0, Math.min(humanAttackProtectionRoundByPlayerCount(this.config.playerCount), this.config.maxRounds - 1));
+  }
+
+  private isProtectedHumanAttackTarget(player: Player): boolean {
+    return this.config.humanPlayerId === player.id && this.round <= this.humanAttackProtectionLastRound();
+  }
+
+  private werewolfAttackTargets(): Player[] {
+    return this.alivePlayers().filter((player) => player.camp !== "werewolf" && !this.isProtectedHumanAttackTarget(player));
   }
 
   private async prepareSeerAction(): Promise<PreparedTargetAction | null> {
