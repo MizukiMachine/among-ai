@@ -52,7 +52,7 @@ export type GameEventType =
 export type EventVisibility = "public" | "private" | "werewolf";
 export type SummaryMode = "deterministic" | "llm";
 export type DebugScenario = "none" | "guard_success" | "hunter_shot";
-export type HumanInputKind = "speech" | "target" | "boolean";
+export type HumanInputKind = "speech_choice" | "target" | "boolean";
 export type GenerationProgressTask =
   | "hidden"
   | "werewolf_discussion"
@@ -392,9 +392,15 @@ export interface HumanInputContext {
   privateHistory: string[];
 }
 
-export interface HumanSpeechInputRequest extends HumanInputRequestBase {
-  kind: "speech";
+export interface SpeechChoiceOption {
+  id: string;
+  text: string;
+}
+
+export interface HumanSpeechChoiceInputRequest extends HumanInputRequestBase {
+  kind: "speech_choice";
   task: string;
+  options: SpeechChoiceOption[];
 }
 
 export interface HumanTargetInputRequest extends HumanInputRequestBase {
@@ -409,14 +415,17 @@ export interface HumanBooleanInputRequest extends HumanInputRequestBase {
   question: string;
 }
 
-export type HumanInputRequest = HumanSpeechInputRequest | HumanTargetInputRequest | HumanBooleanInputRequest;
+export type HumanInputRequest =
+  | HumanSpeechChoiceInputRequest
+  | HumanTargetInputRequest
+  | HumanBooleanInputRequest;
 export type HumanInputRequestPayload =
-  | Omit<HumanSpeechInputRequest, "id">
+  | Omit<HumanSpeechChoiceInputRequest, "id">
   | Omit<HumanTargetInputRequest, "id">
   | Omit<HumanBooleanInputRequest, "id">;
 
 export interface HumanInputResponse {
-  speech?: string;
+  choiceId?: string;
   targetId?: string | null;
   reason?: string;
   decision?: boolean;

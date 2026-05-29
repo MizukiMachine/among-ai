@@ -70,9 +70,12 @@ function normalizeString(value: string | undefined): string | undefined {
 }
 
 function normalizeResponseForRequest(request: HumanInputRequest, response: HumanInputResponse): HumanInputResponse | null {
-  if (request.kind === "speech") {
-    const speech = normalizeString(response.speech);
-    return speech ? { speech } : null;
+  if (request.kind === "speech_choice") {
+    const choiceId = normalizeString(response.choiceId);
+    if (!choiceId) {
+      return null;
+    }
+    return request.options.some((option) => option.id === choiceId) ? { choiceId } : null;
   }
 
   if (request.kind === "boolean") {

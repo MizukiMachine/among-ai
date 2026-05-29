@@ -76,7 +76,7 @@ function humanInputResponseFromBody(value: unknown): { requestId: string; respon
   return {
     requestId: body.requestId,
     response: {
-      speech: typeof body.speech === "string" ? body.speech : undefined,
+      choiceId: typeof body.choiceId === "string" ? body.choiceId : undefined,
       targetId: body.targetId === null || typeof body.targetId === "string" ? body.targetId : undefined,
       reason: typeof body.reason === "string" ? body.reason : undefined,
       decision: typeof body.decision === "boolean" ? body.decision : undefined
