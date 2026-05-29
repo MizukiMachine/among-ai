@@ -1546,12 +1546,12 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "Choose one living player to mark. The mark adds one vote against them in today's vote.",
-        "印を付ける生存者を一人選んでください。今日の投票で、その相手に1票が加算されます。"
+        "You may mark one living player, or skip. The mark adds one vote against them in the next vote.",
+        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。"
       )
     ];
     const context = this.contextFor(raven, contextLines);
-    const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, false, contextLines);
+    const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, true, contextLines);
     if (!decision.targetId) {
       return;
     }

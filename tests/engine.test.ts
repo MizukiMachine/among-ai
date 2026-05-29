@@ -897,6 +897,7 @@ test("Raven mark adds a vote modifier to the next execution vote", async () => {
 
   await collect(game.runRavenAction(players[0]));
   const ravenAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.equal(ravenAgent.targetInputs[0].allowSkip, true);
   assert.ok(ravenAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== players[0].id));
 
   const events = await collect(game.runVoting());
@@ -905,6 +906,29 @@ test("Raven mark adds a vote modifier to the next execution vote", async () => {
   assert.equal(players[4].alive, false);
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "vote"));
   assert.equal(totals?.data?.modifiers, undefined);
+});
+
+test("Raven mark can be skipped without adding a vote modifier", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Raven", targets: [null] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Werewolf" }
+  ]);
+
+  const events = await collect(game.runRavenAction(players[0]));
+  const ravenAgent = game.agents.get(players[0].id) as ScriptedAgent;
+
+  assert.equal(ravenAgent.targetInputs[0].allowSkip, true);
+  assert.deepEqual(events, []);
+  assert.ok(
+    Object.values(game.ruleState.players).every((playerState) =>
+      playerState.statuses.every((status) => status.kind !== "raven_marked")
+    )
+  );
 });
 
 test("Idiot survives first vote execution and loses future voting rights", async () => {

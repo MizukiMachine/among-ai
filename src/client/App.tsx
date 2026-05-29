@@ -987,9 +987,9 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
   },
   Raven: {
     goal: "人間側として全人狼を排除",
-    ability: "夜に印を付け、対象へ投票1票を加算",
+    ability: "夜に任意で印を付け、対象へ投票1票を加算",
     timing: "夜に指定、次の投票で反映",
-    note: "吊りたい相手への圧力になる"
+    note: "根拠が薄い夜は見送れる"
   },
   Idiot: {
     goal: "人間側として全人狼を排除",
