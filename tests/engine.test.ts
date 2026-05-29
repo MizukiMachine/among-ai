@@ -379,6 +379,7 @@ class FailOnceSpeechAgent implements Agent {
 type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
   checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
+  emitRoundSummary(): Promise<GameEvent>;
   finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
   players: Player[];
   publicHistory: string[];
@@ -862,6 +863,34 @@ test("demo simulations for 6-9 players complete with consistent alive counts", a
   }
 });
 
+test("the match opens on day one before any night actions", async () => {
+  const game = new WerewolfGame({ ...baseConfig, playerCount: 6, maxRounds: 5 });
+  const events = await collect(game.run());
+
+  const firstDay = events.findIndex((event) => event.phase === "day_discussion");
+  const firstNight = events.findIndex(
+    (event) =>
+      event.phase === "night" ||
+      event.phase === "werewolf_discussion" ||
+      event.phase === "guard_action" ||
+      event.phase === "seer_action" ||
+      event.phase === "witch_action"
+  );
+
+  assert.ok(firstDay >= 0, "expected a day_discussion phase");
+  assert.ok(firstNight >= 0, "expected a night phase");
+  assert.ok(firstDay < firstNight, "day one must come before the first night");
+
+  // Round 1's day precedes any night, so no werewolf attack can happen before it.
+  const firstDayEvent = events[firstDay];
+  assert.equal(firstDayEvent.round, 1);
+  assert.equal(
+    events.slice(0, firstNight).some((event) => event.type === "death" && event.data?.cause === "werewolf"),
+    false,
+    "no werewolf attack should resolve before the first night"
+  );
+});
+
 test("voting eliminates a single top-voted player and records totals", async () => {
   const game = createGame();
   const players = setTable(game, [
@@ -886,7 +915,8 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(voteDetails?.some((vote) => vote.voterId === "p1" && vote.targetId === "p4"));
   assert.ok(voteDetails?.every((vote) => vote.reason === undefined));
   assert.ok(game.publicHistory.some((line) => line.includes("シオン -> マヒロ") && !line.includes("scripted reason")));
-  assert.ok(events.some((event) => event.type === "round_summary" && event.message.includes("Votes:")));
+  const summary = await game.emitRoundSummary();
+  assert.ok(summary.message.includes("Votes:"));
 });
 
 test("Raven mark adds a vote modifier to the next execution vote", async () => {
@@ -1592,7 +1622,8 @@ test("progress observer failures do not abort game generation", async () => {
   const events = await collect(game.runDay());
 
   assert.ok(events.some((event) => event.type === "player_speech"));
-  assert.ok(events.some((event) => event.type === "round_summary"));
+  const summary = await game.emitRoundSummary();
+  assert.ok(summary);
 });
 
 test("round summary counts repeated reads from the same speaker once", async () => {
@@ -1627,8 +1658,8 @@ test("round summary counts repeated reads from the same speaker once", async () 
     { role: "Villager", targets: ["p1"] }
   ]);
 
-  const events = await collect(game.runDay());
-  const summary = events.find((event) => event.type === "round_summary");
+  await collect(game.runDay());
+  const summary = await game.emitRoundSummary();
   const suspects = summary?.data?.suspects as Array<{ sourceId: string; targetId: string; reason?: string }> | undefined;
 
   assert.deepEqual(suspects, [{ sourceId: players[0].id, sourceName: players[0].name, targetId: "p2", targetName: "Byron", reason: "second pass reason", weight: 0.7 }]);
@@ -1704,8 +1735,8 @@ test("round summary carries claims, reads, and votes in deterministic data", asy
     { role: "Villager", targets: ["p2"] }
   ]);
 
-  const events = await collect(game.runDay());
-  const summary = events.find((event) => event.type === "round_summary");
+  await collect(game.runDay());
+  const summary = await game.emitRoundSummary();
 
   assert.ok(summary);
   assert.match(summary.message, /Claims:/);
@@ -1745,8 +1776,8 @@ test("LLM summary mode falls back to deterministic summary without an API key", 
       { role: "Villager", targets: ["p2"] }
     ]);
 
-    const events = await collect(game.runVoting());
-    const summary = events.find((event) => event.type === "round_summary");
+    await collect(game.runVoting());
+    const summary = await game.emitRoundSummary();
 
     assert.ok(summary);
     assert.match(summary.message, /Votes:/);
@@ -1787,8 +1818,8 @@ test("LLM summary request failure keeps deterministic summary data intact", asyn
       { role: "Villager", targets: ["p2"] }
     ]);
 
-    const events = await collect(game.runVoting());
-    const summary = events.find((event) => event.type === "round_summary");
+    await collect(game.runVoting());
+    const summary = await game.emitRoundSummary();
 
     assert.ok(summary);
     assert.match(summary.message, /Votes:/);
@@ -1848,8 +1879,8 @@ test("LLM summary mode uses a short provider summary when available", async () =
       { role: "Villager", targets: ["p2"] }
     ]);
 
-    const events = await collect(game.runVoting());
-    const summary = events.find((event) => event.type === "round_summary");
+    await collect(game.runVoting());
+    const summary = await game.emitRoundSummary();
 
     assert.ok(summary);
     assert.equal(summary.message, "Votes tightened around Darwin after public reads.");
@@ -2464,6 +2495,78 @@ test("player redaction reveals only the human player's role and private info", (
   const otherView = redactEventForPlayer(event, "p2");
   assert.equal(otherView.data.redacted, true);
   assert.equal(otherView.playerId, undefined);
+});
+
+test("werewolf discussion speech is shared with every werewolf-camp viewer", () => {
+  const snapshot = {
+    round: 1,
+    phase: "werewolf_discussion" as const,
+    winner: null,
+    players: [
+      {
+        id: "p1",
+        name: "シオン",
+        role: "Werewolf" as const,
+        camp: "werewolf" as const,
+        persona: "cautious" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p2",
+        name: "ガク",
+        role: "Werewolf" as const,
+        camp: "werewolf" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "human",
+        memoryCount: 0
+      },
+      {
+        id: "p3",
+        name: "アカネ",
+        role: "Villager" as const,
+        camp: "village" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 3,
+    werewolfCount: 2,
+    villageCount: 1
+  };
+  const event: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-21T00:00:00.000Z",
+    round: 1,
+    phase: "werewolf_discussion",
+    type: "player_speech",
+    message: "シオンはアカネを襲撃しようと提案した。",
+    playerId: "p1",
+    playerName: "シオン",
+    role: "Werewolf",
+    data: { visibility: "werewolf", speech: "アカネを襲撃しよう。" },
+    snapshot
+  };
+
+  // The speaker sees their own speech.
+  const speakerView = redactEventForPlayer(event, "p1");
+  assert.equal(speakerView.message, event.message);
+
+  // A fellow werewolf (here the human player) must also see it.
+  const teammateView = redactEventForPlayer(event, "p2");
+  assert.equal(teammateView.message, event.message);
+  assert.equal(teammateView.playerName, "シオン");
+  assert.equal(teammateView.data.speech, "アカネを襲撃しよう。");
+  assert.notEqual(teammateView.data.redacted, true);
+
+  // A village-camp player still has it redacted.
+  const villagerView = redactEventForPlayer(event, "p3");
+  assert.equal(villagerView.data.redacted, true);
+  assert.equal(villagerView.playerName, undefined);
 });
 
 test("player and village views expose vote targets without vote reasons", () => {
