@@ -1081,12 +1081,14 @@ export class WerewolfGame {
       }
     }
 
-    const deaths = createNightDeathRecords({
-      werewolfTargetId: killTarget?.id,
-      savedTargetId: savedTarget,
-      protectedTargetId: this.guardState.protectedTargetId,
-      poisonTargetId: this.witchState.poisonTargetId
-    });
+    const deaths = this.filterProtectedHumanDeathRecords(
+      createNightDeathRecords({
+        werewolfTargetId: killTarget?.id,
+        savedTargetId: savedTarget,
+        protectedTargetId: this.guardState.protectedTargetId,
+        poisonTargetId: this.witchState.poisonTargetId
+      })
+    );
 
     this.phase = "night";
     if (deaths.length === 0) {
@@ -1254,6 +1256,14 @@ export class WerewolfGame {
     return this.config.humanPlayerId === player.id && this.round <= this.humanAttackProtectionLastRound();
   }
 
+  private isProtectedHumanNightDeathTarget(player: Player): boolean {
+    return this.phase !== "voting" && this.isProtectedHumanAttackTarget(player);
+  }
+
+  private filterProtectedHumanDeathRecords(deaths: DeathRecord[]): DeathRecord[] {
+    return deaths.filter((death) => !this.isProtectedHumanNightDeathTarget(this.requirePlayer(death.playerId)));
+  }
+
   private werewolfAttackTargets(): Player[] {
     return this.alivePlayers().filter((player) => player.camp !== "werewolf" && !this.isProtectedHumanAttackTarget(player));
   }
@@ -1360,7 +1370,13 @@ export class WerewolfGame {
     }
 
     if (this.witchState.poisonPotion) {
-      const poisonTargets = this.alivePlayers().filter((player) => player.id !== witch.id);
+      const poisonTargets = this.alivePlayers().filter(
+        (player) => player.id !== witch.id && !this.isProtectedHumanNightDeathTarget(player)
+      );
+      if (poisonTargets.length === 0) {
+        return null;
+      }
+      const legalPoisonTargetIds = new Set(poisonTargets.map((player) => player.id));
       const contextLines = [
         this.text("You may spend your only poison potion tonight, or skip.", "今夜、一度だけ使える毒薬を使うか、見送るか選べます。"),
         killTarget
@@ -1377,7 +1393,7 @@ export class WerewolfGame {
         });
         return this.raceChooseTarget(witch, this.text("Witch poison potion", "魔女の毒薬"), context, poisonTargets, true, contextLines);
       });
-      if (decision.targetId) {
+      if (decision.targetId && legalPoisonTargetIds.has(decision.targetId)) {
         const target = this.requirePlayer(decision.targetId);
         return { kind: "poison", witch, target, reason: decision.reason };
       }
@@ -1459,10 +1475,13 @@ export class WerewolfGame {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => player.id !== wolfBeauty.id && player.camp !== "werewolf");
+    const targets = this.alivePlayers().filter(
+      (player) => player.id !== wolfBeauty.id && player.camp !== "werewolf" && !this.isProtectedHumanNightDeathTarget(player)
+    );
     if (targets.length === 0) {
       return;
     }
+    const legalTargetIds = new Set(targets.map((player) => player.id));
 
     const contextLines = [
       this.text(
@@ -1479,7 +1498,7 @@ export class WerewolfGame {
       false,
       contextLines
     );
-    if (!decision.targetId) {
+    if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
 
@@ -1846,8 +1865,12 @@ export class WerewolfGame {
     blockedTargetIds = new Set<string>(),
     chainDepth = 0
   ): AsyncGenerator<GameEvent> {
-    const deaths = createLinkedDeathRecords(initialDeaths, this.ruleState, {
-      isAlive: (playerId) => this.requirePlayer(playerId).alive && !blockedTargetIds.has(playerId)
+    const eligibleInitialDeaths = this.filterProtectedHumanDeathRecords(initialDeaths);
+    const deaths = createLinkedDeathRecords(eligibleInitialDeaths, this.ruleState, {
+      isAlive: (playerId) => {
+        const player = this.requirePlayer(playerId);
+        return player.alive && !blockedTargetIds.has(playerId) && !this.isProtectedHumanNightDeathTarget(player);
+      }
     });
     const blocked = new Set([...blockedTargetIds, ...deaths.map((death) => death.playerId)]);
 
@@ -1925,7 +1948,9 @@ export class WerewolfGame {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => !blockedTargetIds.has(player.id));
+    const targets = this.alivePlayers().filter(
+      (player) => !blockedTargetIds.has(player.id) && !this.isProtectedHumanNightDeathTarget(player)
+    );
     if (targets.length === 0) {
       return;
     }
