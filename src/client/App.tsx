@@ -1250,6 +1250,10 @@ export function App() {
     void getAudioController()?.playSfx(id);
   }
 
+  function playSetupConfirmSfx() {
+    playSfx("setup_confirm");
+  }
+
   function playEventSfx(event: GameEvent) {
     const sfxId = sfxIdForGameEvent(event);
     if (sfxId) {
@@ -1318,7 +1322,7 @@ export function App() {
   }
 
   function updatePlayerCount(nextCount: number) {
-    playSfx("ui_confirm");
+    playSetupConfirmSfx();
     const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
     setPlayerCount(normalized);
     if (playerIndexFromId(humanPlayerId) >= normalized) {
@@ -1328,7 +1332,7 @@ export function App() {
 
   function updateHumanEnabled(nextEnabled: boolean, options: { playSound?: boolean } = {}) {
     if (options.playSound !== false) {
-      playSfx("ui_confirm");
+      playSetupConfirmSfx();
     }
     setHumanEnabled(nextEnabled);
     if (nextEnabled) {
@@ -1340,7 +1344,7 @@ export function App() {
   }
 
   function selectHumanPlayer(playerId: string) {
-    playSfx("ui_confirm");
+    playSetupConfirmSfx();
     if (!humanEnabled) {
       updateHumanEnabled(true, { playSound: false });
     }
@@ -1568,7 +1572,7 @@ export function App() {
     if (settingsConfirmed || running || sourceRef.current || events.length > 0 || queuedRef.current.length > 0) {
       return;
     }
-    playSfx("ui_confirm");
+    playSetupConfirmSfx();
     playBgmRotationFromStart();
     setSettingsConfirmed(true);
     startGame();
