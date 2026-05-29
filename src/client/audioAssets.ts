@@ -2,6 +2,7 @@ import type { GameEvent, GameEventType } from "../game/types";
 
 export type AudioSfxId =
   | "ui_confirm"
+  | "setup_confirm"
   | "ui_back"
   | "game_start"
   | "phase_shift"
@@ -105,6 +106,7 @@ const eventSfxDefaults: Record<GameEventType, AudioSfxId | null> = {
 
 const knownSfxIds: ReadonlySet<string> = new Set<AudioSfxId>([
   "ui_confirm",
+  "setup_confirm",
   "ui_back",
   "game_start",
   "phase_shift",

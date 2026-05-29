@@ -48,6 +48,13 @@
       "durationMs": 800
     },
     {
+      "id": "setup_confirm",
+      "title": "Setup Confirm",
+      "src": "assets/sfx/ui-confirm.mp3",
+      "volume": 0.18,
+      "durationMs": 800
+    },
+    {
       "id": "ui_back",
       "title": "UI Back",
       "src": "assets/sfx/ui-back.mp3",

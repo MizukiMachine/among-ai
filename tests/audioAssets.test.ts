@@ -64,6 +64,7 @@ test("audio manifest exposes four 90 second bgm candidates and existing sfx file
 
   for (const expected of [
     "ui_confirm",
+    "setup_confirm",
     "ui_back",
     "game_start",
     "phase_shift",
@@ -89,6 +90,10 @@ test("audio manifest exposes four 90 second bgm candidates and existing sfx file
   const gameStartSfx = manifest.sfx.find((asset) => asset.id === "game_start");
   assert.ok(gameStartSfx);
   assert.ok((gameStartSfx.volume ?? 0.5) <= 0.2, "game_start should stay quiet for the Game Start button");
+  const setupConfirmSfx = manifest.sfx.find((asset) => asset.id === "setup_confirm");
+  assert.ok(setupConfirmSfx);
+  assert.equal(setupConfirmSfx.src, "assets/sfx/ui-confirm.mp3");
+  assert.ok((setupConfirmSfx.volume ?? 0.5) <= 0.2, "setup_confirm should stay quiet for setup buttons");
 
   for (const sfxId of Object.values(manifest.eventSfx)) {
     assert.ok(sfxIds.has(sfxId));
@@ -144,9 +149,11 @@ test("audio debug panel is removed and only mute control remains visible", () =>
 test("setup controls share the ui confirmation sound and bgm starts from Orbital Mindgame", () => {
   const source = readFileSync(path.join(rootDir, "src", "client", "App.tsx"), "utf8");
 
-  assert.match(source, /function updatePlayerCount\(nextCount: number\) \{\s*playSfx\("ui_confirm"\);/s);
-  assert.match(source, /function updateHumanEnabled\([^)]*\) \{\s*if \(options\.playSound !== false\) \{\s*playSfx\("ui_confirm"\);/s);
-  assert.match(source, /function selectHumanPlayer\(playerId: string\) \{\s*playSfx\("ui_confirm"\);/s);
+  assert.match(source, /function playSetupConfirmSfx\(\) \{\s*playSfx\("setup_confirm"\);/s);
+  assert.match(source, /function updatePlayerCount\(nextCount: number\) \{\s*playSetupConfirmSfx\(\);/s);
+  assert.match(source, /function updateHumanEnabled\([^)]*\) \{\s*if \(options\.playSound !== false\) \{\s*playSetupConfirmSfx\(\);/s);
+  assert.match(source, /function selectHumanPlayer\(playerId: string\) \{\s*playSetupConfirmSfx\(\);/s);
+  assert.match(source, /function confirmSettings\(\) \{[\s\S]*playSetupConfirmSfx\(\);/);
   assert.match(source, /function playBgmRotationFromStart\(\)/);
   assert.match(source, /const startId = getDefaultBgmId\(audioManifest\);/);
   assert.match(source, /controller\.playBgmPlaylist\(bgmRotationIds, selectedBgmId\)/);
