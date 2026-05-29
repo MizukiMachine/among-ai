@@ -1257,7 +1257,7 @@ export class WerewolfGame {
   }
 
   private isProtectedHumanAttackTarget(player: Player): boolean {
-    return this.config.humanPlayerId === player.id && this.round <= this.humanAttackProtectionLastRound();
+    return this.config.humanPlayerId === player.id && player.camp === "village" && this.round <= this.humanAttackProtectionLastRound();
   }
 
   private isProtectedHumanNightDeathTarget(player: Player): boolean {
