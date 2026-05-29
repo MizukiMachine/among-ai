@@ -1987,6 +1987,59 @@ test("human player is protected from early werewolf attack targets by table size
   }
 });
 
+test("human player is protected from early witch poison and death-shot targets", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    humanPlayerId: "p3",
+    prefetchConcurrency: 1
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Witch", decisions: [false], targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Hunter", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const events = await collect(game.runNight());
+  const witchInputs = (game.agents.get("p2") as ScriptedAgent).targetInputs.filter((input) => input.action === "Witch poison potion");
+  const hunterInputs = (game.agents.get("p4") as ScriptedAgent).targetInputs.filter((input) => input.action === "Hunter death shot");
+
+  assert.equal(players[2].alive, true);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "werewolf"));
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3"));
+  assert.ok(witchInputs.length > 0);
+  assert.ok(witchInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
+  assert.ok(hunterInputs.length > 0);
+  assert.ok(hunterInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
+});
+
+test("human player is protected from early linked night deaths", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    humanPlayerId: "p3",
+    prefetchConcurrency: 1
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Witch", decisions: [false], targets: [null] },
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[2].alive, true);
+  assert.equal(players[3].alive, false);
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3"));
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "lover"));
+});
+
 test("LLM target decisions race duplicate requests and accept the fastest result", async () => {
   const game = new WerewolfGame({
     ...baseConfig,
