@@ -167,18 +167,22 @@ function normalizeHumanPlayerId(playerId: string | null | undefined, playerCount
   return index === null ? null : `p${index + 1}`;
 }
 
-function forceVillageRoleForHuman(roles: Role[], humanPlayerId: string | null): Role[] {
+function forceWerewolfRoleForHuman(roles: Role[], humanPlayerId: string | null): Role[] {
   const humanIndex = playerIdIndex(humanPlayerId, roles.length);
-  if (humanIndex === null || roleCamp(roles[humanIndex]) === "village") {
+  if (humanIndex === null || roleCamp(roles[humanIndex]) === "werewolf") {
     return roles;
   }
 
-  const swapIndex = roles.findIndex((role, index) => index !== humanIndex && roleCamp(role) === "village");
-  if (swapIndex === -1) {
+  const swapIndexes = roles
+    .map((role, index) => ({ role, index }))
+    .filter(({ role, index }) => index !== humanIndex && roleCamp(role) === "werewolf")
+    .map(({ index }) => index);
+  if (swapIndexes.length === 0) {
     return roles;
   }
 
   const forced = [...roles];
+  const swapIndex = sample(swapIndexes);
   [forced[humanIndex], forced[swapIndex]] = [forced[swapIndex], forced[humanIndex]];
   return forced;
 }
@@ -576,7 +580,7 @@ export class WerewolfGame {
     }
 
     const activeDebugScenario = this.config.debugScenario ?? "none";
-    const roles = forceVillageRoleForHuman(
+    const roles = forceWerewolfRoleForHuman(
       activeDebugScenario === "none"
         ? shuffle(createRoles(this.config.playerCount))
         : createScenarioRoles(activeDebugScenario, this.config.playerCount),
@@ -1253,7 +1257,7 @@ export class WerewolfGame {
   }
 
   private isProtectedHumanAttackTarget(player: Player): boolean {
-    return this.config.humanPlayerId === player.id && this.round <= this.humanAttackProtectionLastRound();
+    return this.config.humanPlayerId === player.id && player.camp === "village" && this.round <= this.humanAttackProtectionLastRound();
   }
 
   private isProtectedHumanNightDeathTarget(player: Player): boolean {
