@@ -21,6 +21,8 @@ import { getRolePromptProfile } from "./roles";
 import {
   booleanJsonSchemaInstruction,
   outputFormatReminder,
+  speechReasoningJsonSchemaInstruction,
+  speechRealizationJsonSchemaInstruction,
   speechJsonSchemaInstruction,
   targetJsonSchemaInstruction,
   type BuildPromptContextOptions,
@@ -659,6 +661,110 @@ function japaneseTargetSystemPrompt(options: BuildSystemPromptOptions, outputIns
 
 export function buildSpeechSystemPrompt(options: BuildSystemPromptOptions): string {
   return baseSystemPrompt(options, promptModeFromGamePhase(options.phase), speechJsonSchemaInstruction);
+}
+
+function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
+  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
+  const profile = getRolePromptProfile(options.player.role);
+  const lines = [
+    "あなたは人狼ゲームの公開発話前に、発話意図と公開推理メタデータだけを決めます。",
+    `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+    "返答言語: 日本語。",
+    "",
+    "推理に使える境界:",
+    bulletList(publicSpeech.boundary),
+    "",
+    "役職ごとの発言方針:",
+    bulletList(profile.publicSpeechGuidanceJa),
+    "",
+    "昼議論の進め方:",
+    bulletList(publicSpeech.phaseGuidance),
+    "",
+    promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction,
+    promptMaterials.outputFormats.japaneseReminder,
+    "",
+    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
+  ];
+
+  return lines.join("\n");
+}
+
+function japaneseSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
+  const styleGuide = japaneseStyleGuide(options.language);
+  const dialogueContract = japaneseDialogueContract(options.language);
+  const lines = [
+    "あなたは人狼ゲームの発話意図を、画面に表示する短いセリフへ変換します。",
+    `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+    "返答言語: 日本語。",
+    "",
+    "重要:",
+    "- この段階では新しい推理を足さない。",
+    "- 入力された intent と metadata の内容だけを自然な会話に直す。",
+    "- メタデータのラベル、ID、JSON キー、内部用語、進行メモをセリフに写さない。",
+    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
+    "",
+    promptMaterials.outputFormats.speechRealizationJson.japaneseInstruction,
+    promptMaterials.outputFormats.japaneseReminder
+  ];
+
+  return lines.join("\n");
+}
+
+export function buildSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
+  if (isJapaneseLanguage(options.language)) {
+    return japaneseSpeechReasoningSystemPrompt(options);
+  }
+
+  const promptPhase = promptPhaseFromGamePhase(options.phase);
+  const profile = getRolePromptProfile(options.player.role);
+  const styleGuide = japaneseStyleGuide(options.language);
+  const lines = [
+    "You are preparing the reasoning metadata for a hidden-role werewolf public statement.",
+    `You are ${options.player.name}; role=${options.player.role}; persona=${options.player.persona}.`,
+    `Respond in ${options.language}.`,
+    "",
+    "Information boundary:",
+    bulletList(commonBoundaryLines("public_speech")),
+    "",
+    "Role strategy:",
+    bulletList(profile.roleStrategy),
+    "",
+    "Phase guidance:",
+    ...phaseInstructions(profile, promptPhase),
+    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+    "",
+    speechReasoningJsonSchemaInstruction,
+    outputFormatReminder,
+    "",
+    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
+  ];
+
+  return lines.join("\n");
+}
+
+export function buildSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
+  if (isJapaneseLanguage(options.language)) {
+    return japaneseSpeechRealizationSystemPrompt(options);
+  }
+
+  const dialogueContract = japaneseDialogueContract(options.language);
+  const lines = [
+    "You convert a hidden-role werewolf speech intent into displayed dialogue.",
+    `You are ${options.player.name}; persona=${options.player.persona}.`,
+    `Respond in ${options.language}.`,
+    "",
+    "Important:",
+    "- Do not add new reasoning, facts, targets, claims, or results.",
+    "- Use only the supplied intent and metadata.",
+    "- Do not copy metadata labels, JSON keys, ids, schema text, or planning notes into messages.",
+    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
+    "",
+    speechRealizationJsonSchemaInstruction,
+    outputFormatReminder
+  ];
+
+  return lines.join("\n");
 }
 
 export function buildTargetSystemPrompt(options: BuildSystemPromptOptions): string {

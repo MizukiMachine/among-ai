@@ -62,6 +62,10 @@ export interface BuildSystemPromptOptions {
 
 export const speechJsonSchemaInstruction = promptMaterials.outputFormats.speechJson.instruction;
 
+export const speechReasoningJsonSchemaInstruction = promptMaterials.outputFormats.speechReasoningJson.instruction;
+
+export const speechRealizationJsonSchemaInstruction = promptMaterials.outputFormats.speechRealizationJson.instruction;
+
 export const targetJsonSchemaInstruction = promptMaterials.outputFormats.targetJson.instruction;
 
 export const booleanJsonSchemaInstruction = promptMaterials.outputFormats.booleanJson.instruction;

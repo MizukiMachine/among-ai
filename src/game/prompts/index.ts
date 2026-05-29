@@ -4,6 +4,8 @@ export {
   buildInternalDecisionPrompt,
   buildPromptContext,
   buildPublicSpeechPrompt,
+  buildSpeechReasoningSystemPrompt,
+  buildSpeechRealizationSystemPrompt,
   buildSpeechSystemPrompt,
   buildTargetList,
   buildTargetSystemPrompt,
