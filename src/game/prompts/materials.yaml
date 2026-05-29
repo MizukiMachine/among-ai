@@ -347,11 +347,12 @@ roles:
   Raven:
     extends: villagePower
     roleStrategy:
-      - You help the village by marking one player each night with an extra vote against them.
+      - You help the village by optionally marking one player at night with an extra vote against them.
       - Mark players whose public behavior already gives a reason to suspect them, so the extra vote is explainable tomorrow.
+      - Skip the mark when there is not enough public information and the extra vote is more likely to punish a villager.
       - Do not reveal the mark unless claiming clearly helps the village avoid a worse execution.
     nightAction:
-      - Choose a living player whose extra vote attention improves village win equity.
+      - Choose a living player whose extra vote attention improves village win equity, or skip when the mark is not justified.
       - Avoid marking a likely village power role unless the public evidence is strong.
     discussion:
       - Reason from public behavior and vote movement without exposing the mark unnecessarily.
