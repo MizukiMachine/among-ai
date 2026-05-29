@@ -7,7 +7,7 @@ import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
 import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
-import { maxSupportedPlayers } from "../src/game/rules/presets";
+import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
@@ -559,20 +559,25 @@ test("character roster covers all supported player slots with fixed names and pe
   }
 });
 
-test("configured human player is forced onto the village camp", async () => {
-  const game = new WerewolfGame({
-    ...baseConfig,
-    playerCount: 9,
-    debugScenario: "hunter_shot",
-    humanPlayerId: "p1"
-  });
-  const run = game.run();
-  const first = await run.next();
-  await run.return(undefined);
+test("configured human player is always assigned to the werewolf camp", () => {
+  for (const playerCount of [6, 9, maxSupportedPlayers]) {
+    for (let index = 1; index <= playerCount; index += 1) {
+      const game = new WerewolfGame({
+        ...baseConfig,
+        playerCount,
+        humanPlayerId: `p${index}`
+      }) as TestableGame;
 
-  const human = first.value?.snapshot.players.find((player) => player.id === "p1");
-  assert.equal(human?.camp, "village");
-  assert.notEqual(human?.role, "Werewolf");
+      const human = game.players.find((player) => player.id === `p${index}`);
+      assert.ok(human, `Expected p${index} to exist at ${playerCount} players`);
+      assert.equal(human.camp, "werewolf", `Expected p${index} to be a werewolf-camp role at ${playerCount} players`);
+      assert.notEqual(human.role, "Villager", `Expected p${index} to be a role-holder at ${playerCount} players`);
+      assert.deepEqual(
+        game.players.map((player) => player.role).sort(),
+        createRoles(playerCount).sort()
+      );
+    }
+  }
 });
 
 test("Japanese demo agents produce Japanese speech", async () => {
