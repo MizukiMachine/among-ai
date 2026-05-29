@@ -1,7 +1,7 @@
 import { setMaxListeners } from "node:events";
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
-import { HumanInputAgent } from "./humanAgent";
+import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
@@ -38,6 +38,7 @@ import type {
   Agent,
   AgentBooleanInput,
   AgentSpeech,
+  AgentSpeechInput,
   AgentTargetInput,
   Camp,
   CampId,
@@ -151,6 +152,39 @@ function emptySpeechMetadata(): SpeechMetadata {
     trusts: [],
     claims: []
   };
+}
+
+const humanSpeechChoiceCount = 3;
+// Draft one extra so that, after deduping, the player still sees a full set of distinct options.
+const humanSpeechDraftCount = humanSpeechChoiceCount + 1;
+
+function defaultHumanHoldSpeech(language: string): AgentSpeech {
+  return {
+    messages: [isJapaneseLanguage(language) ? "今は発言を控える" : "I will hold my statement for now"],
+    metadata: emptySpeechMetadata()
+  };
+}
+
+function dedupeSpeechCandidates(candidates: AgentSpeech[]): AgentSpeech[] {
+  const seen = new Set<string>();
+  const unique: AgentSpeech[] = [];
+  for (const candidate of candidates) {
+    const key = candidate.messages.join("\n").trim();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(candidate);
+  }
+  return unique;
+}
+
+function resolveSpeechChoiceIndex(choiceId: string | undefined, count: number): number {
+  const parsed = Number(choiceId);
+  if (Number.isInteger(parsed) && parsed >= 0 && parsed < count) {
+    return parsed;
+  }
+  return 0;
 }
 
 function playerIdIndex(playerId: string | null | undefined, playerCount: number): number | null {
@@ -498,6 +532,8 @@ function mergeAbortSignals(a?: AbortSignal, b?: AbortSignal): { signal?: AbortSi
 export class WerewolfGame {
   private readonly players: Player[];
   private readonly agents = new Map<string, Agent>();
+  private readonly humanInput?: HumanInputHandler;
+  private humanChoiceAgent: Agent | null = null;
   private readonly publicHistory: string[] = [];
   private readonly wolfHistory: string[] = [];
   private readonly config: GameConfig;
@@ -531,6 +567,7 @@ export class WerewolfGame {
   private lastNightDeathRecords: DeathRecord[] = [];
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
+    this.humanInput = options.humanInput;
     this.abortSignal = options.abortSignal;
     if (this.abortSignal) {
       setMaxListeners(abortSignalMaxListeners, this.abortSignal);
@@ -596,12 +633,17 @@ export class WerewolfGame {
       const playerId = `p${index + 1}`;
       const profile = getCharacterProfile(playerId);
       const name = profile?.nameJa ?? characterNames[index] ?? `P${index + 1}`;
+      const isHumanSlot = playerId === this.config.humanPlayerId && Boolean(options.humanInput);
+      const autonomousAgent =
+        activeDebugScenario === "none" ? createAgent(name) : this.createScenarioAgent(name, activeDebugScenario, index);
       const agent =
-        playerId === this.config.humanPlayerId && options.humanInput
+        isHumanSlot && options.humanInput
           ? new HumanInputAgent(name, options.humanInput, this.config.language)
-          : activeDebugScenario === "none"
-          ? createAgent(name)
-          : this.createScenarioAgent(name, activeDebugScenario, index);
+          : autonomousAgent;
+      if (isHumanSlot) {
+        // Shadow agent that drafts the human player's candidate speeches for the choice menu.
+        this.humanChoiceAgent = autonomousAgent;
+      }
       const persona = getPersonaForPlayer(playerId) ?? fallbackPersonas[index % fallbackPersonas.length];
       const player: Player = {
         id: playerId,
@@ -2085,10 +2127,10 @@ export class WerewolfGame {
     context: string,
     uiContext: string[] = [],
     abortSignal?: AbortSignal,
-    options: { suppressMemorySideEffects?: boolean; speechPlan?: PublicSpeechPlan } = {}
+    options: { suppressMemorySideEffects?: boolean; speechPlan?: PublicSpeechPlan; agentOverride?: Agent } = {}
   ): Promise<AgentSpeech> {
     this.throwIfCancelled();
-    const agent = this.agents.get(player.id) ?? fallbackAgent;
+    const agent = options.agentOverride ?? this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
     const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
@@ -2106,6 +2148,13 @@ export class WerewolfGame {
       privateHistory,
       abortSignal: requestAbortSignal
     };
+    if (agent.model === "human") {
+      try {
+        return await this.humanChoiceSpeak(player, input, legalPlayers);
+      } finally {
+        requestAbort.cleanup();
+      }
+    }
     const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
     const shouldReviewSpeechTimeline = Boolean(this.config.provider === "llm" && agent.model === this.config.model);
     const diagnosticBase = {
@@ -2159,11 +2208,6 @@ export class WerewolfGame {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
-      }
-
-      if (agent.model === "human") {
-        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
-        return speech;
       }
 
       const review = reviewGeneratedSpeech(speech);
@@ -2256,6 +2300,110 @@ export class WerewolfGame {
     } finally {
       requestAbort.cleanup();
     }
+  }
+
+  // The human player no longer types speech. Instead the shadow agent drafts several
+  // in-character candidate lines, and the player picks one — keeping discussion tempo
+  // while still letting the human shape what their character says.
+  private async humanChoiceSpeak(
+    player: Player,
+    input: AgentSpeechInput,
+    legalPlayers: TargetCandidate[]
+  ): Promise<AgentSpeech> {
+    const shadow = this.humanChoiceAgent;
+    const handler = this.humanInput;
+    if (!shadow || !handler) {
+      return this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers);
+    }
+
+    let candidates: AgentSpeech[];
+    try {
+      // One racer drafts the whole 3-option set. We run several racers in parallel and
+      // keep the first complete set to finish, aborting the slower racers — the same
+      // decision-race pattern the AI night/vote choices use.
+      const raceSlots = this.shouldRaceHumanChoice(shadow) ? this.prefetchConcurrency : 1;
+      candidates = await this.firstFinishedDecisionRace(
+        player,
+        (options) => this.draftHumanSpeechChoiceSet(shadow, input, options?.signal),
+        raceSlots
+      );
+    } catch (error) {
+      if (this.abortSignal?.aborted || input.abortSignal?.aborted) {
+        throw error;
+      }
+      // Generation failed: still let the player confirm a hold rather than silently auto-publishing one.
+      console.warn(
+        `[human-choice] ${player.name}: candidate generation failed (${
+          error instanceof Error ? error.message : String(error)
+        }); offering a single hold option.`
+      );
+      candidates = [this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers)];
+    }
+
+    const response = await handler.request({
+      kind: "speech_choice",
+      playerId: player.id,
+      playerName: player.name,
+      phase: this.phase,
+      role: player.role,
+      task: input.task,
+      context: buildHumanInputContext({
+        uiContext: input.uiContext,
+        publicHistory: input.publicHistory,
+        privateHistory: input.privateHistory
+      }),
+      options: candidates.map((candidate, index) => ({
+        id: String(index),
+        text: candidate.messages.join("\n")
+      }))
+    });
+
+    const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
+    return candidates[chosenIndex] ?? candidates[0];
+  }
+
+  private shouldRaceHumanChoice(shadow: Agent): boolean {
+    return (
+      this.prefetchConcurrency > 1 &&
+      this.config.provider === "llm" &&
+      shadow.model === this.config.model &&
+      shadow.model !== "human"
+    );
+  }
+
+  // A single racer: draft the full set of candidate speeches concurrently. Each draft runs
+  // through the same review/retry/sanitize pipeline as an AI speech (via safeSpeak with the
+  // shadow agent), so the player's options meet the same quality bar. The whole set is one
+  // unit in the race, so racers that lose are aborted via the race signal.
+  private async draftHumanSpeechChoiceSet(
+    shadow: Agent,
+    input: AgentSpeechInput,
+    raceSignal?: AbortSignal
+  ): Promise<AgentSpeech[]> {
+    const settled = await Promise.all(
+      Array.from({ length: humanSpeechDraftCount }, async () => {
+        try {
+          return await this.safeSpeak(input.player, input.task, input.context, input.uiContext ?? [], raceSignal, {
+            agentOverride: shadow,
+            suppressMemorySideEffects: true,
+            speechPlan: input.speechPlan
+          });
+        } catch (error) {
+          if (this.abortSignal?.aborted || raceSignal?.aborted) {
+            throw error;
+          }
+          return null;
+        }
+      })
+    );
+    const candidates = dedupeSpeechCandidates(settled.filter((candidate): candidate is AgentSpeech => candidate !== null)).slice(
+      0,
+      humanSpeechChoiceCount
+    );
+    if (candidates.length === 0) {
+      throw new Error("No human speech candidates were drafted.");
+    }
+    return candidates;
   }
 
   private speechLegalPlayers(player: Player): Player[] {

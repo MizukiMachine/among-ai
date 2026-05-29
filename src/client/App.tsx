@@ -19,7 +19,6 @@ import {
   Shield,
   Skull,
   Square,
-  Send,
   UserRound,
   Volume2,
   VolumeX,
@@ -1104,7 +1103,6 @@ export function App() {
   const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
-  const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
@@ -1353,7 +1351,6 @@ export function App() {
 
   function resetHumanInputState() {
     setPendingHumanInput(null);
-    setHumanSpeech("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
     setHumanInputError("");
@@ -1513,7 +1510,6 @@ export function App() {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
       setGenerationProgress(null);
       setPendingHumanInput(request);
-      setHumanSpeech("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
       setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
@@ -1841,7 +1837,7 @@ export function App() {
   }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId]);
 
   async function submitHumanInput(payload: {
-    speech?: string;
+    choiceId?: string;
     targetId?: string | null;
     reason?: string;
     decision?: boolean;
@@ -1915,7 +1911,7 @@ export function App() {
     }
 
     const role = displayRoleLabel(prompt.role, language);
-    const title = prompt.kind === "speech" ? "発言" : prompt.kind === "target" ? prompt.action : prompt.question;
+    const title = prompt.kind === "speech_choice" ? "発言" : prompt.kind === "target" ? prompt.action : prompt.question;
     const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
 
     return (
@@ -1930,24 +1926,27 @@ export function App() {
 
         {renderHumanContext(prompt)}
 
-        {prompt.kind === "speech" ? (
-          <div className="human-speech-form">
-            <textarea
-              value={humanSpeech}
-              onChange={(event) => setHumanSpeech(event.target.value)}
-              maxLength={240}
-              placeholder="発言を入力"
-              rows={3}
-            />
-            <button
-              className="icon-button primary"
-              disabled={humanSubmitting || humanSpeech.trim().length === 0}
-              onClick={() => submitHumanInput({ speech: humanSpeech })}
-              type="button"
-            >
-              <Send size={16} />
-              <span>発言する</span>
-            </button>
+        {prompt.kind === "speech_choice" ? (
+          <div className="human-choice-form">
+            <p className="human-choice-hint">話す内容を選んでください</p>
+            <div className="human-choice-list">
+              {prompt.options.map((option, index) => (
+                <button
+                  className="human-choice-option"
+                  key={option.id}
+                  disabled={humanSubmitting}
+                  onClick={() => submitHumanInput({ choiceId: option.id })}
+                  type="button"
+                >
+                  <span className="human-choice-index">{index + 1}</span>
+                  <span className="human-choice-text">
+                    {option.text.split("\n").map((line, lineIndex) => (
+                      <span key={lineIndex}>{renderTextWithCharacterNames(line, `${option.id}-${lineIndex}`)}</span>
+                    ))}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -2305,7 +2304,10 @@ export function App() {
       return null;
     }
 
-    const title = pendingHumanInputNotice.kind === "speech" ? "あなたの発言が近づいています" : "あなたの意思決定が近づいています";
+    const title =
+      pendingHumanInputNotice.kind === "speech_choice"
+        ? "あなたの発言が近づいています"
+        : "あなたの意思決定が近づいています";
 
     return (
       <section className="story-pending-input-hud" role="status" aria-live="polite">

@@ -1415,8 +1415,8 @@ test("day discussion adds focused follow-up speakers after regular passes", asyn
 test("human follow-up speaker is placed after AI follow-up speakers", async () => {
   const humanInput: HumanInputHandler = {
     async request(input) {
-      if (input.kind === "speech") {
-        return { speech: "Human follow-up answer." };
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
       }
       if (input.kind === "target") {
         return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
@@ -1461,10 +1461,13 @@ test("human follow-up speaker is placed after AI follow-up speakers", async () =
   const events = await collect(game.runDay());
   const followUpEvents = events.filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3);
 
-  assert.deepEqual(
-    followUpEvents.map((event) => event.playerId),
-    [players[4].id, players[2].id]
-  );
+  // The human's chosen speech may span multiple lines, so collapse consecutive
+  // events from the same speaker before checking ordering (AI follow-up, then human).
+  const followUpSpeakers = followUpEvents
+    .map((event) => event.playerId)
+    .filter((playerId, index, all) => index === 0 || all[index - 1] !== playerId);
+
+  assert.deepEqual(followUpSpeakers, [players[4].id, players[2].id]);
 });
 
 test("day discussion scales follow-up speaker count on large tables", async () => {
@@ -1504,8 +1507,8 @@ test("human participation still reports batched progress for AI day work", async
   const progressEvents: GenerationProgress[] = [];
   const humanInput: HumanInputHandler = {
     async request(input) {
-      if (input.kind === "speech") {
-        return { speech: "I will give my read after hearing everyone." };
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
       }
       if (input.kind === "target") {
         return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
@@ -1542,8 +1545,8 @@ test("human Lover receives partner info in private input context", async () => {
   const humanInput: HumanInputHandler = {
     async request(input) {
       requests.push(input);
-      if (input.kind === "speech") {
-        return { speech: "相方の生存も見ながら話します。" };
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
       }
       if (input.kind === "target") {
         return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
@@ -1551,7 +1554,7 @@ test("human Lover receives partner info in private input context", async () => {
       return { decision: false };
     }
   };
-  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p4", language: "Japanese" }, { humanInput }) as TestableGame;
   const players = setTable(game, [
     { role: "Werewolf" },
     { role: "Seer" },
@@ -1565,13 +1568,11 @@ test("human Lover receives partner info in private input context", async () => {
 
   const events = await collect(game.runDay());
 
-  const speechRequest = requests.find((request) => request.kind === "speech");
+  const speechRequest = requests.find((request) => request.kind === "speech_choice");
   assert.ok(speechRequest);
   assert.ok(speechRequest.context.privateHistory.some((line) => line.includes(`恋人の相方は${players[4].name}`)));
-  assert.equal(
-    events.find((event) => event.type === "player_speech" && event.playerId === players[3].id)?.message,
-    "相方の生存も見ながら話します"
-  );
+  // The human picks an LLM-drafted candidate, so just confirm their chosen line is published.
+  assert.ok(events.some((event) => event.type === "player_speech" && event.playerId === players[3].id));
 });
 
 test("progress observer failures do not abort game generation", async () => {

@@ -1,10 +1,8 @@
 import { defaultLanguage, isJapaneseLanguage } from "./i18n";
-import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import type {
   Agent,
   AgentBooleanInput,
   AgentSpeech,
-  AgentSpeechInput,
   AgentTargetInput,
   HumanInputContext,
   HumanInputHandler,
@@ -12,7 +10,6 @@ import type {
   TargetDecision
 } from "./types";
 
-const maxHumanSpeechLength = 240;
 const maxHumanReasonLength = 150;
 
 function compactText(value: unknown, fallback: string, maxLength: number): string {
@@ -24,10 +21,6 @@ function compactText(value: unknown, fallback: string, maxLength: number): strin
     return fallback;
   }
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
-}
-
-function compactSpeechText(value: unknown, fallback: string, maxLength: number, language: string): string {
-  return stripJapaneseSpeechTerminalPeriod(compactText(value, fallback, maxLength), language);
 }
 
 function defaultSpeech(language: string): string {
@@ -53,7 +46,7 @@ function compactLines(lines: readonly string[] | undefined, maxLines: number): s
     .slice(-maxLines);
 }
 
-function humanContext(input: {
+export function buildHumanInputContext(input: {
   uiContext?: string[];
   publicHistory?: string[];
   privateHistory?: string[];
@@ -74,19 +67,12 @@ export class HumanInputAgent implements Agent {
     private readonly language = defaultLanguage
   ) {}
 
-  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
-    const response = await this.inputHandler.request({
-      kind: "speech",
-      playerId: input.player.id,
-      playerName: input.player.name,
-      phase: input.phase,
-      role: input.player.role,
-      task: input.task,
-      context: humanContext(input)
-    });
-
+  // Human speech is produced by the engine's choice flow (speech_choice), which drafts
+  // candidate lines and asks the player to pick one. The engine intercepts human speakers
+  // before this method is reached, so it only exists to satisfy the Agent interface.
+  async speak(): Promise<AgentSpeech> {
     return {
-      messages: [compactSpeechText(response.speech, defaultSpeech(this.language), maxHumanSpeechLength, this.language)],
+      messages: [defaultSpeech(this.language)],
       metadata: emptySpeechMetadata()
     };
   }
@@ -99,7 +85,7 @@ export class HumanInputAgent implements Agent {
       phase: input.phase,
       role: input.player.role,
       action: input.action,
-      context: humanContext(input),
+      context: buildHumanInputContext(input),
       candidates: input.candidates,
       allowSkip: input.allowSkip
     });
@@ -118,7 +104,7 @@ export class HumanInputAgent implements Agent {
       phase: input.phase,
       role: input.player.role,
       question: input.question,
-      context: humanContext(input)
+      context: buildHumanInputContext(input)
     });
 
     return response.decision === true;
