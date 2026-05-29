@@ -1018,19 +1018,25 @@ export class WerewolfGame {
       this.throwIfCancelled();
       this.round += 1;
 
-      yield* this.runNight();
-      this.throwIfCancelled();
-      const nightWinner = this.checkVictory();
-      if (nightWinner) {
-        yield this.finishGame(nightWinner);
-        return;
-      }
-
       yield* this.runDay();
       this.throwIfCancelled();
       const dayWinner = this.checkVictory();
       if (dayWinner) {
+        // The day vote ended the game, so this day-set has no night and no night deaths to recap.
+        this.lastNightDeaths = [];
+        this.lastNightDeathRecords = [];
+        yield await this.emitRoundSummary();
         yield this.finishGame(dayWinner);
+        return;
+      }
+
+      yield* this.runNight();
+      this.throwIfCancelled();
+      // A day-set is "昼→夜"; recap the whole day (day discussion/vote + that night's deaths) once the night ends.
+      yield await this.emitRoundSummary();
+      const nightWinner = this.checkVictory();
+      if (nightWinner) {
+        yield this.finishGame(nightWinner);
         return;
       }
     }
@@ -1048,8 +1054,7 @@ export class WerewolfGame {
   private async *runNight(): AsyncGenerator<GameEvent> {
     this.lastNightDeaths = [];
     this.lastNightDeathRecords = [];
-    this.lastVotes = [];
-    this.lastVoteModifiers = [];
+    // lastVotes / lastVoteModifiers are kept until the post-night round summary; runVoting reassigns them each day.
     this.witchState.savedTargetId = null;
     this.witchState.poisonTargetId = null;
     this.guardState.protectedTargetId = null;
@@ -1633,7 +1638,6 @@ export class WerewolfGame {
   private async *runDay(): AsyncGenerator<GameEvent> {
     this.phase = "day_discussion";
     this.lastDiscussion = [];
-    const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
     yield this.emit(
       "phase_changed",
       this.text(`Day ${this.round} begins.`, `${this.round}日目の昼が始まりました`)
@@ -1649,9 +1653,7 @@ export class WerewolfGame {
       const openingMoveKind = discussionPass === 1 ? firstDayOpeningMoveByPlayerId.get(player.id) : undefined;
       const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
       const contextLines = [
-        deathNames.length > 0
-          ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
-          : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
+        this.nightDeathContextLine(),
         this.text(
           "Discuss suspicions, claims, or information with the whole table.",
           "疑い、役職主張、情報を全体に向けて話してください。"
@@ -1780,6 +1782,17 @@ export class WerewolfGame {
     yield* this.runVoting();
   }
 
+  // Day runs before night each round, so round 1's day has no preceding night to report.
+  private nightDeathContextLine(): string {
+    if (this.round <= 1) {
+      return this.text("The game has just begun; no one has died yet.", "ゲームが始まりました。まだ犠牲者はいません。");
+    }
+    const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
+    return deathNames.length > 0
+      ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
+      : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。");
+  }
+
   private firstDayOpeningMoveAssignments(speakers: Player[]): Map<string, FirstDayOpeningMoveKind> {
     const firstSpeaker = speakers[0];
     if (!firstSpeaker || this.round !== 1) {
@@ -1793,7 +1806,6 @@ export class WerewolfGame {
     yield this.emit("phase_changed", this.text("Voting begins.", "投票が始まりました。"));
 
     const votes: VoteRecord[] = [];
-    const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
     const livingPlayers = this.alivePlayers();
     const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
     const collectVote = async (voter: Player, raceSlots = this.prefetchConcurrency): Promise<{ voter: Player; decision: TargetDecision } | null> => {
@@ -1802,9 +1814,7 @@ export class WerewolfGame {
         return null;
       }
       const contextLines = [
-        deathNames.length > 0
-          ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
-          : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。"),
+        this.nightDeathContextLine(),
         this.text(
           "This is the final decision right before voting after today's public discussion.",
           "これは今日の公開議論後、投票直前の最終判断です。"
@@ -1859,7 +1869,6 @@ export class WerewolfGame {
     this.lastVoteModifiers = voteModifiers;
     if (eligibleVotes.length === 0 && voteModifiers.length === 0) {
       yield this.emit("vote_result", this.text("No votes were cast.", "投票はありませんでした。"), { votes: [] });
-      yield await this.emitRoundSummary();
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
@@ -1877,7 +1886,6 @@ export class WerewolfGame {
 
     if (!voteResolution.eliminatedId) {
       yield this.emit("vote_result", this.text("The vote is tied, so no one is eliminated.", "投票が同数のため、処刑は行われません。"));
-      yield await this.emitRoundSummary();
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
@@ -1896,13 +1904,11 @@ export class WerewolfGame {
         undefined,
         eliminated
       );
-      yield await this.emitRoundSummary();
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
 
     yield* this.resolveDeaths([{ playerId: eliminated.id, cause: "vote" }]);
-    yield await this.emitRoundSummary();
     this.ruleState = expireStatuses(this.ruleState, "round");
   }
 

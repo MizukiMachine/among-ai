@@ -156,6 +156,14 @@ function isEventVisibleToPlayer(event: GameEvent, playerId: string): boolean {
   if (event.data?.visibleTo === playerId) {
     return true;
   }
+  // Werewolf-visibility events (e.g. the night discussion) are shared across the whole werewolf team,
+  // so any werewolf-camp viewer should see them, not just the speaker.
+  if (eventVisibility(event) === "werewolf") {
+    const viewer = event.snapshot?.players.find((player) => player.id === playerId);
+    if (viewer?.camp === "werewolf") {
+      return true;
+    }
+  }
   return event.playerId === playerId && (event.data?.visibility === "private" || event.data?.visibility === "werewolf");
 }
 
