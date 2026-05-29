@@ -76,6 +76,14 @@ export interface PromptMaterials {
     sourcePolicy: string;
   };
   outputFormats: {
+    speechReasoningJson: {
+      instruction: string;
+      japaneseInstruction: string;
+    };
+    speechRealizationJson: {
+      instruction: string;
+      japaneseInstruction: string;
+    };
     speechJson: {
       instruction: string;
       japaneseInstruction: string;
@@ -420,11 +428,21 @@ function readPhases(root: Record<string, unknown>, errors: string[]): PromptMate
 
 function readOutputFormats(root: Record<string, unknown>, errors: string[]): PromptMaterials["outputFormats"] {
   const outputFormats = recordAt(root, "outputFormats", "materials", errors);
+  const speechReasoningJson = recordAt(outputFormats, "speechReasoningJson", "outputFormats", errors);
+  const speechRealizationJson = recordAt(outputFormats, "speechRealizationJson", "outputFormats", errors);
   const speechJson = recordAt(outputFormats, "speechJson", "outputFormats", errors);
   const targetJson = recordAt(outputFormats, "targetJson", "outputFormats", errors);
   const booleanJson = recordAt(outputFormats, "booleanJson", "outputFormats", errors);
 
   return {
+    speechReasoningJson: {
+      instruction: stringAt(speechReasoningJson, "instruction", "outputFormats.speechReasoningJson", errors),
+      japaneseInstruction: stringAt(speechReasoningJson, "japaneseInstruction", "outputFormats.speechReasoningJson", errors)
+    },
+    speechRealizationJson: {
+      instruction: stringAt(speechRealizationJson, "instruction", "outputFormats.speechRealizationJson", errors),
+      japaneseInstruction: stringAt(speechRealizationJson, "japaneseInstruction", "outputFormats.speechRealizationJson", errors)
+    },
     speechJson: {
       instruction: stringAt(speechJson, "instruction", "outputFormats.speechJson", errors),
       japaneseInstruction: stringAt(speechJson, "japaneseInstruction", "outputFormats.speechJson", errors)

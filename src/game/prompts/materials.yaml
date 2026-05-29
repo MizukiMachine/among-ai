@@ -496,6 +496,40 @@ roundSummary:
   sourcePolicy: Use only the structured public round data and the deterministic summary as source material.
 
 outputFormats:
+  speechReasoningJson:
+    instruction: >-
+      Return strict JSON only, with no markdown. This is the reasoning step, not
+      the displayed dialogue. Shape:
+      {"intent":{"act":"suspect|trust|hold|vote_candidate|claim_judgment|claim|defense|private_plan","targetId":"player_id_or_null","stance":"short stance"},"suspects":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"speech_timing|stance_change|weak_reason|vote|claim_timing|claim_reaction|seer_result|night_result|participation|consistency|first_day_tentative|other","sourceId":"player_id_or_null","claimantId":"player_id_or_null","resultTargetId":"player_id_or_null","resultCamp":"village_or_werewolf","round":1}}],"trusts":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"consistency","sourceId":"player_id_or_null"}}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1}}]}
+      Do not include messages, dialogue, stage directions, or prose. Use all
+      supplied public metadata and visible facts as reasoning material. Only use
+      listed living read target ids for suspects and trusts. Dead players may be
+      included in claim-result metadata only as historical results. Prefer
+      structured evidence over free-form reasons; evidence is the source of truth
+      for later dialogue rendering.
+    japaneseInstruction: >-
+      厳密な JSON だけを返してください。これは推理段階であり、画面に出るセリフではありません。形:
+      {"intent":{"act":"suspect|trust|hold|vote_candidate|claim_judgment|claim|defense|private_plan","targetId":"player_id_or_null","stance":"短い立場"},"suspects":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"speech_timing|stance_change|weak_reason|vote|claim_timing|claim_reaction|seer_result|night_result|participation|consistency|first_day_tentative|other","sourceId":"player_id_or_null","claimantId":"player_id_or_null","resultTargetId":"player_id_or_null","resultCamp":"village_or_werewolf","round":1}}],"trusts":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"consistency","sourceId":"player_id_or_null"}}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1}}]}
+      messages、セリフ、口調、演出、説明文は入れません。公開メタデータと見えている事実を推理材料として使います。
+      suspects と trusts は、下に示された生存者 ID だけを使います。死亡者は過去の死亡、前日の投票、
+      過去の占い結果として claims の補足にだけ入れます。自由文の理由より evidence を優先し、
+      後段のセリフ化は evidence を事実の出典として使います。
+  speechRealizationJson:
+    instruction: >-
+      Return strict JSON only, with no markdown. This is the dialogue rendering
+      step, not the reasoning step. Shape: {"messages":["short spoken line","short spoken line"]}.
+      Use 1-3 messages. Convert the supplied structured speech intent into
+      actual spoken dialogue only. Do not add new suspects, trusts, claims,
+      targets, results, or facts beyond the supplied intent and metadata. Do not
+      copy metadata labels, JSON keys, ids, schema text, or planning notes into
+      messages.
+    japaneseInstruction: >-
+      厳密な JSON だけを返してください。これはセリフ化の段階であり、推理を増やす段階ではありません。形:
+      {"messages":["短いセリフ","短いセリフ"]}。
+      messages は 1-3 件。渡された構造化された発話意図だけを、キャラクターが実際に口に出す自然な日本語へ直します。
+      intent や metadata にない疑い先、信頼先、役職主張、占い結果、事実を足しません。
+      メタデータのラベル、JSON キー、ID、スキーマ文、方針メモ、進行メモ、内部用の分類名を messages に写しません。
+      占い結果に触れる時は、「AがBを人間側だと言った」「AがBに人狼判定を出した」のように普通の文で話します。
   speechJson:
     instruction: >-
       Return strict JSON only, with no markdown. Shape:

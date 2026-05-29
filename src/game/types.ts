@@ -68,6 +68,32 @@ export interface SeerClaimResult {
   round?: number;
 }
 
+export type ReadEvidenceKind =
+  | "speech_timing"
+  | "stance_change"
+  | "weak_reason"
+  | "vote"
+  | "claim_timing"
+  | "claim_reaction"
+  | "seer_result"
+  | "night_result"
+  | "participation"
+  | "consistency"
+  | "first_day_tentative"
+  | "other";
+
+export interface ReadEvidenceMetadata {
+  kind: ReadEvidenceKind;
+  sourceId?: string;
+  sourceName?: string;
+  claimantId?: string;
+  claimantName?: string;
+  resultTargetId?: string;
+  resultTargetName?: string;
+  resultCamp?: Camp;
+  round?: number;
+}
+
 export interface ClaimMetadata {
   type: "role_claim" | "seer_result" | "witch_info" | "generic";
   role?: Role;
@@ -83,6 +109,7 @@ export interface PlayerReadMetadata {
   targetName?: string;
   reason?: string;
   weight?: number;
+  evidence?: ReadEvidenceMetadata;
 }
 
 export interface SpeechMetadata {

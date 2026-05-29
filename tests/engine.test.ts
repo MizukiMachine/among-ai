@@ -2825,7 +2825,7 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
     const abortedResults = await Promise.all(blocked);
 
     assert.deepEqual(speech.messages, ["slot released"]);
-    assert.equal(calls, 6);
+    assert.equal(calls, 7);
     assert.equal(
       abortedResults.every((result) => result instanceof Error && result.message.includes("cancelled")),
       true
@@ -2885,6 +2885,177 @@ test("Japanese LLM target decision keeps private vote reason free of planning no
     assert.equal(decision.targetId, "p2");
     assert.equal(decision.reason, "サクラコは今日の公開発言から一番疑わしいためです。");
     assert.doesNotMatch(decision.reason, /方針|疑いを強める|strategy|pressure|record|history|slot/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM public speech separates reasoning metadata from dialogue rendering", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    bodies.push(body);
+    const userContent = String((body.messages as Array<{ content: string }>)[0]?.content ?? "");
+    const isReasoning = bodies.length === 1;
+    assert.equal(body.model, "test-model");
+    assert.equal((body.messages as Array<{ role: string }>)[0]?.role, "user");
+    if (isReasoning) {
+      assert.match(String(body.system), /reasoning metadata/);
+      assert.match(userContent, /Public context with claims and reads/);
+      return new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                intent: { act: "suspect", targetId: "p2", stance: "suspicion", reason: "claim reason changed" },
+                suspects: [{ targetId: "p2", reason: "claim reason changed", weight: 0.7 }]
+              })
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    assert.match(String(body.system), /displayed dialogue/);
+    assert.match(userContent, /Structured speech intent/);
+    assert.doesNotMatch(userContent, /Public context with claims and reads/);
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ messages: ["Byron is suspicious because the claim reason changed."] })
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Public context with claims and reads.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(bodies.length, 2);
+    assert.deepEqual(speech.messages, ["Byron is suspicious because the claim reason changed."]);
+    assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM public speech passes canonical evidence instead of raw reasoning jargon", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let realizationUserContent = "";
+
+  globalThis.fetch = (async (_url, init) => {
+    calls += 1;
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const userContent = String((body.messages as Array<{ content: string }>)[0]?.content ?? "");
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                intent: {
+                  act: "suspect",
+                  targetId: "p3",
+                  reason: "アキオミの占い師主張は保留だが、キリエ白出しでリンタロウを疑う根拠が薄い"
+                },
+                suspects: [
+                  {
+                    targetId: "p3",
+                    reason: "キリエ白出しでリンタロウを疑う根拠が薄い",
+                    weight: 0.7,
+                    evidence: {
+                      kind: "seer_result",
+                      claimantId: "p1",
+                      resultTargetId: "p2",
+                      resultCamp: "village",
+                      round: 1
+                    }
+                  }
+                ],
+                claims: [{ type: "role_claim", role: "Seer", result: { targetId: "p2", camp: "village", round: 1 } }]
+              })
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    realizationUserContent = userContent;
+    return new Response(
+      JSON.stringify({
+        content: [{ type: "text", text: JSON.stringify({ messages: ["リンタロウは占い結果への反応が少し引っかかります"] }) }]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "昼議論で発言してください。",
+      context: "アキオミが占い師を主張し、キリエを人間側だと言った。リンタロウがキリエを疑っている。",
+      knownPlayers: [
+        { id: "p1", name: "アキオミ" },
+        { id: "p2", name: "キリエ" },
+        { id: "p3", name: "リンタロウ" }
+      ],
+      legalPlayers: [
+        { id: "p2", name: "キリエ" },
+        { id: "p3", name: "リンタロウ" }
+      ],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(calls, 2);
+    assert.deepEqual(speech.messages, ["リンタロウは占い結果への反応が少し引っかかります"]);
+    assert.doesNotMatch(realizationUserContent, /白出し/);
+    assert.match(realizationUserContent, /アキオミ.*キリエ.*人間側/);
+    assert.doesNotMatch(speech.metadata.suspects[0].reason ?? "", /白出し/);
+    assert.match(speech.metadata.suspects[0].reason ?? "", /アキオミ.*キリエ.*人間側/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3054,7 +3225,7 @@ test("LLM speech messages are auto-split into short sentence events", async () =
   }
 });
 
-test("LLM speech JSON without messages uses fallback speech", async () => {
+test("LLM speech metadata-only reasoning is rendered into fallback dialogue", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async () => {
@@ -3064,7 +3235,7 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
           {
             type: "text",
             text: JSON.stringify({
-              suspects: [{ targetId: "p2", reason: "late stance", weight: 0.6 }]
+              suspects: [{ targetId: "p2", reason: "late stance", weight: 0.6, evidence: { kind: "stance_change" } }]
             })
           }
         ]
@@ -3096,8 +3267,63 @@ test("LLM speech JSON without messages uses fallback speech", async () => {
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /suspects|targetId/i);
-    assert.match(speech.messages[0], /day one|not using anyone's statement|little information/i);
-    assert.doesNotMatch(speech.messages[0], /quiet|vague|which statement changed/i);
+    assert.match(speech.messages[0], /Byron.*suspicion lean.*changed public stance/i);
+    assert.equal(speech.metadata.suspects[0].targetName, "Byron");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM speech uses reasoning fallback when dialogue rendering fails", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                intent: { act: "suspect", targetId: "p3" },
+                suspects: [{ targetId: "p2", weight: 0.6, evidence: { kind: "stance_change" } }]
+              })
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    throw new Error("dialogue rendering network failure");
+  }) as typeof fetch;
+
+  try {
+    const game = createGame();
+    const [player] = setTable(game, [{ role: "Villager" }]);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+
+    const speech = await agent.speak({
+      player,
+      phase: "day_discussion",
+      task: "Speak.",
+      context: "Discuss.",
+      knownPlayers: [
+        { id: "p1", name: "Ada" },
+        { id: "p2", name: "Byron" },
+        { id: "p3", name: "Curie" }
+      ],
+      legalPlayers: [{ id: "p2", name: "Byron" }],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(calls, 2);
+    assert.deepEqual(speech.messages, ["Byron is my suspicion lean because changed public stance."]);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -3185,7 +3411,7 @@ test("LLM speech rate limits wait before retrying", async () => {
     });
 
     assert.deepEqual(speech.messages, ["retried speech"]);
-    assert.equal(calls, 2);
+    assert.equal(calls, 3);
     assert.deepEqual(backoffDelays, [1_000]);
   } finally {
     globalThis.fetch = originalFetch;

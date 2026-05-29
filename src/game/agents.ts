@@ -5,7 +5,8 @@ import { sanitizeDemoJapaneseGameText, stripJapaneseSpeechTerminalPeriod } from 
 import {
   buildTargetList,
   buildBooleanSystemPrompt,
-  buildSpeechSystemPrompt,
+  buildSpeechReasoningSystemPrompt,
+  buildSpeechRealizationSystemPrompt,
   buildTargetSystemPrompt
 } from "./prompts";
 import { promptMaterials } from "./prompts/materials";
@@ -21,6 +22,8 @@ import type {
   ClaimMetadata,
   FirstDayOpeningMove,
   PlayerReadMetadata,
+  ReadEvidenceKind,
+  ReadEvidenceMetadata,
   Role,
   SpeechMetadata,
   TargetCandidate,
@@ -664,6 +667,10 @@ function tryParseJson(text: string): Record<string, unknown> | null {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function emptySpeechMetadata(): SpeechMetadata {
   return {
     suspects: [],
@@ -705,24 +712,207 @@ function normalizeWeight(value: unknown): number | undefined {
   return Math.max(0, Math.min(1, value));
 }
 
-function normalizeRead(value: unknown, candidates: TargetCandidate[]): PlayerReadMetadata | null {
+const readEvidenceKindAliases: Record<string, ReadEvidenceKind> = {
+  speech_timing: "speech_timing",
+  timing: "speech_timing",
+  stance_change: "stance_change",
+  changed_stance: "stance_change",
+  weak_reason: "weak_reason",
+  thin_reason: "weak_reason",
+  vote: "vote",
+  voting: "vote",
+  claim_timing: "claim_timing",
+  claim_reaction: "claim_reaction",
+  seer_result: "seer_result",
+  white_result: "seer_result",
+  black_result: "seer_result",
+  night_result: "night_result",
+  participation: "participation",
+  consistency: "consistency",
+  first_day_tentative: "first_day_tentative",
+  other: "other"
+};
+
+function normalizeReadEvidenceKind(value: unknown): ReadEvidenceKind | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return readEvidenceKindAliases[value.trim().toLowerCase().replace(/[\s-]+/g, "_")];
+}
+
+function candidateRef(
+  raw: Record<string, unknown>,
+  idKey: string,
+  nameKey: string,
+  candidates: TargetCandidate[]
+): { id?: string; name?: string } {
+  const byId = candidateById(candidates);
+  const idValue = raw[idKey];
+  if (typeof idValue === "string" && byId.has(idValue)) {
+    const candidate = byId.get(idValue);
+    return { id: idValue, name: candidate?.name };
+  }
+
+  const nameValue = raw[nameKey];
+  if (typeof nameValue === "string") {
+    const candidate = candidates.find((item) => item.name === nameValue.trim());
+    if (candidate) {
+      return { id: candidate.id, name: candidate.name };
+    }
+  }
+
+  return {};
+}
+
+function normalizeReadEvidence(value: unknown, candidates: TargetCandidate[]): ReadEvidenceMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const kind = normalizeReadEvidenceKind(value.kind ?? value.type);
+  if (!kind) {
+    return undefined;
+  }
+  const source = candidateRef(value, "sourceId", "sourceName", candidates);
+  const claimant = candidateRef(value, "claimantId", "claimantName", candidates);
+  const resultTarget = candidateRef(value, "resultTargetId", "resultTargetName", candidates);
+  const resultCamp = isCamp(value.resultCamp) ? value.resultCamp : isCamp(value.camp) ? value.camp : undefined;
+  const round = typeof value.round === "number" && Number.isFinite(value.round) ? Math.max(1, Math.floor(value.round)) : undefined;
+  return {
+    kind,
+    sourceId: source.id,
+    sourceName: source.name,
+    claimantId: claimant.id,
+    claimantName: claimant.name,
+    resultTargetId: resultTarget.id,
+    resultTargetName: resultTarget.name,
+    resultCamp,
+    round
+  };
+}
+
+function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMetadata | undefined, language: string): string {
+  const japanese = isJapaneseLanguage(language);
+  if (!evidence) {
+    return japanese
+      ? kind === "suspect"
+        ? "公開発言から確認したい点がある"
+        : "公開発言の立場が比較的はっきりしている"
+      : kind === "suspect"
+        ? "public stance needs pressure"
+        : "public stance is comparatively clear";
+  }
+
+  if (japanese) {
+    if (evidence.kind === "seer_result") {
+      const claimant = evidence.claimantName ?? evidence.sourceName;
+      const resultTarget = evidence.resultTargetName;
+      const camp = evidence.resultCamp ? campLabel(evidence.resultCamp, language) : undefined;
+      if (claimant && resultTarget && camp) {
+        return `${claimant}が${resultTarget}を${camp}だと言った後の反応`;
+      }
+      if (resultTarget && camp) {
+        return `${resultTarget}への${camp}判定への反応`;
+      }
+      return "占い結果への反応";
+    }
+    if (evidence.kind === "claim_timing") {
+      return "役職を名乗ったタイミング";
+    }
+    if (evidence.kind === "claim_reaction") {
+      return kind === "suspect" ? "役職主張への反応がはっきりしない" : "役職主張への反応が落ち着いている";
+    }
+    if (evidence.kind === "stance_change") {
+      return kind === "suspect" ? "発言の変化が気になる" : "立場の出し方が一貫している";
+    }
+    if (evidence.kind === "weak_reason") {
+      return kind === "suspect" ? "理由の薄さが気になる" : "理由が具体的";
+    }
+    if (evidence.kind === "vote") {
+      return kind === "suspect" ? "投票理由を確認したい" : "投票理由が発言とつながっている";
+    }
+    if (evidence.kind === "night_result") {
+      return kind === "suspect" ? "夜の結果への反応が気になる" : "夜の結果への反応が落ち着いている";
+    }
+    if (evidence.kind === "participation") {
+      return kind === "suspect" ? "発言量と立場を確認したい" : "発言量と立場が見えている";
+    }
+    if (evidence.kind === "consistency") {
+      return kind === "suspect" ? "前後の発言がつながっていない" : "前後の発言がつながっている";
+    }
+    if (evidence.kind === "first_day_tentative") {
+      return "初日の暫定材料";
+    }
+    return kind === "suspect" ? "公開発言から確認したい点がある" : "公開発言の立場が比較的はっきりしている";
+  }
+
+  if (evidence.kind === "seer_result") {
+    const claimant = evidence.claimantName ?? evidence.sourceName;
+    const resultTarget = evidence.resultTargetName;
+    const camp = evidence.resultCamp;
+    if (claimant && resultTarget && camp) {
+      return `${claimant}'s ${camp} result on ${resultTarget} and the reaction to it`;
+    }
+    if (resultTarget && camp) {
+      return `${camp} result on ${resultTarget}`;
+    }
+    return "reaction to the Seer result";
+  }
+  if (evidence.kind === "claim_timing") {
+    return "timing of the role claim";
+  }
+  if (evidence.kind === "claim_reaction") {
+    return kind === "suspect" ? "unclear reaction to the role claim" : "steady reaction to the role claim";
+  }
+  if (evidence.kind === "stance_change") {
+    return kind === "suspect" ? "changed public stance" : "consistent public stance";
+  }
+  if (evidence.kind === "weak_reason") {
+    return kind === "suspect" ? "thin public reason" : "specific public reason";
+  }
+  if (evidence.kind === "vote") {
+    return kind === "suspect" ? "vote reason needs pressure" : "vote reason matches the stated read";
+  }
+  if (evidence.kind === "night_result") {
+    return kind === "suspect" ? "reaction to the night result needs pressure" : "steady reaction to the night result";
+  }
+  if (evidence.kind === "participation") {
+    return kind === "suspect" ? "participation and stance need pressure" : "participation and stance are visible";
+  }
+  if (evidence.kind === "consistency") {
+    return kind === "suspect" ? "statements do not connect" : "statements connect consistently";
+  }
+  if (evidence.kind === "first_day_tentative") {
+    return "tentative first-day read";
+  }
+  return kind === "suspect" ? "public stance needs pressure" : "public stance is comparatively clear";
+}
+
+function normalizeRead(
+  value: unknown,
+  readCandidates: TargetCandidate[],
+  evidenceCandidates: TargetCandidate[],
+  language: string,
+  kind: "suspect" | "trust"
+): PlayerReadMetadata | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
 
-  const byId = candidateById(candidates);
+  const byId = candidateById(readCandidates);
   const raw = value as Record<string, unknown>;
   const targetId = typeof raw.targetId === "string" ? raw.targetId : "";
   const target = byId.get(targetId);
   if (!target) {
     return null;
   }
+  const evidence = normalizeReadEvidence(raw.evidence, evidenceCandidates);
 
   return {
     targetId,
     targetName: target.name,
-    reason: clampReason(raw.reason, ""),
-    weight: normalizeWeight(raw.weight)
+    reason: canonicalReadReason(kind, evidence, language),
+    weight: normalizeWeight(raw.weight),
+    evidence
   };
 }
 
@@ -731,7 +921,7 @@ function normalizeClaimResult(
   candidates: TargetCandidate[]
 ): ClaimMetadata["result"] | undefined {
   if (typeof value === "string") {
-    return clampReason(value, "");
+    return undefined;
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -755,7 +945,34 @@ function normalizeClaimResult(
   };
 }
 
-function normalizeClaim(value: unknown, candidates: TargetCandidate[]): ClaimMetadata | null {
+function canonicalClaimNote(input: {
+  type: ClaimMetadata["type"];
+  role?: Role;
+  targetName?: string;
+  camp?: Camp;
+  result?: ClaimMetadata["result"];
+  language: string;
+}): string | undefined {
+  const japanese = isJapaneseLanguage(input.language);
+  if (input.result && typeof input.result === "object") {
+    return undefined;
+  }
+  if (input.role) {
+    return japanese ? `${roleLabel(input.role, input.language)}を名乗った` : `claimed ${input.role}`;
+  }
+  if (input.targetName && input.camp) {
+    return japanese ? `${input.targetName}を${campLabel(input.camp, input.language)}側として扱った` : `treated ${input.targetName} as ${input.camp}`;
+  }
+  if (input.type === "seer_result") {
+    return japanese ? "占い結果に関する主張" : "claim about a Seer result";
+  }
+  if (input.type === "witch_info") {
+    return japanese ? "夜の薬に関する主張" : "claim about night potion information";
+  }
+  return undefined;
+}
+
+function normalizeClaim(value: unknown, candidates: TargetCandidate[], language: string): ClaimMetadata | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -771,7 +988,7 @@ function normalizeClaim(value: unknown, candidates: TargetCandidate[]): ClaimMet
   const target = targetId ? byId.get(targetId) : undefined;
   const camp = isCamp(raw.camp) ? raw.camp : undefined;
   const result = normalizeClaimResult(raw.result, candidates);
-  const note = typeof raw.note === "string" ? clampReason(raw.note, "") : undefined;
+  const note = canonicalClaimNote({ type, role, targetName: target?.name, camp, result, language });
 
   if (!role && !targetId && !camp && !result && !note) {
     return null;
@@ -791,20 +1008,21 @@ function normalizeClaim(value: unknown, candidates: TargetCandidate[]): ClaimMet
 function normalizeSpeechMetadata(
   parsed: Record<string, unknown>,
   readCandidates: TargetCandidate[],
+  language: string,
   claimCandidates = readCandidates
 ): SpeechMetadata {
   const suspects = Array.isArray(parsed.suspects)
     ? parsed.suspects
-        .map((item) => normalizeRead(item, readCandidates))
+        .map((item) => normalizeRead(item, readCandidates, claimCandidates, language, "suspect"))
         .filter((item): item is PlayerReadMetadata => Boolean(item))
     : [];
   const trusts = Array.isArray(parsed.trusts)
     ? parsed.trusts
-        .map((item) => normalizeRead(item, readCandidates))
+        .map((item) => normalizeRead(item, readCandidates, claimCandidates, language, "trust"))
         .filter((item): item is PlayerReadMetadata => Boolean(item))
     : [];
   const claims = Array.isArray(parsed.claims)
-    ? parsed.claims.map((item) => normalizeClaim(item, claimCandidates)).filter((item): item is ClaimMetadata => Boolean(item))
+    ? parsed.claims.map((item) => normalizeClaim(item, claimCandidates, language)).filter((item): item is ClaimMetadata => Boolean(item))
     : [];
 
   return {
@@ -814,22 +1032,197 @@ function normalizeSpeechMetadata(
   };
 }
 
-function parseSpeech(
+interface SpeechIntentMetadata {
+  act?: string;
+  targetId?: string;
+  targetName?: string;
+  stance?: string;
+  reason?: string;
+  claimAssessment?: string;
+}
+
+interface SpeechReasoningResult {
+  intent: SpeechIntentMetadata;
+  metadata: SpeechMetadata;
+}
+
+const speechIntentActs = new Set([
+  "suspect",
+  "trust",
+  "hold",
+  "vote_candidate",
+  "claim_judgment",
+  "claim",
+  "defense",
+  "private_plan"
+]);
+
+function normalizeSpeechIntentAct(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return speechIntentActs.has(normalized) ? normalized : undefined;
+}
+
+function normalizeSpeechIntent(
+  value: unknown,
+  metadata: SpeechMetadata,
+  candidates: TargetCandidate[],
+  language: string
+): SpeechIntentMetadata {
+  const byId = candidateById(candidates);
+  const raw = isRecord(value) ? value : {};
+  const targetIdValue = raw.targetId;
+  const targetId = typeof targetIdValue === "string" && byId.has(targetIdValue) ? targetIdValue : undefined;
+  const target = targetId ? byId.get(targetId) : undefined;
+  const read =
+    targetId && metadata.suspects.some((item) => item.targetId === targetId)
+      ? metadata.suspects.find((item) => item.targetId === targetId)
+      : targetId && metadata.trusts.some((item) => item.targetId === targetId)
+        ? metadata.trusts.find((item) => item.targetId === targetId)
+        : undefined;
+  const act =
+    normalizeSpeechIntentAct(raw.act) ??
+    (read && metadata.suspects.some((item) => item.targetId === read.targetId)
+      ? "suspect"
+      : read
+        ? "trust"
+        : undefined);
+  const stance =
+    act === "suspect" || act === "vote_candidate"
+      ? "suspicion"
+      : act === "trust"
+        ? "trust"
+        : act === "claim_judgment" || act === "claim"
+          ? "claim"
+          : act === "hold"
+            ? "hold"
+            : undefined;
+  const reason = read?.reason;
+  const claimAssessment =
+    act === "claim_judgment" || act === "claim"
+      ? isJapaneseLanguage(language)
+        ? "役職主張は公開情報で保留して見る"
+        : "hold the role claim against public information"
+      : undefined;
+
+  if (!target && (act === "suspect" || act === "vote_candidate") && metadata.suspects[0]) {
+    const suspect = metadata.suspects[0];
+    return {
+      act: "suspect",
+      targetId: suspect.targetId,
+      targetName: suspect.targetName,
+      stance: "suspicion",
+      reason: suspect.reason
+    };
+  }
+
+  if (!target && act === "trust" && metadata.trusts[0]) {
+    const trust = metadata.trusts[0];
+    return {
+      act: "trust",
+      targetId: trust.targetId,
+      targetName: trust.targetName,
+      stance: "trust",
+      reason: trust.reason
+    };
+  }
+
+  if (!target && (act === "claim_judgment" || act === "claim") && metadata.claims[0]) {
+    const claim = metadata.claims[0];
+    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+    return {
+      act: claim.role ? "claim_judgment" : "claim",
+      targetId: claim.targetId ?? result?.targetId,
+      targetName: claim.targetName ?? result?.targetName,
+      stance: claim.role ? `${claim.role} claim` : "claim",
+      reason: claim.note,
+      claimAssessment
+    };
+  }
+
+  if (act || stance || reason || claimAssessment || target) {
+    return {
+      act,
+      targetId,
+      targetName: target?.name,
+      stance,
+      reason,
+      claimAssessment
+    };
+  }
+
+  const suspect = metadata.suspects[0];
+  if (suspect) {
+    return {
+      act: "suspect",
+      targetId: suspect.targetId,
+      targetName: suspect.targetName,
+      stance: "suspicion",
+      reason: suspect.reason
+    };
+  }
+
+  const trust = metadata.trusts[0];
+  if (trust) {
+    return {
+      act: "trust",
+      targetId: trust.targetId,
+      targetName: trust.targetName,
+      stance: "trust",
+      reason: trust.reason
+    };
+  }
+
+  const claim = metadata.claims[0];
+  if (claim) {
+    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+    return {
+      act: claim.role ? "claim_judgment" : "claim",
+      targetId: claim.targetId ?? result?.targetId,
+      targetName: claim.targetName ?? result?.targetName,
+      stance: claim.role ? `${claim.role} claim` : "claim",
+      reason: claim.note
+    };
+  }
+
+  return {
+    act: "hold",
+    stance: "hold"
+  };
+}
+
+function parseSpeechReasoning(
   content: string,
   readCandidates: TargetCandidate[],
-  fallback: string,
   language: string,
   claimCandidates = readCandidates
-): AgentSpeech {
+): SpeechReasoningResult {
   const parsed = extractJsonObject(content);
   if (!parsed) {
-    const recoveredMessages = isSpeechJsonLeak(content)
-      ? normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language)
-      : [];
     return {
-      messages: recoveredMessages.length > 0 ? recoveredMessages : [normalizeSpeechLine(isSpeechJsonLeak(content) ? fallback : content, fallback, language)],
+      intent: { act: "hold", stance: "hold" },
       metadata: emptySpeechMetadata()
     };
+  }
+
+  const metadata = normalizeSpeechMetadata(parsed, readCandidates, language, claimCandidates);
+  const intentSource = isRecord(parsed.intent) ? parsed.intent : isRecord(parsed.speechIntent) ? parsed.speechIntent : parsed;
+  return {
+    intent: normalizeSpeechIntent(intentSource, metadata, readCandidates, language),
+    metadata
+  };
+}
+
+function parseSpeechRealizationMessages(content: string, fallback: string, language: string): string[] {
+  const parsed = extractJsonObject(content);
+  if (!parsed) {
+    if (isSpeechJsonLeak(content)) {
+      return normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language);
+    }
+    const line = normalizeSpeechLine(content, fallback, language);
+    return line ? [line] : [];
   }
 
   const messagesSource = Array.isArray(parsed.messages)
@@ -839,13 +1232,62 @@ function parseSpeech(
       : typeof parsed.speech === "string"
         ? [parsed.speech]
         : [];
+  return normalizeSpeechMessages(messagesSource, fallback, language);
+}
 
-  const messages = normalizeSpeechMessages(messagesSource, fallback, language);
+function speechReasoningFallback(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
+  const japanese = isJapaneseLanguage(language);
+  const target = reasoning.intent.targetName ?? (reasoning.intent.targetId ? targetName(reasoning.intent.targetId, input.knownPlayers) : "");
+  const reason = reasoning.intent.reason || reasoning.intent.claimAssessment || reasoning.intent.stance || "";
+  const act = reasoning.intent.act ?? "";
 
-  return {
-    messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, language)],
-    metadata: normalizeSpeechMetadata(parsed, readCandidates, claimCandidates)
+  if (japanese) {
+    const reasonPrefix = reason ? `${reason}という点から、` : "";
+    if (target && /trust|信頼|信用/i.test(act)) {
+      return `${target}は${reasonPrefix}信頼寄りで見ます`;
+    }
+    if (target && /suspect|vote|疑|投票/i.test(act)) {
+      return `${target}は${reasonPrefix}疑い寄りで見ます`;
+    }
+    if (target && /claim|主張|hold|保留/i.test(act)) {
+      return `${target}については${reasonPrefix}今は保留します`;
+    }
+    return buildLlmSpeechFallback(input, language);
+  }
+
+  if (target && /trust/i.test(act)) {
+    return `${target} is my trust lean${reason ? ` because ${reason}` : ""}.`;
+  }
+  if (target && /suspect|vote/i.test(act)) {
+    return `${target} is my suspicion lean${reason ? ` because ${reason}` : ""}.`;
+  }
+  if (target && /claim|hold/i.test(act)) {
+    return `I am holding on ${target}${reason ? ` because ${reason}` : ""}.`;
+  }
+  return buildLlmSpeechFallback(input, language);
+}
+
+function speechRealizationUserContent(reasoning: SpeechReasoningResult, language: string): string {
+  const payload = {
+    intent: reasoning.intent,
+    metadata: reasoning.metadata
   };
+  if (isJapaneseLanguage(language)) {
+    return [
+      "構造化された発話意図:",
+      JSON.stringify(payload),
+      "",
+      "作業:",
+      "上の intent と metadata だけを、画面に表示する自然な短いセリフにしてください。新しい推理や対象は足しません。"
+    ].join("\n");
+  }
+  return [
+    "Structured speech intent:",
+    JSON.stringify(payload),
+    "",
+    "Task:",
+    "Render only the supplied intent and metadata as short displayed dialogue. Do not add new reasoning or targets."
+  ].join("\n");
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -870,6 +1312,14 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw abortError();
   }
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return error.name === "AbortError" || message.includes("aborted") || message.includes("cancelled");
 }
 
 function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: number): Anthropic {
@@ -1790,14 +2240,14 @@ class LlmAgent implements Agent {
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     const legalPlayers = input.legalPlayers ?? input.knownPlayers;
-    const system = buildSpeechSystemPrompt({
+    const reasoningSystem = buildSpeechReasoningSystemPrompt({
       player: input.player,
       phase: input.phase,
       language: this.language,
       legalPlayers
     });
-    const content = await this.complete(
-      system,
+    const reasoningContent = await this.complete(
+      reasoningSystem,
       [
         {
           role: "user",
@@ -1807,14 +2257,42 @@ class LlmAgent implements Agent {
       this.maxTokens,
       input.abortSignal
     );
+    const reasoning = parseSpeechReasoning(reasoningContent, legalPlayers, this.language, input.knownPlayers);
+    const fallback = speechReasoningFallback(reasoning, input, this.language);
+    const realizationSystem = buildSpeechRealizationSystemPrompt({
+      player: input.player,
+      phase: input.phase,
+      language: this.language,
+      legalPlayers
+    });
+    let realizationContent: string;
+    try {
+      realizationContent = await this.complete(
+        realizationSystem,
+        [
+          {
+            role: "user",
+            content: speechRealizationUserContent(reasoning, this.language)
+          }
+        ],
+        Math.min(this.maxTokens, defaultLlmMaxTokens),
+        input.abortSignal
+      );
+    } catch (error) {
+      if (input.abortSignal?.aborted || isAbortLikeError(error)) {
+        throw error;
+      }
+      return {
+        messages: [normalizeSpeechLine(fallback, fallback, this.language)],
+        metadata: reasoning.metadata
+      };
+    }
+    const messages = parseSpeechRealizationMessages(realizationContent, fallback, this.language);
 
-    return parseSpeech(
-      content,
-      legalPlayers,
-      buildLlmSpeechFallback(input, this.language),
-      this.language,
-      input.knownPlayers
-    );
+    return {
+      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      metadata: reasoning.metadata
+    };
   }
 
   async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
