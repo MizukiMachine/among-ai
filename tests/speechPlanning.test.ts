@@ -260,7 +260,7 @@ test("speech plan review rejects death-cause recap that does not advance discuss
   assert.equal(forwardMove.ok, true);
 });
 
-test("speech plan review requires a visible stance even on quiet first day", () => {
+test("round-one opening turn does not force a stance and opens with observation", () => {
   const legalPlayers: TargetCandidate[] = [
     { id: "p2", name: "シオン" },
     { id: "p3", name: "キリエ" }
@@ -275,11 +275,107 @@ test("speech plan review requires a visible stance even on quiet first day", () 
     language: "Japanese"
   });
 
+  // The opening turn has no public material yet, so the after-the-fact stance
+  // forcing is off and the intent invites a substantive non-conclusory opening
+  // (self-intro, CO policy, organizing) instead of an unfounded suspicion.
+  assert.equal(plan.requiresForwardMove, false);
+  assert.ok(plan.intents.some((item) => item.kind === "open_first_day"));
+
+  // A substantive non-stance opening (self-introduction) is accepted without
+  // being forced into a suspicion or vote.
+  const selfIntro = reviewSpeechAgainstPlan(
+    {
+      messages: ["はじめまして、今日はみんなの話を聞きながら落ち着いて進めたいです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(selfIntro.ok, true);
+
+  const coPolicy = reviewSpeechAgainstPlan(
+    {
+      messages: ["占い師のCOを今日どう扱うかだけ先に決めたいです"],
+      metadata
+    },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(coPolicy.ok, true);
+});
+
+test("opening turn requires substantive content and rejects vacuous openings", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "シオン" },
+    { id: "p3", name: "キリエ" }
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "アカネ"), player("Villager", "p2", "シオン"), player("Seer", "p3", "キリエ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese"
+  });
+  assert.equal(plan.opensFirstDay, true);
+
+  // The reported 様子見/保留 family AND other content-free patterns (not just the
+  // blocklisted words) are rejected by the positive-substance check.
+  for (const filler of [
+    "今の流れは様子見する",
+    "今の状況はちょっと保留だ",
+    "今の状況は様子見",
+    "とりあえず様子を見る",
+    "今の状況はまだ保留",
+    "今日はみんなの出方をまず見たいです",
+    "特に今は何もないです",
+    "まだ何とも言えないですね"
+  ]) {
+    const review = reviewSpeechAgainstPlan({ messages: [filler], metadata }, plan, legalPlayers, "Japanese");
+    assert.equal(review.ok, false, `expected vacuous opening to be rejected: ${filler}`);
+    assert.match(review.revisionHint ?? "", /自己紹介|中身/);
+  }
+
+  // Each intended opening topic counts as substance: self-intro, CO/role policy,
+  // vote criteria, concrete observation, setup organizing, and engaging a player.
+  for (const substantive of [
+    "はじめまして、今日は落ち着いて進めたいです",
+    "占い師のCOは今日どう扱うか先に決めませんか",
+    "今日は発言の具体性を投票基準にしたいです",
+    "今日はキリエの出方に注目したいです",
+    "まずは配役の構成と進め方を整理しませんか",
+    "シオンさん、最初の意気込みを聞かせてください"
+  ]) {
+    const review = reviewSpeechAgainstPlan({ messages: [substantive], metadata }, plan, legalPlayers, "Japanese");
+    assert.equal(review.ok, true, `expected substantive opening to pass: ${substantive}`);
+  }
+});
+
+test("stance forcing returns once real material exists (round one second pass)", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "シオン" },
+    { id: "p3", name: "キリエ" }
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 2,
+    players: [player("Villager", "p1", "アカネ"), player("Villager", "p2", "シオン"), player("Seer", "p3", "キリエ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese"
+  });
+
+  // Once a pass of public statements exists, a forward move is required again so
+  // the relaxation stays scoped to the opening turn.
   assert.equal(plan.requiresForwardMove, true);
 
   const watchOnly = reviewSpeechAgainstPlan(
     {
-      messages: ["まだ誰も喋ってないけど、シオンとキリエから動きが出たら見たい"],
+      messages: ["シオンとキリエから動きが出たら見たい"],
       metadata
     },
     plan,
@@ -288,51 +384,6 @@ test("speech plan review requires a visible stance even on quiet first day", () 
   );
   assert.equal(watchOnly.ok, false);
   assert.match(watchOnly.issues.join("\n"), /visible stance/);
-
-  const questionOnly = reviewSpeechAgainstPlan(
-    {
-      messages: ["シオンを信頼できるか確認したいです"],
-      metadata
-    },
-    plan,
-    legalPlayers,
-    "Japanese"
-  );
-  assert.equal(questionOnly.ok, false);
-  assert.match(questionOnly.issues.join("\n"), /visible stance/);
-
-  const questionLikeTrust = reviewSpeechAgainstPlan(
-    {
-      messages: ["シオンを信頼できると思うか聞きたいです"],
-      metadata
-    },
-    plan,
-    legalPlayers,
-    "Japanese"
-  );
-  assert.equal(questionLikeTrust.ok, false);
-
-  const questionLikeSuspicion = reviewSpeechAgainstPlan(
-    {
-      messages: ["シオンを疑っているか確認したいです"],
-      metadata
-    },
-    plan,
-    legalPlayers,
-    "Japanese"
-  );
-  assert.equal(questionLikeSuspicion.ok, false);
-
-  const tentativeStance = reviewSpeechAgainstPlan(
-    {
-      messages: ["まだ誰も喋ってないので、シオンは保留です。キリエは役職が重いぶん暫定で保留に置きます"],
-      metadata
-    },
-    plan,
-    legalPlayers,
-    "Japanese"
-  );
-  assert.equal(tentativeStance.ok, true);
 
   const visibleTrust = reviewSpeechAgainstPlan(
     {

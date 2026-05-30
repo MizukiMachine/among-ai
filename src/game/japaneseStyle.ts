@@ -128,13 +128,17 @@ export function japaneseStyleGuide(language: string): string[] {
   return [heading, ...guidelines.map((line) => `- ${line}`)];
 }
 
-export function japaneseDialogueContract(language: string): string[] {
+export function japaneseDialogueContract(language: string, requiresForwardMove = true): string[] {
   if (!isJapaneseLanguage(language)) {
     return [];
   }
 
   const [heading, ...guidelines] = promptMaterials.languageStyles.japanese.dialogueContract;
-  return [heading, ...guidelines.map((line) => `- ${line}`)];
+  // The stance-forcing clauses are appended only when a forward move is required
+  // (i.e. not on the round-one opening turn), so the opening turn is not told to
+  // surface a read when there is no public material yet.
+  const forwardMove = requiresForwardMove ? promptMaterials.languageStyles.japanese.dialogueContractForwardMove : [];
+  return [heading, ...guidelines.map((line) => `- ${line}`), ...forwardMove.map((line) => `- ${line}`)];
 }
 
 export function stripJapaneseSpeechTerminalPeriod(text: string, language: string): string {

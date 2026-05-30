@@ -396,6 +396,10 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
   } = options;
   const profile = getRolePromptProfile(player.role);
   const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
+  // When the plan does not require a forward move (round-one opening turn, or the
+  // director supplying the stance) the empty-history prompt must not force a
+  // suspicion/vote; it permits a non-conclusory opening instead.
+  const requiresForwardMove = options.speechPlan?.requiresForwardMove ?? true;
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
   const lines = [
@@ -412,6 +416,7 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
     "",
     "昼議論で意識すること:",
     bulletList(publicSpeech.phaseGuidance),
+    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
     ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
     ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
     "",
@@ -456,8 +461,15 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
       firstDayOpeningMove?.kind === "tentative_reaction_read"
         ? "- 「誰かの言う通り」「誰かの発言」のように、既に公開発言があった事実として話さない。"
         : "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
-      "- 名前を出す場合は、人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかまで言う。",
-      "- 今後の観察だけで終えず、画面に出るセリフ内で自分の stance まで言う。"
+      ...(requiresForwardMove
+        ? [
+            "- 名前を出す場合は、人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかまで言う。",
+            "- 今後の観察だけで終えず、画面に出るセリフ内で自分の stance まで言う。"
+          ]
+        : [
+            "- まだ公開情報がないので、無理に疑い先や投票先を決めなくてよい。自己紹介、今日見ていきたい観点、役職COの方針、情報整理など、材料がなくても成立する話から始める。",
+            "- 名前を出す場合も断定にせず、人物傾向や役職印象からの軽い印象に留め、根拠がないのに結論を急がない。"
+          ])
     );
   } else {
     lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));
@@ -604,7 +616,8 @@ function japanesePublicSpeechSystemPrompt(options: BuildSystemPromptOptions): st
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const profile = getRolePromptProfile(options.player.role);
   const styleGuide = japaneseStyleGuide(options.language);
-  const dialogueContract = japaneseDialogueContract(options.language);
+  const requiresForwardMove = options.requiresForwardMove ?? true;
+  const dialogueContract = japaneseDialogueContract(options.language, requiresForwardMove);
   const lines = [
     ...publicSpeech.systemPreamble,
     `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
@@ -618,6 +631,7 @@ function japanesePublicSpeechSystemPrompt(options: BuildSystemPromptOptions): st
     "",
     "昼議論の進め方:",
     bulletList(publicSpeech.phaseGuidance),
+    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
     ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
     ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",
@@ -666,6 +680,7 @@ export function buildSpeechSystemPrompt(options: BuildSystemPromptOptions): stri
 function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const profile = getRolePromptProfile(options.player.role);
+  const requiresForwardMove = options.requiresForwardMove ?? true;
   const lines = [
     "あなたは人狼ゲームの公開発話前に、発話意図と公開推理メタデータだけを決めます。",
     `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
@@ -679,6 +694,7 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
     "",
     "昼議論の進め方:",
     bulletList(publicSpeech.phaseGuidance),
+    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
     "",
     promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction,
     promptMaterials.outputFormats.japaneseReminder,
@@ -691,7 +707,7 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
 
 function japaneseSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
   const styleGuide = japaneseStyleGuide(options.language);
-  const dialogueContract = japaneseDialogueContract(options.language);
+  const dialogueContract = japaneseDialogueContract(options.language, options.requiresForwardMove ?? true);
   const lines = [
     "あなたは人狼ゲームの発話意図を、画面に表示する短いセリフへ変換します。",
     `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,

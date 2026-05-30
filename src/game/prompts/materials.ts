@@ -102,10 +102,12 @@ export interface PromptMaterials {
     japanese: {
       systemStyleGuide: string[];
       dialogueContract: string[];
+      dialogueContractForwardMove: string[];
       publicSpeech: {
         systemPreamble: string[];
         boundary: string[];
         phaseGuidance: string[];
+        phaseGuidanceForwardMove: string[];
       };
       targetDecision: {
         systemPreamble: string[];
@@ -485,10 +487,12 @@ function readLanguageStyles(root: Record<string, unknown>, errors: string[]): Pr
     japanese: {
       systemStyleGuide: stringArrayAt(japanese, "systemStyleGuide", "languageStyles.japanese", errors),
       dialogueContract: stringArrayAt(japanese, "dialogueContract", "languageStyles.japanese", errors),
+      dialogueContractForwardMove: stringArrayAt(japanese, "dialogueContractForwardMove", "languageStyles.japanese", errors),
       publicSpeech: {
         systemPreamble: stringArrayAt(publicSpeech, "systemPreamble", "languageStyles.japanese.publicSpeech", errors),
         boundary: stringArrayAt(publicSpeech, "boundary", "languageStyles.japanese.publicSpeech", errors),
-        phaseGuidance: stringArrayAt(publicSpeech, "phaseGuidance", "languageStyles.japanese.publicSpeech", errors)
+        phaseGuidance: stringArrayAt(publicSpeech, "phaseGuidance", "languageStyles.japanese.publicSpeech", errors),
+        phaseGuidanceForwardMove: stringArrayAt(publicSpeech, "phaseGuidanceForwardMove", "languageStyles.japanese.publicSpeech", errors)
       },
       targetDecision: {
         systemPreamble: stringArrayAt(targetDecision, "systemPreamble", "languageStyles.japanese.targetDecision", errors),

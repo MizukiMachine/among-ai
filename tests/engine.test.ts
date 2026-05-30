@@ -1123,7 +1123,7 @@ test("day discussion gives each living player a second response pass", async () 
   assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
 });
 
-test("first day opening speaker receives one random opening move prompt", async () => {
+test("every first-day first-pass speaker receives a distinct opening move prompt", async () => {
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager", targets: ["p2"] },
@@ -1137,19 +1137,22 @@ test("first day opening speaker receives one random opening move prompt", async 
 
   await collect(game.runDay());
 
-  const openingAgent = game.agents.get(players[0].id) as ScriptedAgent;
-  const openingKind = openingAgent.speechInputs[0].speechPlan?.firstDayOpeningMove?.kind;
-  assert.match(openingAgent.speechInputs[0].context, /初日特別モード/);
-  assert.equal(openingAgent.speechInputs[1].speechPlan?.firstDayOpeningMove, undefined);
-
   const allowedKinds = new Set<string>(firstDayOpeningMoveKinds);
-  assert.ok(openingKind && allowedKinds.has(openingKind));
-
-  for (const player of players.slice(1)) {
+  const assignedKinds: string[] = [];
+  for (const player of players) {
     const agent = game.agents.get(player.id) as ScriptedAgent;
-    assert.equal(agent.speechInputs[0].speechPlan?.firstDayOpeningMove, undefined);
-    assert.doesNotMatch(agent.speechInputs[0].context, /初日特別モード/);
+    const kind = agent.speechInputs[0].speechPlan?.firstDayOpeningMove?.kind;
+    // Every first-pass speaker gets a concrete, non-conclusory opening move so the
+    // round-one table never degenerates into content-free filler.
+    assert.ok(kind && allowedKinds.has(kind), `expected an opening move for ${player.id}`);
+    assert.match(agent.speechInputs[0].context, /初日特別モード/);
+    // The second pass no longer carries an opening move.
+    assert.equal(agent.speechInputs[1].speechPlan?.firstDayOpeningMove, undefined);
+    assignedKinds.push(kind as string);
   }
+
+  // With as many distinct moves as speakers, the table covers varied topics.
+  assert.equal(new Set(assignedKinds).size, players.length);
 });
 
 test("later day first-pass speakers do not receive opening move prompts", async () => {

@@ -1830,11 +1830,16 @@ export class WerewolfGame {
   }
 
   private firstDayOpeningMoveAssignments(speakers: Player[]): Map<string, FirstDayOpeningMoveKind> {
-    const firstSpeaker = speakers[0];
-    if (!firstSpeaker || this.round !== 1) {
+    if (this.round !== 1 || speakers.length === 0) {
       return new Map();
     }
-    return new Map([[firstSpeaker.id, sample([...firstDayOpeningMoveKinds])]]);
+    // Give every round-one first-pass speaker a distinct opening move so the table
+    // covers varied natural topics (self-intro, setup, vote criteria, claim policy,
+    // power-role handling) instead of degenerating into "様子見"/"保留" filler when
+    // there is nothing yet to react to. A random offset varies it across games.
+    const kinds = [...firstDayOpeningMoveKinds];
+    const offset = Math.floor(Math.random() * kinds.length);
+    return new Map(speakers.map((speaker, index) => [speaker.id, kinds[(offset + index) % kinds.length]]));
   }
 
   // The omniscient director plans this day's discussion once, before any speech is

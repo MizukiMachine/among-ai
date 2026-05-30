@@ -1,5 +1,5 @@
 id: among_ai.game_prompt_materials
-version: 5
+version: 7
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
@@ -604,13 +604,17 @@ languageStyles:
       - "messages はキャラクターが実際に口に出す会話だけにする。推理メモ、進行メモ、翻訳文、内部用の分類名を書かない。"
       - "messages の各セリフは文末の「。」を付けずに終える。「？」や「！」は必要な時だけ使う。"
       - "内部の方針や補助メモはセリフに混ぜない。会話では「疑っている」「信頼している」「保留する」「投票候補に入れる」「明日見返す」と具体的に言う。"
-      - "messages の公開セリフには、必ず自分の stance を入れる。stance は疑い、信頼、保留、投票候補、役職主張の信用判断のどれかです。"
       - "直近の人と同じ対象・同じ理由を繰り返さない。同意する時も、別の根拠、比較、反論、投票への影響のどれかを足す。"
-      - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
-      - "今後の観察だけで発言を終えない。まだ材料が薄い時も、暫定の疑い・信頼・保留・投票候補まで言う。"
       - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
       - "不自然な比喩を作らず、「話をそらす」「ごまかす」「撹乱する」のような普通の日本語で言う。"
       - "世界観用語や人狼用語を増やさない。配信で聞いて違和感のない日本語を優先する。"
+    # Stance-forcing clauses, appended only when the speech plan requires a forward
+    # move (i.e. NOT on the round-one opening turn). Splitting them out keeps the
+    # opening turn from demanding a read when there is no public material yet.
+    dialogueContractForwardMove:
+      - "messages の公開セリフには、必ず自分の stance を入れる。stance は疑い、信頼、保留、投票候補、役職主張の信用判断のどれかです。"
+      - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
+      - "今後の観察だけで発言を終えない。まだ材料が薄い時も、暫定の疑い・信頼・保留・投票候補まで言う。"
     publicSpeech:
       systemPreamble:
         - "あなたは短い昼議論の中で発言する人狼ゲームの参加者です。"
@@ -624,12 +628,17 @@ languageStyles:
         - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
         - "キャラクター設定や発言例は口調の材料であり、この試合で実際に起きた発言や行動として引用しない。"
       phaseGuidance:
-        - "昼議論は短い発言を数回交わす形式です。質問や様子見で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
+        - "昼議論は短い発言を数回交わす形式です。"
         - "自分に疑いが向いているなら、先に短く答えてから自分の読みを更新する。"
         - "既に同じ疑い・信頼が続いている時は、同じ言い方を重ねず、保留、別候補、信用判断、投票方針へ話を進める。"
-        - "公開情報が少なくても、人物傾向や役職印象を根拠に、誰をどう見ているかを具体的な一文にする。"
         - "今の疑い先、信頼先、投票候補は生存者に向ける。"
         - "長い考えは短い文に分ける。"
+      # Stance-forcing guidance, rendered only when the speech plan requires a
+      # forward move (NOT on the round-one opening turn, where there is no public
+      # material yet to ground a read).
+      phaseGuidanceForwardMove:
+        - "質問や様子見で会話を回すより、自分の読み、投票候補、名乗るかどうかの判断を出す。"
+        - "公開情報が少なくても、人物傾向や役職印象を根拠に、誰をどう見ているかを具体的な一文にする。"
     targetDecision:
       systemPreamble:
         - "あなたは人狼ゲームの対象選択を行います。"
@@ -652,11 +661,11 @@ languageStyles:
 daySituations:
   ja:
     first_day:
-      - "初日昼: 公開情報が少ないので強い断定を避ける。"
-      - "質問や様子見で始めず、薄い根拠でも自分の暫定読み、保留理由、軽い投票候補を一つ出す。"
-      - "黒確定のように言わず、「気になる」「保留する」「投票候補に入れる」で止める。"
+      - "初日昼: まだ公開発言も占い結果も投票履歴もない。強い断定を避け、根拠がないのに疑い先や投票先を急いで決めない。"
+      - "自己紹介、今日見ていきたい観点、役職COの方針（占いを出すか潜るか等）、情報整理など、材料がなくても成立する話から始めてよい。"
+      - "「初日だから」を理由にした中身のない疑いはしない。読みを出す場合も、人物傾向や役職印象からの軽い印象に留め、材料の薄さは正直に認める。"
+      - "黒確定のように言わず、断定が必要な場面ではない。気になる点があっても「気になる」「保留する」程度で止める。"
       - "まだ公開発言がない相手については、「言う通り」「発言」「反応」「動き」といった実際に見た前提の言い方をしない。"
-      - "名前を出すなら今後の観察だけで終えず、人物傾向や役職印象から暫定の疑い・信頼・保留・投票候補に置く。"
     later_day:
       - "2日目以降の昼: 昨日の投票、夜の結果、前日の疑い先の変化をつなげて話す。"
       - "前日の発言から考えが変わった理由を一つ示し、新情報で読みを更新する。"
@@ -674,9 +683,10 @@ daySituations:
       - "投票理由は短く、明日検証できる形にする。"
   en:
     first_day:
-      - "First day: public information is thin, so avoid hard certainty."
-      - State a light hypothesis from speaking volume or early alignment only when it appears in visible context.
-      - 'Prefer wording like "stands out" or "I am holding them as a vote candidate" over treating anyone as confirmed.'
+      - "First day: there are no public statements, Seer results, or vote history yet. Avoid hard certainty and do not rush to pick a suspect or vote target without grounds."
+      - "It is fine to open with a self-introduction, what you want to watch today, a role-claim policy, or organizing information — topics that hold up without evidence."
+      - 'Do not make an empty "because it is day one" suspicion. If you offer a read, keep it a light impression from disposition or role feel and admit the thin information honestly.'
+      - "Do not speak about players with no visible statement as if you saw their words, reaction, or movement."
     later_day:
       - "Day two and later: connect yesterday's votes, the night result, and changes in earlier reads."
       - Name one reason your view changed, then update the read with the new public information.

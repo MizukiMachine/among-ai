@@ -120,7 +120,9 @@ test("parsed scripts drop shared-frame beats/arc that leak a living player's hid
 test("suppressForwardMove disables the stance-forcing lever", () => {
   const base = {
     phase: "day_discussion" as const,
-    round: 1,
+    // Round 2 so this isolates the suppressForwardMove lever from the separate
+    // round-one opening-turn relaxation (which also drops requiresForwardMove).
+    round: 2,
     discussionPass: 1,
     players: [],
     lastNightDeaths: [],

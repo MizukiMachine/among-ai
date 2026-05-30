@@ -300,7 +300,8 @@ export type SpeechIntentKind =
   | "update_living_read"
   | "answer_or_update"
   | "vote_ready_read"
-  | "open_discussion";
+  | "open_discussion"
+  | "open_first_day";
 
 export interface SpeechIntent {
   kind: SpeechIntentKind;
@@ -309,6 +310,8 @@ export interface SpeechIntent {
 }
 
 export type FirstDayOpeningMoveKind =
+  | "self_introduction"
+  | "organize_setup"
   | "overstate_village_side"
   | "state_vote_criteria"
   | "ask_role_claim_policy"
@@ -367,6 +370,13 @@ export interface PublicSpeechPlan {
   intents: SpeechIntent[];
   firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;
+  /**
+   * True on the round-one opening turn. The speech must not be forced into a
+   * stance, but it must still carry substantive opening content (self-intro,
+   * observation focus, claim-handling policy, setup organizing) rather than a
+   * content-free "様子見"/"保留" filler line.
+   */
+  opensFirstDay?: boolean;
 }
 
 export interface AgentSpeechInput {

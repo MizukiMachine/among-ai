@@ -58,6 +58,12 @@ export interface BuildSystemPromptOptions {
   language: string;
   legalPlayers?: TargetCandidate[];
   allowSkip?: boolean;
+  /**
+   * Whether this turn's speech plan requires a forward move (a stated stance).
+   * False on the round-one opening turn, where the stance-forcing guidance is
+   * suppressed. Defaults to true (forcing on) when omitted.
+   */
+  requiresForwardMove?: boolean;
 }
 
 export const speechJsonSchemaInstruction = promptMaterials.outputFormats.speechJson.instruction;

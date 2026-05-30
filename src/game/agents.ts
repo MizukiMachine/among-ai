@@ -840,7 +840,9 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
       return kind === "suspect" ? "前後の発言がつながっていない" : "前後の発言がつながっている";
     }
     if (evidence.kind === "first_day_tentative") {
-      return "初日の暫定材料";
+      return kind === "suspect"
+        ? "まだ公開発言がないので、軽い印象として気にしている"
+        : "まだ公開発言がないので、軽い印象として置いている";
     }
     return kind === "suspect" ? "公開発言から確認したい点がある" : "公開発言の立場が比較的はっきりしている";
   }
@@ -882,7 +884,9 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
     return kind === "suspect" ? "statements do not connect" : "statements connect consistently";
   }
   if (evidence.kind === "first_day_tentative") {
-    return "tentative first-day read";
+    return kind === "suspect"
+      ? "a light first impression while no one has spoken yet"
+      : "a light first impression to hold while no one has spoken yet";
   }
   return kind === "suspect" ? "public stance needs pressure" : "public stance is comparatively clear";
 }
@@ -1852,6 +1856,12 @@ function demoFirstDayOpeningMoveSpeech(
   const japanese = isJapaneseLanguage(language);
   const targetName = target?.name ?? (japanese ? "誰か" : "someone");
   if (japanese) {
+    if (move.kind === "self_introduction") {
+      return "まず軽く自己紹介から。今日は落ち着いて、みんなの話を一通り聞いてから動きたいです";
+    }
+    if (move.kind === "organize_setup") {
+      return "先に段取りだけ整理したいです。初日は情報が少ないので、自己紹介と方針合わせから始めませんか";
+    }
     if (move.kind === "overstate_village_side") {
       return "私は人間側なので、初日に変な疑いで吊られるのは避けたいです。そこは先に言っておきます";
     }
@@ -1862,11 +1872,17 @@ function demoFirstDayOpeningMoveSpeech(
       return "占い師のCOを今日どう扱うか先に決めたいです。出すなら理由、潜るなら守り方まで合わせたいです";
     }
     if (move.kind === "tentative_reaction_read") {
-      return `${targetName}は少し様子が硬く見えるので、初日は暫定材料として返答を見たいです`;
+      return `${targetName}の出方をまず見たいので、今は軽い印象として置いておきます`;
     }
     return "占い師・魔女・騎士への触れ方は早めに決めたいです。特に占い師を出すか守るかは曖昧にしたくありません";
   }
 
+  if (move.kind === "self_introduction") {
+    return "Let me introduce myself first. I want to take today calmly and hear everyone out before moving.";
+  }
+  if (move.kind === "organize_setup") {
+    return "Let me organize the plan first. Day one is thin on info, so let's start with intros and aligning on approach.";
+  }
   if (move.kind === "overstate_village_side") {
     return "I am on the village side, so I do not want a loose day-one suspicion to become an easy elimination.";
   }
@@ -1877,7 +1893,7 @@ function demoFirstDayOpeningMoveSpeech(
     return "I want us to decide early how we handle Seer claims today, whether they come out or stay hidden.";
   }
   if (move.kind === "tentative_reaction_read") {
-    return `${targetName} feels a little stiff, so I want to treat that as only a tentative day-one reaction check.`;
+    return `${targetName} is someone I want to watch first, so I am keeping it as a light early impression for now.`;
   }
   return "We should talk early about how Seer, Witch, and Guard should be handled without forcing them into the open.";
 }
@@ -2276,11 +2292,17 @@ class LlmAgent implements Agent {
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     const legalPlayers = input.legalPlayers ?? input.knownPlayers;
+    // The opening turn's plan does not require a forward move; pass that through so
+    // the system prompts suppress their stance-forcing guidance too (the context
+    // alone is not enough — the forcing also lives in the reasoning/realization
+    // system prompts).
+    const requiresForwardMove = input.speechPlan?.requiresForwardMove ?? true;
     const reasoningSystem = buildSpeechReasoningSystemPrompt({
       player: input.player,
       phase: input.phase,
       language: this.language,
-      legalPlayers
+      legalPlayers,
+      requiresForwardMove
     });
     const reasoningContent = await this.complete(
       reasoningSystem,
@@ -2299,7 +2321,8 @@ class LlmAgent implements Agent {
       player: input.player,
       phase: input.phase,
       language: this.language,
-      legalPlayers
+      legalPlayers,
+      requiresForwardMove
     });
     let realizationContent: string;
     try {
