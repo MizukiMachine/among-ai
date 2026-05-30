@@ -9,7 +9,7 @@ import {
   type SpectatorMode
 } from "../game/redaction";
 import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
-import type { DebugScenario, GameConfig, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
+import type { DebugScenario, DirectorMode, GameConfig, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
 
 const encoder = new TextEncoder();
@@ -36,6 +36,10 @@ function summaryModeParam(value: string | null): SummaryMode {
 
 function debugScenarioParam(value: string | null): DebugScenario {
   return value === "guard_success" || value === "hunter_shot" ? value : "none";
+}
+
+function directorModeParam(value: string | null): DirectorMode {
+  return value === "describe" || value === "intermediate" ? value : "off";
 }
 
 function spectatorModeParam(value: string | null): SpectatorMode {
@@ -103,6 +107,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     debugScenario,
     humanPlayerId,
     prefetchConcurrency: fixedGenerationConcurrency,
+    directorMode: directorModeParam(url.searchParams.get("director")),
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
   };
@@ -118,7 +123,8 @@ function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
     summaryMode: options.summaryMode,
     debugScenario: options.debugScenario,
     humanPlayerId: options.humanPlayerId,
-    prefetchConcurrency: options.prefetchConcurrency
+    prefetchConcurrency: options.prefetchConcurrency,
+    directorMode: options.directorMode
   };
 }
 

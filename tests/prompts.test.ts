@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   buildBooleanSystemPrompt,
   buildPromptContext,
+  buildSpeechReasoningSystemPrompt,
+  buildSpeechRealizationSystemPrompt,
   buildSpeechSystemPrompt,
   buildTargetSystemPrompt
 } from "../src/game/prompts";
@@ -275,7 +277,21 @@ test("Japanese voting target prompts keep private reasons separate from English 
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
 });
 
-test("first-day discussion prompts keep reads tentative and opinion-led", () => {
+test("first-day opening prompts permit non-conclusory openings and never force a stance", () => {
+  // The engine always supplies a speech plan for day speech; on the round-one
+  // opening turn it does not require a forward move, which is what keeps the
+  // opening natural instead of an unfounded "初日の暫定材料" suspicion.
+  const speechPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "Ada"), player("Werewolf", "p2", "Byron"), player("Seer", "p3", "Curie")],
+    lastNightDeaths: [],
+    legalPlayers: alivePlayers.slice(1),
+    language: "Japanese"
+  });
+  assert.equal(speechPlan.requiresForwardMove, false);
+
   const context = buildPromptContext({
     player: player("Villager"),
     phase: "day_discussion",
@@ -284,23 +300,30 @@ test("first-day discussion prompts keep reads tentative and opinion-led", () => 
     deadPlayers: [],
     publicHistory: [],
     privateHistory: [],
-    language: "Japanese"
+    language: "Japanese",
+    speechPlan
   });
 
   assert.match(context, /昼の状況別話法/);
   assert.match(context, /初日昼/);
-  assert.match(context, /強い断定を避ける/);
-  assert.match(context, /質問や様子見で始めず/);
-  assert.match(context, /暫定読み/);
-  assert.match(context, /保留理由/);
-  assert.match(context, /投票候補/);
-  assert.match(context, /自分の疑い先と信頼先/);
+  assert.match(context, /強い断定を避け/);
+  // New opening guidance invites observation/self-intro/CO policy, not a forced read.
+  assert.match(context, /急いで決めない/);
+  assert.match(context, /自己紹介/);
+  assert.match(context, /情報整理/);
+  assert.match(context, /無理に疑い先や投票先を決めなくてよい/);
+  // Unseen-citation guards stay in place.
   assert.match(context, /まだ、この昼の公開発言はありません/);
   assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
   assert.match(context, /誰かの言う通り/);
   assert.match(context, /既に起きた事実として話さない/);
-  assert.match(context, /今後の観察だけで終えず/);
-  assert.doesNotMatch(context, /発言が出たら見たい/);
+  // The circular forcing is gone: no "暫定読み" instruction, no hard "stance まで言う".
+  assert.doesNotMatch(context, /暫定読み/);
+  assert.doesNotMatch(context, /初日の暫定材料/);
+  assert.doesNotMatch(context, /自分の stance まで言う/);
+  // The phaseGuidance stance-forcing bullets are gated out on the opening turn too.
+  assert.doesNotMatch(context, /公開情報が少なくても/);
+  assert.doesNotMatch(context, /名乗るかどうかの判断を出す/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
@@ -338,6 +361,32 @@ test("first-day opening mode allows assigned conversation sparks", () => {
   assert.match(context, /既に公開発言があった事実として話さない/);
   assert.doesNotMatch(context, /投票基準・役職CO方針・自己申告/);
   assert.doesNotMatch(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
+});
+
+test("speech system prompts suppress stance forcing on the opening turn (requiresForwardMove=false)", () => {
+  const base = {
+    player: player("Villager"),
+    phase: "day_discussion" as const,
+    language: "Japanese",
+    legalPlayers: alivePlayers
+  };
+
+  // Opening turn: the reasoning/realization system prompts must NOT carry the
+  // stance-forcing clauses that otherwise tell the model to surface a read.
+  const reasoningOpening = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: false });
+  const realizationOpening = buildSpeechRealizationSystemPrompt({ ...base, requiresForwardMove: false });
+  assert.doesNotMatch(reasoningOpening, /公開情報が少なくても/);
+  assert.doesNotMatch(reasoningOpening, /名乗るかどうかの判断を出す/);
+  assert.doesNotMatch(realizationOpening, /まだ材料が薄い時も/);
+  assert.doesNotMatch(realizationOpening, /暫定読み/);
+  assert.doesNotMatch(realizationOpening, /必ず自分の stance を入れる/);
+
+  // Non-opening turns (and the default when no flag is passed) keep the forcing.
+  const reasoningForward = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: true });
+  const realizationForward = buildSpeechRealizationSystemPrompt(base);
+  assert.match(reasoningForward, /公開情報が少なくても/);
+  assert.match(realizationForward, /まだ材料が薄い時も/);
+  assert.match(realizationForward, /必ず自分の stance を入れる/);
 });
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {

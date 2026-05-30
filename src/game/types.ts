@@ -266,6 +266,7 @@ export interface GameConfig {
   debugScenario?: DebugScenario;
   humanPlayerId?: string | null;
   prefetchConcurrency?: number;
+  directorMode?: DirectorMode;
 }
 
 export interface TargetCandidate {
@@ -299,7 +300,8 @@ export type SpeechIntentKind =
   | "update_living_read"
   | "answer_or_update"
   | "vote_ready_read"
-  | "open_discussion";
+  | "open_discussion"
+  | "open_first_day";
 
 export interface SpeechIntent {
   kind: SpeechIntentKind;
@@ -308,6 +310,8 @@ export interface SpeechIntent {
 }
 
 export type FirstDayOpeningMoveKind =
+  | "self_introduction"
+  | "organize_setup"
   | "overstate_village_side"
   | "state_vote_criteria"
   | "ask_role_claim_policy"
@@ -320,6 +324,44 @@ export interface FirstDayOpeningMove {
   instruction: string;
 }
 
+/**
+ * Director layer (see docs/director-layer-design notes). A "director" LLM that
+ * knows every hidden role plans the day discussion as one readable story before
+ * any speech is generated. It never writes lines and never decides outcomes
+ * (votes/night results stay with the engine); it only shapes direction.
+ *
+ * - "off": no director (original per-speech behavior).
+ * - "describe": director places per-player intent/tell and descriptive beats so
+ *   the day is role-consistent and deducible. No dramatic arc.
+ * - "intermediate": "describe" plus an `arc` (tension curve) and dramaturgical
+ *   beats. Still never fixes outcomes; re-plans each round from real results.
+ */
+export type DirectorMode = "off" | "describe" | "intermediate";
+
+export interface RoundBeat {
+  id: string;
+  summary: string;
+}
+
+export interface DirectorDirective {
+  playerId: string;
+  /** Secret per-round goal/stance for this player; injected only to this player. */
+  intent: string;
+  /** Optional leakable signal correlated with the hidden role. */
+  tell?: string;
+  /** Target player or beat id this directive mainly relates to. */
+  focus?: string;
+}
+
+export interface RoundScript {
+  round: number;
+  beats: RoundBeat[];
+  /** Tension curve across the day. Used by "intermediate" mode only. */
+  arc: string;
+  directives: Record<string, DirectorDirective>;
+  source: "llm" | "deterministic";
+}
+
 export interface PublicSpeechPlan {
   phase: Phase;
   round: number;
@@ -328,6 +370,13 @@ export interface PublicSpeechPlan {
   intents: SpeechIntent[];
   firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;
+  /**
+   * True on the round-one opening turn. The speech must not be forced into a
+   * stance, but it must still carry substantive opening content (self-intro,
+   * observation focus, claim-handling policy, setup organizing) rather than a
+   * content-free "様子見"/"保留" filler line.
+   */
+  opensFirstDay?: boolean;
 }
 
 export interface AgentSpeechInput {
