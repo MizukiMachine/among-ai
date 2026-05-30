@@ -66,12 +66,20 @@ import type {
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
-const PROCESSING_HUD_MIN_VISIBLE_MS = 900;
+// Single tunable knob for how long a generation pause is held. We deliberately keep the
+// "AIプレイヤーが考えています" HUD up for one longer block instead of letting the story
+// advance the moment a single fresh event streams in — advancing one-at-a-time just
+// stalls again immediately, so batching the wait into a single stop reads far better.
+// Adjust this one value (e.g. 5000 / 6000) to tune every generation pause at once.
+const GENERATION_PAUSE_MS = 6000;
+// Minimum time the "thinking" HUD stays visible (and story progress stays gated) once a
+// generation wait begins, so several events accumulate before the player advances again.
+const PROCESSING_HUD_MIN_VISIBLE_MS = GENERATION_PAUSE_MS;
 // First match ever: the guided UI tour buys generation time. Every match after that
 // the tour would feel out of place, so returning players instead get one deliberate
 // "now generating" gate up front (banking buffer in a single visible block instead of
 // dribbling small waits later). "Seen the tour" is persisted across sessions.
-const STARTUP_WAIT_MS = 6000;
+const STARTUP_WAIT_MS = GENERATION_PAUSE_MS;
 const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";
 
 function hasSeenUiTour(): boolean {
@@ -2470,14 +2478,15 @@ export function App() {
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
   const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
-  const storyProcessingActive = storyWaitingForStream || processingHudVisible;
+  // The returning-player startup gate reuses the ordinary "thinking" HUD instead of a
+  // dedicated modal, so it folds into the same processing state as a real generation wait.
+  const storyProcessingActive = storyWaitingForStream || processingHudVisible || startupWaitActive;
   const storyNextDisabled =
     paused ||
     Boolean(readyHumanInput) ||
     (setupMode && !settingsConfirmed) ||
     firstScenePending ||
     storyProcessingActive ||
-    startupWaitActive ||
     (queuedEvents.length === 0 && (running || events.length > 0));
   const primaryActionIsGameStart = setupMode && settingsConfirmed;
   const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyProcessingActive ? "処理中" : "次へ";
@@ -2512,7 +2521,7 @@ export function App() {
   }, [processingHudVisible, storyWaitingForStream]);
 
   function renderStoryProcessingHud() {
-    if (!processingHudVisible) {
+    if (!processingHudVisible && !startupWaitActive) {
       return null;
     }
 
@@ -3206,27 +3215,6 @@ export function App() {
     );
   }
 
-  function renderStartupWait() {
-    if (!startupWaitActive) {
-      return null;
-    }
-    return (
-      <div className="startup-wait" role="status" aria-live="polite">
-        <div className="startup-wait-backdrop" aria-hidden="true" />
-        <div className="startup-wait-panel">
-          <span className="startup-wait-icon" aria-hidden="true">
-            <LoaderCircle size={26} />
-          </span>
-          <strong>生成中です</strong>
-          <p>AIプレイヤーたちの会話を準備しています。少しだけお待ちください。</p>
-          <span className="startup-wait-meter" aria-hidden="true">
-            <i style={{ animationDuration: `${STARTUP_WAIT_MS}ms` }} />
-          </span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <main className="app-shell">
       {renderCharacterImageWarmup()}
@@ -3568,7 +3556,6 @@ export function App() {
         </section>
       </section>
       {renderUiTour()}
-      {renderStartupWait()}
     </main>
   );
 }

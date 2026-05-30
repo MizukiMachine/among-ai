@@ -768,22 +768,32 @@ test("returning players skip the tour for a one-time startup generation gate", (
   // so a mid-tour refresh keeps onboarding instead of permanently skipping it.
   assert.match(source, /tourWasActiveRef\.current = false;\s*\n\s*markUiTourSeen\(\);/);
   assert.doesNotMatch(source, /return;\s*\n\s*\}\s*\n\s*markUiTourSeen\(\);/);
-  assert.match(source, /const STARTUP_WAIT_MS = 6000;/);
+  // A single tunable knob drives every generation pause (startup gate + thinking HUD),
+  // so the 5s/6s value can be changed in one place.
+  assert.match(source, /const GENERATION_PAUSE_MS = 6000;/);
+  assert.match(source, /const PROCESSING_HUD_MIN_VISIBLE_MS = GENERATION_PAUSE_MS;/);
+  assert.match(source, /const STARTUP_WAIT_MS = GENERATION_PAUSE_MS;/);
+  // The thinking HUD stays up for that minimum once a wait begins, batching the pause
+  // instead of advancing after a single freshly-streamed event and stalling again.
+  assert.match(source, /const remaining = PROCESSING_HUD_MIN_VISIBLE_MS - \(Date\.now\(\) - shownAt\);/);
   assert.match(source, /function startStartupWait\(\)/);
   assert.match(source, /startupWaitTimerRef\.current = window\.setTimeout\(\(\) => \{[^}]*setStartupWaitActive\(false\);[^}]*\}, STARTUP_WAIT_MS\);/s);
 
-  // The gate renders a deliberate "generating" panel, not a blanket modal dialog.
-  assert.match(source, /function renderStartupWait\(\)/);
-  assert.match(source, /\{renderStartupWait\(\)\}/);
-  assert.match(source, /className="startup-wait"/);
-  assert.match(source, /生成中です/);
-  assert.match(source, /animationDuration: `\$\{STARTUP_WAIT_MS\}ms`/);
-  assert.match(css, /\.startup-wait-panel\s*\{/);
-  assert.match(css, /@keyframes startup-wait-fill/);
+  // The gate reuses the ordinary "thinking" HUD instead of a dedicated modal: no
+  // bespoke startup-wait panel/backdrop is rendered or styled anymore.
+  assert.doesNotMatch(source, /function renderStartupWait\(/);
+  assert.doesNotMatch(source, /className="startup-wait"/);
+  assert.doesNotMatch(source, /生成中です/);
+  assert.doesNotMatch(css, /\.startup-wait/);
 
-  // The gate actually blocks story progress (keyboard + buttons), so the story
-  // cannot advance behind the panel — mouse is already blocked by the backdrop.
+  // startupWaitActive folds into the shared processing state, so the same
+  // "AIプレイヤーが考えています" HUD is shown while the gate is active.
+  assert.match(source, /const storyProcessingActive = storyWaitingForStream \|\| processingHudVisible \|\| startupWaitActive;/);
+  assert.match(source, /if \(!processingHudVisible && !startupWaitActive\) \{\s*\n\s*return null;/);
+  assert.match(source, /const title = "AIプレイヤーが考えています";/);
+
+  // The gate still blocks story progress (keyboard + buttons) so the story
+  // cannot advance while generation is being buffered.
   assert.match(source, /selectedCharacterId \|\|\s*\n\s*startupWaitActive \|\|/);
   assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\) \|\| events\.length === 0 \|\| startupWaitActive;/);
-  assert.match(source, /storyProcessingActive \|\|\s*\n\s*startupWaitActive \|\|/);
 });
