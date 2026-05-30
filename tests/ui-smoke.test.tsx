@@ -712,3 +712,41 @@ test("village spectator history redacts secret event messages and speakers", () 
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
   assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p1", "p2"]);
 });
+
+test("guided UI tour spotlights the main controls at match start", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  // Spotlight anchors are wired onto the existing controls (role breakdown ref
+  // already existed; roster list / log+vote actions / story controls are added).
+  assert.match(source, /const rosterListRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(source, /const playerActionsRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(source, /const storyControlsRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(source, /className="player-list-scroll" ref=\{rosterListRef\}/);
+  assert.match(source, /className="player-section-actions" ref=\{playerActionsRef\}/);
+  assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
+
+  // The four ordered steps the player asked for.
+  assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "役職内訳"/);
+  assert.match(source, /getEl: \(\) => rosterListRef\.current,\s*\n\s*title: "プレイヤー一覧"/);
+  assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
+  assert.match(source, /getEl: \(\) => storyControlsRef\.current,\s*\n\s*title: "視点・BGM・進行"/);
+
+  // Launches once per match after the opening board is revealed; reset on new game.
+  assert.match(source, /tourLaunchedRef\.current = false;\s*\n\s*setTourStepIndex\(null\);/);
+  assert.match(source, /if \(events\.length === 0\) \{\s*\n\s*return;\s*\n\s*\}\s*\n\s*tourLaunchedRef\.current = true;/);
+
+  // Overlay is rendered, skippable, and keyboard-driven; not a blanket modal.
+  assert.match(source, /function renderUiTour\(\)/);
+  assert.match(source, /\{renderUiTour\(\)\}/);
+  assert.match(source, /className="ui-tour-skip" onClick=\{finishTour\}/);
+  assert.doesNotMatch(source, /aria-modal="true"/);
+
+  // Focus moves into the callout (no scroll) and Tab is trapped within it.
+  assert.match(source, /tourCalloutRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(source, /event\.key === "Tab"/);
+
+  // Spotlight + callout styling exists.
+  assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
+  assert.match(css, /\.ui-tour-callout\s*\{/);
+});
