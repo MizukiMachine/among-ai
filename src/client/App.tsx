@@ -2780,7 +2780,7 @@ export function App() {
         type="button"
       >
         {audioMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        <span>{audioMuted ? "BGMオフ" : "BGMオン"}</span>
+        <span>{audioMuted ? "BGMオン" : "BGMオフ"}</span>
       </button>
     );
   }

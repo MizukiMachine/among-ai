@@ -93,7 +93,7 @@ class BrowserGameAudioController implements GameAudioController {
   private async startBgmAsset(asset: AudioAssetManifest["bgm"][number], loop: boolean): Promise<void> {
     if (this.currentBgmId === asset.id && this.bgm) {
       this.detachBgmEndedHandler();
-      this.bgm.volume = asset.volume ?? 0.32;
+      this.bgm.volume = asset.volume ?? 0.16;
       this.bgm.loop = loop;
       if (!loop) {
         this.bgm.addEventListener("ended", this.bgmEndedHandler);
@@ -107,7 +107,7 @@ class BrowserGameAudioController implements GameAudioController {
     const audio = new Audio(resolveAssetUrl(this.baseUrl, asset.src));
     audio.loop = loop;
     audio.preload = "auto";
-    audio.volume = asset.volume ?? 0.32;
+    audio.volume = asset.volume ?? 0.16;
     if (!loop) {
       audio.addEventListener("ended", this.bgmEndedHandler);
     }
@@ -132,7 +132,7 @@ class BrowserGameAudioController implements GameAudioController {
 
     const audio = new Audio(resolveAssetUrl(this.baseUrl, asset.src));
     audio.preload = "auto";
-    audio.volume = asset.volume ?? 0.5;
+    audio.volume = asset.volume ?? 0.25;
     await audio.play().catch(() => undefined);
   }
 

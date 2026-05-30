@@ -58,7 +58,7 @@ export const fallbackBgmAssets: BgmAsset[] = [
     src: "assets/bgm/neon-suspicion-loop.mp3",
     durationMs: 90000,
     loop: true,
-    volume: 0.34
+    volume: 0.17
   },
   {
     id: "orbital_mindgame",
@@ -67,7 +67,7 @@ export const fallbackBgmAssets: BgmAsset[] = [
     src: "assets/bgm/orbital-mindgame-loop.mp3",
     durationMs: 90000,
     loop: true,
-    volume: 0.32
+    volume: 0.16
   },
   {
     id: "silent_vote_protocol",
@@ -76,7 +76,7 @@ export const fallbackBgmAssets: BgmAsset[] = [
     src: "assets/bgm/silent-vote-protocol-loop.mp3",
     durationMs: 90000,
     loop: true,
-    volume: 0.31
+    volume: 0.155
   },
   {
     id: "synthetic_night_watch",
@@ -85,7 +85,7 @@ export const fallbackBgmAssets: BgmAsset[] = [
     src: "assets/bgm/synthetic-night-watch-loop.mp3",
     durationMs: 90000,
     loop: true,
-    volume: 0.3
+    volume: 0.15
   }
 ];
 
