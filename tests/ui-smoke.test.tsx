@@ -223,7 +223,7 @@ test("progression messages display without terminal Japanese periods", () => {
     eventMessageForSpectator({ ...event, message: "1日目の昼が始まりました" }, "omniscient"),
     "1日目の昼が始まりました"
   );
-  assert.match(source, /formatMessage\(eventMessageForSpectator\(event, spectatorMode\)\)/);
+  assert.match(source, /text=\{eventMessageForSpectator\(event, spectatorMode\)\}/);
 });
 
 test("stage lighting follows speech mood and avoids repeated tones", () => {
