@@ -428,6 +428,14 @@ export interface Agent {
    * pass (no roles, reads, or votes). Agents that omit it fall back to speak().
    */
   improviseIntro?(input: AgentSpeechInput): Promise<AgentSpeech>;
+  /**
+   * Optional fast, single-call werewolf face-off intro used at the first day's opening:
+   * the werewolf team meets privately and each member greets their allies and owns their
+   * werewolf-camp role (Werewolf / AlphaWolf / WolfBeauty). Allies-only, so the identity
+   * is revealed here — but no attack targets or plans yet. Agents that omit it fall back
+   * to a plain role-owning line.
+   */
+  improviseWerewolfIntro?(input: AgentSpeechInput): Promise<AgentSpeech>;
 }
 
 export interface HumanInputRequestBase {
