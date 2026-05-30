@@ -423,6 +423,11 @@ export interface Agent {
   speak(input: AgentSpeechInput): Promise<AgentSpeech>;
   chooseTarget(input: AgentTargetInput): Promise<TargetDecision>;
   decide(input: AgentBooleanInput): Promise<boolean>;
+  /**
+   * Optional fast, single-call self-introduction/greeting used for the day-1 warm-up
+   * pass (no roles, reads, or votes). Agents that omit it fall back to speak().
+   */
+  improviseIntro?(input: AgentSpeechInput): Promise<AgentSpeech>;
 }
 
 export interface HumanInputRequestBase {

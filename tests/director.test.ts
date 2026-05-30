@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRoundScript, parseRoundScript, renderDirectiveContextLines, type DirectorPlayerInfo } from "../src/game/director";
+import {
+  buildRoundScript,
+  parseRoundScript,
+  raceFirstValid,
+  renderDirectiveContextLines,
+  type DirectorPlayerInfo
+} from "../src/game/director";
 import { buildPublicSpeechPlan } from "../src/game/speechPlanning";
 import { roleCamp } from "../src/game/rules/roles";
 import type { Persona } from "../src/game/types";
@@ -115,6 +121,58 @@ test("parsed scripts drop shared-frame beats/arc that leak a living player's hid
   // The leaking arc is replaced with the safe deterministic arc (no player + role attribution).
   assert.ok(script!.arc.length > 0);
   assert.ok(!script!.arc.includes("ナギサが人狼"));
+});
+
+test("raceFirstValid returns the first non-null result and aborts the slower racers", async () => {
+  const controllers = [new AbortController(), new AbortController(), new AbortController()];
+  const order: string[] = [];
+  const result = await raceFirstValid(
+    [
+      // slow + valid
+      () => new Promise((resolve) => setTimeout(() => { order.push("slow"); resolve("slow"); }, 40)),
+      // fast + valid → should win
+      () => new Promise((resolve) => setTimeout(() => { order.push("fast"); resolve("fast"); }, 5)),
+      // fast but null → must not win
+      () => new Promise((resolve) => setTimeout(() => { order.push("null"); resolve(null); }, 1))
+    ],
+    controllers
+  );
+
+  assert.equal(result, "fast", "the first racer to yield a non-null value wins");
+  assert.equal(controllers[0].signal.aborted, true, "other racers are aborted");
+  assert.equal(controllers[2].signal.aborted, true, "other racers are aborted");
+  assert.equal(controllers[1].signal.aborted, false, "the winner is not aborted");
+});
+
+test("first-day plan propagates cancellation instead of silently using a deterministic plan", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    buildRoundScript({
+      round: 1,
+      language: "Japanese",
+      model: "demo",
+      provider: "llm",
+      mode: "describe",
+      players: roster,
+      lastNightDeathNames: [],
+      publicHistory: [],
+      abortSignal: controller.signal
+    }),
+    "an aborted round-1 build must reject, not resolve to a deterministic script"
+  );
+});
+
+test("raceFirstValid resolves null when every racer fails or returns null", async () => {
+  const controllers = [new AbortController(), new AbortController()];
+  const result = await raceFirstValid(
+    [
+      () => Promise.resolve(null),
+      () => Promise.reject(new Error("boom"))
+    ],
+    controllers
+  );
+  assert.equal(result, null, "no usable result → null (caller falls back to deterministic)");
 });
 
 test("suppressForwardMove disables the stance-forcing lever", () => {

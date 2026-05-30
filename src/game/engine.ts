@@ -572,6 +572,9 @@ export class WerewolfGame {
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
   private lastNightDeathRecords: DeathRecord[] = [];
+  // Next day's director plan, prefetched during the preceding night so its
+  // ~10-14s omniscient LLM call does not block the start of that day's discussion.
+  private prefetchedRoundScript: { round: number; mode: Exclude<DirectorMode, "off">; promise: Promise<RoundScript> } | null = null;
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.humanInput = options.humanInput;
@@ -1047,6 +1050,9 @@ export class WerewolfGame {
         yield this.finishGame(nightWinner);
         return;
       }
+      // Overlap the next day's director planning with this transition lull so its
+      // omniscient LLM call does not stall the start of the next day's discussion.
+      this.maybePrefetchNextRoundScript();
     }
 
     const adjudicated = adjudicateStandardVictory(this.players);
@@ -1659,16 +1665,43 @@ export class WerewolfGame {
     // turned off (they are what produced the unnatural day-one filler).
     let roundScript: RoundScript | null = null;
     if (directorEnabled) {
-      // Surface the director planning step so the HUD does not sit silent during the call.
-      this.progressReporter("day_speech", this.text("Planning today's discussion", "今日の議論の方針を考えています"))({
-        total: 1,
-        started: 1,
-        completed: 0,
-        active: 1,
-        queued: 0,
-        concurrency: 1
-      });
-      roundScript = await this.buildDayRoundScript(directorMode);
+      if (this.round === 1 && this.config.provider === "llm") {
+        // Day 1 cannot be prefetched (no preceding night). Kick the plan off now and
+        // overlap its latency with a quick AI warm-up greeting round the player reads
+        // while the plan generates, instead of an empty "planning" wait.
+        const planPromise = this.buildDayRoundScript(directorMode);
+        // Handled by the await below; this just avoids an unhandled rejection during the
+        // warm-up window if the plan aborts (buildDayRoundScript only rejects on abort).
+        planPromise.catch(() => undefined);
+        yield* this.runFirstDayWarmupPass();
+        roundScript = await planPromise;
+      } else {
+        // Surface the director planning step so the HUD does not sit silent during the call.
+        this.progressReporter("day_speech", this.text("Planning today's discussion", "今日の議論の方針を考えています"))({
+          total: 1,
+          started: 1,
+          completed: 0,
+          active: 1,
+          queued: 0,
+          concurrency: 1
+        });
+        const prefetched =
+          this.prefetchedRoundScript && this.prefetchedRoundScript.round === this.round && this.prefetchedRoundScript.mode === directorMode
+            ? this.prefetchedRoundScript
+            : null;
+        this.prefetchedRoundScript = null;
+        if (prefetched) {
+          try {
+            // Prefetched during the preceding night; usually already resolved, so this
+            // does not stall the day. Fall back to an inline build only if it failed.
+            roundScript = await prefetched.promise;
+          } catch {
+            roundScript = await this.buildDayRoundScript(directorMode);
+          }
+        } else {
+          roundScript = await this.buildDayRoundScript(directorMode);
+        }
+      }
     }
     const firstDayOpeningMoveByPlayerId = directorEnabled
       ? new Map<string, FirstDayOpeningMoveKind>()
@@ -1842,11 +1875,83 @@ export class WerewolfGame {
     return new Map(speakers.map((speaker, index) => [speaker.id, kinds[(offset + index) % kinds.length]]));
   }
 
+  // Day-1 warm-up: a quick round of AI-only self-introductions/greetings, streamed as
+  // they finish (same speculative race as the real discussion). It carries no director
+  // directive and runs in parallel with the director plan, so the plan's latency is
+  // hidden behind chatter the player reads instead of an empty "thinking" wait. Humans
+  // are excluded — they join from the first real pass. Every living AI player speaks once.
+  // Distinct opening angles so independent intro generations don't all start the same way.
+  private firstDayIntroAngles(): string[] {
+    return this.isJapanese()
+      ? [
+          "名前を名乗ってから、ひとことだけ。",
+          "短い意気込みから入る。",
+          "軽いぼやきや冗談を交えて。",
+          "全体への呼びかけから入る。",
+          "とにかく端的に、短く。",
+          "今日の抱負をひとこと。",
+          "気さくに、ゆるい雰囲気で。",
+          "自分の関心事をひとこと添えて。"
+        ]
+      : [
+          "Lead with your name, then one line.",
+          "Open with a short bit of resolve.",
+          "Slip in a light quip or grumble.",
+          "Open by addressing the whole table.",
+          "Keep it blunt and very short.",
+          "State one hope for today.",
+          "Be breezy and easygoing.",
+          "Add one thing you care about."
+        ];
+  }
+
+  private async *runFirstDayWarmupPass(): AsyncGenerator<GameEvent> {
+    const aiSpeakers = this.daySpeakerOrder().filter((player) => !this.isHumanControlledPlayer(player));
+    if (aiSpeakers.length === 0) {
+      return;
+    }
+    const angles = this.firstDayIntroAngles();
+    const angleOffset = Math.floor(Math.random() * angles.length);
+    const angleByPlayerId = new Map(aiSpeakers.map((player, index) => [player.id, angles[(angleOffset + index) % angles.length]]));
+    for await (const { player, speech } of this.raceAiWithHumanLast(
+      aiSpeakers,
+      (player, options) =>
+        this.safeImproviseIntro(player, options?.signal, options?.speculative, angleByPlayerId.get(player.id)).then((speech) => ({
+          player,
+          speech
+        })),
+      this.progressReporter("day_speech", this.text("Greetings before the discussion", "議論前の挨拶"))
+    )) {
+      this.publicHistory.push(this.formatSpeechHistory(player, speech));
+      this.lastDiscussion.push({
+        playerId: player.id,
+        playerName: player.name,
+        message: speech.messages.join(" "),
+        metadata: speech.metadata
+      });
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit("player_speech", message, speechEventData(speech, message, index, undefined, { warmup: true }), player);
+      }
+    }
+  }
+
   // The omniscient director plans this day's discussion once, before any speech is
   // generated. It re-plans every round from the real public log and last-night
   // results, so it never fixes outcomes — votes/night actions stay with the engine.
   private async buildDayRoundScript(mode: Exclude<DirectorMode, "off">): Promise<RoundScript> {
     const deathNames = this.round > 1 ? this.lastNightDeaths.map((id) => this.requirePlayer(id).name) : [];
+    return this.buildRoundScriptFor(this.round, mode, deathNames, this.publicHistory);
+  }
+
+  // Builds a round-script for an explicit round from a snapshot of the inputs, so
+  // it can be computed ahead of time (prefetch) without being affected by later
+  // state mutations. The director call is read-only on game state.
+  private buildRoundScriptFor(
+    round: number,
+    mode: Exclude<DirectorMode, "off">,
+    deathNames: string[],
+    publicHistory: string[]
+  ): Promise<RoundScript> {
     const players: DirectorPlayerInfo[] = this.players.map((player) => ({
       id: player.id,
       name: player.name,
@@ -1857,16 +1962,39 @@ export class WerewolfGame {
       isHuman: this.isHumanControlledPlayer(player)
     }));
     return buildRoundScript({
-      round: this.round,
+      round,
       language: this.config.language,
       model: this.config.model,
       provider: this.config.provider,
       mode,
       players,
       lastNightDeathNames: deathNames,
-      publicHistory: this.publicHistory,
+      publicHistory: [...publicHistory],
       abortSignal: this.abortSignal
     });
+  }
+
+  // Kicks off (without awaiting) the next day's director plan during the lull after
+  // the night and its recap, so the call's latency overlaps the recap/transition
+  // instead of stalling the next day's discussion. Day 1 has no preceding night, so
+  // its plan is still built inline. Skips work when no further day will be played.
+  private maybePrefetchNextRoundScript(): void {
+    const mode = this.config.directorMode ?? "off";
+    if (mode === "off" || this.winner) {
+      return;
+    }
+    const nextRound = this.round + 1;
+    if (nextRound > this.config.maxRounds) {
+      return;
+    }
+    // After the night, lastNightDeaths holds the deaths the next day will react to;
+    // round > 1 always holds here since this runs after a completed day-set.
+    const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
+    const promise = this.buildRoundScriptFor(nextRound, mode, deathNames, this.publicHistory);
+    // Mark the rejection as handled in case the game ends before this is awaited
+    // (buildRoundScript only rejects on abort); the original promise is still awaited.
+    promise.catch(() => undefined);
+    this.prefetchedRoundScript = { round: nextRound, mode, promise };
   }
 
   private async *runVoting(): AsyncGenerator<GameEvent> {
@@ -2371,6 +2499,62 @@ export class WerewolfGame {
         throw error;
       }
       return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
+    } finally {
+      requestAbort.cleanup();
+    }
+  }
+
+  // Generates a single short day-1 warm-up self-intro for one player. Unlike safeSpeak
+  // this skips the reasoning stage and the plan/timeline review — it is just a greeting,
+  // so it is fast (the point: overlap the director plan's latency). Agents without
+  // improviseIntro fall back to a plain speak().
+  private async safeImproviseIntro(
+    player: Player,
+    abortSignal?: AbortSignal,
+    speculative = false,
+    angle?: string
+  ): Promise<AgentSpeech> {
+    this.throwIfCancelled();
+    const agent = this.agents.get(player.id) ?? fallbackAgent;
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
+    const contextLines = [
+      this.nightDeathContextLine(),
+      this.text(
+        "It's your turn for a quick, one-line self-introduction before the discussion. Keep it short and in your own voice. Do NOT lean on a stock greeting (no \"good first day, everyone\" type opener) and do NOT start with \"I usually...\". Do not talk about roles, suspicions, or votes yet.",
+        "あなたの番です。議論の前に、短い自己紹介を一言だけ。決まり文句の挨拶（「初日お疲れ様」のような出だし）に頼らず、「普段は…」で始めるのも禁止。自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
+      ),
+      // Each warm-up speaker gets a different opening angle so independent generations
+      // don't all converge on the same first line.
+      ...(angle ? [this.text(`Opening angle (vary from others): ${angle}`, `今回の切り出し方（他の人と変える）: ${angle}`)] : [])
+    ];
+    const input: AgentSpeechInput = {
+      player,
+      phase: this.phase,
+      task: this.text("Give a short self-introduction and greeting.", "短い自己紹介と挨拶をしてください。"),
+      context: this.contextFor(player, contextLines),
+      uiContext: contextLines,
+      knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
+      legalPlayers,
+      publicHistory: this.publicHistory,
+      privateHistory: player.memories,
+      abortSignal: requestAbort.signal
+    };
+    try {
+      const generate = agent.improviseIntro ? agent.improviseIntro.bind(agent) : agent.speak.bind(agent);
+      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers);
+      if (requestAbort.signal?.aborted) {
+        throw new Error("Intro request cancelled.");
+      }
+      return speech;
+    } catch (error) {
+      if (this.abortSignal?.aborted || requestAbort.signal?.aborted) {
+        throw error;
+      }
+      if (!speculative) {
+        console.warn(`[intro] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
+      }
+      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseIntro!(input), legalPlayers);
     } finally {
       requestAbort.cleanup();
     }
