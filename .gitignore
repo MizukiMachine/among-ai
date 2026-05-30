@@ -11,3 +11,4 @@ logs/
 backups/
 .claude/
 .mcpheadlessbrowser/
+.browser-observer/
