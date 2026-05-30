@@ -67,6 +67,28 @@ const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 const PROCESSING_HUD_MIN_VISIBLE_MS = 900;
+// First match ever: the guided UI tour buys generation time. Every match after that
+// the tour would feel out of place, so returning players instead get one deliberate
+// "now generating" gate up front (banking buffer in a single visible block instead of
+// dribbling small waits later). "Seen the tour" is persisted across sessions.
+const STARTUP_WAIT_MS = 6000;
+const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";
+
+function hasSeenUiTour(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(UI_TOUR_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markUiTourSeen(): void {
+  try {
+    window.localStorage.setItem(UI_TOUR_SEEN_KEY, "1");
+  } catch {
+    // localStorage can be unavailable (private mode / SSR); the tour simply repeats.
+  }
+}
 
 const characterPortraitMap: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
@@ -1107,6 +1129,10 @@ export function App() {
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
   const [tourRect, setTourRect] = useState<DOMRect | null>(null);
+  // Returning-player startup gate: a brief, deliberate "generating" panel shown in
+  // place of the tour on every match after the first. null = inactive.
+  const [startupWaitActive, setStartupWaitActive] = useState(false);
+  const startupWaitTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
@@ -1135,6 +1161,7 @@ export function App() {
   const storyControlsRef = useRef<HTMLDivElement | null>(null);
   const tourCalloutRef = useRef<HTMLDivElement | null>(null);
   const tourLaunchedRef = useRef(false);
+  const tourWasActiveRef = useRef(false);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -1243,8 +1270,29 @@ export function App() {
     });
   }
 
-  // Launch the tour once per match, as soon as the opening board is on screen
-  // (setup placeholder gone, first event revealed) and the player is not mid-input.
+  function clearStartupWaitTimer() {
+    if (startupWaitTimerRef.current !== null) {
+      window.clearTimeout(startupWaitTimerRef.current);
+      startupWaitTimerRef.current = null;
+    }
+  }
+
+  function startStartupWait() {
+    clearStartupWaitTimer();
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0 });
+    }
+    setStartupWaitActive(true);
+    startupWaitTimerRef.current = window.setTimeout(() => {
+      startupWaitTimerRef.current = null;
+      setStartupWaitActive(false);
+    }, STARTUP_WAIT_MS);
+  }
+
+  // Once per match, as soon as the opening board is on screen (setup placeholder gone,
+  // first event revealed), bridge the background generation. First time ever: run the
+  // guided tour and remember it. Every match after: skip the tour and show one short,
+  // deliberate "generating" gate instead — banking the buffer up front.
   useEffect(() => {
     if (tourLaunchedRef.current || tourStepIndex !== null) {
       return;
@@ -1256,12 +1304,29 @@ export function App() {
       return;
     }
     tourLaunchedRef.current = true;
+    if (hasSeenUiTour()) {
+      startStartupWait();
+      return;
+    }
+    // "Seen" is persisted only once the tour has actually been shown and then closed
+    // (see the effect below), so refreshing mid-tour does not permanently skip it.
     // Start from the top so the spotlight overlays the canonical board layout.
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0 });
     }
     setTourStepIndex(0);
   }, [events.length, tourStepIndex]);
+
+  // Persist "seen" only after the tour has been shown and then closed (whether the
+  // player skipped it or stepped to the end), so a mid-tour refresh keeps onboarding.
+  useEffect(() => {
+    if (tourStepIndex !== null) {
+      tourWasActiveRef.current = true;
+    } else if (tourWasActiveRef.current) {
+      tourWasActiveRef.current = false;
+      markUiTourSeen();
+    }
+  }, [tourStepIndex]);
 
   // Measure (and keep measuring) the spotlit element so the highlight tracks
   // layout changes, resize, and scroll while a step is active.
@@ -1558,6 +1623,10 @@ export function App() {
     setSnapshot(null);
     setGenerationProgress(null);
     hideProcessingHudNow();
+    clearStartupWaitTimer();
+    setStartupWaitActive(false);
+    tourLaunchedRef.current = false;
+    setTourStepIndex(null);
     setGameId(null);
     setSourceDone(false);
     setRunning(false);
@@ -1614,6 +1683,8 @@ export function App() {
     setSourceDone(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
+    clearStartupWaitTimer();
+    setStartupWaitActive(false);
     setRunning(true);
     showProcessingHudNow();
     statusBeforePauseRef.current = "生成中";
@@ -1791,6 +1862,7 @@ export function App() {
     return () => {
       closeGameStream();
       clearProcessingHudHideTimer();
+      clearStartupWaitTimer();
       audioControllerRef.current?.dispose();
     };
   }, []);
@@ -1977,6 +2049,7 @@ export function App() {
         event.altKey ||
         event.shiftKey ||
         selectedCharacterId ||
+        startupWaitActive ||
         (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
         isEditableShortcutTarget(event.target) ||
         (event.key === "Enter" && isButtonShortcutTarget(event.target))
@@ -2001,7 +2074,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId]);
+  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, startupWaitActive]);
 
   async function submitHumanInput(payload: {
     choiceId?: string;
@@ -2393,7 +2466,7 @@ export function App() {
     return <p>{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p>;
   }
 
-  const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0;
+  const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
   const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
@@ -2404,6 +2477,7 @@ export function App() {
     (setupMode && !settingsConfirmed) ||
     firstScenePending ||
     storyProcessingActive ||
+    startupWaitActive ||
     (queuedEvents.length === 0 && (running || events.length > 0));
   const primaryActionIsGameStart = setupMode && settingsConfirmed;
   const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyProcessingActive ? "処理中" : "次へ";
@@ -3132,6 +3206,27 @@ export function App() {
     );
   }
 
+  function renderStartupWait() {
+    if (!startupWaitActive) {
+      return null;
+    }
+    return (
+      <div className="startup-wait" role="status" aria-live="polite">
+        <div className="startup-wait-backdrop" aria-hidden="true" />
+        <div className="startup-wait-panel">
+          <span className="startup-wait-icon" aria-hidden="true">
+            <LoaderCircle size={26} />
+          </span>
+          <strong>生成中です</strong>
+          <p>AIプレイヤーたちの会話を準備しています。少しだけお待ちください。</p>
+          <span className="startup-wait-meter" aria-hidden="true">
+            <i style={{ animationDuration: `${STARTUP_WAIT_MS}ms` }} />
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="app-shell">
       {renderCharacterImageWarmup()}
@@ -3473,6 +3568,7 @@ export function App() {
         </section>
       </section>
       {renderUiTour()}
+      {renderStartupWait()}
     </main>
   );
 }
