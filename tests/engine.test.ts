@@ -1330,6 +1330,69 @@ test("day discussion race uses spare slots for duplicate generation near the end
   assert.equal(agent.speechInputs.slice(0, 5).length, 5);
 });
 
+test("director mode injects a secret per-player directive and drops the first-day opening move", async () => {
+  const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [1], () => `${player.name} spoke`));
+  }
+
+  await collect(game.runDay());
+
+  const allContexts = players
+    .map((player) => game.agents.get(player.id) as DelayedSpeechAgent)
+    .flatMap((agent) => agent.speechInputs.map((input) => input.context));
+
+  assert.ok(allContexts.length > 0);
+  assert.ok(
+    allContexts.some((context) => context.includes("Your secret plan for this round")),
+    "every director-driven AI speech should receive its secret directive"
+  );
+  assert.ok(
+    allContexts.every((context) => !context.includes("First-day opening mode")),
+    "the legacy first-day opening move must be off when the director is active"
+  );
+});
+
+test("director off keeps the legacy first-day opening move and no directive", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new DelayedSpeechAgent(player.name, [1], () => `${player.name} spoke`));
+  }
+
+  await collect(game.runDay());
+
+  const allContexts = players
+    .map((player) => game.agents.get(player.id) as DelayedSpeechAgent)
+    .flatMap((agent) => agent.speechInputs.map((input) => input.context));
+
+  assert.ok(
+    allContexts.some((context) => context.includes("First-day opening mode")),
+    "round one should still assign a first-day opening move when the director is off"
+  );
+  assert.ok(
+    allContexts.every((context) => !context.includes("Your secret plan for this round")),
+    "no director directive should appear when the director is off"
+  );
+});
+
 test("speech diagnostics record race loser aborts without changing race publishing", async () => {
   const diagnostics: SpeechGenerationDiagnostic[] = [];
   const game = new WerewolfGame(

@@ -23,6 +23,12 @@ interface BuildPublicSpeechPlanInput {
   legalPlayers: TargetCandidate[];
   language: string;
   firstDayOpeningMove?: FirstDayOpeningMove;
+  /**
+   * When the director layer is active it supplies each player's stance, so the
+   * after-the-fact "must state a stance" forcing (prompt line + regex review)
+   * is suppressed to avoid the unnatural day-one filler it otherwise produces.
+   */
+  suppressForwardMove?: boolean;
 }
 
 interface SpeechPlanReview {
@@ -300,7 +306,10 @@ export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): Public
     possibleNightDeathCauses: possibleNightDeathCauses(input.players, input.language),
     intents,
     firstDayOpeningMove: input.firstDayOpeningMove,
-    requiresForwardMove: input.legalPlayers.length > 0 && (input.phase === "day_discussion" || input.phase === "voting")
+    requiresForwardMove:
+      !input.suppressForwardMove &&
+      input.legalPlayers.length > 0 &&
+      (input.phase === "day_discussion" || input.phase === "voting")
   };
 }
 

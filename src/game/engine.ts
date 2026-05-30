@@ -1,5 +1,6 @@
 import { setMaxListeners } from "node:events";
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
+import { buildRoundScript, renderDirectiveContextLines, type DirectorPlayerInfo } from "./director";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
@@ -44,9 +45,11 @@ import type {
   CampId,
   ClaimMetadata,
   DebugScenario,
+  DirectorMode,
   EventVisibility,
   FirstDayOpeningMoveKind,
   GameConfig,
+  RoundScript,
   GameEvent,
   GameSnapshot,
   GenerationProgress,
@@ -237,6 +240,10 @@ function normalizeSummaryMode(mode: SummaryMode | undefined): SummaryMode {
 
 function normalizeDebugScenario(scenario: DebugScenario | undefined): DebugScenario {
   return scenario === "guard_success" || scenario === "hunter_shot" ? scenario : "none";
+}
+
+function normalizeDirectorMode(mode: DirectorMode | undefined): DirectorMode {
+  return mode === "describe" || mode === "intermediate" ? mode : "off";
 }
 
 class ScenarioAgent extends DemoAgent {
@@ -586,7 +593,8 @@ export class WerewolfGame {
       summaryMode: normalizeSummaryMode(config.summaryMode),
       debugScenario,
       humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount),
-      prefetchConcurrency
+      prefetchConcurrency,
+      directorMode: normalizeDirectorMode(config.directorMode)
     };
 
     if (this.config.provider === "llm" && !(process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY)) {
@@ -1644,7 +1652,27 @@ export class WerewolfGame {
     );
 
     const speakers = this.daySpeakerOrder();
-    const firstDayOpeningMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
+    const directorMode = this.config.directorMode ?? "off";
+    const directorEnabled = directorMode !== "off";
+    // When the director plans this round it supplies each player's stance, so the
+    // legacy first-day opening-move spark and the "must state a stance" forcing are
+    // turned off (they are what produced the unnatural day-one filler).
+    let roundScript: RoundScript | null = null;
+    if (directorEnabled) {
+      // Surface the director planning step so the HUD does not sit silent during the call.
+      this.progressReporter("day_speech", this.text("Planning today's discussion", "今日の議論の方針を考えています"))({
+        total: 1,
+        started: 1,
+        completed: 0,
+        active: 1,
+        queued: 0,
+        concurrency: 1
+      });
+      roundScript = await this.buildDayRoundScript(directorMode);
+    }
+    const firstDayOpeningMoveByPlayerId = directorEnabled
+      ? new Map<string, FirstDayOpeningMoveKind>()
+      : this.firstDayOpeningMoveAssignments(speakers);
     const generateSpeech = async (
       player: Player,
       discussionPass: number,
@@ -1652,6 +1680,12 @@ export class WerewolfGame {
     ): Promise<{ player: Player; speech: AgentSpeech }> => {
       const openingMoveKind = discussionPass === 1 ? firstDayOpeningMoveByPlayerId.get(player.id) : undefined;
       const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
+      // The directive intent/tell is secret and only ever fed to that player's own
+      // generation. Human players play themselves, so they receive no directive.
+      const directiveLines =
+        roundScript && directorMode !== "off" && !this.isHumanControlledPlayer(player)
+          ? renderDirectiveContextLines(roundScript, player.id, directorMode, this.config.language)
+          : [];
       const contextLines = [
         this.nightDeathContextLine(),
         this.text(
@@ -1688,6 +1722,7 @@ export class WerewolfGame {
                 : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
             ]
           : []),
+        ...directiveLines,
         ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
       ];
       const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
@@ -1699,7 +1734,8 @@ export class WerewolfGame {
         lastNightDeaths: this.lastNightDeathRecords,
         legalPlayers,
         language: this.config.language,
-        firstDayOpeningMove: openingMove
+        firstDayOpeningMove: openingMove,
+        suppressForwardMove: directorEnabled
       });
       const context = this.contextFor(player, contextLines, {}, speechPlan);
       const speech = await this.safeSpeak(
@@ -1799,6 +1835,33 @@ export class WerewolfGame {
       return new Map();
     }
     return new Map([[firstSpeaker.id, sample([...firstDayOpeningMoveKinds])]]);
+  }
+
+  // The omniscient director plans this day's discussion once, before any speech is
+  // generated. It re-plans every round from the real public log and last-night
+  // results, so it never fixes outcomes — votes/night actions stay with the engine.
+  private async buildDayRoundScript(mode: Exclude<DirectorMode, "off">): Promise<RoundScript> {
+    const deathNames = this.round > 1 ? this.lastNightDeaths.map((id) => this.requirePlayer(id).name) : [];
+    const players: DirectorPlayerInfo[] = this.players.map((player) => ({
+      id: player.id,
+      name: player.name,
+      role: player.role,
+      camp: player.camp,
+      persona: player.persona,
+      alive: player.alive,
+      isHuman: this.isHumanControlledPlayer(player)
+    }));
+    return buildRoundScript({
+      round: this.round,
+      language: this.config.language,
+      model: this.config.model,
+      provider: this.config.provider,
+      mode,
+      players,
+      lastNightDeathNames: deathNames,
+      publicHistory: this.publicHistory,
+      abortSignal: this.abortSignal
+    });
   }
 
   private async *runVoting(): AsyncGenerator<GameEvent> {
