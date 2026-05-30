@@ -678,7 +678,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
-  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId\]\);/);
+  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, startupWaitActive\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 
@@ -749,4 +749,41 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // Spotlight + callout styling exists.
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
+});
+
+test("returning players skip the tour for a one-time startup generation gate", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  // "Seen the tour" is persisted across sessions and read with a safe fallback.
+  assert.match(source, /const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";/);
+  assert.match(source, /function hasSeenUiTour\(\): boolean/);
+  assert.match(source, /window\.localStorage\.getItem\(UI_TOUR_SEEN_KEY\) === "1"/);
+  assert.match(source, /function markUiTourSeen\(\): void/);
+  assert.match(source, /window\.localStorage\.setItem\(UI_TOUR_SEEN_KEY, "1"\)/);
+
+  // First match runs the tour; later matches show the wait gate.
+  assert.match(source, /if \(hasSeenUiTour\(\)\) \{\s*\n\s*startStartupWait\(\);\s*\n\s*return;\s*\n\s*\}/);
+  // "Seen" is persisted only after the tour is shown and then closed (skip or finish),
+  // so a mid-tour refresh keeps onboarding instead of permanently skipping it.
+  assert.match(source, /tourWasActiveRef\.current = false;\s*\n\s*markUiTourSeen\(\);/);
+  assert.doesNotMatch(source, /return;\s*\n\s*\}\s*\n\s*markUiTourSeen\(\);/);
+  assert.match(source, /const STARTUP_WAIT_MS = 6000;/);
+  assert.match(source, /function startStartupWait\(\)/);
+  assert.match(source, /startupWaitTimerRef\.current = window\.setTimeout\(\(\) => \{[^}]*setStartupWaitActive\(false\);[^}]*\}, STARTUP_WAIT_MS\);/s);
+
+  // The gate renders a deliberate "generating" panel, not a blanket modal dialog.
+  assert.match(source, /function renderStartupWait\(\)/);
+  assert.match(source, /\{renderStartupWait\(\)\}/);
+  assert.match(source, /className="startup-wait"/);
+  assert.match(source, /生成中です/);
+  assert.match(source, /animationDuration: `\$\{STARTUP_WAIT_MS\}ms`/);
+  assert.match(css, /\.startup-wait-panel\s*\{/);
+  assert.match(css, /@keyframes startup-wait-fill/);
+
+  // The gate actually blocks story progress (keyboard + buttons), so the story
+  // cannot advance behind the panel — mouse is already blocked by the backdrop.
+  assert.match(source, /selectedCharacterId \|\|\s*\n\s*startupWaitActive \|\|/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\) \|\| events\.length === 0 \|\| startupWaitActive;/);
+  assert.match(source, /storyProcessingActive \|\|\s*\n\s*startupWaitActive \|\|/);
 });
