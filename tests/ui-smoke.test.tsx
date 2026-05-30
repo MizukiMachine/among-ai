@@ -536,7 +536,7 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /className="player-history-popover character-profile-popover"/);
   assert.doesNotMatch(source, /aria-modal="true"/);
   assert.match(source, /公開人物メモ/);
-  assert.match(source, /roleDisplay\(player, spectatorMode, language, humanPlayerId\)/);
+  assert.match(source, /roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   assert.match(source, /profile\.values/);
   assert.match(source, /characterRelationEntries\(selectedCharacterId, new Set/);
   assert.match(source, /availablePlayerIds\.has\(id\)/);
@@ -588,10 +588,15 @@ test("player roster distinguishes persona and hidden role labels", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
-  // Player mode trusts the server-redacted snapshot: any non-Hidden role is shown (the
-  // viewer's own plus, for a werewolf, their revealed allies) rather than only the human's id.
-  assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden"\);/);
-  assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, humanPlayerId\);/);
+  // Player mode trusts the server-redacted snapshot, but a non-Hidden role is only shown once it
+  // has been "revealed" in the story: the viewer's own role plus, for a werewolf, each ally after
+  // they name themselves at the face-off (see revealedRoleIds). The gate is the `revealed` arg.
+  assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden" && revealed\);/);
+  assert.match(source, /const revealed = revealedRoleIds\.has\(player\.id\);/);
+  assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, revealed\);/);
+  // The face-off self-naming speech is what flips an ally from 不明 to their role.
+  assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
+  assert.match(source, /event\.type === "player_speech" && event\.phase === "werewolf_discussion"/);
   assert.match(source, /function personaClassName\(persona: PlayerSnapshot\["persona"\] \| string \| undefined\): string/);
   assert.match(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);
   assert.match(css, /\.player-main\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*0\.7fr\)\s*minmax\(72px,\s*1fr\)[^}]*grid-template-rows:\s*auto auto/s);

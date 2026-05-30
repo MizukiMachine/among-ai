@@ -967,6 +967,147 @@ textarea:focus-visible {
     inset 0 0 0 1px rgba(103, 216, 223, 0.18);
 }
 
+/* The face-off reveal: when an allied wolf names their role in the main panel, focus their
+   roster card and flip the role chip from 不明 to the unveiled role. Applied for one event only,
+   so the keyframes run once as the reveal lands. */
+.player-card.revealing-role {
+  position: relative;
+  z-index: 2;
+  border-color: rgba(255, 179, 173, 0.85);
+  animation: role-reveal-focus 2.4s ease-out;
+}
+
+@keyframes role-reveal-focus {
+  0% {
+    transform: scale(1);
+    border-color: rgba(255, 179, 173, 0.4);
+    box-shadow:
+      0 0 0 1px rgba(255, 179, 173, 0),
+      0 0 0 rgba(185, 28, 28, 0);
+  }
+  20% {
+    transform: scale(1.035);
+    border-color: rgba(255, 179, 173, 0.95);
+    box-shadow:
+      0 0 0 2px rgba(255, 179, 173, 0.85),
+      0 12px 36px rgba(185, 28, 28, 0.5),
+      inset 0 0 0 1px rgba(255, 179, 173, 0.35);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 8px 22px rgba(185, 28, 28, 0.2),
+      inset 0 0 0 1px rgba(255, 179, 173, 0.2);
+  }
+}
+
+.role-chip.role-reveal {
+  animation: role-chip-reveal 1.8s 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes role-chip-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(5px) scale(0.5);
+    filter: blur(2.5px);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(0) scale(1.18);
+    filter: blur(0);
+  }
+  62% {
+    transform: scale(0.95);
+  }
+  80% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Modal spotlight that lands on the unveiled ally's card: a transparent cutout whose huge
+   box-shadow dims the rest of the screen, fading in, holding, then fading back out over the
+   same window the React timer keeps it mounted (REVEAL_SPOTLIGHT_MS), so the dismissal is smooth. */
+.role-reveal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8800;
+}
+
+.role-reveal-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.role-reveal-overlay-spotlight {
+  position: fixed;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+  /* Duration is set inline from REVEAL_SPOTLIGHT_MS so JS hold and CSS fade stay in lock-step. */
+  animation-name: role-reveal-spotlight;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes role-reveal-spotlight {
+  0% {
+    border-color: rgba(255, 179, 173, 0);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0),
+      0 0 0 2px rgba(255, 179, 173, 0),
+      0 0 0 0 rgba(185, 28, 28, 0);
+  }
+  14% {
+    border-color: rgba(255, 179, 173, 0.95);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0.86),
+      0 0 0 2px rgba(255, 179, 173, 0.55),
+      0 0 46px 12px rgba(185, 28, 28, 0.55);
+  }
+  50% {
+    border-color: rgba(255, 179, 173, 1);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0.88),
+      0 0 0 2px rgba(255, 179, 173, 0.75),
+      0 0 64px 18px rgba(185, 28, 28, 0.72);
+  }
+  82% {
+    border-color: rgba(255, 179, 173, 0.9);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0.86),
+      0 0 0 2px rgba(255, 179, 173, 0.5),
+      0 0 44px 12px rgba(185, 28, 28, 0.45);
+  }
+  100% {
+    border-color: rgba(255, 179, 173, 0);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0),
+      0 0 0 2px rgba(255, 179, 173, 0),
+      0 0 0 0 rgba(185, 28, 28, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-card.revealing-role,
+  .role-chip.role-reveal {
+    animation: none;
+  }
+  /* Keep the modal dim, just without the fade/pulse motion. */
+  .role-reveal-overlay-spotlight {
+    animation: none;
+    border-color: rgba(255, 179, 173, 0.9);
+    box-shadow:
+      0 0 0 100vmax rgba(2, 6, 12, 0.86),
+      0 0 0 2px rgba(255, 179, 173, 0.6);
+  }
+}
+
 .player-card:not(:disabled):hover,
 .player-card:focus-visible {
   border-color: rgba(103, 216, 223, 0.52);
