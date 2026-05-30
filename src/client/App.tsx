@@ -798,12 +798,28 @@ const TYPEWRITER_CHARS_PER_SEC = 25;
 // Reveals `text` one character at a time on mount, re-formatting the visible prefix each frame so
 // the「。」line breaks and name highlighting stay intact. Mount it with a per-event `key` so it
 // restarts whenever the displayed event changes. SSR / reduced-motion render the full text at once.
-function TypewriterMessage({ text }: { text: string }) {
+// `onComplete` fires exactly once, the moment the sweep reaches the end of `text` — callers use it
+// to chain follow-up beats (e.g. the role-reveal spotlight) only after the speech is fully shown.
+function TypewriterMessage({ text, onComplete }: { text: string; onComplete?: () => void }) {
   const [count, setCount] = useState(text.length);
+  // Latest callback without re-arming the sweep effect, and a one-shot guard so a given mount
+  // signals completion just once (the per-event `key` gives each new speech a fresh guard, so a
+  // stale "already complete" never leaks across to the next, shorter speech).
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const completedRef = useRef(false);
 
   useLayoutEffect(() => {
+    completedRef.current = false;
+    const complete = () => {
+      if (!completedRef.current) {
+        completedRef.current = true;
+        onCompleteRef.current?.();
+      }
+    };
     if (!text) {
       setCount(0);
+      complete();
       return;
     }
     const prefersReducedMotion =
@@ -812,6 +828,7 @@ function TypewriterMessage({ text }: { text: string }) {
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (prefersReducedMotion) {
       setCount(text.length);
+      complete();
       return;
     }
 
@@ -826,6 +843,8 @@ function TypewriterMessage({ text }: { text: string }) {
       setCount(revealed);
       if (revealed < text.length) {
         frame = requestAnimationFrame(tick);
+      } else {
+        complete();
       }
     };
     frame = requestAnimationFrame(tick);
@@ -1211,6 +1230,10 @@ export function App() {
   // Modal spotlight shown when a werewolf ally is unveiled at the face-off: dims the whole
   // screen and lights only that roster card while its role flips. Tracks the card's id + rect.
   const [revealSpotlight, setRevealSpotlight] = useState<{ id: string; rect: DOMRect } | null>(null);
+  // The id of the event whose speech typewriter has fully finished revealing. The role-reveal
+  // spotlight gates on this so it only fires once the face-off line has been shown end-to-end,
+  // never the instant the speech event arrives.
+  const [typedCompleteEventId, setTypedCompleteEventId] = useState<number | null>(null);
   const revealSpotlightTimerRef = useRef<number | null>(null);
   // Fully tears down the active spotlight (flag + listeners + timer); set by the reveal effect so
   // a click-to-skip dismisses it exactly like the timeout does, instead of leaving live listeners
@@ -1479,6 +1502,12 @@ export function App() {
   // When an ally is unveiled at the face-off, raise a modal spotlight over their roster card:
   // scroll it into view, dim everything else, and hold for REVEAL_SPOTLIGHT_MS before clearing.
   // The card stays revealed afterwards; only the dramatic overlay is transient.
+  //
+  // Gate on the face-off speech being *fully* typed out (`typedCompleteEventId`), so the dramatic
+  // beat lands after the message has finished its typewriter sweep — not the instant the speech
+  // event arrives. The id match keeps it tied to this exact speech, so it fires once and is not
+  // re-triggered by a stale "complete" carried over from the previous (longer) line.
+  const revealSpeechTyped = revealingRoleId !== undefined && typedCompleteEventId === currentEvent?.id;
   useLayoutEffect(() => {
     const clearTimer = () => {
       if (revealSpotlightTimerRef.current !== null) {
@@ -1486,7 +1515,7 @@ export function App() {
         revealSpotlightTimerRef.current = null;
       }
     };
-    if (!revealingRoleId) {
+    if (!revealingRoleId || !revealSpeechTyped) {
       clearTimer();
       setRevealSpotlight(null);
       return;
@@ -1518,7 +1547,7 @@ export function App() {
     clearTimer();
     revealSpotlightTimerRef.current = window.setTimeout(dismiss, REVEAL_SPOTLIGHT_MS);
     return dismiss;
-  }, [revealingRoleId]);
+  }, [revealingRoleId, revealSpeechTyped]);
 
   // Move focus into the callout when a step opens (without scrolling the page,
   // which would offset the spotlight), so keyboard users land inside the tour.
@@ -1789,6 +1818,7 @@ export function App() {
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
+    setTypedCompleteEventId(null);
     setGenerationProgress(null);
     hideProcessingHudNow();
     clearStartupWaitTimer();
@@ -1845,6 +1875,7 @@ export function App() {
     queuedRef.current = [];
     setQueuedEvents([]);
     setSnapshot(null);
+    setTypedCompleteEventId(null);
     setGenerationProgress(null);
     hideProcessingHudNow();
     setGameId(null);
@@ -2633,7 +2664,13 @@ export function App() {
     }
     // `key` per event id so the reveal restarts from the first character whenever the displayed
     // event changes (next/back navigation, new stream event).
-    return <TypewriterMessage key={event.id} text={eventMessageForSpectator(event, spectatorMode)} />;
+    return (
+      <TypewriterMessage
+        key={event.id}
+        text={eventMessageForSpectator(event, spectatorMode)}
+        onComplete={() => setTypedCompleteEventId(event.id)}
+      />
+    );
   }
 
   const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
