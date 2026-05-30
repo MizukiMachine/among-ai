@@ -28,6 +28,12 @@ export interface BuildRoundScriptInput {
 }
 
 const maxDirectorHistoryLines = 24;
+// Round 1 is the only day whose plan cannot be prefetched during a preceding night, so
+// it is built inline at day start. To keep that one stall short we (a) ask for slimmer
+// output and (b) race a few copies and take the fastest valid one (the gate is idle at
+// day-1 start, so this trims the call's latency variance without clogging anything).
+const firstDayRaceAttempts = 3;
+const firstDayMaxTokens = 900;
 
 function alivePlayers(input: BuildRoundScriptInput): DirectorPlayerInfo[] {
   return input.players.filter((player) => player.alive);
@@ -39,7 +45,7 @@ function isIntermediate(mode: BuildRoundScriptInput["mode"]): boolean {
 
 // --- Prompt -----------------------------------------------------------------
 
-function directorSystemPrompt(mode: BuildRoundScriptInput["mode"], language: string): string {
+function directorSystemPrompt(mode: BuildRoundScriptInput["mode"], language: string, slim = false): string {
   const intermediate = isIntermediate(mode);
   if (isJapaneseLanguage(language)) {
     const lines = [
@@ -72,7 +78,9 @@ function directorSystemPrompt(mode: BuildRoundScriptInput["mode"], language: str
       intermediate
         ? '{"beats":[{"id":"b1","summary":"..."}],"arc":"どう緊張を高めるか","directives":[{"playerId":"p1","intent":"その人の今ラウンドの狙い・stance（秘密、役職前提）","tell":"漏れる手がかり（任意）","focus":"主に関わる相手かbeatのid"}]}'
         : '{"beats":[{"id":"b1","summary":"..."}],"arc":"","directives":[{"playerId":"p1","intent":"その人の今ラウンドの狙い・stance（秘密、役職前提）","tell":"漏れる手がかり（任意）","focus":"主に関わる相手かbeatのid"}]}',
-      "directives は生存している全プレイヤー分を含めてください。intent は1〜2文で具体的に。"
+      slim
+        ? "directives は生存している全プレイヤー分を含めてください。出力は短く: intent は具体的に1文だけ、tell と focus は省略可、beats は最大2本。"
+        : "directives は生存している全プレイヤー分を含めてください。intent は1〜2文で具体的に。"
     );
     return lines.join("\n");
   }
@@ -103,7 +111,9 @@ function directorSystemPrompt(mode: BuildRoundScriptInput["mode"], language: str
     intermediate
       ? '{"beats":[{"id":"b1","summary":"..."}],"arc":"how tension escalates","directives":[{"playerId":"p1","intent":"secret per-round goal/stance (role-aware)","tell":"optional leakable signal","focus":"target player or beat id"}]}'
       : '{"beats":[{"id":"b1","summary":"..."}],"arc":"","directives":[{"playerId":"p1","intent":"secret per-round goal/stance (role-aware)","tell":"optional leakable signal","focus":"target player or beat id"}]}',
-    "Include a directive for every living player. Keep intent to 1-2 concrete sentences."
+    slim
+      ? "Include a directive for every living player. Keep output short: intent is ONE concrete sentence, tell and focus may be omitted, at most 2 beats."
+      : "Include a directive for every living player. Keep intent to 1-2 concrete sentences."
   );
   return lines.join("\n");
 }
@@ -368,11 +378,131 @@ function deterministicRoundScript(input: BuildRoundScriptInput): RoundScript {
   };
 }
 
+// --- Round 1 fast path (slim + race) ----------------------------------------
+
+/**
+ * Races several producers and resolves with the FIRST one that yields a non-null
+ * value, aborting the rest via their controllers. Resolves null only if every
+ * producer returns null or throws. Exported for tests (the LLM calls are injected).
+ */
+export async function raceFirstValid<T>(
+  producers: Array<() => Promise<T | null>>,
+  controllers: AbortController[]
+): Promise<T | null> {
+  if (producers.length === 0) {
+    return null;
+  }
+  return new Promise<T | null>((resolve) => {
+    let pending = producers.length;
+    let settled = false;
+    const finishWith = (value: T, winnerIndex: number) => {
+      settled = true;
+      controllers.forEach((controller, index) => {
+        if (index !== winnerIndex) {
+          controller.abort();
+        }
+      });
+      resolve(value);
+    };
+    producers.forEach((producer, index) => {
+      producer().then(
+        (value) => {
+          if (settled) {
+            return;
+          }
+          if (value !== null) {
+            finishWith(value, index);
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) {
+            resolve(null);
+          }
+        },
+        () => {
+          if (settled) {
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) {
+            resolve(null);
+          }
+        }
+      );
+    });
+  });
+}
+
+// Builds the round-1 plan as ONE coordinated omniscient call (so the wolf team etc.
+// stay coordinated), but slimmer (shorter output → faster) and raced best-of-N. Day 1
+// is the only day that cannot be prefetched during a preceding night, and at day-1
+// start the global LLM gate is idle, so running a few copies in parallel and taking
+// the fastest trims the call's high latency variance without clogging anything.
+async function buildFirstDayRoundScript(input: BuildRoundScriptInput): Promise<RoundScript> {
+  const system = directorSystemPrompt(input.mode, input.language, true);
+  const user = directorUserContent(input);
+  const attempts = Math.max(1, firstDayRaceAttempts);
+  const controllers = Array.from({ length: attempts }, () => new AbortController());
+  const abortAll = () => {
+    for (const controller of controllers) {
+      controller.abort();
+    }
+  };
+  if (input.abortSignal) {
+    if (input.abortSignal.aborted) {
+      abortAll();
+    } else {
+      input.abortSignal.addEventListener("abort", abortAll, { once: true });
+    }
+  }
+  try {
+    const script = await raceFirstValid(
+      controllers.map((controller) => async () => {
+        const raw = await runDirectorCompletion({
+          system,
+          user,
+          model: input.model,
+          maxTokens: firstDayMaxTokens,
+          temperature: 0.6,
+          abortSignal: controller.signal
+        });
+        return raw ? parseRoundScript(raw, input) : null;
+      }),
+      controllers
+    );
+    if (script) {
+      return script;
+    }
+    // raceFirstValid swallows rejections into a null result, so a null here can mean
+    // "every attempt was aborted" (game cancelled). Propagate cancellation like the
+    // round>=2 path does, instead of silently returning a deterministic plan.
+    if (input.abortSignal?.aborted) {
+      throw new Error("First-day director plan aborted.");
+    }
+    return deterministicRoundScript(input);
+  } catch (error) {
+    if (input.abortSignal?.aborted) {
+      throw error;
+    }
+    return deterministicRoundScript(input);
+  } finally {
+    input.abortSignal?.removeEventListener("abort", abortAll);
+    abortAll();
+  }
+}
+
 // --- Public API -------------------------------------------------------------
 
 export async function buildRoundScript(input: BuildRoundScriptInput): Promise<RoundScript> {
   if (input.provider !== "llm") {
     return deterministicRoundScript(input);
+  }
+  // Round 1 cannot be prefetched (no preceding night), so it is built inline at day
+  // start. Use the slim + raced single-call path to keep that one unavoidable stall
+  // short while still producing one coordinated plan (buildFirstDayRoundScript handles
+  // its own deterministic fallback and rethrows only on abort).
+  if (input.round === 1) {
+    return buildFirstDayRoundScript(input);
   }
   try {
     const raw = await runDirectorCompletion({

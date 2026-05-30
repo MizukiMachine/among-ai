@@ -10,7 +10,7 @@ import {
   buildTargetSystemPrompt
 } from "./prompts";
 import { promptMaterials } from "./prompts/materials";
-import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
+import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, roleLabel } from "./i18n";
 import { sample, weightedChance } from "./random";
 import type {
   Agent,
@@ -21,6 +21,7 @@ import type {
   Camp,
   ClaimMetadata,
   FirstDayOpeningMove,
+  Persona,
   PlayerReadMetadata,
   ReadEvidenceKind,
   ReadEvidenceMetadata,
@@ -34,6 +35,8 @@ const defaultLlmTimeoutMs = 120_000;
 const defaultLlmMaxTokens = 384;
 const targetDecisionMaxTokens = 160;
 const booleanDecisionMaxTokens = 96;
+// Day-1 warm-up self-intros are short and single-call (no reasoning stage).
+const introMaxTokens = 140;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
 const fixedLlmRequestConcurrency = 5;
@@ -1341,11 +1344,37 @@ type LlmQueueEntry = {
   startedAt?: number;
   model: string;
   maxTokens: number;
+  label?: string;
   resolve: () => void;
   reject: (error: unknown) => void;
   signal?: AbortSignal;
   abort: () => void;
 };
+
+/**
+ * Structured per-request trace event. Mirrors the AMONG_AI_LLM_QUEUE_TRACE
+ * console output but is delivered to an in-process sink so measurement tooling
+ * (scripts/llm-latency-probe.ts) can aggregate timings without parsing stdout.
+ */
+export interface LlmTraceEvent {
+  kind: string;
+  requestId: number;
+  model: string;
+  maxTokens: number;
+  label?: string;
+  active: number;
+  queued: number;
+  concurrency: number;
+  waitMs?: number;
+  activeMs?: number;
+}
+
+let llmTraceSink: ((event: LlmTraceEvent) => void) | null = null;
+
+/** Register (or clear with null) a sink that receives every LLM queue trace event. */
+export function setLlmQueueTraceSink(sink: ((event: LlmTraceEvent) => void) | null): void {
+  llmTraceSink = sink;
+}
 
 const llmQueue: LlmQueueEntry[] = [];
 let activeLlmRequests = 0;
@@ -1366,6 +1395,21 @@ function llmQueueTraceEnabled(): boolean {
 }
 
 function emitLlmQueueTrace(kind: string, entry: LlmQueueEntry, extra: Record<string, unknown> = {}): void {
+  if (llmTraceSink) {
+    llmTraceSink({
+      kind,
+      requestId: entry.id,
+      model: entry.model,
+      maxTokens: entry.maxTokens,
+      label: entry.label,
+      active: activeLlmRequests,
+      queued: llmQueue.length,
+      concurrency: llmRequestConcurrency(),
+      waitMs: typeof extra.waitMs === "number" ? extra.waitMs : undefined,
+      activeMs: typeof extra.activeMs === "number" ? extra.activeMs : undefined
+    });
+  }
+
   if (!llmQueueTraceEnabled()) {
     return;
   }
@@ -1376,6 +1420,7 @@ function emitLlmQueueTrace(kind: string, entry: LlmQueueEntry, extra: Record<str
       requestId: entry.id,
       model: entry.model,
       maxTokens: entry.maxTokens,
+      label: entry.label,
       active: activeLlmRequests,
       queued: llmQueue.length,
       concurrency: llmRequestConcurrency(),
@@ -1423,7 +1468,10 @@ function drainLlmQueue(): void {
   }
 }
 
-async function acquireLlmSlot(signal: AbortSignal | undefined, request: { model: string; maxTokens: number }): Promise<() => void> {
+async function acquireLlmSlot(
+  signal: AbortSignal | undefined,
+  request: { model: string; maxTokens: number; label?: string }
+): Promise<() => void> {
   throwIfAborted(signal);
   let acquiredEntry: LlmQueueEntry | null = null;
   await new Promise<void>((resolve, reject) => {
@@ -1432,6 +1480,7 @@ async function acquireLlmSlot(signal: AbortSignal | undefined, request: { model:
       queuedAt: Date.now(),
       model: request.model,
       maxTokens: request.maxTokens,
+      label: request.label,
       resolve: () => {
         acquiredEntry = entry;
         resolve();
@@ -2057,6 +2106,30 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   };
 }
 
+// --- Day-1 warm-up self-introduction -----------------------------------------
+
+function buildIntroSystemPrompt(language: string, persona: Persona): string {
+  const persona_ = personaLabel(persona, language);
+  if (isJapaneseLanguage(language)) {
+    return [
+      "あなたは人狼ゲームのプレイヤーです。議論が始まる前の、ごく軽い自己紹介と挨拶をします。",
+      `あなたの普段の性格・話し方の傾向は「${persona_}」。それが伝わる短い自己紹介にしてください（「普段はこういう感じ」と一言添える）。`,
+      "ルール: 1〜2文の短さ。役職・陣営・占い等には触れない。誰かへの疑い・信頼・投票の話もまだしない。挨拶と人柄だけ。",
+      "出力は表示するセリフそのものだけ。前置きや説明は不要。"
+    ].join("\n");
+  }
+  return [
+    "You are a player in a hidden-role werewolf game, giving a very light self-introduction and greeting before the discussion begins.",
+    `Your usual personality/speaking style is "${persona_}"; make a short intro that conveys it (mention how you usually are).`,
+    "Rules: 1-2 short sentences. Do NOT mention roles, camps, or seer results. Do NOT state suspicion, trust, or votes yet. Greeting and personality only.",
+    "Output only the spoken line itself; no preamble or explanation."
+  ].join("\n");
+}
+
+function defaultIntroLine(name: string, language: string): string {
+  return isJapaneseLanguage(language) ? `${name}です、よろしく。` : `I'm ${name}, nice to meet you all.`;
+}
+
 export class DemoAgent implements Agent {
   constructor(
     public readonly name: string,
@@ -2066,6 +2139,17 @@ export class DemoAgent implements Agent {
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     return finalizeDemoSpeech(buildDemoSpeech(input, this.language), this.language);
+  }
+
+  async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const persona_ = personaLabel(input.player.persona, this.language);
+    const line = isJapaneseLanguage(this.language)
+      ? `${input.player.name}です、よろしく。普段は${persona_}な方かな。`
+      : `I'm ${input.player.name} — nice to meet you. I tend to be on the ${persona_} side.`;
+    return {
+      messages: [normalizeSpeechLine(line, line, this.language)],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
   }
 
   async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
@@ -2126,13 +2210,14 @@ async function completeAnthropic(
   maxTokens: number,
   temperature: number,
   timeoutMs?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  label?: string
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= llmRequestAttempts; attempt += 1) {
     try {
       throwIfAborted(signal);
-      const releaseSlot = await acquireLlmSlot(signal, { model, maxTokens });
+      const releaseSlot = await acquireLlmSlot(signal, { model, maxTokens, label });
       const configuredTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
       const abortTimeoutMs = timeoutMs ?? configuredTimeoutMs;
       const controller = new AbortController();
@@ -2231,7 +2316,7 @@ export async function summarizeRoundWithLlm(input: {
     process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
     positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
   );
-  const content = await completeAnthropic(client, model, system, messages, 512, 0.35, undefined, input.abortSignal);
+  const content = await completeAnthropic(client, model, system, messages, 512, 0.35, undefined, input.abortSignal, "recap");
 
   return normalizeLlmSummary(content);
 }
@@ -2268,7 +2353,8 @@ export async function runDirectorCompletion(input: {
     input.maxTokens ?? 1024,
     input.temperature ?? 0.6,
     undefined,
-    input.abortSignal
+    input.abortSignal,
+    "director"
   );
 }
 
@@ -2278,7 +2364,8 @@ type CompleteRequest = (
   maxTokens: number,
   temperature: number,
   timeoutMs?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  label?: string
 ) => Promise<string>;
 
 class LlmAgent implements Agent {
@@ -2313,7 +2400,8 @@ class LlmAgent implements Agent {
         }
       ],
       this.maxTokens,
-      input.abortSignal
+      input.abortSignal,
+      "speech.reasoning"
     );
     const reasoning = parseSpeechReasoning(reasoningContent, legalPlayers, this.language, input.knownPlayers);
     const fallback = speechReasoningFallback(reasoning, input, this.language);
@@ -2335,7 +2423,8 @@ class LlmAgent implements Agent {
           }
         ],
         Math.min(this.maxTokens, defaultLlmMaxTokens),
-        input.abortSignal
+        input.abortSignal,
+        "speech.realization"
       );
     } catch (error) {
       if (input.abortSignal?.aborted || isAbortLikeError(error)) {
@@ -2351,6 +2440,24 @@ class LlmAgent implements Agent {
     return {
       messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: reasoning.metadata
+    };
+  }
+
+  // Single fast call (no reasoning stage) for the day-1 warm-up greeting.
+  async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const system = buildIntroSystemPrompt(this.language, input.player.persona);
+    const fallback = defaultIntroLine(input.player.name, this.language);
+    const content = await this.complete(
+      system,
+      [{ role: "user", content: input.context }],
+      introMaxTokens,
+      input.abortSignal,
+      "speech.intro"
+    );
+    const messages = parseSpeechRealizationMessages(content, fallback, this.language);
+    return {
+      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      metadata: { suspects: [], trusts: [], claims: [] }
     };
   }
 
@@ -2380,7 +2487,7 @@ class LlmAgent implements Agent {
     ];
 
     for (let attempt = 0; attempt < targetSelectionAttempts; attempt += 1) {
-      const content = await this.complete(system, messages, targetDecisionMaxTokens, input.abortSignal);
+      const content = await this.complete(system, messages, targetDecisionMaxTokens, input.abortSignal, "decision.target");
       const selection = parseTargetSelection(content, input.candidates, input.allowSkip);
       if (selection.valid) {
         return normalizeTargetDecision(selection.decision, input.candidates, this.language, input.phase);
@@ -2433,7 +2540,7 @@ class LlmAgent implements Agent {
     ];
 
     for (let attempt = 0; attempt < booleanDecisionAttempts; attempt += 1) {
-      const content = await this.complete(system, messages, booleanDecisionMaxTokens, input.abortSignal);
+      const content = await this.complete(system, messages, booleanDecisionMaxTokens, input.abortSignal, "decision.boolean");
       const decision = parseBooleanDecision(content);
       if (decision.valid) {
         return decision.decision;
@@ -2456,8 +2563,14 @@ class LlmAgent implements Agent {
     return false;
   }
 
-  private async complete(system: string, messages: MessageParam[], maxTokens = this.maxTokens, signal?: AbortSignal): Promise<string> {
-    return this.completeRequest(system, messages, maxTokens, 0.8, undefined, signal);
+  private async complete(
+    system: string,
+    messages: MessageParam[],
+    maxTokens = this.maxTokens,
+    signal?: AbortSignal,
+    label?: string
+  ): Promise<string> {
+    return this.completeRequest(system, messages, maxTokens, 0.8, undefined, signal, label);
   }
 }
 
@@ -2469,8 +2582,8 @@ export class AnthropicAgent extends LlmAgent {
     language: string,
     maxTokens = defaultLlmMaxTokens
   ) {
-    super(name, model, language, maxTokens, (system, messages, requestMaxTokens, temperature, timeoutMs, signal) =>
-      completeAnthropic(client, model, system, messages, requestMaxTokens, temperature, timeoutMs, signal)
+    super(name, model, language, maxTokens, (system, messages, requestMaxTokens, temperature, timeoutMs, signal, label) =>
+      completeAnthropic(client, model, system, messages, requestMaxTokens, temperature, timeoutMs, signal, label)
     );
   }
 }

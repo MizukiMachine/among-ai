@@ -25,6 +25,7 @@ import type {
   GenerationProgress,
   Player,
   Role,
+  RoundScript,
   SpeechGenerationDiagnostic,
   HumanInputHandler,
   HumanInputRequestPayload,
@@ -100,6 +101,33 @@ class PreferTargetAgent extends ScriptedAgent {
       targetId: target?.id ?? null,
       reason: `${this.name} preferred ${this.preferredTargetId}`
     };
+  }
+}
+
+// Records improviseIntro calls so tests can assert the warm-up uses the fast intro
+// path (not speak()) and covers the right speakers.
+class IntroAgent implements Agent {
+  readonly model = "scripted";
+  readonly introCalls: string[] = [];
+  readonly speakCalls: string[] = [];
+  constructor(readonly name: string) {}
+
+  async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.introCalls.push(input.player.id);
+    return { messages: [`INTRO ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+
+  async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speakCalls.push(input.player.id);
+    return { messages: [`SPEAK ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+
+  async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    return { targetId: input.candidates[0]?.id ?? null, reason: `${this.name} target` };
+  }
+
+  async decide(): Promise<boolean> {
+    return false;
   }
 }
 
@@ -1394,6 +1422,151 @@ test("director off keeps the legacy first-day opening move and no directive", as
     allContexts.every((context) => !context.includes("Your secret plan for this round")),
     "no director directive should appear when the director is off"
   );
+});
+
+type DirectorTestableGame = TestableGame & {
+  round: number;
+  lastNightDeaths: string[];
+  prefetchedRoundScript: { round: number; mode: "describe" | "intermediate"; promise: Promise<RoundScript> } | null;
+  maybePrefetchNextRoundScript(): void;
+  runFirstDayWarmupPass(): AsyncGenerator<GameEvent>;
+};
+
+test("day-1 warm-up emits a fast self-intro for every living AI player with the warmup flag", async () => {
+  const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  const agents = players.map((player) => {
+    const agent = new IntroAgent(player.name);
+    game.agents.set(player.id, agent);
+    return agent;
+  });
+
+  const events = await collect(game.runFirstDayWarmupPass());
+  const speeches = events.filter((event) => event.type === "player_speech");
+
+  assert.equal(speeches.length, players.length, "every living AI player gives one intro");
+  assert.ok(speeches.every((event) => event.data?.warmup === true), "intros are flagged as warm-up");
+  assert.ok(
+    speeches.every((event) => typeof event.message === "string" && event.message.startsWith("INTRO ")),
+    "the fast improviseIntro path is used, not speak()"
+  );
+  assert.ok(agents.every((agent) => agent.speakCalls.length === 0), "the warm-up never falls back to the heavy speak() path here");
+  assert.deepEqual(
+    new Set(speeches.map((event) => event.playerId)),
+    new Set(players.map((player) => player.id)),
+    "all living players are represented"
+  );
+});
+
+test("day-1 warm-up excludes the human player", async () => {
+  const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", humanPlayerId: "p3", prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  // Mark p3 (index 2) as the human-controlled player.
+  const human = players[2];
+  human.model = "human";
+
+  const events = await collect(game.runFirstDayWarmupPass());
+  const speakerIds = new Set(events.filter((event) => event.type === "player_speech").map((event) => event.playerId));
+
+  assert.ok(!speakerIds.has(human.id), "the human player does not give a warm-up intro");
+  assert.equal(speakerIds.size, players.length - 1, "every AI player intros, the human is skipped");
+});
+
+test("a prefetched director plan is consumed by the next day instead of being rebuilt inline", async () => {
+  const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.round = 2;
+
+  // A sentinel plan the engine could only have obtained from the prefetch slot —
+  // the deterministic inline build never produces these intent strings.
+  const sentinel: RoundScript = {
+    round: 2,
+    beats: [{ id: "b1", summary: "sentinel beat" }],
+    arc: "sentinel arc",
+    directives: Object.fromEntries(
+      players.map((player) => [player.id, { playerId: player.id, intent: `SENTINEL_PLAN_${player.id}` }])
+    ),
+    source: "llm"
+  };
+  game.prefetchedRoundScript = { round: 2, mode: "intermediate", promise: Promise.resolve(sentinel) };
+
+  await collect(game.runDay());
+
+  const contexts = players
+    .map((player) => game.agents.get(player.id) as ScriptedAgent)
+    .flatMap((agent) => agent.speechInputs.map((input) => input.context));
+  assert.ok(
+    contexts.some((context) => context.includes("SENTINEL_PLAN_")),
+    "the day should use the prefetched plan rather than rebuilding it inline"
+  );
+  assert.equal(game.prefetchedRoundScript, null, "the prefetch slot should be cleared once consumed");
+});
+
+test("maybePrefetchNextRoundScript plans the next round from post-night state and skips when no day remains", async () => {
+  const game = new WerewolfGame({ ...baseConfig, directorMode: "describe", maxRounds: 3, prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  // Simulate the lull after round 1's night: a death is known and round is still 1.
+  game.round = 1;
+  const deadName = players[0].name;
+  game.lastNightDeaths = [players[0].id];
+
+  game.maybePrefetchNextRoundScript();
+  assert.ok(game.prefetchedRoundScript, "a plan should be prefetched for the next day");
+  assert.equal(game.prefetchedRoundScript?.round, 2);
+  assert.equal(game.prefetchedRoundScript?.mode, "describe");
+  const script = await game.prefetchedRoundScript!.promise;
+  assert.equal(script.round, 2, "the prefetched plan targets the next round");
+  assert.ok(Object.keys(script.directives).length > 0, "the prefetched plan carries directives");
+  assert.ok(
+    script.beats.some((beat) => beat.summary.includes(deadName)),
+    "the prefetched plan reflects the just-resolved night death"
+  );
+
+  // No day remains after the final round, so no plan should be prefetched.
+  game.prefetchedRoundScript = null;
+  game.round = 3;
+  game.maybePrefetchNextRoundScript();
+  assert.equal(game.prefetchedRoundScript, null, "no prefetch when the next round is past maxRounds");
+});
+
+test("director off never prefetches a round plan", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [{ role: "Villager" }, { role: "Werewolf" }, { role: "Seer" }]);
+  game.round = 1;
+  game.lastNightDeaths = [players[0].id];
+  game.maybePrefetchNextRoundScript();
+  assert.equal(game.prefetchedRoundScript, null, "the director-off path must not schedule director LLM work");
 });
 
 test("speech diagnostics record race loser aborts without changing race publishing", async () => {
