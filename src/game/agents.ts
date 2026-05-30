@@ -2113,15 +2113,17 @@ function buildIntroSystemPrompt(language: string, persona: Persona): string {
   if (isJapaneseLanguage(language)) {
     return [
       "あなたは人狼ゲームのプレイヤーです。議論が始まる前の、ごく軽い自己紹介と挨拶をします。",
-      `あなたの普段の性格・話し方の傾向は「${persona_}」。それが伝わる短い自己紹介にしてください（「普段はこういう感じ」と一言添える）。`,
+      `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       "ルール: 1〜2文の短さ。役職・陣営・占い等には触れない。誰かへの疑い・信頼・投票の話もまだしない。挨拶と人柄だけ。",
+      "重要: 『普段は〜』のような決まり文句や、毎回同じ書き出しは禁止。切り出し方は一人ひとり変え、自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
     "You are a player in a hidden-role werewolf game, giving a very light self-introduction and greeting before the discussion begins.",
-    `Your usual personality/speaking style is "${persona_}"; make a short intro that conveys it (mention how you usually are).`,
+    `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     "Rules: 1-2 short sentences. Do NOT mention roles, camps, or seer results. Do NOT state suspicion, trust, or votes yet. Greeting and personality only.",
+    "Important: no stock opener like \"I usually...\"; vary how you open and use your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
 }
@@ -2143,9 +2145,24 @@ export class DemoAgent implements Agent {
 
   async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
     const persona_ = personaLabel(input.player.persona, this.language);
-    const line = isJapaneseLanguage(this.language)
-      ? `${input.player.name}です、よろしく。普段は${persona_}な方かな。`
-      : `I'm ${input.player.name} — nice to meet you. I tend to be on the ${persona_} side.`;
+    const name = input.player.name;
+    // Vary the opener per player (stable by id, no RNG) so the table does not read as
+    // identical templated lines, and never lead with a stock "普段は" phrase.
+    const variants = isJapaneseLanguage(this.language)
+      ? [
+          `${name}です、よろしく。${persona_}なタイプだけど仲良くやろう。`,
+          `どうも、${name}。${persona_}な感じで進めるね。`,
+          `${name}だよ。${persona_}なほうだと思う、よろしく。`,
+          `こんにちは、${name}。${persona_}な性格、よろしく頼むね。`
+        ]
+      : [
+          `I'm ${name} — nice to meet you all. I lean ${persona_}, by the way.`,
+          `Hey, ${name} here. I tend to come off ${persona_}.`,
+          `${name}, good to be here — the ${persona_} sort.`,
+          `Hi all, ${name}. A bit ${persona_}, but let's get along.`
+        ];
+    const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
+    const line = variants[index];
     return {
       messages: [normalizeSpeechLine(line, line, this.language)],
       metadata: { suspects: [], trusts: [], claims: [] }

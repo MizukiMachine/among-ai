@@ -1880,14 +1880,46 @@ export class WerewolfGame {
   // directive and runs in parallel with the director plan, so the plan's latency is
   // hidden behind chatter the player reads instead of an empty "thinking" wait. Humans
   // are excluded — they join from the first real pass. Every living AI player speaks once.
+  // Distinct opening angles so independent intro generations don't all start the same way.
+  private firstDayIntroAngles(): string[] {
+    return this.isJapanese()
+      ? [
+          "名前を名乗ってから、ひとことだけ。",
+          "短い意気込みから入る。",
+          "軽いぼやきや冗談を交えて。",
+          "全体への呼びかけから入る。",
+          "とにかく端的に、短く。",
+          "今日の抱負をひとこと。",
+          "気さくに、ゆるい雰囲気で。",
+          "自分の関心事をひとこと添えて。"
+        ]
+      : [
+          "Lead with your name, then one line.",
+          "Open with a short bit of resolve.",
+          "Slip in a light quip or grumble.",
+          "Open by addressing the whole table.",
+          "Keep it blunt and very short.",
+          "State one hope for today.",
+          "Be breezy and easygoing.",
+          "Add one thing you care about."
+        ];
+  }
+
   private async *runFirstDayWarmupPass(): AsyncGenerator<GameEvent> {
     const aiSpeakers = this.daySpeakerOrder().filter((player) => !this.isHumanControlledPlayer(player));
     if (aiSpeakers.length === 0) {
       return;
     }
+    const angles = this.firstDayIntroAngles();
+    const angleOffset = Math.floor(Math.random() * angles.length);
+    const angleByPlayerId = new Map(aiSpeakers.map((player, index) => [player.id, angles[(angleOffset + index) % angles.length]]));
     for await (const { player, speech } of this.raceAiWithHumanLast(
       aiSpeakers,
-      (player, options) => this.safeImproviseIntro(player, options?.signal, options?.speculative).then((speech) => ({ player, speech })),
+      (player, options) =>
+        this.safeImproviseIntro(player, options?.signal, options?.speculative, angleByPlayerId.get(player.id)).then((speech) => ({
+          player,
+          speech
+        })),
       this.progressReporter("day_speech", this.text("Greetings before the discussion", "議論前の挨拶"))
     )) {
       this.publicHistory.push(this.formatSpeechHistory(player, speech));
@@ -2479,7 +2511,8 @@ export class WerewolfGame {
   private async safeImproviseIntro(
     player: Player,
     abortSignal?: AbortSignal,
-    speculative = false
+    speculative = false,
+    angle?: string
   ): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
@@ -2488,9 +2521,12 @@ export class WerewolfGame {
     const contextLines = [
       this.nightDeathContextLine(),
       this.text(
-        "Briefly introduce yourself and greet the table before the discussion. Mention how you usually are (your personality/style). Do not talk about roles, suspicions, or votes yet.",
-        "議論の前に、軽く自己紹介して全体に挨拶してください。自分が普段どういう性格・スタンスかも一言添えて。役職・疑い・投票の話はまだしない。"
-      )
+        "It's your turn for a quick, one-line self-introduction before the discussion. Keep it short and in your own voice. Do NOT lean on a stock greeting (no \"good first day, everyone\" type opener) and do NOT start with \"I usually...\". Do not talk about roles, suspicions, or votes yet.",
+        "あなたの番です。議論の前に、短い自己紹介を一言だけ。決まり文句の挨拶（「初日お疲れ様」のような出だし）に頼らず、「普段は…」で始めるのも禁止。自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
+      ),
+      // Each warm-up speaker gets a different opening angle so independent generations
+      // don't all converge on the same first line.
+      ...(angle ? [this.text(`Opening angle (vary from others): ${angle}`, `今回の切り出し方（他の人と変える）: ${angle}`)] : [])
     ];
     const input: AgentSpeechInput = {
       player,
