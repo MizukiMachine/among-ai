@@ -154,6 +154,11 @@ const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = false;
 const initialHumanPlayerId = "p1";
 const initialSpectatorMode: SpectatorMode = "omniscient";
+// How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
+// deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
+// Single source of truth — the CSS fade duration is set inline from this value, so the JS hold
+// and the fade in/hold/out stay locked together and the dismissal is seamless.
+const REVEAL_SPOTLIGHT_MS = 3800;
 
 type CharacterImageLoadState = "loading" | "loaded" | "failed";
 type CharacterImageFetchPriority = "high" | "low" | "auto";
@@ -691,13 +696,14 @@ function renderStageBackdrop(
   return <SciFiStageBackdrop phase={phase} eventType={eventType} secret={secret} lightTone={lightTone} lightKey={lightKey} />;
 }
 
-function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
+function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, revealed = true): string {
   const role = String(player.role);
   // In player mode the snapshot is already redacted server-side: only the viewer's own role
-  // and (for a werewolf viewer) their allies' roles arrive non-Hidden, so trust whatever is
-  // not "Hidden" rather than re-gating on the human's id — that lets revealed werewolf allies
-  // show their named role in the roster instead of staying unknown.
-  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden");
+  // and (for a werewolf viewer) their allies' roles arrive non-Hidden. Allies are present from
+  // the first event, but the story only "introduces" each one when they name their role at the
+  // werewolf face-off, so `revealed` gates the flip from 不明 to the real role until we have
+  // played past that self-naming speech (see `revealedRoleIds`).
+  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden" && revealed);
   if (!roleVisible || role === "Hidden") {
     return displayRoleLabel("Hidden", language);
   }
@@ -709,17 +715,26 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
 }
 
-function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
-  const label = roleDisplay(player, mode, language, humanPlayerId);
+function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, revealed = true): string {
+  const label = roleDisplay(player, mode, language, revealed);
   return isJapaneseLanguage(language) && label === displayRoleLabel("AlphaWolf", language) ? "α人狼" : label;
 }
 
-function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, humanPlayerId: string): string {
+function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, revealed = true): string {
   const role = String(player.role);
-  // Mirror roleDisplay: trust the server-redacted snapshot in player mode so revealed
-  // werewolf allies get their role's chip styling instead of the hidden style.
-  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden");
+  // Mirror roleDisplay: keep the hidden chip style until the ally has named their role.
+  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden" && revealed);
   return roleVisible ? roleClassName(role) : "role-hidden";
+}
+
+// The speaker id of a werewolf face-off line — the moment a wolf names their role to the team —
+// or undefined for any other event. Drives both the roster reveal gate (`revealedRoleIds`) and
+// its one-shot focus animation (`revealingRoleId`).
+function faceoffSpeakerId(event: GameEvent): string | undefined {
+  if (event.type === "player_speech" && event.phase === "werewolf_discussion") {
+    return event.playerId;
+  }
+  return undefined;
 }
 
 function dataArray<T>(event: GameEvent | undefined, key: string): T[] {
@@ -1143,6 +1158,14 @@ export function App() {
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
   const [tourRect, setTourRect] = useState<DOMRect | null>(null);
+  // Modal spotlight shown when a werewolf ally is unveiled at the face-off: dims the whole
+  // screen and lights only that roster card while its role flips. Tracks the card's id + rect.
+  const [revealSpotlight, setRevealSpotlight] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const revealSpotlightTimerRef = useRef<number | null>(null);
+  // Fully tears down the active spotlight (flag + listeners + timer); set by the reveal effect so
+  // a click-to-skip dismisses it exactly like the timeout does, instead of leaving live listeners
+  // that could resurrect the overlay on the next scroll/resize.
+  const revealDismissRef = useRef<(() => void) | null>(null);
   // Returning-player startup gate: a brief, deliberate "generating" panel shown in
   // place of the tour on every match after the first. null = inactive.
   const [startupWaitActive, setStartupWaitActive] = useState(false);
@@ -1188,6 +1211,43 @@ export function App() {
   );
   const warnings = useMemo(() => events.filter((event) => event.type === "warning"), [events]);
   const currentEvent = events.at(-1);
+  // A werewolf viewer's redacted snapshot carries allied wolves' real roles from the very first
+  // event, but in the story we only learn each ally once they introduce themselves at the
+  // face-off. Accumulate the ids whose self-naming werewolf-discussion speech we have played past
+  // so the roster flips from 不明 to the real role only after the wolf names it in the main panel.
+  // The viewer always knows their own role, so they seed the set.
+  const revealedRoleIds = useMemo(() => {
+    const revealed = new Set<string>();
+    if (humanPlayerId) {
+      revealed.add(humanPlayerId);
+    }
+    for (const event of events) {
+      const speakerId = faceoffSpeakerId(event);
+      if (speakerId) {
+        revealed.add(speakerId);
+      }
+    }
+    return revealed;
+  }, [events, humanPlayerId]);
+  // The ally being unveiled by the current event — drives the one-shot focus + reveal animation on
+  // their roster card. Only the first face-off line per wolf pulses, and only in the human "player"
+  // view where the reveal is actually news (omniscient already shows every role).
+  const revealingRoleId = useMemo(() => {
+    if (spectatorMode !== "player") {
+      return undefined;
+    }
+    const last = events.at(-1);
+    const speakerId = last ? faceoffSpeakerId(last) : undefined;
+    if (!speakerId || speakerId === humanPlayerId) {
+      return undefined;
+    }
+    for (let index = 0; index < events.length - 1; index += 1) {
+      if (faceoffSpeakerId(events[index]) === speakerId) {
+        return undefined; // already revealed on an earlier line
+      }
+    }
+    return speakerId;
+  }, [events, humanPlayerId, spectatorMode]);
   const currentStageLightTone = useMemo(() => {
     let previousTone: StageLightTone | undefined;
     for (const [index, event] of events.entries()) {
@@ -1365,6 +1425,50 @@ export function App() {
       window.removeEventListener("scroll", measure, true);
     };
   }, [tourStepIndex, tourSteps]);
+
+  // When an ally is unveiled at the face-off, raise a modal spotlight over their roster card:
+  // scroll it into view, dim everything else, and hold for REVEAL_SPOTLIGHT_MS before clearing.
+  // The card stays revealed afterwards; only the dramatic overlay is transient.
+  useLayoutEffect(() => {
+    const clearTimer = () => {
+      if (revealSpotlightTimerRef.current !== null) {
+        window.clearTimeout(revealSpotlightTimerRef.current);
+        revealSpotlightTimerRef.current = null;
+      }
+    };
+    if (!revealingRoleId) {
+      clearTimer();
+      setRevealSpotlight(null);
+      return;
+    }
+    const id = revealingRoleId;
+    let dismissed = false;
+    const findCard = () => rosterListRef.current?.querySelector<HTMLElement>(`.player-card[data-player-id="${id}"]`) ?? null;
+    const measure = () => {
+      if (dismissed) {
+        return; // never resurrect the overlay once the hold has elapsed or been skipped
+      }
+      const el = findCard();
+      if (el) {
+        setRevealSpotlight({ id, rect: el.getBoundingClientRect() });
+      }
+    };
+    const dismiss = () => {
+      dismissed = true;
+      clearTimer();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      setRevealSpotlight(null);
+    };
+    revealDismissRef.current = dismiss;
+    findCard()?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    clearTimer();
+    revealSpotlightTimerRef.current = window.setTimeout(dismiss, REVEAL_SPOTLIGHT_MS);
+    return dismiss;
+  }, [revealingRoleId]);
 
   // Move focus into the callout when a step opens (without scrolling the page,
   // which would offset the spotlight), so keyboard users land inside the tour.
@@ -3057,8 +3161,9 @@ export function App() {
     const player = selectedCharacterPlayer;
     const humanPlayer = isHumanPlayer(selectedCharacterId);
     const thumbnail = getCharacterImage(selectedCharacterId);
-    const visibleRoleLabel = player ? roleDisplay(player, spectatorMode, language, humanPlayerId) : displayRoleLabel("Hidden", language);
-    const visibleRoleClass = player ? roleChipClass(player, spectatorMode, humanPlayerId) : "role-hidden";
+    const profileRevealed = player ? revealedRoleIds.has(player.id) : false;
+    const visibleRoleLabel = player ? roleDisplay(player, spectatorMode, language, profileRevealed) : displayRoleLabel("Hidden", language);
+    const visibleRoleClass = player ? roleChipClass(player, spectatorMode, profileRevealed) : "role-hidden";
     const relationEntries = characterRelationEntries(selectedCharacterId, new Set(snapshot?.players.map((candidate) => candidate.id) ?? []));
 
     return (
@@ -3129,6 +3234,29 @@ export function App() {
           </div>
         </section>
       </>
+    );
+  }
+
+  function renderRevealSpotlight() {
+    if (!revealSpotlight) {
+      return null;
+    }
+    const pad = 12;
+    const { rect } = revealSpotlight;
+    const spotlightStyle: CSSProperties = {
+      left: `${rect.left - pad}px`,
+      top: `${rect.top - pad}px`,
+      width: `${rect.width + pad * 2}px`,
+      height: `${rect.height + pad * 2}px`,
+      // Single source of truth for the hold duration: the fade in/hold/out is timed to the same
+      // window the React timer keeps the overlay mounted, so the dismissal stays seamless.
+      animationDuration: `${REVEAL_SPOTLIGHT_MS}ms`
+    };
+    return (
+      <div className="role-reveal-overlay" role="presentation" aria-hidden="true">
+        <div className="role-reveal-overlay-backdrop" onClick={() => revealDismissRef.current?.()} />
+        <div className="role-reveal-overlay-spotlight" style={spotlightStyle} />
+      </div>
     );
   }
 
@@ -3296,12 +3424,15 @@ export function App() {
               {alivePlayers.length > 0 ? (
                 alivePlayers.map((player) => {
                   const humanPlayer = isHumanPlayer(player.id);
-                  const roleLabel = roleDisplay(player, spectatorMode, language, humanPlayerId);
-                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language, humanPlayerId);
+                  const revealed = revealedRoleIds.has(player.id);
+                  const revealing = revealingRoleId === player.id;
+                  const roleLabel = roleDisplay(player, spectatorMode, language, revealed);
+                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language, revealed);
                   return (
                     <button
                       aria-label={`${player.name}の公開プロフィールを表示`}
-                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""}`}
+                      data-player-id={player.id}
+                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${revealing ? "revealing-role" : ""}`}
                       key={player.id}
                       onClick={(event) => openCharacterProfile(player.id, event.currentTarget)}
                       title={`${player.name}の公開プロフィールを表示`}
@@ -3328,7 +3459,7 @@ export function App() {
                           <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                           <span className={`persona-pill ${personaClassName(player.persona)}`}>{personaLabel(player.persona, language)}</span>
                         </div>
-                        <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, humanPlayerId)}`} title={roleLabel}>
+                        <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, revealed)} ${revealing ? "role-reveal" : ""}`} title={roleLabel}>
                           {compactRoleLabel}
                         </span>
                       </div>
@@ -3350,7 +3481,10 @@ export function App() {
                 <div className="graveyard">
                   {deadPlayers.map((player) => {
                     const humanPlayer = isHumanPlayer(player.id);
-                    const deadRole = spectatorMode === "omniscient" ? player.role : "Hidden";
+                    // A wolf ally we already learned at the face-off stays known after death, so a
+                    // revealed id keeps its real role (the player-view snapshot preserves allies'
+                    // roles); everyone else stays hidden unless we are watching omniscient.
+                    const deadRole = spectatorMode === "omniscient" || revealedRoleIds.has(player.id) ? player.role : "Hidden";
                     const deadRoleLabel = displayRoleLabel(deadRole, language);
                     return (
                       <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
@@ -3561,6 +3695,7 @@ export function App() {
           </section>
         </section>
       </section>
+      {renderRevealSpotlight()}
       {renderUiTour()}
     </main>
   );
