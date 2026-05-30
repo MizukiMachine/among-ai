@@ -693,7 +693,11 @@ function renderStageBackdrop(
 
 function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, humanPlayerId?: string): string {
   const role = String(player.role);
-  const roleVisible = mode === "omniscient" || (mode === "player" && player.id === humanPlayerId && role !== "Hidden");
+  // In player mode the snapshot is already redacted server-side: only the viewer's own role
+  // and (for a werewolf viewer) their allies' roles arrive non-Hidden, so trust whatever is
+  // not "Hidden" rather than re-gating on the human's id — that lets revealed werewolf allies
+  // show their named role in the roster instead of staying unknown.
+  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden");
   if (!roleVisible || role === "Hidden") {
     return displayRoleLabel("Hidden", language);
   }
@@ -712,7 +716,9 @@ function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language
 
 function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, humanPlayerId: string): string {
   const role = String(player.role);
-  const roleVisible = mode === "omniscient" || (mode === "player" && player.id === humanPlayerId && role !== "Hidden");
+  // Mirror roleDisplay: trust the server-redacted snapshot in player mode so revealed
+  // werewolf allies get their role's chip styling instead of the hidden style.
+  const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden");
   return roleVisible ? roleClassName(role) : "role-hidden";
 }
 

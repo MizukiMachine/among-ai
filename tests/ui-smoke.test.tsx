@@ -588,7 +588,9 @@ test("player roster distinguishes persona and hidden role labels", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
-  assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && player\.id === humanPlayerId && role !== "Hidden"\);/);
+  // Player mode trusts the server-redacted snapshot: any non-Hidden role is shown (the
+  // viewer's own plus, for a werewolf, their revealed allies) rather than only the human's id.
+  assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden"\);/);
   assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, humanPlayerId\);/);
   assert.match(source, /function personaClassName\(persona: PlayerSnapshot\["persona"\] \| string \| undefined\): string/);
   assert.match(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);

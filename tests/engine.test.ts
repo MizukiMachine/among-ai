@@ -6,7 +6,7 @@ import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
 import { containsAwkwardJapaneseOutputTerm } from "../src/game/japaneseStyle";
-import { redactEventForPlayer, redactEventForVillage } from "../src/game/redaction";
+import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer } from "../src/game/redaction";
 import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
@@ -2932,6 +2932,20 @@ test("werewolf discussion speech is shared with every werewolf-camp viewer", () 
   const villagerView = redactEventForPlayer(event, "p3");
   assert.equal(villagerView.data.redacted, true);
   assert.equal(villagerView.playerName, undefined);
+
+  // A werewolf viewer's roster reveals their allies' real roles (the face-off named them),
+  // while a villager still sees everyone else hidden.
+  const wolfSnapshot = redactSnapshotForPlayer(snapshot, "p2");
+  assert.equal(wolfSnapshot.players.find((player) => player.id === "p1")?.role, "Werewolf");
+  assert.equal(wolfSnapshot.players.find((player) => player.id === "p1")?.camp, "werewolf");
+  assert.equal(wolfSnapshot.players.find((player) => player.id === "p2")?.role, "Werewolf");
+  assert.equal(wolfSnapshot.players.find((player) => player.id === "p3")?.role, "Hidden");
+  assert.equal(wolfSnapshot.players.find((player) => player.id === "p3")?.camp, "hidden");
+
+  const villagerSnapshot = redactSnapshotForPlayer(snapshot, "p3");
+  assert.equal(villagerSnapshot.players.find((player) => player.id === "p3")?.role, "Villager");
+  assert.equal(villagerSnapshot.players.find((player) => player.id === "p1")?.role, "Hidden");
+  assert.equal(villagerSnapshot.players.find((player) => player.id === "p2")?.role, "Hidden");
 });
 
 test("player and village views expose vote targets without vote reasons", () => {
