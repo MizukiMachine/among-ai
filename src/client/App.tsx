@@ -778,11 +778,61 @@ function renderTextWithCharacterNames(text: string, keyPrefix = "character-name"
   return text;
 }
 
-export function formatMessage(text: string) {
-  const displayText = displayMessageText(text);
+// Renders already-display-normalized text into sentence-per-line nodes with character-name
+// decoration. Split out so the typewriter can re-run it on a growing prefix of the same text,
+// keeping the「。」line breaks and name highlighting intact at every reveal step.
+function renderDisplayText(displayText: string) {
   const parts = displayText.split(/(?<=。)/g);
   if (parts.length <= 1) return renderTextWithCharacterNames(displayText, "message");
   return parts.filter((p) => p).map((part, i) => <span key={i}>{renderTextWithCharacterNames(part, `message-${i}`)}<br /></span>);
+}
+
+export function formatMessage(text: string) {
+  return renderDisplayText(displayMessageText(text));
+}
+
+// Characters revealed per second — fast enough to feel like a smooth "スーッ" sweep rather than a
+// slow per-character tick, but still sequential.
+const TYPEWRITER_CHARS_PER_SEC = 55;
+
+// Reveals `text` one character at a time on mount, re-formatting the visible prefix each frame so
+// the「。」line breaks and name highlighting stay intact. Mount it with a per-event `key` so it
+// restarts whenever the displayed event changes. SSR / reduced-motion render the full text at once.
+function TypewriterMessage({ text }: { text: string }) {
+  const [count, setCount] = useState(text.length);
+
+  useLayoutEffect(() => {
+    if (!text) {
+      setCount(0);
+      return;
+    }
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      setCount(text.length);
+      return;
+    }
+
+    setCount(0);
+    let frame = 0;
+    let startTs = 0;
+    const tick = (ts: number) => {
+      if (startTs === 0) {
+        startTs = ts;
+      }
+      const revealed = Math.min(text.length, Math.floor(((ts - startTs) / 1000) * TYPEWRITER_CHARS_PER_SEC));
+      setCount(revealed);
+      if (revealed < text.length) {
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [text]);
+
+  return <p>{renderDisplayText(text.slice(0, count))}</p>;
 }
 
 function shortText(text: string, maxLength: number): string {
@@ -2581,7 +2631,9 @@ export function App() {
     if (event.type === "round_summary") {
       return renderRoundSummary(event, hidden);
     }
-    return <p>{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p>;
+    // `key` per event id so the reveal restarts from the first character whenever the displayed
+    // event changes (next/back navigation, new stream event).
+    return <TypewriterMessage key={event.id} text={eventMessageForSpectator(event, spectatorMode)} />;
   }
 
   const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
