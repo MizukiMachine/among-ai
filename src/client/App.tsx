@@ -25,7 +25,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
 import {
   audioManifestPath,
@@ -1103,6 +1103,10 @@ export function App() {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
+  // Guided UI tour: null = inactive, otherwise the active step index. The measured
+  // rect of the spotlit element is tracked separately so it follows resize/scroll.
+  const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
+  const [tourRect, setTourRect] = useState<DOMRect | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
@@ -1125,6 +1129,12 @@ export function App() {
   const characterProfileDialogRef = useRef<HTMLElement | null>(null);
   const characterProfileCloseRef = useRef<HTMLButtonElement | null>(null);
   const audioControllerRef = useRef<GameAudioController | null>(null);
+  // UI guided-tour anchors (spotlight targets) + launch bookkeeping.
+  const rosterListRef = useRef<HTMLDivElement | null>(null);
+  const playerActionsRef = useRef<HTMLDivElement | null>(null);
+  const storyControlsRef = useRef<HTMLDivElement | null>(null);
+  const tourCalloutRef = useRef<HTMLDivElement | null>(null);
+  const tourLaunchedRef = useRef(false);
 
   const alivePlayers = useMemo(
     () => snapshot?.players.filter((player) => player.alive) ?? [],
@@ -1176,6 +1186,157 @@ export function App() {
     setActiveOverlay(null);
     setSelectedCharacterId(playerId);
   }
+
+  // --- Guided UI tour ------------------------------------------------------
+  // A short spotlight walkthrough of the main controls, shown once at the start
+  // of each match (after the opening board appears, before the discussion is
+  // revealed). It doubles as natural time-buffering while the first speeches
+  // generate in the background. Each step dims the screen and highlights one
+  // existing control; the features themselves stay usable any time afterwards.
+  const tourSteps = useMemo(
+    () => [
+      {
+        key: "roles",
+        getEl: () => roleDistributionRef.current,
+        title: "役職内訳",
+        body: "画面上部のここで、今回の対局の役職構成を確認できます。各役職をクリックすると、勝利条件や能力などの詳しい説明が開きます。対局中でも何度でも開けます。"
+      },
+      {
+        key: "roster",
+        getEl: () => rosterListRef.current,
+        title: "プレイヤー一覧",
+        body: "対局に参加しているメンバーの一覧です。気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます。"
+      },
+      {
+        key: "logs",
+        getEl: () => playerActionsRef.current,
+        title: "会話ログ・投票結果",
+        body: "これまでの会話の履歴は「会話ログ」、各日の投票結果は「投票結果」のボタンから、いつでも振り返れます。"
+      },
+      {
+        key: "controls",
+        getEl: () => storyControlsRef.current,
+        title: "視点・BGM・進行",
+        body: "「全情報／人間視点」で見え方を切り替え、BGMはオン／オフを切替できます。「次へ」ボタンまたは → キーで物語を進めます。"
+      }
+    ],
+    []
+  );
+  const tourActive = tourStepIndex !== null;
+  const activeTourStep = tourStepIndex !== null ? tourSteps[tourStepIndex] ?? null : null;
+
+  function finishTour() {
+    setTourStepIndex(null);
+    setTourRect(null);
+  }
+
+  function advanceTour() {
+    setTourStepIndex((current) => {
+      if (current === null) {
+        return null;
+      }
+      const next = current + 1;
+      if (next >= tourSteps.length) {
+        return null;
+      }
+      return next;
+    });
+  }
+
+  // Launch the tour once per match, as soon as the opening board is on screen
+  // (setup placeholder gone, first event revealed) and the player is not mid-input.
+  useEffect(() => {
+    if (tourLaunchedRef.current || tourStepIndex !== null) {
+      return;
+    }
+    // The first revealed event (game_started) puts the opening board on screen; that
+    // is the one-shot trigger. No human input can be pending this early, so the launch
+    // does not need to consider it.
+    if (events.length === 0) {
+      return;
+    }
+    tourLaunchedRef.current = true;
+    // Start from the top so the spotlight overlays the canonical board layout.
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0 });
+    }
+    setTourStepIndex(0);
+  }, [events.length, tourStepIndex]);
+
+  // Measure (and keep measuring) the spotlit element so the highlight tracks
+  // layout changes, resize, and scroll while a step is active.
+  useLayoutEffect(() => {
+    if (tourStepIndex === null) {
+      return;
+    }
+    const step = tourSteps[tourStepIndex];
+    if (!step) {
+      setTourRect(null);
+      return;
+    }
+    const measure = () => {
+      const el = step.getEl();
+      setTourRect(el ? el.getBoundingClientRect() : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [tourStepIndex, tourSteps]);
+
+  // Move focus into the callout when a step opens (without scrolling the page,
+  // which would offset the spotlight), so keyboard users land inside the tour.
+  useEffect(() => {
+    if (tourStepIndex === null) {
+      return;
+    }
+    tourCalloutRef.current?.focus({ preventScroll: true });
+  }, [tourStepIndex]);
+
+  // Tour keyboard control: Enter/→ advances, ← goes back, Esc skips, Tab is
+  // trapped within the callout so focus cannot escape to the dimmed UI behind it.
+  useEffect(() => {
+    if (tourStepIndex === null) {
+      return;
+    }
+    function handleTourKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finishTour();
+      } else if (event.key === "Enter" || event.key === "ArrowRight") {
+        event.preventDefault();
+        advanceTour();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setTourStepIndex((current) => (current === null || current <= 0 ? current : current - 1));
+      } else if (event.key === "Tab") {
+        const root = tourCalloutRef.current;
+        if (!root) {
+          return;
+        }
+        const focusables = Array.from(root.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+        if (focusables.length === 0) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || active === root)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    window.addEventListener("keydown", handleTourKey, true);
+    return () => window.removeEventListener("keydown", handleTourKey, true);
+  }, [tourStepIndex]);
 
   function closeCharacterProfile(options: { restoreFocus?: boolean } = {}) {
     const restoreFocus = options.restoreFocus ?? true;
@@ -1451,6 +1612,8 @@ export function App() {
     hideProcessingHudNow();
     setGameId(null);
     setSourceDone(false);
+    tourLaunchedRef.current = false;
+    setTourStepIndex(null);
     setRunning(true);
     showProcessingHudNow();
     statusBeforePauseRef.current = "生成中";
@@ -2880,6 +3043,95 @@ export function App() {
     );
   }
 
+  function renderUiTour() {
+    if (!tourActive || !activeTourStep) {
+      return null;
+    }
+    const stepNumber = (tourStepIndex ?? 0) + 1;
+    const isLast = (tourStepIndex ?? 0) >= tourSteps.length - 1;
+    const pad = 10;
+    const rect = tourRect;
+    const spotlightStyle: CSSProperties | undefined = rect
+      ? {
+          left: `${rect.left - pad}px`,
+          top: `${rect.top - pad}px`,
+          width: `${rect.width + pad * 2}px`,
+          height: `${rect.height + pad * 2}px`
+        }
+      : undefined;
+
+    // Place the callout beside the spotlight, picking the first side with room
+    // (below → right → left → above) so tall/wide targets never push it off
+    // screen; the chosen position is always clamped inside the viewport.
+    const calloutWidth = 340;
+    const calloutHeight = 200; // estimate used only for placement decisions
+    const calloutMargin = 16;
+    const gap = pad + 12;
+    const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
+    const clampX = (x: number) => Math.min(Math.max(calloutMargin, x), viewportWidth - calloutWidth - calloutMargin);
+    const clampY = (y: number) => Math.min(Math.max(calloutMargin, y), viewportHeight - calloutHeight - calloutMargin);
+    let calloutStyle: CSSProperties;
+    if (rect) {
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      let top: number;
+      let left: number;
+      if (viewportHeight - rect.bottom >= calloutHeight + calloutMargin) {
+        top = rect.bottom + gap;
+        left = clampX(centerX - calloutWidth / 2);
+      } else if (viewportWidth - rect.right >= calloutWidth + calloutMargin) {
+        left = rect.right + gap;
+        top = clampY(centerY - calloutHeight / 2);
+      } else if (rect.left >= calloutWidth + calloutMargin) {
+        left = rect.left - gap - calloutWidth;
+        top = clampY(centerY - calloutHeight / 2);
+      } else if (rect.top >= calloutHeight + calloutMargin) {
+        top = rect.top - gap - calloutHeight;
+        left = clampX(centerX - calloutWidth / 2);
+      } else {
+        top = clampY(centerY - calloutHeight / 2);
+        left = clampX(centerX - calloutWidth / 2);
+      }
+      calloutStyle = { left: `${left}px`, top: `${top}px`, width: `${calloutWidth}px` };
+    } else {
+      calloutStyle = {
+        left: "50%",
+        top: "50%",
+        width: `${calloutWidth}px`,
+        transform: "translate(-50%, -50%)"
+      };
+    }
+
+    return (
+      <div className="ui-tour" role="dialog" aria-label={`使い方ガイド ${stepNumber}/${tourSteps.length}：${activeTourStep.title}`}>
+        <div className="ui-tour-backdrop" onClick={advanceTour} aria-hidden="true" />
+        {rect ? <div className="ui-tour-spotlight" style={spotlightStyle} aria-hidden="true" /> : null}
+        <div className="ui-tour-callout" style={calloutStyle} ref={tourCalloutRef} tabIndex={-1}>
+          <div className="ui-tour-callout-head">
+            <span className="ui-tour-step">ガイド {stepNumber} / {tourSteps.length}</span>
+            <button className="ui-tour-skip" onClick={finishTour} type="button">スキップ</button>
+          </div>
+          <h2>{activeTourStep.title}</h2>
+          <p>{activeTourStep.body}</p>
+          <div className="ui-tour-actions">
+            <button
+              className="ui-tour-back"
+              onClick={() => setTourStepIndex((current) => (current === null || current <= 0 ? current : current - 1))}
+              disabled={(tourStepIndex ?? 0) <= 0}
+              type="button"
+            >
+              戻る
+            </button>
+            <button className="ui-tour-next" onClick={advanceTour} type="button">
+              {isLast ? "はじめる" : "次へ"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="app-shell">
       {renderCharacterImageWarmup()}
@@ -2912,7 +3164,7 @@ export function App() {
           <div className="player-section-title">
             <div className="player-section-heading">
               <span>生存プレイヤー（{alivePlayers.length}人）</span>
-              <div className="player-section-actions">
+              <div className="player-section-actions" ref={playerActionsRef}>
                 <button
                   aria-pressed={activeOverlay === "history"}
                   className={`player-history-button ${activeOverlay === "history" ? "active" : ""}`}
@@ -2944,7 +3196,7 @@ export function App() {
             <ChevronDown size={16} />
           </div>
 
-          <div className="player-list-scroll">
+          <div className="player-list-scroll" ref={rosterListRef}>
             <div className="roster">
               {winnerRosterText ? (
                 <div className="winner-row" role="status">
@@ -3103,7 +3355,7 @@ export function App() {
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}
 
-                      <div className="story-controls">
+                      <div className="story-controls" ref={storyControlsRef}>
                         <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
                           <ChevronLeft size={20} />
                           <span className="story-button-label">
@@ -3220,6 +3472,7 @@ export function App() {
           </section>
         </section>
       </section>
+      {renderUiTour()}
     </main>
   );
 }
