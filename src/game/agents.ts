@@ -2132,6 +2132,36 @@ function defaultIntroLine(name: string, language: string): string {
   return isJapaneseLanguage(language) ? `${name}です、よろしく。` : `I'm ${name}, nice to meet you all.`;
 }
 
+// System prompt for the first-day werewolf face-off: allies-only, so the player owns their
+// werewolf-camp role here (unlike the public warm-up intro, which forbids role talk).
+function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role: Role | undefined): string {
+  const persona_ = personaLabel(persona, language);
+  const roleName = roleLabel(role, language);
+  if (isJapaneseLanguage(language)) {
+    return [
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の顔合わせの場で、仲間に向けて短く名乗ります。",
+      `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
+      `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり名乗ってください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
+      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。ただし襲撃先や具体的な作戦の相談はまだしない。挨拶と自分の役職の名乗りだけ。",
+      "重要: 『普段は〜』のような決まり文句や、毎回同じ書き出しは禁止。切り出し方は自分の言葉で自然に。",
+      "出力は表示するセリフそのものだけ。前置きや説明は不要。"
+    ].join("\n");
+  }
+  return [
+    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; you introduce yourself to your fellow wolves.",
+    `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
+    `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
+    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity, but do NOT discuss attack targets or concrete plans yet. Just a greeting and naming your role.",
+    "Important: no stock opener like \"I usually...\"; open in your own natural voice.",
+    "Output only the spoken line itself; no preamble or explanation."
+  ].join("\n");
+}
+
+function defaultWerewolfIntroLine(name: string, role: Role | undefined, language: string): string {
+  const roleName = roleLabel(role, language);
+  return isJapaneseLanguage(language) ? `${name}だ。俺が${roleName}、よろしく頼む。` : `I'm ${name} — I'm the ${roleName}, let's work together.`;
+}
+
 export class DemoAgent implements Agent {
   constructor(
     public readonly name: string,
@@ -2160,6 +2190,31 @@ export class DemoAgent implements Agent {
           `Hey, ${name} here. I tend to come off ${persona_}.`,
           `${name}, good to be here — the ${persona_} sort.`,
           `Hi all, ${name}. A bit ${persona_}, but let's get along.`
+        ];
+    const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
+    const line = variants[index];
+    return {
+      messages: [normalizeSpeechLine(line, line, this.language)],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const persona_ = personaLabel(input.player.persona, this.language);
+    const name = input.player.name;
+    const roleName = roleLabel(input.player.role, this.language);
+    const variants = isJapaneseLanguage(this.language)
+      ? [
+          `${name}だ。俺が${roleName}、よろしく頼む。`,
+          `どうも、${name}。${roleName}担当だ、${persona_}なりにやるよ。`,
+          `${name}です。${roleName}なので、仲間としてよろしく。`,
+          `こんばんは、${name}。こっちが${roleName}、${persona_}だけど頼りにしてくれ。`
+        ]
+      : [
+          `I'm ${name} — I'm the ${roleName}, count me in.`,
+          `Hey, ${name} here. I'm the ${roleName}; I'll play it ${persona_}.`,
+          `${name}, and I'm the ${roleName}. Good to have allies.`,
+          `Evening — ${name}, the ${roleName}. A bit ${persona_}, but lean on me.`
         ];
     const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
     const line = variants[index];
@@ -2464,6 +2519,23 @@ class LlmAgent implements Agent {
   async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
     const system = buildIntroSystemPrompt(this.language, input.player.persona);
     const fallback = defaultIntroLine(input.player.name, this.language);
+    const content = await this.complete(
+      system,
+      [{ role: "user", content: input.context }],
+      introMaxTokens,
+      input.abortSignal,
+      "speech.intro"
+    );
+    const messages = parseSpeechRealizationMessages(content, fallback, this.language);
+    return {
+      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    const system = buildWerewolfIntroSystemPrompt(this.language, input.player.persona, input.player.role);
+    const fallback = defaultWerewolfIntroLine(input.player.name, input.player.role, this.language);
     const content = await this.complete(
       system,
       [{ role: "user", content: input.context }],

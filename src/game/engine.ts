@@ -1650,6 +1650,27 @@ export class WerewolfGame {
   }
 
   private async *runDay(): AsyncGenerator<GameEvent> {
+    const directorMode = this.config.directorMode ?? "off";
+    const directorEnabled = directorMode !== "off";
+    const isOpeningLlmRound = this.round === 1 && this.config.provider === "llm";
+
+    // Day 1 cannot be prefetched (no preceding night). When the director is on, kick the plan
+    // off now so its latency overlaps the opening sequence below (the secret werewolf face-off
+    // and the public warm-up greetings the player reads) instead of an empty "planning" wait.
+    let day1PlanPromise: Promise<RoundScript> | null = null;
+    if (isOpeningLlmRound && directorEnabled) {
+      day1PlanPromise = this.buildDayRoundScript(directorMode);
+      // Avoid an unhandled rejection during the opening window (it only rejects on abort).
+      day1PlanPromise.catch(() => undefined);
+    }
+
+    // Before the public day breaks, the werewolf team meets privately so a human werewolf
+    // learns who their allies are. Always runs on the first day's opening, independent of
+    // director mode; a lone wolf (or an all-human wolf team) is a no-op.
+    if (isOpeningLlmRound) {
+      yield* this.runWerewolfFaceoffPass();
+    }
+
     this.phase = "day_discussion";
     this.lastDiscussion = [];
     yield this.emit(
@@ -1658,23 +1679,15 @@ export class WerewolfGame {
     );
 
     const speakers = this.daySpeakerOrder();
-    const directorMode = this.config.directorMode ?? "off";
-    const directorEnabled = directorMode !== "off";
     // When the director plans this round it supplies each player's stance, so the
     // legacy first-day opening-move spark and the "must state a stance" forcing are
     // turned off (they are what produced the unnatural day-one filler).
     let roundScript: RoundScript | null = null;
     if (directorEnabled) {
-      if (this.round === 1 && this.config.provider === "llm") {
-        // Day 1 cannot be prefetched (no preceding night). Kick the plan off now and
-        // overlap its latency with a quick AI warm-up greeting round the player reads
-        // while the plan generates, instead of an empty "planning" wait.
-        const planPromise = this.buildDayRoundScript(directorMode);
-        // Handled by the await below; this just avoids an unhandled rejection during the
-        // warm-up window if the plan aborts (buildDayRoundScript only rejects on abort).
-        planPromise.catch(() => undefined);
+      if (isOpeningLlmRound) {
+        // Warm-up greetings stream while the day-1 plan (kicked off above) finishes.
         yield* this.runFirstDayWarmupPass();
-        roundScript = await planPromise;
+        roundScript = day1PlanPromise ? await day1PlanPromise : await this.buildDayRoundScript(directorMode);
       } else {
         // Surface the director planning step so the HUD does not sit silent during the call.
         this.progressReporter("day_speech", this.text("Planning today's discussion", "今日の議論の方針を考えています"))({
@@ -1903,6 +1916,42 @@ export class WerewolfGame {
           "Be breezy and easygoing.",
           "Add one thing you care about."
         ];
+  }
+
+  // First-day opening: before the public day breaks, the werewolf team holds a brief private
+  // face-to-face so a human werewolf learns who their allies are (and which special wolf each
+  // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
+  // AI wolves speak (the human reads to learn the team); like the warm-up these are fast,
+  // single-call intros that stream as they finish, so the round-1 plan latency stays hidden.
+  private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
+    const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
+    // A lone wolf has no allies to meet, and the player already knows their own role.
+    if (werewolves.length <= 1) {
+      return;
+    }
+    const aiWerewolves = werewolves.filter((player) => !this.isHumanControlledPlayer(player));
+    if (aiWerewolves.length === 0) {
+      return;
+    }
+
+    this.phase = "werewolf_discussion";
+    yield this.emit(
+      "phase_changed",
+      this.text("Before dawn, the werewolves meet face to face.", "夜明け前、人狼たちが顔を合わせます。"),
+      { visibility: "werewolf" }
+    );
+
+    for await (const { wolf, speech } of orderedConcurrentMap(
+      aiWerewolves,
+      this.prefetchConcurrency,
+      async (wolf) => ({ wolf, speech: await this.safeWerewolfFaceoff(wolf, werewolves) }),
+      this.progressReporter("werewolf_discussion", this.text("Werewolf introductions", "人狼の顔合わせ"))
+    )) {
+      this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
+      }
+    }
   }
 
   private async *runFirstDayWarmupPass(): AsyncGenerator<GameEvent> {
@@ -2555,6 +2604,73 @@ export class WerewolfGame {
         console.warn(`[intro] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
       }
       return this.sanitizeSpeechForPhase(await fallbackAgent.improviseIntro!(input), legalPlayers);
+    } finally {
+      requestAbort.cleanup();
+    }
+  }
+
+  // Generates one wolf's first-day face-off intro: allies-only, so the wolf greets the team
+  // and owns their werewolf-camp role (no attack targets/plans yet). Like safeImproviseIntro
+  // this is a fast single call (no reasoning stage). Agents without improviseWerewolfIntro
+  // fall back to a plain role-owning line via the fallback agent.
+  private async safeWerewolfFaceoff(
+    player: Player,
+    werewolves: Player[],
+    abortSignal?: AbortSignal,
+    speculative = false
+  ): Promise<AgentSpeech> {
+    this.throwIfCancelled();
+    const agent = this.agents.get(player.id) ?? fallbackAgent;
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
+    const teamRoster = werewolves
+      .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
+      .join("、");
+    const contextLines = [
+      this.text(
+        "This is a private, allies-only werewolf meeting before the first day opens.",
+        "ここは初日が始まる前、人狼陣営だけの内緒の顔合わせです。"
+      ),
+      this.text(
+        `Your werewolf allies: ${werewolves.map((wolf) => `${wolf.name} (${wolf.role})`).join(", ")}.`,
+        `あなたの人狼陣営の仲間: ${teamRoster}。`
+      ),
+      this.text(
+        "Greet your allies and clearly own your own role. Do not discuss attack targets or plans yet.",
+        "仲間に挨拶し、自分の役職をはっきり名乗ってください。襲撃先や作戦の相談はまだしません。"
+      )
+    ];
+    const input: AgentSpeechInput = {
+      player,
+      phase: this.phase,
+      task: this.text("Introduce yourself to your werewolf allies.", "人狼陣営の仲間に自己紹介してください。"),
+      context: this.contextFor(player, contextLines),
+      uiContext: contextLines,
+      knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
+      legalPlayers,
+      publicHistory: this.publicHistory,
+      privateHistory: player.memories,
+      abortSignal: requestAbort.signal
+    };
+    try {
+      const generate = agent.improviseWerewolfIntro
+        ? agent.improviseWerewolfIntro.bind(agent)
+        : agent.improviseIntro
+          ? agent.improviseIntro.bind(agent)
+          : agent.speak.bind(agent);
+      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers);
+      if (requestAbort.signal?.aborted) {
+        throw new Error("Werewolf face-off request cancelled.");
+      }
+      return speech;
+    } catch (error) {
+      if (this.abortSignal?.aborted || requestAbort.signal?.aborted) {
+        throw error;
+      }
+      if (!speculative) {
+        console.warn(`[faceoff] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
+      }
+      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseWerewolfIntro!(input), legalPlayers);
     } finally {
       requestAbort.cleanup();
     }

@@ -109,12 +109,21 @@ class PreferTargetAgent extends ScriptedAgent {
 class IntroAgent implements Agent {
   readonly model = "scripted";
   readonly introCalls: string[] = [];
+  readonly werewolfIntroCalls: string[] = [];
   readonly speakCalls: string[] = [];
   constructor(readonly name: string) {}
 
   async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
     this.introCalls.push(input.player.id);
     return { messages: [`INTRO ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+
+  async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.werewolfIntroCalls.push(input.player.id);
+    return {
+      messages: [`WOLF-INTRO ${input.player.name} ${input.player.role}`],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
   }
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
@@ -1430,7 +1439,124 @@ type DirectorTestableGame = TestableGame & {
   prefetchedRoundScript: { round: number; mode: "describe" | "intermediate"; promise: Promise<RoundScript> } | null;
   maybePrefetchNextRoundScript(): void;
   runFirstDayWarmupPass(): AsyncGenerator<GameEvent>;
+  runWerewolfFaceoffPass(): AsyncGenerator<GameEvent>;
 };
+
+test("first-day werewolf face-off: every AI wolf greets the team and owns their role, secret to the camp", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "WolfBeauty" },
+    { role: "Seer" },
+    { role: "Werewolf" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const speeches = events.filter((event) => event.type === "player_speech");
+  const wolves = players.filter((player) => player.camp === "werewolf");
+
+  // Only the werewolf-camp members speak, each via the dedicated werewolf-intro path.
+  assert.deepEqual(
+    new Set(speeches.map((event) => event.playerId)),
+    new Set(wolves.map((player) => player.id)),
+    "every werewolf-camp member introduces themselves, and no villager does"
+  );
+  assert.ok(
+    speeches.every((event) => typeof event.message === "string" && event.message.startsWith("WOLF-INTRO ")),
+    "the dedicated werewolf-intro path is used (not the public warm-up or speak())"
+  );
+  // The role is owned in the line — AlphaWolf/WolfBeauty/Werewolf each name themselves.
+  assert.ok(speeches.some((event) => event.message.includes("AlphaWolf")));
+  assert.ok(speeches.some((event) => event.message.includes("WolfBeauty")));
+  assert.ok(speeches.some((event) => event.message.includes("Werewolf")));
+
+  // The whole meeting is werewolf-visibility and announced with a secret phase change.
+  assert.ok(speeches.every((event) => event.data?.visibility === "werewolf"), "intros are werewolf-visibility");
+  const phaseChange = events.find((event) => event.type === "phase_changed");
+  assert.ok(phaseChange && phaseChange.data?.visibility === "werewolf", "the opening banner is secret to the camp");
+
+  // Redaction: a villager sees nothing; a werewolf-camp viewer sees the real lines.
+  const villager = players.find((player) => player.camp === "village")!;
+  for (const event of speeches) {
+    const villagerView = redactEventForPlayer(event, villager.id);
+    assert.equal(villagerView.message, redactEventForVillage(event).message);
+    assert.doesNotMatch(villagerView.message, /WOLF-INTRO/, "villagers must not see the werewolf face-off");
+    const wolfView = redactEventForPlayer(event, wolves[0].id);
+    assert.match(wolfView.message, /WOLF-INTRO/, "any werewolf-camp viewer sees the face-off");
+  }
+});
+
+test("first-day werewolf face-off excludes a human werewolf (they read their allies)", async () => {
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p1", prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  // Mark p1 (the human werewolf) as human-controlled.
+  players[0].model = "human";
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const speakerIds = new Set(events.filter((event) => event.type === "player_speech").map((event) => event.playerId));
+
+  assert.ok(!speakerIds.has(players[0].id), "the human werewolf does not give a face-off intro");
+  assert.ok(speakerIds.has(players[1].id), "the AI ally still introduces itself so the human learns the team");
+  assert.equal(speakerIds.size, 1, "only the AI werewolf speaks");
+});
+
+test("first-day werewolf face-off is a no-op for a lone wolf", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  assert.equal(events.length, 0, "a single werewolf has no allies to meet");
+});
+
+test("first-day opening runs the werewolf face-off before dawn breaks", async () => {
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as DirectorTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runDay());
+  const faceoffIndex = events.findIndex((event) => event.type === "player_speech" && String(event.message).startsWith("WOLF-INTRO"));
+  const dayBeginsIndex = events.findIndex((event) => event.type === "phase_changed" && /begins|始まりました/.test(String(event.message)));
+
+  assert.ok(faceoffIndex >= 0, "the werewolf face-off runs on the first day's opening");
+  assert.ok(dayBeginsIndex >= 0, "the public day still opens");
+  assert.ok(faceoffIndex < dayBeginsIndex, "the secret werewolf meeting precedes the public day");
+});
 
 test("day-1 warm-up emits a fast self-intro for every living AI player with the warmup flag", async () => {
   const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", prefetchConcurrency: 5 }) as DirectorTestableGame;
