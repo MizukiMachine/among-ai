@@ -86,12 +86,16 @@ export function redactSnapshotForVillage(snapshot: GameSnapshot): VillageGameSna
 }
 
 export function redactSnapshotForPlayer(snapshot: GameSnapshot, playerId: string): PlayerViewGameSnapshot {
+  // A werewolf-camp viewer knows their fellow werewolves' identities — they are revealed at
+  // the first-day face-off and share the night chat — so the roster shows allied werewolves'
+  // real role and camp instead of hiding them. Village-camp viewers see only themselves.
+  const viewerIsWerewolf = snapshot.players.find((player) => player.id === playerId)?.camp === "werewolf";
   return {
     ...snapshot,
     werewolfCount: null,
     villageCount: null,
     players: snapshot.players.map((player) => {
-      if (player.id === playerId) {
+      if (player.id === playerId || (viewerIsWerewolf && player.camp === "werewolf")) {
         return player;
       }
       return {
