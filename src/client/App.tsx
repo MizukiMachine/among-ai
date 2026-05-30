@@ -793,7 +793,7 @@ export function formatMessage(text: string) {
 
 // Characters revealed per second — fast enough to feel like a smooth "スーッ" sweep rather than a
 // slow per-character tick, but still sequential.
-const TYPEWRITER_CHARS_PER_SEC = 55;
+const TYPEWRITER_CHARS_PER_SEC = 25;
 
 // Reveals `text` one character at a time on mount, re-formatting the visible prefix each frame so
 // the「。」line breaks and name highlighting stay intact. Mount it with a per-event `key` so it
