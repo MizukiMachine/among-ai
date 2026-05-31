@@ -13,6 +13,7 @@ import {
   eventSpeakerForSpectator,
   formatMessage,
   hasSeenHumanInputRevealAnchor,
+  isCurrentHumanInputRevealAnchor,
   mentionedCharactersForEvent,
   mentionedCharactersForText,
   stageLightMoodForEvent,
@@ -300,7 +301,10 @@ test("stage backdrop exposes animated mood lighting layers", () => {
 
   assert.match(source, /const currentStageLightTone = useMemo/);
   assert.match(source, /stageLightToneForEvent\(event, isEventRedactedForSpectator\(event, spectatorMode\), index \+ 1, previousTone\)/);
-  assert.match(source, /const lightTone = currentStageLightTone \?\? stageLightToneForEvent\(currentEvent, hidden, events\.length\)/);
+  assert.match(
+    source,
+    /const lightTone = currentEvent \? currentStageLightTone \?\? stageLightToneForEvent\(currentEvent, hidden, events\.length\) : currentStageLightTone \?\? "cyan";/
+  );
   assert.match(backdrop, /data-light-tone=\{lightTone\}/);
   assert.match(backdrop, /className="stage-light-wash"/);
   assert.match(backdrop, /className="stage-light-scan"/);
@@ -320,7 +324,8 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(source, /className="mentioned-character-strip"/);
   assert.match(source, /mentioned-character-more/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
-  assert.match(source, /renderEventDetails\(currentEvent, hidden\)\}\s*\n\s*\{renderMentionedCharacterStrip\(mentionedCharacters, currentEvent\.id\)\}/);
+  assert.match(source, /!speechInputPrompt && currentEvent \? renderEventDetails\(currentEvent, hidden\) : null/);
+  assert.match(source, /!speechInputPrompt && currentEvent \? renderMentionedCharacterStrip\(mentionedCharacters, currentEvent\.id\) : null/);
   assert.doesNotMatch(source, /function renderHeroCast/);
   assert.doesNotMatch(source, /className=\{`hero-cast/);
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*relative[^}]*width:\s*min\(100%,\s*860px\)[^}]*transform:\s*none/s);
@@ -371,13 +376,15 @@ test("setup character thumbnails preload and portrait images warm in the backgro
 test("full portrait images stay limited to active speaker and mention cues", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 3);
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 4);
   assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
-  assert.match(source, /className="hero-character" src=\{activeSpeakerImage\}/);
+  assert.match(source, /getCharacterPortrait\(speechInputPrompt\.playerId\)/);
+  assert.match(source, /className=\{`hero-character \$\{speechInputPrompt \? "human-input-character" : ""\}`\}/);
+  assert.match(source, /src=\{heroCharacterImage\}/);
   assert.match(source, /className="setup-cast-grid selectable"[\s\S]*<CharacterImage[\s\S]*src=\{getCharacterImage\(player\.id\)\}[\s\S]*decoding="sync"[\s\S]*fetchPriority="high"/);
-  assert.doesNotMatch(source, /setup-cast-grid[\s\S]*getCharacterPortrait/);
-  assert.doesNotMatch(source, /player-avatar[\s\S]{0,240}getCharacterPortrait/);
+  assert.doesNotMatch(source, /setup-cast-grid[\s\S]{0,800}getCharacterPortrait/);
+  assert.doesNotMatch(source, /className="player-avatar(?: small)?"[\s\S]{0,120}src=\{getCharacterPortrait/);
 });
 
 test("read clusters count each source-target pair once", () => {
@@ -721,7 +728,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const blockingHumanInput = isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const readyHumanInput = blockingHumanInput && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
-  assert.match(source, /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput && hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) \? nonBlockingHumanInput : null;/);
+  assert.match(
+    source,
+    /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput &&\s*hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) &&\s*isCurrentHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, currentEvent\)\s*\?\s*nonBlockingHumanInput\s*:\s*null;/s
+  );
   assert.match(source, /const visibleHumanInput = readyHumanInput \?\? deferredNonBlockingHumanInput;/);
   assert.match(source, /setPendingHumanInputRevealAfterEventId\(queuedRef\.current\.at\(-1\)\?\.id \?\? null\);/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
@@ -739,14 +749,57 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
   assert.match(source, /speechMode === "werewolf_greeting"/);
+  assert.match(source, /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)/);
+  assert.match(source, /line\.replace\(\s*\/。\+\$\/u,\s*""\s*\)/);
+  assert.match(source, /renderHumanContextLines\("今回の判断材料", notes, \{ trimTrailingJapanesePeriod: true \}\)/);
+  assert.match(source, /<summary>状況<\/summary>/);
+  assert.match(source, /const speechInputPrompt = visibleHumanInput\?\.kind === "speech_choice" \? visibleHumanInput : null;/);
+  assert.match(source, /const actionHumanInput = visibleHumanInput && visibleHumanInput\.kind !== "speech_choice" \? visibleHumanInput : null;/);
+  assert.match(source, /speechInputPrompt \? "human-input-hero" : ""/);
+  assert.match(source, /speechInputPrompt \? "human-input-character" : ""/);
+  assert.match(source, /<CharacterName playerId=\{speechInputPrompt\.playerId\}>\{speakerName\}<\/CharacterName>/);
+  assert.match(source, /renderHumanSpeechInputScene\(speechInputPrompt\)/);
+  assert.match(source, /renderHumanInputPanel\(actionHumanInput\)/);
+  assert.match(source, /function isOptionalWerewolfGreetingInput/);
+  assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
+  assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
+  assert.match(source, /\}, \[events\.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
+  assert.doesNotMatch(source, /resetImmediately/);
+  assert.match(source, /skipOptionalHumanInputOnStoryAdvance\(\);/);
+  assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
+  assert.match(source, /request\.kind !== "speech_choice" \|\| !request\.nonBlocking \|\| request\.speechMode !== "werewolf_greeting"/);
+  assert.match(source, /type:\s*"player_speech"/);
+  assert.match(source, /localHumanEcho:\s*true/);
+  assert.match(source, /function showLocalHumanSpeechEvent\(event: GameEvent\)/);
+  assert.match(source, /setEvents\(\(visible\) => \[\.\.\.visible, event\]\);/);
+  assert.match(source, /setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);/);
+  assert.match(source, /const localHumanSpeechEvent = createLocalHumanSpeechEvent\(request, payload\);/);
+  assert.match(source, /if \(localHumanSpeechEvent\) \{\s*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
+  assert.match(source, /function renderHumanInputQuickControls\(\)/);
+  assert.match(source, /className="human-input-quick-controls"/);
+  assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
   assert.match(source, /任意の挨拶です。入力しなくても進行します/);
   assert.match(source, /const speechPlaceholder = isWerewolfGreeting \? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";/);
+  assert.match(source, /const canSubmitHumanSpeech = isWerewolfGreeting \|\| humanSpeech\.trim\(\)\.length > 0;/);
+  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "挨拶する" : "挨拶せず進む"/);
+  assert.match(source, /rows=\{7\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
+  assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-choice-text\s*\{[^}]*font-size:\s*18px;/s);
-  assert.match(css, /\.human-speech-form textarea\s*\{[^}]*font-size:\s*18px;/s);
-  assert.match(css, /\.human-choice-form\.werewolf-greeting \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
+  assert.match(css, /\.story-hero\.human-input-hero \.story-copy\s*\{[^}]*width:\s*min\(70%,\s*860px\)/s);
+  assert.match(css, /\.human-input-copy\s*\{[^}]*overflow-y:\s*auto;/s);
+  assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(210px,\s*34vh,\s*260px\);[^}]*font-size:\s*25px;/s);
+  assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*background:\s*#2d3338;/s);
+  assert.doesNotMatch(css, /\.human-speech-composer textarea\s*\{[^}]*var\(--ship-trim-texture\)/s);
+  assert.match(css, /\.human-context summary\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.human-context summary::after\s*\{[^}]*content:\s*"開く";/s);
+  assert.match(css, /\.human-context\[open\] summary::after\s*\{[^}]*content:\s*"閉じる";/s);
+  assert.match(css, /\.human-context-body\s*\{[^}]*font-size:\s*18px;[^}]*line-height:\s*1\.64;/s);
+  assert.match(css, /\.human-input-quick-controls\s*\{[^}]*position:\s*absolute;/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(184px,\s*30vh,\s*220px\);/s);
+  assert.match(css, /\.human-speech-composer\.werewolf-greeting \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
   assert.doesNotMatch(source, /あなたの判断が近づいています/);
   assert.doesNotMatch(source, /humanReason/);
   assert.doesNotMatch(source, /setHumanReason/);
@@ -755,7 +808,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
-  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
+  assert.match(source, /\}, \[events\.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 
@@ -763,6 +816,10 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(hasSeenHumanInputRevealAnchor(null, []), true);
   assert.equal(hasSeenHumanInputRevealAnchor(2, [{ id: 1 }]), false);
   assert.equal(hasSeenHumanInputRevealAnchor(2, [{ id: 1 }, { id: 2 }]), true);
+  assert.equal(isCurrentHumanInputRevealAnchor(null, undefined), true);
+  assert.equal(isCurrentHumanInputRevealAnchor(2, undefined), false);
+  assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 2 }), true);
+  assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 3 }), false);
 });
 
 test("village spectator history redacts secret event messages and speakers", () => {

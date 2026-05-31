@@ -78,6 +78,9 @@ function normalizeResponseForRequest(request: HumanInputRequest, response: Human
 
     const choiceId = normalizeString(response.choiceId);
     if (!choiceId) {
+      if (request.nonBlocking && request.speechMode === "werewolf_greeting" && request.options.length === 0) {
+        return {};
+      }
       return null;
     }
     return request.options.some((option) => option.id === choiceId) ? { choiceId } : null;
