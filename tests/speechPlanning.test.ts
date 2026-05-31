@@ -282,7 +282,7 @@ test("first-day opening moves can satisfy special opening review rules", () => {
   });
   const reaction = reviewSpeechTimeline(
     {
-      messages: ["ミナトさんの反応が少し硬く見えるので、初日は暫定材料として返答を見たいです。"],
+      messages: ["ミナトさんには軽く圧をかけます。初日は理由を出せない人を疑い寄りで見ます。"],
       metadata
     },
     [],
@@ -293,7 +293,11 @@ test("first-day opening moves can satisfy special opening review rules", () => {
   );
   assert.equal(reaction.ok, true);
 
-  for (const message of ["ミナトさんの先ほどの動きが怪しく見えます。", "ミナトさんの今の反応が不自然です。"]) {
+  for (const message of [
+    "ミナトさんの反応が少し硬く見えるので、初日は暫定材料として返答を見たいです。",
+    "ミナトさんの先ほどの動きが怪しく見えます。",
+    "ミナトさんの今の反応が不自然です。"
+  ]) {
     const observedPastAction = reviewSpeechTimeline(
       {
         messages: [message],
@@ -370,7 +374,7 @@ test("speech plan review rejects death-cause recap that does not advance discuss
   assert.equal(forwardMove.ok, true);
 });
 
-test("round-one opening turn does not force a stance and opens with observation", () => {
+test("round-one opening turn does not force hard evidence but must actively move the table", () => {
   const legalPlayers: TargetCandidate[] = [
     { id: "p2", name: "シオン" },
     { id: "p3", name: "キリエ" }
@@ -385,17 +389,15 @@ test("round-one opening turn does not force a stance and opens with observation"
     language: "Japanese"
   });
 
-  // The opening turn has no public material yet, so the after-the-fact stance
-  // forcing is off and the intent invites a substantive non-conclusory opening
-  // (self-intro, role reveal policy, organizing) instead of an unfounded suspicion.
+  // The opening turn has no public material yet, so hard evidence is not forced,
+  // but the intent should still push an agenda instead of waiting for others.
   assert.equal(plan.requiresForwardMove, false);
   assert.ok(plan.intents.some((item) => item.kind === "open_first_day"));
 
-  // A substantive non-stance opening (self-introduction) is accepted without
-  // being forced into a suspicion or vote.
+  // A self-introduction is accepted only when it adds an action for the table.
   const selfIntro = reviewSpeechAgainstPlan(
     {
-      messages: ["はじめまして、今日はみんなの話を聞きながら落ち着いて進めたいです"],
+      messages: ["はじめまして、今日は全員の投票基準を先に出したいです"],
       metadata
     },
     plan,
@@ -442,20 +444,25 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     "今の状況はまだ保留",
     "今日はみんなの出方をまず見たいです",
     "特に今は何もないです",
-    "まだ何とも言えないですね"
+    "まだ何とも言えないですね",
+    "とりあえず状況を整理したいから、もう少し話を聞く",
+    "まだ状況が見えないから、今は保留させて",
+    "今の状況から動く理由がない、もう少し様子を見る",
+    "様子見はしない",
+    "今日はキリエの出方に注目したいです"
   ]) {
     const review = reviewSpeechAgainstPlan({ messages: [filler], metadata }, plan, legalPlayers, "Japanese");
     assert.equal(review.ok, false, `expected vacuous opening to be rejected: ${filler}`);
-    assert.match(review.revisionHint ?? "", /自己紹介|中身/);
+    assert.match(review.revisionHint ?? "", /受け身|投票基準|名指し質問/);
   }
 
-  // Each intended opening topic counts as substance: self-intro, role policy,
-  // vote criteria, concrete observation, setup organizing, and engaging a player.
+  // Each intended opening topic counts as substance: active self-intro, role
+  // policy, vote criteria, named pressure, setup organizing, and engagement.
   for (const substantive of [
-    "はじめまして、今日は落ち着いて進めたいです",
+    "はじめまして、今日は全員の投票基準を先に出したいです",
     "占い師が今日名乗る条件を先に決めませんか",
     "今日は発言の具体性を投票基準にしたいです",
-    "今日はキリエの出方に注目したいです",
+    "キリエさん、最初の投票基準を聞かせてください",
     "まずは配役の構成と進め方を整理しませんか",
     "シオンさん、最初の意気込みを聞かせてください"
   ]) {
@@ -525,7 +532,7 @@ test("timeline review rejects unseen prior statements on empty first-day history
   );
   assert.equal(unseenReference.ok, false);
   assert.match(unseenReference.issues.join("\n"), /unseen prior public speech/);
-  assert.match(unseenReference.revisionHint ?? "", /見えている材料なしでも話せる議題/);
+  assert.match(unseenReference.revisionHint ?? "", /材料なしでも自分から動かせる議題/);
 
   const characterTendency = reviewSpeechTimeline(
     {

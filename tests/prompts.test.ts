@@ -277,7 +277,7 @@ test("Japanese voting target prompts keep private reasons separate from English 
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
 });
 
-test("first-day opening prompts permit non-conclusory openings and never force a stance", () => {
+test("first-day opening prompts avoid hard evidence but require active openings", () => {
   // The engine always supplies a speech plan for day speech; on the round-one
   // opening turn it does not require a forward move, which is what keeps the
   // opening natural instead of an unfounded "初日の暫定材料" suspicion.
@@ -306,14 +306,14 @@ test("first-day opening prompts permit non-conclusory openings and never force a
 
   assert.match(context, /昼の状況別話法/);
   assert.match(context, /初日昼/);
-  assert.match(context, /強い断定を避け/);
-  // New opening guidance invites observation/self-intro/role reveal policy, not a forced read.
-  assert.match(context, /急いで決めない/);
-  assert.match(context, /自己紹介/);
-  assert.match(context, /情報整理/);
+  assert.match(context, /強い断定は避ける/);
+  // Opening guidance invites concrete pressure and agenda movement, not a passive wait.
+  assert.match(context, /様子見で止まらず/);
+  assert.match(context, /投票基準/);
+  assert.match(context, /名指し質問/);
   assert.match(context, /議題スケジューラ/);
   assert.match(context, /0日目の挨拶は本議論の材料にしない/);
-  assert.match(context, /無理に疑い先や投票先を決めなくてよい/);
+  assert.match(context, /全員が様子見にならないよう/);
   // Unseen-citation guards stay in place.
   assert.match(context, /まだ、この昼の公開発言はありません/);
   assert.match(context, /見えていない会話内容や反応/);
@@ -358,9 +358,9 @@ test("first-day opening mode allows assigned conversation sparks", () => {
   });
 
   assert.match(context, /初日特別モード/);
-  assert.match(context, /発言順・態度・反応を暫定材料にする/);
-  assert.match(context, /割り当てられた発言順・態度・反応の暫定材料だけを火種にし/);
-  assert.match(context, /既に公開発言があった事実として話さない/);
+  assert.match(context, /名指しの軽い圧をかける/);
+  assert.match(context, /割り当てられた名指しの軽い圧だけを火種にし/);
+  assert.match(context, /既に公開発言や反応があった事実として話さない/);
   assert.doesNotMatch(context, /投票基準・役職名乗り方針・自己申告/);
   assert.doesNotMatch(context, /見えていない会話内容や反応/);
 });
@@ -382,6 +382,7 @@ test("speech system prompts suppress stance forcing on the opening turn (require
   assert.doesNotMatch(realizationOpening, /まだ材料が薄い時も/);
   assert.doesNotMatch(realizationOpening, /暫定読み/);
   assert.doesNotMatch(realizationOpening, /必ず自分の stance を入れる/);
+  assert.doesNotMatch(reasoningOpening, /初日1巡目の追加ルール/);
 
   // Non-opening turns (and the default when no flag is passed) keep the forcing.
   const reasoningForward = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: true });
@@ -389,6 +390,12 @@ test("speech system prompts suppress stance forcing on the opening turn (require
   assert.match(reasoningForward, /公開情報が少ない時は/);
   assert.match(realizationForward, /材料がある時は/);
   assert.match(realizationForward, /必ず自分の判断を入れる/);
+
+  const reasoningFirstDay = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: false, opensFirstDay: true });
+  const realizationFirstDay = buildSpeechRealizationSystemPrompt({ ...base, requiresForwardMove: false, opensFirstDay: true });
+  assert.match(reasoningFirstDay, /初日1巡目の追加ルール/);
+  assert.match(reasoningFirstDay, /intent を hold だけにしない/);
+  assert.match(realizationFirstDay, /話を聞く/);
 });
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {
