@@ -12,6 +12,7 @@ import {
   eventRoundLabel,
   eventSpeakerForSpectator,
   formatMessage,
+  hasSeenHumanInputRevealAnchor,
   mentionedCharactersForEvent,
   mentionedCharactersForText,
   stageLightMoodForEvent,
@@ -720,7 +721,9 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const blockingHumanInput = isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const readyHumanInput = blockingHumanInput && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
-  assert.match(source, /const visibleHumanInput = readyHumanInput \?\? nonBlockingHumanInput;/);
+  assert.match(source, /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput && hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) \? nonBlockingHumanInput : null;/);
+  assert.match(source, /const visibleHumanInput = readyHumanInput \?\? deferredNonBlockingHumanInput;/);
+  assert.match(source, /setPendingHumanInputRevealAfterEventId\(queuedRef\.current\.at\(-1\)\?\.id \?\? null\);/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
   assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? blockingHumanInput : null;/);
   assert.doesNotMatch(source, /const visibleBeforeInput = queuedRef\.current;/);
@@ -754,6 +757,12 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
   assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
+});
+
+test("non-blocking human input waits until its unread story anchor has been seen", () => {
+  assert.equal(hasSeenHumanInputRevealAnchor(null, []), true);
+  assert.equal(hasSeenHumanInputRevealAnchor(2, [{ id: 1 }]), false);
+  assert.equal(hasSeenHumanInputRevealAnchor(2, [{ id: 1 }, { id: 2 }]), true);
 });
 
 test("village spectator history redacts secret event messages and speakers", () => {

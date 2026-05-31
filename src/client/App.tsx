@@ -105,6 +105,10 @@ function isBlockingHumanInput(request: HumanInputRequest | null): request is Hum
   return Boolean(request && !request.nonBlocking);
 }
 
+export function hasSeenHumanInputRevealAnchor(revealAfterEventId: number | null, visibleEvents: Pick<GameEvent, "id">[]): boolean {
+  return revealAfterEventId === null || visibleEvents.some((event) => event.id === revealAfterEventId);
+}
+
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
 // reordering re-keys characters onto slot ids p1..pN (see characters.ts), so we map the asset
 // files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
@@ -1273,6 +1277,7 @@ export function App() {
   const startupWaitTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
+  const [pendingHumanInputRevealAfterEventId, setPendingHumanInputRevealAfterEventId] = useState<number | null>(null);
   const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
@@ -1381,7 +1386,9 @@ export function App() {
   const blockingHumanInput = isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const readyHumanInput = blockingHumanInput && queuedEvents.length === 0 ? blockingHumanInput : null;
-  const visibleHumanInput = readyHumanInput ?? nonBlockingHumanInput;
+  const deferredNonBlockingHumanInput =
+    nonBlockingHumanInput && hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events) ? nonBlockingHumanInput : null;
+  const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
   const pendingHumanInputNotice =
     blockingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? blockingHumanInput : null;
   const selectedCharacterPlayer = selectedCharacterId ? snapshot?.players.find((player) => player.id === selectedCharacterId) ?? null : null;
@@ -1816,6 +1823,7 @@ export function App() {
 
   function resetHumanInputState() {
     setPendingHumanInput(null);
+    setPendingHumanInputRevealAfterEventId(null);
     setHumanSpeech("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
@@ -1988,6 +1996,7 @@ export function App() {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
       setGenerationProgress(null);
       setPendingHumanInput(request);
+      setPendingHumanInputRevealAfterEventId(queuedRef.current.at(-1)?.id ?? null);
       setHumanSpeech("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
