@@ -441,6 +441,7 @@ export interface SpeechChoiceOption {
 
 export interface HumanSpeechChoiceInputRequest extends HumanInputRequestBase {
   kind: "speech_choice";
+  speechMode?: "discussion" | "werewolf_greeting";
   task: string;
   options: SpeechChoiceOption[];
 }

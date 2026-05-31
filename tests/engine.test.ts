@@ -454,6 +454,7 @@ type TestableGame = WerewolfGame & {
   finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
   players: Player[];
   publicHistory: string[];
+  wolfHistory: string[];
   ruleState: RuleState;
   runDay(): AsyncGenerator<GameEvent>;
   runGuardAction(): AsyncGenerator<GameEvent>;
@@ -647,6 +648,51 @@ test("configured human player keeps the normal shuffled role distribution", () =
         createRoles(playerCount).sort()
       );
     }
+  }
+});
+
+test("human player role assignment balances werewolf and village camp odds by player count", () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null };
+      }
+      return { decision: false };
+    }
+  };
+  const originalRandom = Math.random;
+
+  try {
+    for (const [roll, expectedCamp] of [
+      [0.49, "werewolf"],
+      [0.51, "village"]
+    ] as const) {
+      Math.random = () => roll;
+      for (const playerCount of [6, 7, 8, 9, 10, 13, 14, maxSupportedPlayers]) {
+        const game = new WerewolfGame(
+          {
+            ...baseConfig,
+            playerCount,
+            humanPlayerId: "p3"
+          },
+          { humanInput }
+        ) as TestableGame;
+        const human = game.players.find((player) => player.id === "p3");
+
+        assert.ok(human);
+        assert.equal(human.camp, expectedCamp, `${playerCount} players at roll ${roll} should assign ${expectedCamp}`);
+        assert.deepEqual(
+          game.players.map((player) => player.role).sort(),
+          createRoles(playerCount).sort(),
+          "balanced human assignment must not change the table's role distribution"
+        );
+      }
+    }
+  } finally {
+    Math.random = originalRandom;
   }
 });
 
@@ -1495,8 +1541,24 @@ test("first-day werewolf face-off: every AI wolf greets the team and owns their 
   }
 });
 
-test("first-day werewolf face-off excludes a human werewolf (they read their allies)", async () => {
-  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p1", prefetchConcurrency: 5 }) as OpeningTestableGame;
+test("first-day werewolf face-off lets a human werewolf greet without feeding later wolf history", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { speech: "  よろしく、仲間として合わせます。  " };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの判断です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5 },
+    { humanInput }
+  ) as OpeningTestableGame;
   const players = setTable(game, [
     { role: "Werewolf" },
     { role: "AlphaWolf" },
@@ -1512,11 +1574,24 @@ test("first-day werewolf face-off excludes a human werewolf (they read their all
   players[0].model = "human";
 
   const events = await collect(game.runWerewolfFaceoffPass());
-  const speakerIds = new Set(events.filter((event) => event.type === "player_speech").map((event) => event.playerId));
+  const speeches = events.filter((event) => event.type === "player_speech");
+  const speakerIds = new Set(speeches.map((event) => event.playerId));
+  const humanGreeting = speeches.find((event) => event.playerId === players[0].id);
+  const greetingRequest = requests.find((request) => request.kind === "speech_choice" && request.speechMode === "werewolf_greeting");
 
-  assert.ok(!speakerIds.has(players[0].id), "the human werewolf does not give a face-off intro");
+  assert.ok(speakerIds.has(players[0].id), "the human werewolf now gives a face-off greeting");
   assert.ok(speakerIds.has(players[1].id), "the AI ally still introduces itself so the human learns the team");
-  assert.equal(speakerIds.size, 1, "only the AI werewolf speaks");
+  assert.equal(speakerIds.size, 2, "the human and AI werewolves both appear in the face-off");
+  assert.equal(humanGreeting?.message, "よろしく、仲間として合わせます");
+  assert.equal(humanGreeting?.data?.visibility, "werewolf");
+  assert.equal(humanGreeting?.data?.werewolfGreeting, true);
+  assert.equal(humanGreeting?.data?.nonInfluential, true);
+  assert.ok(greetingRequest);
+  assert.equal(greetingRequest.options.length, 0, "the face-off prompt is free-input only");
+  assert.match(greetingRequest.task, /挨拶/);
+  assert.ok(greetingRequest.context.notes.some((line) => line.includes("以降の推理・作戦・展開には使われません")));
+  assert.equal(game.wolfHistory.length, 1, "only the AI ally's generated intro is retained for later wolf context");
+  assert.ok(game.wolfHistory.every((line) => !line.includes("よろしく、仲間として合わせます")));
 });
 
 test("first-day werewolf face-off is a no-op for a lone wolf", async () => {

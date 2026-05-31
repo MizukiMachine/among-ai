@@ -166,6 +166,13 @@ function defaultHumanHoldSpeech(language: string): AgentSpeech {
   };
 }
 
+function defaultHumanWerewolfGreeting(language: string): AgentSpeech {
+  return {
+    messages: [isJapaneseLanguage(language) ? "よろしく、狼同士まずは落ち着いて合わせよう" : "Good to meet you. Let's stay coordinated."],
+    metadata: emptySpeechMetadata()
+  };
+}
+
 function compactHumanSpeech(value: string | undefined, language: string): string | null {
   const compact = value?.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -220,6 +227,53 @@ function playerIdIndex(playerId: string | null | undefined, playerCount: number)
 function normalizeHumanPlayerId(playerId: string | null | undefined, playerCount: number): string | null {
   const index = playerIdIndex(playerId, playerCount);
   return index === null ? null : `p${index + 1}`;
+}
+
+function createMatchRoles(playerCount: number, humanPlayerId: string | null, humanInputAvailable: boolean): Role[] {
+  const roles = createRoles(playerCount);
+  if (!humanInputAvailable || !humanPlayerId) {
+    return shuffle(roles);
+  }
+
+  const humanIndex = playerIdIndex(humanPlayerId, roles.length);
+  if (humanIndex === null) {
+    return shuffle(roles);
+  }
+
+  return assignBalancedHumanRole(roles, humanIndex);
+}
+
+function assignBalancedHumanRole(roles: Role[], humanIndex: number): Role[] {
+  const humanRole = sampleBalancedHumanRole(roles);
+  const remainingRoles = removeOneRole(roles, humanRole);
+  const shuffledRemaining = shuffle(remainingRoles);
+  return [...shuffledRemaining.slice(0, humanIndex), humanRole, ...shuffledRemaining.slice(humanIndex)];
+}
+
+function sampleBalancedHumanRole(roles: Role[]): Role {
+  const werewolfCount = roles.filter((role) => roleCamp(role) === "werewolf").length;
+  const villageCount = roles.length - werewolfCount;
+  const werewolfWeight = werewolfCount > 0 && villageCount > 0 ? villageCount / werewolfCount : 1;
+  const weightForRole = (role: Role) => (roleCamp(role) === "werewolf" ? werewolfWeight : 1);
+  const totalWeight = roles.reduce((total, role) => total + weightForRole(role), 0);
+  let cursor = Math.random() * totalWeight;
+
+  for (const role of roles) {
+    cursor -= weightForRole(role);
+    if (cursor < 0) {
+      return role;
+    }
+  }
+
+  return roles[roles.length - 1];
+}
+
+function removeOneRole(roles: Role[], roleToRemove: Role): Role[] {
+  const index = roles.indexOf(roleToRemove);
+  if (index === -1) {
+    return [...roles];
+  }
+  return [...roles.slice(0, index), ...roles.slice(index + 1)];
 }
 
 function humanAttackProtectionRoundByPlayerCount(playerCount: number): number {
@@ -620,7 +674,7 @@ export class WerewolfGame {
     const activeDebugScenario = this.config.debugScenario ?? "none";
     const roles =
       activeDebugScenario === "none"
-        ? shuffle(createRoles(this.config.playerCount))
+        ? createMatchRoles(this.config.playerCount, this.config.humanPlayerId ?? null, Boolean(options.humanInput))
         : createScenarioRoles(activeDebugScenario, this.config.playerCount);
     const createAgent = createAgentFactory({
       provider: this.config.provider,
@@ -1877,8 +1931,8 @@ export class WerewolfGame {
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
-  // AI wolves speak (the human reads to learn the team); like the warm-up these are fast,
-  // single-call intros that stream as they finish before the public table opens.
+  // AI wolves use fast single-call intros. A human werewolf may add one greeting, but that line is
+  // display-only: it is emitted to the story and intentionally not fed into wolfHistory.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     // A lone wolf has no allies to meet, and the player already knows their own role.
@@ -1886,7 +1940,8 @@ export class WerewolfGame {
       return;
     }
     const aiWerewolves = werewolves.filter((player) => !this.isHumanControlledPlayer(player));
-    if (aiWerewolves.length === 0) {
+    const humanWerewolf = werewolves.find((player) => this.isHumanControlledPlayer(player));
+    if (aiWerewolves.length === 0 && !humanWerewolf) {
       return;
     }
 
@@ -1906,6 +1961,21 @@ export class WerewolfGame {
       this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
       for (const [index, message] of speech.messages.entries()) {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
+      }
+    }
+
+    if (humanWerewolf) {
+      const speech = await this.requestHumanWerewolfGreeting(humanWerewolf, werewolves);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit(
+          "player_speech",
+          message,
+          speechEventData(speech, message, index, "werewolf", {
+            werewolfGreeting: true,
+            nonInfluential: true
+          }),
+          humanWerewolf
+        );
       }
     }
   }
@@ -2513,23 +2583,7 @@ export class WerewolfGame {
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
-    const teamRoster = werewolves
-      .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
-      .join("、");
-    const contextLines = [
-      this.text(
-        "This is a private, allies-only werewolf meeting before the first day opens.",
-        "ここは初日が始まる前、人狼陣営だけの内緒の顔合わせです。"
-      ),
-      this.text(
-        `Your werewolf allies: ${werewolves.map((wolf) => `${wolf.name} (${wolf.role})`).join(", ")}.`,
-        `あなたの人狼陣営の仲間: ${teamRoster}。`
-      ),
-      this.text(
-        "Greet your allies and clearly own your own role. Do not discuss attack targets or plans yet.",
-        "仲間に挨拶し、自分の役職をはっきり名乗ってください。襲撃先や作戦の相談はまだしません。"
-      )
-    ];
+    const contextLines = this.werewolfFaceoffContextLines(werewolves);
     const input: AgentSpeechInput = {
       player,
       phase: this.phase,
@@ -2566,9 +2620,61 @@ export class WerewolfGame {
     }
   }
 
-  // The human player no longer types speech. Instead the shadow agent drafts several
-  // in-character candidate lines, and the player picks one — keeping discussion tempo
-  // while still letting the human shape what their character says.
+  private werewolfFaceoffContextLines(werewolves: Player[]): string[] {
+    const teamRoster = werewolves
+      .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
+      .join("、");
+    return [
+      this.text(
+        "This is a private, allies-only werewolf meeting before the first day opens.",
+        "ここは初日が始まる前、人狼陣営だけの内緒の顔合わせです。"
+      ),
+      this.text(
+        `Your werewolf allies: ${werewolves.map((wolf) => `${wolf.name} (${wolf.role})`).join(", ")}.`,
+        `あなたの人狼陣営の仲間: ${teamRoster}。`
+      ),
+      this.text(
+        "Greet your allies and clearly own your own role. Do not discuss attack targets or plans yet.",
+        "仲間に挨拶し、自分の役職をはっきり名乗ってください。襲撃先や作戦の相談はまだしません。"
+      )
+    ];
+  }
+
+  private async requestHumanWerewolfGreeting(player: Player, werewolves: Player[]): Promise<AgentSpeech> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return defaultHumanWerewolfGreeting(this.config.language);
+    }
+
+    const contextLines = [
+      ...this.werewolfFaceoffContextLines(werewolves),
+      this.text(
+        "This greeting is only shown in the opening face-off and is not used as evidence or strategy for later generation.",
+        "この挨拶は顔合わせの表示用です。以降の推理・作戦・展開には使われません。"
+      )
+    ];
+    const response = await handler.request({
+      kind: "speech_choice",
+      speechMode: "werewolf_greeting",
+      playerId: player.id,
+      playerName: player.name,
+      phase: this.phase,
+      role: player.role,
+      task: this.text("Enter a greeting for your werewolf allies.", "人狼陣営の仲間へ挨拶を入力してください。"),
+      context: buildHumanInputContext({
+        uiContext: contextLines,
+        publicHistory: [],
+        privateHistory: this.humanVisiblePrivateHistory(player)
+      }),
+      options: []
+    });
+
+    return humanFreeTextSpeech(response.speech, this.config.language) ?? defaultHumanWerewolfGreeting(this.config.language);
+  }
+
+  // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.
+  // The player may still override with free text; unlike the face-off greeting, public speech is
+  // published into the normal discussion history.
   private async humanChoiceSpeak(
     player: Player,
     input: AgentSpeechInput,
