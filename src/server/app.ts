@@ -9,7 +9,7 @@ import {
   type SpectatorMode
 } from "../game/redaction";
 import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
-import type { DebugScenario, GameConfig, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
+import type { DebugScenario, GameConfig, HumanCampPreference, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
 
 const encoder = new TextEncoder();
@@ -43,6 +43,13 @@ function spectatorModeParam(value: string | null): SpectatorMode {
     return value;
   }
   return "omniscient";
+}
+
+function humanCampPreferenceParam(value: string | null): HumanCampPreference {
+  if (value === "village" || value === "werewolf") {
+    return value;
+  }
+  return "random";
 }
 
 function humanPlayerParam(value: string | null, playerCount: number): string | null {
@@ -93,6 +100,9 @@ export function parseStreamOptions(url: URL): StreamOptions {
   const humanPlayerId =
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);
+  const humanCampPreference = humanPlayerId
+    ? humanCampPreferenceParam(url.searchParams.get("humanCamp") ?? url.searchParams.get("humanCampPreference"))
+    : "random";
   const debugScenario = humanPlayerId ? "none" : debugScenarioParam(url.searchParams.get("scenario"));
   return {
     provider,
@@ -103,6 +113,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     summaryMode: requestedSummaryMode ? summaryModeParam(requestedSummaryMode) : provider === "llm" ? "llm" : "deterministic",
     debugScenario,
     humanPlayerId,
+    humanCampPreference,
     prefetchConcurrency: fixedGenerationConcurrency,
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
@@ -119,6 +130,7 @@ function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
     summaryMode: options.summaryMode,
     debugScenario: options.debugScenario,
     humanPlayerId: options.humanPlayerId,
+    humanCampPreference: options.humanCampPreference,
     prefetchConcurrency: options.prefetchConcurrency
   };
 }

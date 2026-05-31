@@ -65,12 +65,21 @@ test("stream options lock generation concurrency to five", () => {
 
 test("stream options accept a human player and player view", () => {
   const options = parseStreamOptions(
-    new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&scenario=hunter_shot")
+    new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&humanCamp=werewolf&scenario=hunter_shot")
   );
 
   assert.equal(options.humanPlayerId, "p3");
+  assert.equal(options.humanCampPreference, "werewolf");
   assert.equal(options.view, "player");
   assert.equal(options.debugScenario, "none");
+});
+
+test("stream options default human camp preference to random", () => {
+  assert.equal(
+    parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanCamp=bogus")).humanCampPreference,
+    "random"
+  );
+  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanCamp=werewolf")).humanCampPreference, "random");
 });
 
 test("stream emits progress frames for batched AI generation", async () => {
