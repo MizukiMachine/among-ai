@@ -742,7 +742,7 @@ test("Japanese demo day speech uses legal living read targets instead of dead kn
   assert.ok(speech.metadata.trusts.every((read) => read.targetId === "p2"));
 });
 
-test("Japanese demo first-day speech stays tentative and opinion-led", async () => {
+test("Japanese demo first-day speech opens with agenda instead of forced suspicion", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Villager" }]);
   const agent = new DemoAgent("demo", "demo", "Japanese");
@@ -762,11 +762,10 @@ test("Japanese demo first-day speech stays tentative and opinion-led", async () 
   });
 
   const messageText = speech.messages.join(" ");
-  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|軽い読み|暫定|注目|投票前/);
+  assert.match(messageText, /初日|情報が少ない|誰の発言も材料|進め方|投票理由|占い師が名乗る条件|投票前/);
   assert.doesNotMatch(messageText, /人狼判定|確定|決めつけ/);
   assert.doesNotMatch(messageText, /返答に理由が少ない|乗っただけ|どの発言|発言がふわ|発言が曖昧|聞きたい|質問/);
-  assert.ok(speech.metadata.suspects.length > 0);
-  assert.ok(speech.metadata.suspects.every((read) => read.weight !== undefined && read.weight < 0.5));
+  assert.equal(speech.metadata.suspects.length, 0);
   assert.equal(containsAwkwardJapaneseOutputTerm(messageText), false);
 });
 
@@ -1369,7 +1368,7 @@ test("day discussion race uses spare slots for duplicate generation near the end
   assert.equal(agent.speechInputs.slice(0, 5).length, 5);
 });
 
-test("director mode injects a secret per-player directive and drops the first-day opening move", async () => {
+test("director mode injects a secret per-player directive and keeps the first-day agenda prompt", async () => {
   const game = new WerewolfGame({ ...baseConfig, directorMode: "intermediate", prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager" },
@@ -1396,8 +1395,8 @@ test("director mode injects a secret per-player directive and drops the first-da
     "every director-driven AI speech should receive its secret directive"
   );
   assert.ok(
-    allContexts.every((context) => !context.includes("First-day opening mode")),
-    "the legacy first-day opening move must be off when the director is active"
+    allContexts.some((context) => context.includes("First-day opening mode")),
+    "round one should still assign an opening agenda when the director is active"
   );
 });
 

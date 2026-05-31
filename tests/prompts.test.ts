@@ -307,14 +307,14 @@ test("first-day opening prompts permit non-conclusory openings and never force a
   assert.match(context, /昼の状況別話法/);
   assert.match(context, /初日昼/);
   assert.match(context, /強い断定を避け/);
-  // New opening guidance invites observation/self-intro/CO policy, not a forced read.
+  // New opening guidance invites observation/self-intro/role reveal policy, not a forced read.
   assert.match(context, /急いで決めない/);
   assert.match(context, /自己紹介/);
   assert.match(context, /情報整理/);
   assert.match(context, /無理に疑い先や投票先を決めなくてよい/);
   // Unseen-citation guards stay in place.
   assert.match(context, /まだ、この昼の公開発言はありません/);
-  assert.match(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
+  assert.match(context, /見えていない会話内容や反応/);
   assert.match(context, /誰かの言う通り/);
   assert.match(context, /既に起きた事実として話さない/);
   // The circular forcing is gone: no "暫定読み" instruction, no hard "stance まで言う".
@@ -359,8 +359,8 @@ test("first-day opening mode allows assigned conversation sparks", () => {
   assert.match(context, /発言順・態度・反応を暫定材料にする/);
   assert.match(context, /割り当てられた発言順・態度・反応の暫定材料だけを火種にし/);
   assert.match(context, /既に公開発言があった事実として話さない/);
-  assert.doesNotMatch(context, /投票基準・役職CO方針・自己申告/);
-  assert.doesNotMatch(context, /具体的な発言、反応、矛盾、発言量を見たことにしない/);
+  assert.doesNotMatch(context, /投票基準・役職名乗り方針・自己申告/);
+  assert.doesNotMatch(context, /見えていない会話内容や反応/);
 });
 
 test("speech system prompts suppress stance forcing on the opening turn (requiresForwardMove=false)", () => {
@@ -384,9 +384,9 @@ test("speech system prompts suppress stance forcing on the opening turn (require
   // Non-opening turns (and the default when no flag is passed) keep the forcing.
   const reasoningForward = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: true });
   const realizationForward = buildSpeechRealizationSystemPrompt(base);
-  assert.match(reasoningForward, /公開情報が少なくても/);
-  assert.match(realizationForward, /まだ材料が薄い時も/);
-  assert.match(realizationForward, /必ず自分の stance を入れる/);
+  assert.match(reasoningForward, /公開情報が少ない時は/);
+  assert.match(realizationForward, /材料がある時は/);
+  assert.match(realizationForward, /必ず自分の判断を入れる/);
 });
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {

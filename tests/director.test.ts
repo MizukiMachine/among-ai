@@ -91,7 +91,7 @@ test("parsed scripts drop shared-frame beats/arc that leak a living player's hid
   const raw = JSON.stringify({
     beats: [
       { id: "b1", summary: "サクラコは人狼なので吊る筋を作る" },
-      { id: "b2", summary: "占い師のCO方針を全体で決める" }
+      { id: "b2", summary: "占い師が名乗る条件を全体で決める" }
     ],
     arc: "ナギサが人狼だと露呈する終盤に向けて緊張を高める",
     directives: [
@@ -115,7 +115,7 @@ test("parsed scripts drop shared-frame beats/arc that leak a living player's hid
   const summaries = script!.beats.map((beat) => beat.summary);
   assert.ok(!summaries.some((summary) => summary.includes("サクラコは人狼")), "role-revealing beat must be dropped");
   assert.ok(
-    summaries.some((summary) => summary.includes("占い師のCO方針")),
+    summaries.some((summary) => summary.includes("占い師が名乗る条件")),
     "a generic role-policy beat (no player attribution) should survive"
   );
   // The leaking arc is replaced with the safe deterministic arc (no player + role attribution).

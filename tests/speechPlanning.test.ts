@@ -86,7 +86,7 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.match(rendered, /投票基準を出す/);
   assert.match(rendered, /公開上の死因: 不明/);
   assert.match(rendered, /魔女の毒薬/);
-  assert.match(rendered, /自分の疑い・信頼・保留/);
+  assert.match(rendered, /自分の疑い・信頼・投票候補/);
   assert.match(rendered, /質問、様子見、今後見る点だけで終えず/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
 });
@@ -277,7 +277,7 @@ test("round-one opening turn does not force a stance and opens with observation"
 
   // The opening turn has no public material yet, so the after-the-fact stance
   // forcing is off and the intent invites a substantive non-conclusory opening
-  // (self-intro, CO policy, organizing) instead of an unfounded suspicion.
+  // (self-intro, role reveal policy, organizing) instead of an unfounded suspicion.
   assert.equal(plan.requiresForwardMove, false);
   assert.ok(plan.intents.some((item) => item.kind === "open_first_day"));
 
@@ -296,7 +296,7 @@ test("round-one opening turn does not force a stance and opens with observation"
 
   const coPolicy = reviewSpeechAgainstPlan(
     {
-      messages: ["占い師のCOを今日どう扱うかだけ先に決めたいです"],
+      messages: ["占い師が今日名乗る条件だけ先に決めたいです"],
       metadata
     },
     plan,
@@ -339,11 +339,11 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     assert.match(review.revisionHint ?? "", /自己紹介|中身/);
   }
 
-  // Each intended opening topic counts as substance: self-intro, CO/role policy,
+  // Each intended opening topic counts as substance: self-intro, role policy,
   // vote criteria, concrete observation, setup organizing, and engaging a player.
   for (const substantive of [
     "はじめまして、今日は落ち着いて進めたいです",
-    "占い師のCOは今日どう扱うか先に決めませんか",
+    "占い師が今日名乗る条件を先に決めませんか",
     "今日は発言の具体性を投票基準にしたいです",
     "今日はキリエの出方に注目したいです",
     "まずは配役の構成と進め方を整理しませんか",
@@ -415,7 +415,7 @@ test("timeline review rejects unseen prior statements on empty first-day history
   );
   assert.equal(unseenReference.ok, false);
   assert.match(unseenReference.issues.join("\n"), /unseen prior public speech/);
-  assert.match(unseenReference.revisionHint ?? "", /人物傾向/);
+  assert.match(unseenReference.revisionHint ?? "", /見えている材料なしでも話せる議題/);
 
   const characterTendency = reviewSpeechTimeline(
     {
