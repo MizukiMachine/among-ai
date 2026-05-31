@@ -3695,8 +3695,8 @@ export function App() {
                         </div>
                         {renderStoryBody(currentEvent, hidden)}
                         {renderEventDetails(currentEvent, hidden)}
+                        {renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id)}
                       </div>
-                      {renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id)}
                       {renderHumanInputPanel(readyHumanInput)}
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}

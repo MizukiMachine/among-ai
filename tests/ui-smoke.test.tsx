@@ -319,11 +319,13 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(source, /className="mentioned-character-strip"/);
   assert.match(source, /mentioned-character-more/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
+  assert.match(source, /renderEventDetails\(currentEvent, hidden\)\}\s*\n\s*\{renderMentionedCharacterStrip\(mentionedCharacters, currentEvent\.id\)\}/);
   assert.doesNotMatch(source, /function renderHeroCast/);
   assert.doesNotMatch(source, /className=\{`hero-cast/);
-  assert.match(css, /\.mentioned-character-strip\s*\{[^}]*left:\s*84px[^}]*top:\s*50%[^}]*transform:\s*translateY\(-50%\)/s);
-  assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 154px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*56px/s);
-  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 320px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*left:\s*32px/s);
+  assert.match(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*relative[^}]*width:\s*min\(100%,\s*860px\)[^}]*transform:\s*none/s);
+  assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 28px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*width:\s*min\(100%,\s*640px\)/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 28px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*width:\s*112px[^}]*height:\s*128px[^}]*background:\s*transparent/s);
   assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*object-fit:\s*contain/s);
   assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*overflow:\s*hidden/s);
