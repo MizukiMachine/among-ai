@@ -711,11 +711,15 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submitHumanInput\(\{ targetId: humanTargetId \}\)/);
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
-  assert.match(source, /placeholder="発言を入力"/);
+  assert.match(source, /speechMode === "werewolf_greeting"/);
+  assert.match(source, /仲間への挨拶を入力してみましょう/);
+  assert.match(source, /const speechPlaceholder = isWerewolfGreeting \? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";/);
+  assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-choice-text\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-speech-form textarea\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.human-choice-form\.werewolf-greeting \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
   assert.doesNotMatch(source, /あなたの判断が近づいています/);
   assert.doesNotMatch(source, /humanReason/);
   assert.doesNotMatch(source, /setHumanReason/);

@@ -2377,9 +2377,14 @@ export function App() {
     }
 
     const role = displayRoleLabel(prompt.role, language);
-    const title = prompt.kind === "speech_choice" ? "発言" : prompt.kind === "target" ? prompt.action : prompt.question;
+    const isWerewolfGreeting = prompt.kind === "speech_choice" && prompt.speechMode === "werewolf_greeting";
+    const title = prompt.kind === "speech_choice" ? (isWerewolfGreeting ? "挨拶" : "発言") : prompt.kind === "target" ? prompt.action : prompt.question;
     const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
     const canSubmitHumanSpeech = humanSpeech.trim().length > 0;
+    const speechHint = isWerewolfGreeting ? "仲間への挨拶を入力してみましょう" : "候補から選ぶか、自由に発言を入力してください";
+    const speechPlaceholder = isWerewolfGreeting ? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";
+    const speechAriaLabel = isWerewolfGreeting ? "挨拶の入力" : "自由入力の発言";
+    const speechSubmitLabel = isWerewolfGreeting ? "挨拶する" : "発言する";
 
     return (
       <section className="human-input-panel" aria-label="操作入力">
@@ -2394,33 +2399,35 @@ export function App() {
         {renderHumanContext(prompt)}
 
         {prompt.kind === "speech_choice" ? (
-          <div className="human-choice-form">
-            <p className="human-choice-hint">候補から選ぶか、自由に発言を入力してください</p>
-            <div className="human-choice-list">
-              {prompt.options.map((option, index) => (
-                <button
-                  className="human-choice-option"
-                  key={option.id}
-                  disabled={humanSubmitting}
-                  onClick={() => submitHumanInput({ choiceId: option.id })}
-                  type="button"
-                >
-                  <span className="human-choice-index">{index + 1}</span>
-                  <span className="human-choice-text">
-                    {option.text.split("\n").map((line, lineIndex) => (
-                      <span key={lineIndex}>{renderTextWithCharacterNames(line, `${option.id}-${lineIndex}`)}</span>
-                    ))}
-                  </span>
-                </button>
-              ))}
-            </div>
+          <div className={`human-choice-form ${isWerewolfGreeting ? "werewolf-greeting" : ""}`}>
+            <p className="human-choice-hint">{speechHint}</p>
+            {!isWerewolfGreeting && prompt.options.length > 0 ? (
+              <div className="human-choice-list">
+                {prompt.options.map((option, index) => (
+                  <button
+                    className="human-choice-option"
+                    key={option.id}
+                    disabled={humanSubmitting}
+                    onClick={() => submitHumanInput({ choiceId: option.id })}
+                    type="button"
+                  >
+                    <span className="human-choice-index">{index + 1}</span>
+                    <span className="human-choice-text">
+                      {option.text.split("\n").map((line, lineIndex) => (
+                        <span key={lineIndex}>{renderTextWithCharacterNames(line, `${option.id}-${lineIndex}`)}</span>
+                      ))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="human-speech-form">
               <textarea
-                aria-label="自由入力の発言"
+                aria-label={speechAriaLabel}
                 disabled={humanSubmitting}
                 maxLength={240}
                 onChange={(event) => setHumanSpeech(event.target.value)}
-                placeholder="発言を入力"
+                placeholder={speechPlaceholder}
                 rows={3}
                 value={humanSpeech}
               />
@@ -2431,7 +2438,7 @@ export function App() {
                 type="button"
               >
                 <Send size={16} />
-                <span>発言する</span>
+                <span>{speechSubmitLabel}</span>
               </button>
             </div>
           </div>
@@ -2802,9 +2809,11 @@ export function App() {
     }
 
     const title =
-      pendingHumanInputNotice.kind === "speech_choice"
-        ? "あなたの発言が近づいています"
-        : "あなたの意思決定が近づいています";
+      pendingHumanInputNotice.kind === "speech_choice" && pendingHumanInputNotice.speechMode === "werewolf_greeting"
+        ? "あなたの挨拶が近づいています"
+        : pendingHumanInputNotice.kind === "speech_choice"
+          ? "あなたの発言が近づいています"
+          : "あなたの意思決定が近づいています";
 
     return (
       <section className="story-pending-input-hud" role="status" aria-live="polite">

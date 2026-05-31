@@ -3701,12 +3701,21 @@ input[type="range"] {
   gap: 9px;
 }
 
+.human-choice-form.werewolf-greeting {
+  gap: 10px;
+}
+
 .human-choice-hint {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
   line-height: 1.45;
   color: rgba(218, 230, 236, 0.72);
+}
+
+.human-choice-form.werewolf-greeting .human-choice-hint {
+  color: rgba(218, 250, 255, 0.9);
+  font-weight: 850;
 }
 
 .human-choice-list {
