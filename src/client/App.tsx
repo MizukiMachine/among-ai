@@ -51,7 +51,6 @@ import {
 import type {
   ClaimMetadata,
   DebugScenario,
-  DirectorMode,
   GameEvent,
   GameEventType,
   GameSnapshot,
@@ -1215,7 +1214,6 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
 export function App() {
   const [playerCount, setPlayerCount] = useState(initialPlayerCount);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>(initialDebugScenario);
-  const [directorMode, setDirectorMode] = useState<DirectorMode>("off");
   const [humanEnabled, setHumanEnabled] = useState(initialHumanEnabled);
   const [humanPlayerId, setHumanPlayerId] = useState(initialHumanPlayerId);
   const [settingsConfirmed, setSettingsConfirmed] = useState(false);
@@ -1853,7 +1851,6 @@ export function App() {
     resetToSetup();
     setPlayerCount(initialPlayerCount);
     setDebugScenario(initialDebugScenario);
-    setDirectorMode("off");
     setHumanEnabled(initialHumanEnabled);
     setHumanPlayerId(initialHumanPlayerId);
     setSpectatorMode(initialSpectatorMode);
@@ -1912,8 +1909,7 @@ export function App() {
       scenario: humanEnabled ? "none" : debugScenario,
       view: streamView,
       speed: "0",
-      language,
-      director: directorMode
+      language
     });
     if (humanEnabled) {
       params.set("human", humanPlayerId);
@@ -3093,33 +3089,6 @@ export function App() {
                 ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
               </span>
             ) : null}
-          </div>
-
-          <div className="field setup-field director-mode-field">
-            <span>演出（ディレクター）</span>
-            <div className="segments">
-              {(
-                [
-                  { mode: "off", label: "なし", title: "従来どおり。各キャラが個別に発言する" },
-                  { mode: "describe", label: "描写", title: "整合性と推理可能性のみ。役職に沿った自然な議論" },
-                  { mode: "intermediate", label: "中間", title: "緊張曲線と山場を演出（結果はゲームが決める）" }
-                ] as const
-              ).map((option) => (
-                <button
-                  key={option.mode}
-                  aria-pressed={directorMode === option.mode}
-                  className={directorMode === option.mode ? "selected" : ""}
-                  onClick={() => setDirectorMode(option.mode)}
-                  title={option.title}
-                  type="button"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <span className="field-desc">
-              全役職を把握する演出役が議論の筋を組む。投票・夜の結果はゲームが決定。
-            </span>
           </div>
 
         </div>

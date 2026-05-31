@@ -396,9 +396,9 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
   } = options;
   const profile = getRolePromptProfile(player.role);
   const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
-  // When the plan does not require a forward move (round-one opening turn, or the
-  // director supplying the stance) the empty-history prompt must not force a
-  // suspicion/vote; it permits a non-conclusory opening instead.
+  // When the plan does not require a forward move (especially the round-one opening
+  // turn) the empty-history prompt must not force a suspicion/vote; it permits a
+  // non-conclusory opening instead.
   const requiresForwardMove = options.speechPlan?.requiresForwardMove ?? true;
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });

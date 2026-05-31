@@ -311,6 +311,8 @@ test("first-day opening prompts permit non-conclusory openings and never force a
   assert.match(context, /急いで決めない/);
   assert.match(context, /自己紹介/);
   assert.match(context, /情報整理/);
+  assert.match(context, /議題スケジューラ/);
+  assert.match(context, /0日目の挨拶は本議論の材料にしない/);
   assert.match(context, /無理に疑い先や投票先を決めなくてよい/);
   // Unseen-citation guards stay in place.
   assert.match(context, /まだ、この昼の公開発言はありません/);

@@ -266,7 +266,6 @@ export interface GameConfig {
   debugScenario?: DebugScenario;
   humanPlayerId?: string | null;
   prefetchConcurrency?: number;
-  directorMode?: DirectorMode;
 }
 
 export interface TargetCandidate {
@@ -325,42 +324,21 @@ export interface FirstDayOpeningMove {
   instruction: string;
 }
 
-/**
- * Director layer (see docs/director-layer-design notes). A "director" LLM that
- * knows every hidden role plans the day discussion as one readable story before
- * any speech is generated. It never writes lines and never decides outcomes
- * (votes/night results stay with the engine); it only shapes direction.
- *
- * - "off": no director (original per-speech behavior).
- * - "describe": director places per-player intent/tell and descriptive beats so
- *   the day is role-consistent and deducible. No dramatic arc.
- * - "intermediate": "describe" plus an `arc` (tension curve) and dramaturgical
- *   beats. Still never fixes outcomes; re-plans each round from real results.
- */
-export type DirectorMode = "off" | "describe" | "intermediate";
+export type DiscussionAgendaKind =
+  | "day_one_opening"
+  | "day_one_response"
+  | "later_day_night_result"
+  | "later_day_vote_review"
+  | "later_day_claim_review"
+  | "later_day_black_result"
+  | "later_day_read_update"
+  | "later_day_response"
+  | "pre_vote_follow_up";
 
-export interface RoundBeat {
-  id: string;
-  summary: string;
-}
-
-export interface DirectorDirective {
-  playerId: string;
-  /** Secret per-round goal/stance for this player; injected only to this player. */
-  intent: string;
-  /** Optional leakable signal correlated with the hidden role. */
-  tell?: string;
-  /** Target player or beat id this directive mainly relates to. */
-  focus?: string;
-}
-
-export interface RoundScript {
-  round: number;
-  beats: RoundBeat[];
-  /** Tension curve across the day. Used by "intermediate" mode only. */
-  arc: string;
-  directives: Record<string, DirectorDirective>;
-  source: "llm" | "deterministic";
+export interface DiscussionAgenda {
+  kind: DiscussionAgendaKind;
+  label: string;
+  instruction: string;
 }
 
 export interface PublicSpeechPlan {
@@ -368,6 +346,7 @@ export interface PublicSpeechPlan {
   round: number;
   lastNightDeaths: PublicNightDeathInfo[];
   possibleNightDeathCauses: PublicNightDeathCause[];
+  discussionAgenda?: DiscussionAgenda;
   intents: SpeechIntent[];
   firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;

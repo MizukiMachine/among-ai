@@ -134,6 +134,116 @@ test("public speech diversity context summarizes used reads and asks for a new a
   assert.match(rendered, /別の根拠/);
 });
 
+test("later-day agenda scheduler spreads concrete evidence focus across first-pass speakers", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Seer", "p2", "ノゾミ"),
+    player("Villager", "p3", "アキオミ"),
+    player("Witch", "p4", "イオリ"),
+    player("Villager", "p5", "コハル")
+  ];
+  const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
+  const previousVotes = [
+    { voterId: "p1", targetId: "p3" },
+    { voterId: "p2", targetId: "p3" },
+    { voterId: "p3", targetId: "p5" },
+    { voterId: "p4", targetId: "p5" },
+    { voterId: "p5", targetId: "p3" }
+  ];
+  const publicHistory = [
+    "ノゾミ: 占い師として出ます。アキオミは人狼判定です。",
+    "主張: ノゾミが占い師を主張 対象:アキオミ 人狼判定",
+    "第1ラウンド投票: セナ -> アキオミ、ノゾミ -> アキオミ、アキオミ -> コハル、イオリ -> コハル、コハル -> アキオミ。"
+  ];
+
+  const speakerOrder = [players[1], players[2], players[3], players[4], players[0]];
+  const plans = speakerOrder.map((speaker) =>
+    buildPublicSpeechPlan({
+      phase: "day_discussion",
+      round: 2,
+      discussionPass: 1,
+      players,
+      lastNightDeaths: [{ playerId: "p1", cause: "werewolf" }],
+      legalPlayers,
+      language: "Japanese",
+      speakerId: speaker.id,
+      publicHistory,
+      previousVotes
+    })
+  );
+
+  assert.deepEqual(
+    plans.map((plan) => plan.discussionAgenda?.kind),
+    [
+      "later_day_black_result",
+      "later_day_claim_review",
+      "later_day_vote_review",
+      "later_day_night_result",
+      "later_day_read_update"
+    ]
+  );
+  assert.match(renderPublicSpeechPlan(plans[0], "Japanese").join("\n"), /黒判定をどう扱うか/);
+  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /前日の投票を材料/);
+  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /得票上位: アキオミ3票、コハル2票/);
+  assert.doesNotMatch(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /身内票|理由の薄い票/);
+  assert.match(renderPublicSpeechPlan(plans[3], "Japanese").join("\n"), /昨夜の死亡: セナ/);
+  assert.match(renderPublicSpeechPlan(plans[4], "Japanese").join("\n"), /前日から見方が変わった相手/);
+});
+
+test("later-day black-result agenda ignores dead black targets", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Seer", "p2", "ノゾミ"),
+    { ...player("Villager", "p3", "アキオミ"), alive: false },
+    player("Witch", "p4", "イオリ")
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 4,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [{ playerId: "p3", cause: "vote" }],
+    legalPlayers: players.filter((candidate) => candidate.alive && candidate.id !== "p1").map(({ id, name }) => ({ id, name })),
+    language: "Japanese",
+    speakerId: "p1",
+    publicHistory: [
+      "ノゾミ: 占い師として出ます。アキオミは人狼判定です。",
+      "主張: ノゾミが占い師を主張 対象:アキオミ 人狼判定"
+    ],
+    previousVotes: []
+  });
+  const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
+
+  assert.notEqual(plan.discussionAgenda?.kind, "later_day_black_result");
+  assert.doesNotMatch(rendered, /黒判定をどう扱うか/);
+});
+
+test("later-day no-death agenda avoids certainty and points back to visible reactions", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Werewolf", "p2", "ノゾミ"),
+    player("Guard", "p3", "アキオミ")
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 3,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [],
+    legalPlayers: players.slice(1).map(({ id, name }) => ({ id, name })),
+    language: "Japanese",
+    speakerId: "p3",
+    publicHistory: ["第2ラウンド投票: セナ -> ノゾミ、ノゾミ -> アキオミ。"],
+    previousVotes: []
+  });
+  const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
+
+  assert.equal(plan.discussionAgenda?.kind, "later_day_night_result");
+  assert.match(rendered, /昨夜は死亡なし/);
+  assert.match(rendered, /護衛成功、魔女の救済、襲撃先選びを断定せず/);
+  assert.match(rendered, /誰の反応・役職主張・投票理由を見直すか/);
+});
+
 test("first-day opening moves can satisfy special opening review rules", () => {
   const legalPlayers: TargetCandidate[] = [
     { id: "p2", name: "ミナト" },

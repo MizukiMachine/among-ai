@@ -2395,43 +2395,6 @@ export async function summarizeRoundWithLlm(input: {
   return normalizeLlmSummary(content);
 }
 
-/**
- * Director-layer completion. Runs a single omniscient planning call that returns
- * a round-script (beats/arc/directives) as raw JSON text. Returns null when no
- * API key is configured so the caller can fall back to a deterministic script.
- */
-export async function runDirectorCompletion(input: {
-  system: string;
-  user: string;
-  model: string;
-  maxTokens?: number;
-  temperature?: number;
-  abortSignal?: AbortSignal;
-}): Promise<string | null> {
-  const apiKey = process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-  const model = input.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel;
-  const client = createAnthropicClient(
-    apiKey,
-    process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
-    positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
-  );
-  const messages: MessageParam[] = [{ role: "user", content: input.user }];
-  return completeAnthropic(
-    client,
-    model,
-    input.system,
-    messages,
-    input.maxTokens ?? 1024,
-    input.temperature ?? 0.6,
-    undefined,
-    input.abortSignal,
-    "director"
-  );
-}
-
 type CompleteRequest = (
   system: string,
   messages: MessageParam[],

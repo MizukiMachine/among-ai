@@ -2,6 +2,7 @@ import { isJapaneseLanguage } from "./i18n";
 import type { DeathRecord } from "./rules/types";
 import type {
   AgentSpeech,
+  DiscussionAgenda,
   FirstDayOpeningMove,
   FirstDayOpeningMoveKind,
   Phase,
@@ -11,7 +12,8 @@ import type {
   PublicSpeechPlan,
   SpeechMetadata,
   SpeechIntent,
-  TargetCandidate
+  TargetCandidate,
+  VoteRecord
 } from "./types";
 
 interface BuildPublicSpeechPlanInput {
@@ -22,11 +24,13 @@ interface BuildPublicSpeechPlanInput {
   lastNightDeaths: DeathRecord[];
   legalPlayers: TargetCandidate[];
   language: string;
+  speakerId?: string;
+  publicHistory?: string[];
+  previousVotes?: VoteRecord[];
   firstDayOpeningMove?: FirstDayOpeningMove;
   /**
-   * When the director layer is active it supplies each player's stance, so the
-   * after-the-fact "must state a stance" forcing (prompt line + regex review)
-   * is suppressed to avoid the unnatural day-one filler it otherwise produces.
+   * Optional escape hatch for tests or future scheduled turns that should not force
+   * a stance even after the opening turn.
    */
   suppressForwardMove?: boolean;
 }
@@ -55,6 +59,7 @@ function labels(language: string) {
   return {
     unknownCause: japanese ? "不明" : "unknown",
     possibleCausesTitle: japanese ? "公開ルール上あり得る夜死亡" : "Public-rule night death causes in this setup",
+    discussionAgendaTitle: japanese ? "議題スケジューラ" : "Discussion agenda",
     speechPlanTitle: japanese ? "この発言の設計" : "Speech plan",
     firstDaySpecialTitle: japanese ? "初日特別モード" : "First-day opening mode",
     publicKnowledgeTitle: japanese ? "公開知識" : "Public knowledge",
@@ -317,8 +322,186 @@ function publicNightDeathInfo(death: DeathRecord, players: Player[]): PublicNigh
   };
 }
 
+function recentPublicHistory(input: BuildPublicSpeechPlanInput): string[] {
+  const history = input.publicHistory ?? [];
+  return input.round <= 2 ? history : history.slice(-36);
+}
+
+function livingPlayerNames(input: BuildPublicSpeechPlanInput): string[] {
+  return input.players.filter((player) => player.alive).map((player) => player.name);
+}
+
+function lineMentionsLivingPlayer(line: string, input: BuildPublicSpeechPlanInput): boolean {
+  return livingPlayerNames(input).some((name) => line.includes(name));
+}
+
+function lineMentionsLivingBlackTarget(line: string, input: BuildPublicSpeechPlanInput): boolean {
+  const blackResultPattern = /checked as werewolf|checked werewolf|reads as werewolf|人狼判定/i;
+  if (!blackResultPattern.test(line)) {
+    return false;
+  }
+  const names = livingPlayerNames(input);
+  const labeledTarget = line.match(/(?:対象|target|on)[:：]?\s*([^\s、。,.]+)/i)?.[1];
+  if (labeledTarget) {
+    return names.some((name) => labeledTarget.includes(name));
+  }
+  return names.some((name) => {
+    const escapedName = escapeRegExp(name);
+    return [
+      new RegExp(`${escapedName}(?:は|が|を|\\s+)[^\\n。.!?]{0,24}(?:checked as werewolf|checked werewolf|reads as werewolf|人狼判定)`, "i"),
+      new RegExp(`(?:checked as werewolf|checked werewolf|reads as werewolf|人狼判定)[^\\n。.!?]{0,24}${escapedName}`, "i")
+    ].some((pattern) => pattern.test(line));
+  });
+}
+
+function hasVisibleSeerClaim(input: BuildPublicSpeechPlanInput): boolean {
+  const claimPattern = /\bclaims? Seer\b|\bclaiming Seer\b|\bSeer claim\b|\bI am Seer\b|占い(?:師)?CO|占い師を主張|占い師として出|占い師を名乗|占い師です|占いです/i;
+  return recentPublicHistory(input).some((line) => claimPattern.test(line) && lineMentionsLivingPlayer(line, input));
+}
+
+function hasVisibleBlackResult(input: BuildPublicSpeechPlanInput): boolean {
+  return recentPublicHistory(input).some((line) => lineMentionsLivingBlackTarget(line, input));
+}
+
+function playerNameById(players: Player[], playerId: string): string {
+  return players.find((player) => player.id === playerId)?.name ?? playerId;
+}
+
+function previousVoteSummary(input: BuildPublicSpeechPlanInput): string | null {
+  const votes = input.previousVotes ?? [];
+  if (votes.length === 0) {
+    return null;
+  }
+  const japanese = isJapaneseLanguage(input.language);
+  const counts = new Map<string, number>();
+  for (const vote of votes) {
+    counts.set(vote.targetId, (counts.get(vote.targetId) ?? 0) + 1);
+  }
+  const totals = [...counts.entries()].sort((a, b) => b[1] - a[1] || playerNameById(input.players, a[0]).localeCompare(playerNameById(input.players, b[0])));
+  const top = totals.slice(0, 3).map(([targetId, count]) => {
+    const name = playerNameById(input.players, targetId);
+    return japanese ? `${name}${count}票` : `${name} ${count}`;
+  });
+  const sampleVotes = votes.slice(0, 5).map((vote) => `${playerNameById(input.players, vote.voterId)} -> ${playerNameById(input.players, vote.targetId)}`);
+  const overflow = votes.length > sampleVotes.length ? (japanese ? ` 他${votes.length - sampleVotes.length}票` : ` +${votes.length - sampleVotes.length} more`) : "";
+  return japanese
+    ? `得票上位: ${top.join("、")}。投票例: ${sampleVotes.join("、")}${overflow}。`
+    : `Top vote totals: ${top.join(", ")}. Vote examples: ${sampleVotes.join(", ")}${overflow}.`;
+}
+
+function laterDayOpeningAgendaKind(input: BuildPublicSpeechPlanInput): DiscussionAgenda["kind"] {
+  const kinds: DiscussionAgenda["kind"][] = [];
+  if (hasVisibleBlackResult(input)) {
+    kinds.push("later_day_black_result");
+  }
+  if (hasVisibleSeerClaim(input)) {
+    kinds.push("later_day_claim_review");
+  }
+  if ((input.previousVotes ?? []).length > 0) {
+    kinds.push("later_day_vote_review");
+  }
+  kinds.push("later_day_night_result", "later_day_read_update");
+
+  const alivePlayers = input.players.filter((player) => player.alive);
+  const offset = input.round > 1 && alivePlayers.length > 0 ? (input.round - 1) % alivePlayers.length : 0;
+  const speakerOrder = [...alivePlayers.slice(offset), ...alivePlayers.slice(0, offset)];
+  const speakerIndex = input.speakerId ? speakerOrder.findIndex((player) => player.id === input.speakerId) : 0;
+  return kinds[Math.max(0, speakerIndex) % kinds.length];
+}
+
+function discussionAgendaFor(input: BuildPublicSpeechPlanInput, deaths: PublicNightDeathInfo[]): DiscussionAgenda | undefined {
+  if (input.phase !== "day_discussion") {
+    return undefined;
+  }
+  const japanese = isJapaneseLanguage(input.language);
+  const pass = input.discussionPass ?? 1;
+  const voteSummary = previousVoteSummary(input);
+  const kind =
+    pass > 2
+      ? "pre_vote_follow_up"
+      : input.round === 1 && pass <= 1
+        ? "day_one_opening"
+        : input.round === 1
+          ? "day_one_response"
+          : pass <= 1
+            ? laterDayOpeningAgendaKind(input)
+            : "later_day_response";
+
+  const definitions: Record<DiscussionAgenda["kind"], DiscussionAgenda> = {
+    day_one_opening: {
+      kind: "day_one_opening",
+      label: japanese ? "初日1巡目: 序盤議題を出す" : "Day one, pass one: open with setup topics",
+      instruction: japanese
+        ? "0日目の挨拶は本議論の材料にしない。まだ発言変化・矛盾・投票履歴はないので、自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針のどれかを一つ話す。"
+        : "Do not treat warm-up greetings as discussion evidence. There are no statement changes, contradictions, or votes yet, so open with introductions, process, vote-reason standards, Seer reveal conditions, or avoiding forced role exposure."
+    },
+    day_one_response: {
+      kind: "day_one_response",
+      label: japanese ? "初日2巡目: 見えた議題に答える" : "Day one, pass two: answer visible agenda",
+      instruction: japanese
+        ? "1巡目で実際に見えた話だけに反応する。議題への賛否、投票基準の比較、占い師が名乗る条件への意見を短く出し、必要なら軽い投票候補まで進める。"
+        : "React only to visible first-pass statements. Give agreement/disagreement on the agenda, compare vote standards, address Seer reveal conditions, and move to a light vote candidate if needed."
+    },
+    later_day_night_result: {
+      kind: "later_day_night_result",
+      label: japanese ? "2日目以降: 夜結果を生存者評価につなげる" : "Later day: connect the night result to living reads",
+      instruction: japanese
+        ? deaths.length > 0
+          ? `昨夜の死亡: ${deaths.map((death) => death.playerName).join("、")}。死亡者を今の疑い先にせず、誰が得をしたか、誰の前日発言・投票とつながるかを生存者一人の評価に結びつける。`
+          : "昨夜は死亡なし。護衛成功、魔女の救済、襲撃先選びを断定せず、誰の反応・役職主張・投票理由を見直すかまで話す。"
+        : deaths.length > 0
+          ? `Last night's deaths: ${deaths.map((death) => death.playerName).join(", ")}. Do not make the dead player a current target; connect who benefits or whose prior speech/vote fits to one living-player read.`
+          : "No one died last night. Do not assert protection, a save, or target choice as certain; say whose reaction, claim, or vote reason should be rechecked."
+    },
+    later_day_vote_review: {
+      kind: "later_day_vote_review",
+      label: japanese ? "2日目以降: 前日の投票を検証する" : "Later day: review the prior vote",
+      instruction: japanese
+        ? `前日の投票を材料にする。${voteSummary ?? ""}得票が多い人、1票だけ離れた投票、前日の疑い先と投票先のズレ、今日あらためて理由を聞きたい投票のどれか一つを選び、生存者評価か投票候補に結びつける。`
+        : `Use the prior vote as evidence. ${voteSummary ?? ""}Choose one of: high vote-getters, isolated votes, a mismatch between prior suspicion and vote target, or a vote whose reason should be asked again today, then connect it to a living read or vote candidate.`
+    },
+    later_day_claim_review: {
+      kind: "later_day_claim_review",
+      label: japanese ? "2日目以降: 役職主張を検証する" : "Later day: review visible role claims",
+      instruction: japanese
+        ? "見えている役職主張を材料にする。名乗ったタイミング、結果、対抗の有無、夜結果との整合、前日投票とのつながりのうち一つを見て、信用寄り・保留・疑い寄りのどこかを言う。"
+        : "Use visible role claims as evidence. Pick one of timing, results, counterclaims, fit with the night result, or prior vote links, then state trust-leaning, hold, or suspicion."
+    },
+    later_day_black_result: {
+      kind: "later_day_black_result",
+      label: japanese ? "2日目以降: 黒判定をどう扱うか決める" : "Later day: decide how to handle a black result",
+      instruction: japanese
+        ? "黒判定が見えている。黒を出した人の信用、出された人の反応、前日投票とのつながり、今日処刑するか保留するかのどれか一つに絞って話す。自分だけの情報ではなく公開根拠で説明する。"
+        : "A black result is visible. Focus on one of: the claimant's credibility, the accused player's reaction, prior vote links, or whether to eliminate or hold today. Explain with public evidence."
+    },
+    later_day_read_update: {
+      kind: "later_day_read_update",
+      label: japanese ? "2日目以降: 前日から読みを更新する" : "Later day: update a prior read",
+      instruction: japanese
+        ? "前日から見方が変わった相手を一人選ぶ。変わった理由を、夜結果、前日の投票、今日見えた発言、役職主張のどれか一つに結びつけて短く言う。"
+        : "Pick one player whose read changed since yesterday. Tie the reason to one of: the night result, prior votes, today's visible speech, or a claim."
+    },
+    later_day_response: {
+      kind: "later_day_response",
+      label: japanese ? "2日目以降2巡目: 返答して投票候補を更新する" : "Later day, pass two: answer and update vote direction",
+      instruction: japanese
+        ? "直近で自分に向いた疑いがあれば短く答える。そのうえで、1巡目に実際に見えた夜結果・前日投票・役職主張・黒判定の話から、生存者への疑い・信頼・投票候補を一つ更新する。"
+        : "Briefly answer pressure aimed at you, then update one suspicion, trust, or vote candidate from visible first-pass discussion about the night result, prior vote, claims, or black result."
+    },
+    pre_vote_follow_up: {
+      kind: "pre_vote_follow_up",
+      label: japanese ? "追加発言: 投票前に一つ絞る" : "Follow-up: narrow before voting",
+      instruction: japanese
+        ? "追加発言では論点を広げない。自分に関わる一番強い疑い・信頼・役職主張に触れ、投票前に誰をどう見るかを一つだけ言う。"
+        : "Do not widen the table in follow-up. Address the strongest suspicion, trust, or claim involving you and narrow to one voting-ready view."
+    }
+  };
+  return definitions[kind];
+}
+
 export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): PublicSpeechPlan {
   const deaths = input.lastNightDeaths.map((death) => publicNightDeathInfo(death, input.players));
+  const discussionAgenda = discussionAgendaFor(input, deaths);
   const intents: SpeechIntent[] = [];
 
   // The opening turn of the game (round 1, first pass) has no public statements,
@@ -352,6 +535,7 @@ export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): Public
     round: input.round,
     lastNightDeaths: deaths,
     possibleNightDeathCauses: possibleNightDeathCauses(input.players, input.language),
+    discussionAgenda,
     intents,
     firstDayOpeningMove: input.firstDayOpeningMove,
     requiresForwardMove:
@@ -380,6 +564,12 @@ export function renderPublicSpeechPlan(plan: PublicSpeechPlan, language: string)
     `- ${text.possibleCausesTitle}: ${possibleCauses}.`,
     "",
     text.speechPlanTitle + ":",
+    ...(plan.discussionAgenda
+      ? [
+          `- ${text.discussionAgendaTitle}: ${plan.discussionAgenda.label}`,
+          `- ${plan.discussionAgenda.instruction}`
+        ]
+      : []),
     ...(plan.firstDayOpeningMove
       ? [
           `- ${text.firstDaySpecialTitle}: ${plan.firstDayOpeningMove.label}`,
