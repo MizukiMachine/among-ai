@@ -174,13 +174,6 @@ function defaultHumanHoldSpeech(language: string): AgentSpeech {
   };
 }
 
-function defaultHumanWerewolfGreeting(language: string): AgentSpeech {
-  return {
-    messages: [isJapaneseLanguage(language) ? "よろしく、狼同士まずは落ち着いて合わせよう" : "Good to meet you. Let's stay coordinated."],
-    metadata: emptySpeechMetadata()
-  };
-}
-
 function compactHumanSpeech(value: string | undefined, language: string): string | null {
   const compact = value?.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -2024,8 +2017,8 @@ export class WerewolfGame {
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
-  // AI wolves use fast single-call intros. A human werewolf may add one greeting, but that line is
-  // display-only: it is emitted to the story and intentionally not fed into wolfHistory.
+  // AI wolves use fast single-call intros. A human werewolf may enter an optional greeting, but
+  // it is display-only input and intentionally does not gate or feed later generation.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     // A lone wolf has no allies to meet, and the player already knows their own role.
@@ -2058,18 +2051,7 @@ export class WerewolfGame {
     }
 
     if (humanWerewolf) {
-      const speech = await this.requestHumanWerewolfGreeting(humanWerewolf, werewolves);
-      for (const [index, message] of speech.messages.entries()) {
-        yield this.emit(
-          "player_speech",
-          message,
-          speechEventData(speech, message, index, "werewolf", {
-            werewolfGreeting: true,
-            nonInfluential: true
-          }),
-          humanWerewolf
-        );
-      }
+      this.requestHumanWerewolfGreeting(humanWerewolf, werewolves);
     }
   }
 
@@ -2741,10 +2723,10 @@ export class WerewolfGame {
     ];
   }
 
-  private async requestHumanWerewolfGreeting(player: Player, werewolves: Player[]): Promise<AgentSpeech> {
+  private requestHumanWerewolfGreeting(player: Player, werewolves: Player[]): void {
     const handler = this.humanInput;
     if (!handler) {
-      return defaultHumanWerewolfGreeting(this.config.language);
+      return;
     }
 
     const contextLines = [
@@ -2754,23 +2736,30 @@ export class WerewolfGame {
         "この挨拶は顔合わせの表示用です。以降の推理・作戦・展開には使われません。"
       )
     ];
-    const response = await handler.request({
-      kind: "speech_choice",
-      speechMode: "werewolf_greeting",
-      playerId: player.id,
-      playerName: player.name,
-      phase: this.phase,
-      role: player.role,
-      task: this.text("Enter a greeting for your werewolf allies.", "人狼陣営の仲間へ挨拶を入力してください。"),
-      context: buildHumanInputContext({
-        uiContext: contextLines,
-        publicHistory: [],
-        privateHistory: this.humanVisiblePrivateHistory(player)
-      }),
-      options: []
-    });
-
-    return humanFreeTextSpeech(response.speech, this.config.language) ?? defaultHumanWerewolfGreeting(this.config.language);
+    void handler
+      .request({
+        kind: "speech_choice",
+        speechMode: "werewolf_greeting",
+        nonBlocking: true,
+        playerId: player.id,
+        playerName: player.name,
+        phase: this.phase,
+        role: player.role,
+        task: this.text("Enter a greeting for your werewolf allies.", "人狼陣営の仲間へ挨拶を入力してください。"),
+        context: buildHumanInputContext({
+          uiContext: contextLines,
+          publicHistory: [],
+          privateHistory: this.humanVisiblePrivateHistory(player)
+        }),
+        options: []
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.abortSignal?.aborted || message === "Human input session was closed.") {
+          return;
+        }
+        console.warn(`[human-greeting] ${player.name}: ${message}; continuing without greeting.`);
+      });
   }
 
   // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.

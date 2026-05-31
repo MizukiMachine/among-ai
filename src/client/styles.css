@@ -2183,6 +2183,7 @@ input[type="range"] {
   gap: 14px;
   margin-top: 2px;
   overflow: visible;
+  padding-bottom: 18px;
   pointer-events: none;
   transform: none;
 }
@@ -2283,10 +2284,8 @@ input[type="range"] {
   max-height: calc(100% - 170px);
   align-content: start;
   gap: 14px;
-  overflow-y: auto;
+  overflow: visible;
   padding: 72px 36px 0 84px;
-  scrollbar-color: rgba(255, 255, 255, 0.34) transparent;
-  scrollbar-width: thin;
 }
 
 .story-hero:has(.hero-character) .story-copy {

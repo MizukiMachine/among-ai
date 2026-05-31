@@ -101,6 +101,10 @@ function markUiTourSeen(): void {
   }
 }
 
+function isBlockingHumanInput(request: HumanInputRequest | null): request is HumanInputRequest {
+  return Boolean(request && !request.nonBlocking);
+}
+
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
 // reordering re-keys characters onto slot ids p1..pN (see characters.ts), so we map the asset
 // files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
@@ -1374,9 +1378,12 @@ export function App() {
   const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
-  const readyHumanInput = pendingHumanInput && queuedEvents.length === 0 ? pendingHumanInput : null;
+  const blockingHumanInput = isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
+  const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
+  const readyHumanInput = blockingHumanInput && queuedEvents.length === 0 ? blockingHumanInput : null;
+  const visibleHumanInput = readyHumanInput ?? nonBlockingHumanInput;
   const pendingHumanInputNotice =
-    pendingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? pendingHumanInput : null;
+    blockingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? blockingHumanInput : null;
   const selectedCharacterPlayer = selectedCharacterId ? snapshot?.players.find((player) => player.id === selectedCharacterId) ?? null : null;
   const selectedCharacterProfile = getCharacterProfile(selectedCharacterId);
 
@@ -1984,7 +1991,11 @@ export function App() {
       setHumanSpeech("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
-      setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
+      if (isBlockingHumanInput(request)) {
+        setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
+      } else {
+        setGameStatus("生成中");
+      }
     });
 
     source.addEventListener("done", () => {
@@ -1992,6 +2003,7 @@ export function App() {
       setRunning(false);
       setSourceDone(true);
       setGenerationProgress(null);
+      resetHumanInputState();
       setGameStatus("生成完了");
       source.close();
       if (sourceRef.current === source) {
@@ -2004,6 +2016,7 @@ export function App() {
       setRunning(false);
       setSourceDone(true);
       setGenerationProgress(null);
+      resetHumanInputState();
       setGameStatus("エラー");
       const errorMessage = streamErrorMessageFromData(
         "data" in message && typeof message.data === "string" ? message.data : undefined
@@ -2066,7 +2079,9 @@ export function App() {
     setEvents((visible) => [...visible, next]);
     setSnapshot(next.snapshot);
     playEventSfx(next);
-    setGameStatus(pendingHumanInput ? statusForPendingHumanInput(remaining.length) : statusForVisibleStory(next, remaining.length));
+    setGameStatus(
+      isBlockingHumanInput(pendingHumanInput) ? statusForPendingHumanInput(remaining.length) : statusForVisibleStory(next, remaining.length)
+    );
   }
 
   function retreatStory() {
@@ -2151,10 +2166,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (pendingHumanInput && queuedEvents.length === 0 && !paused) {
+    if (readyHumanInput && !paused) {
       setStatus("入力待ち");
     }
-  }, [pendingHumanInput, paused, queuedEvents.length]);
+  }, [paused, readyHumanInput]);
 
   useEffect(() => {
     if (selectedCharacterId && snapshot && !snapshot.players.some((player) => player.id === selectedCharacterId && player.alive)) {
@@ -2401,7 +2416,7 @@ export function App() {
     const title = prompt.kind === "speech_choice" ? (isWerewolfGreeting ? "挨拶" : "発言") : prompt.kind === "target" ? prompt.action : prompt.question;
     const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
     const canSubmitHumanSpeech = humanSpeech.trim().length > 0;
-    const speechHint = isWerewolfGreeting ? "仲間への挨拶を入力してみましょう" : "候補から選ぶか、自由に発言を入力してください";
+    const speechHint = isWerewolfGreeting ? "任意の挨拶です。入力しなくても進行します" : "候補から選ぶか、自由に発言を入力してください";
     const speechPlaceholder = isWerewolfGreeting ? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";
     const speechAriaLabel = isWerewolfGreeting ? "挨拶の入力" : "自由入力の発言";
     const speechSubmitLabel = isWerewolfGreeting ? "挨拶する" : "発言する";
@@ -3737,7 +3752,7 @@ export function App() {
                         {renderEventDetails(currentEvent, hidden)}
                         {renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id)}
                       </div>
-                      {renderHumanInputPanel(readyHumanInput)}
+                      {renderHumanInputPanel(visibleHumanInput)}
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}
 

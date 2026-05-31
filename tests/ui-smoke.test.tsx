@@ -323,6 +323,7 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.doesNotMatch(source, /function renderHeroCast/);
   assert.doesNotMatch(source, /className=\{`hero-cast/);
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*relative[^}]*width:\s*min\(100%,\s*860px\)[^}]*transform:\s*none/s);
+  assert.match(css, /\.mentioned-character-strip\s*\{[^}]*padding-bottom:\s*18px;/s);
   assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 28px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*width:\s*min\(100%,\s*640px\)/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 28px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*flex-wrap:\s*wrap/s);
@@ -476,7 +477,10 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-panel\s*\{[^}]*min-height:\s*0/s);
   assert.match(css, /\.novel-stage\s*\{[^}]*height:\s*100%/s);
   assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 170px\)/s);
-  assert.match(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.story-copy\s*\{[^}]*overflow:\s*visible/s);
+  assert.match(css, /\.story-copy > p\s*\{[^}]*-webkit-line-clamp:\s*5/s);
+  assert.doesNotMatch(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.doesNotMatch(css, /\.story-copy::-webkit-scrollbar/);
   assert.match(css, /\.setup-grid\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /\.story-controls\s*\{[^}]*bottom:\s*18px/s);
@@ -712,14 +716,19 @@ test("human input waits behind unread story events with a visible notice", () =>
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /const readyHumanInput = pendingHumanInput && queuedEvents\.length === 0 \? pendingHumanInput : null;/);
+  assert.match(source, /function isBlockingHumanInput\(request: HumanInputRequest \| null\): request is HumanInputRequest/);
+  assert.match(source, /const blockingHumanInput = isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
+  assert.match(source, /const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
+  assert.match(source, /const readyHumanInput = blockingHumanInput && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
+  assert.match(source, /const visibleHumanInput = readyHumanInput \?\? nonBlockingHumanInput;/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
-  assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? pendingHumanInput : null;/);
+  assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? blockingHumanInput : null;/);
   assert.doesNotMatch(source, /const visibleBeforeInput = queuedRef\.current;/);
   assert.match(source, /入力前確認/);
   assert.match(source, /function statusForPendingHumanInput\(remainingCount: number\)/);
+  assert.match(source, /if \(isBlockingHumanInput\(request\)\) \{/);
   assert.match(source, /setGameStatus\(statusForPendingHumanInput\(queuedRef\.current\.length\)\);/);
-  assert.match(source, /setGameStatus\(pendingHumanInput \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)\);/);
+  assert.match(source, /isBlockingHumanInput\(pendingHumanInput\) \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)/);
   assert.match(source, /function renderPendingHumanInputNotice/);
   assert.match(source, /あなたの意思決定が近づいています/);
   assert.match(source, /次へで入力前の会話を確認してください/);
@@ -727,7 +736,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
   assert.match(source, /speechMode === "werewolf_greeting"/);
-  assert.match(source, /仲間への挨拶を入力してみましょう/);
+  assert.match(source, /任意の挨拶です。入力しなくても進行します/);
   assert.match(source, /const speechPlaceholder = isWerewolfGreeting \? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
