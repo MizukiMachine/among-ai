@@ -86,7 +86,7 @@ test("public speech plan renders public death knowledge separately from speech i
   assert.match(rendered, /投票基準を出す/);
   assert.match(rendered, /公開上の死因: 不明/);
   assert.match(rendered, /魔女の毒薬/);
-  assert.match(rendered, /自分の疑い・信頼・保留/);
+  assert.match(rendered, /自分の疑い・信頼・投票候補/);
   assert.match(rendered, /質問、様子見、今後見る点だけで終えず/);
   assert.match(rendered, /死因候補を並べるだけで終わらず/);
 });
@@ -132,6 +132,116 @@ test("public speech diversity context summarizes used reads and asks for a new a
   assert.match(rendered, /ユイ -> ガク: 信頼（投票理由が自然）/);
   assert.match(rendered, /同じ対象と同じ理由を繰り返すだけにしない/);
   assert.match(rendered, /別の根拠/);
+});
+
+test("later-day agenda scheduler spreads concrete evidence focus across first-pass speakers", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Seer", "p2", "ノゾミ"),
+    player("Villager", "p3", "アキオミ"),
+    player("Witch", "p4", "イオリ"),
+    player("Villager", "p5", "コハル")
+  ];
+  const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
+  const previousVotes = [
+    { voterId: "p1", targetId: "p3" },
+    { voterId: "p2", targetId: "p3" },
+    { voterId: "p3", targetId: "p5" },
+    { voterId: "p4", targetId: "p5" },
+    { voterId: "p5", targetId: "p3" }
+  ];
+  const publicHistory = [
+    "ノゾミ: 占い師として出ます。アキオミは人狼判定です。",
+    "主張: ノゾミが占い師を主張 対象:アキオミ 人狼判定",
+    "第1ラウンド投票: セナ -> アキオミ、ノゾミ -> アキオミ、アキオミ -> コハル、イオリ -> コハル、コハル -> アキオミ。"
+  ];
+
+  const speakerOrder = [players[1], players[2], players[3], players[4], players[0]];
+  const plans = speakerOrder.map((speaker) =>
+    buildPublicSpeechPlan({
+      phase: "day_discussion",
+      round: 2,
+      discussionPass: 1,
+      players,
+      lastNightDeaths: [{ playerId: "p1", cause: "werewolf" }],
+      legalPlayers,
+      language: "Japanese",
+      speakerId: speaker.id,
+      publicHistory,
+      previousVotes
+    })
+  );
+
+  assert.deepEqual(
+    plans.map((plan) => plan.discussionAgenda?.kind),
+    [
+      "later_day_black_result",
+      "later_day_claim_review",
+      "later_day_vote_review",
+      "later_day_night_result",
+      "later_day_read_update"
+    ]
+  );
+  assert.match(renderPublicSpeechPlan(plans[0], "Japanese").join("\n"), /黒判定をどう扱うか/);
+  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /前日の投票を材料/);
+  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /得票上位: アキオミ3票、コハル2票/);
+  assert.doesNotMatch(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /身内票|理由の薄い票/);
+  assert.match(renderPublicSpeechPlan(plans[3], "Japanese").join("\n"), /昨夜の死亡: セナ/);
+  assert.match(renderPublicSpeechPlan(plans[4], "Japanese").join("\n"), /前日から見方が変わった相手/);
+});
+
+test("later-day black-result agenda ignores dead black targets", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Seer", "p2", "ノゾミ"),
+    { ...player("Villager", "p3", "アキオミ"), alive: false },
+    player("Witch", "p4", "イオリ")
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 4,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [{ playerId: "p3", cause: "vote" }],
+    legalPlayers: players.filter((candidate) => candidate.alive && candidate.id !== "p1").map(({ id, name }) => ({ id, name })),
+    language: "Japanese",
+    speakerId: "p1",
+    publicHistory: [
+      "ノゾミ: 占い師として出ます。アキオミは人狼判定です。",
+      "主張: ノゾミが占い師を主張 対象:アキオミ 人狼判定"
+    ],
+    previousVotes: []
+  });
+  const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
+
+  assert.notEqual(plan.discussionAgenda?.kind, "later_day_black_result");
+  assert.doesNotMatch(rendered, /黒判定をどう扱うか/);
+});
+
+test("later-day no-death agenda avoids certainty and points back to visible reactions", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Werewolf", "p2", "ノゾミ"),
+    player("Guard", "p3", "アキオミ")
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 3,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [],
+    legalPlayers: players.slice(1).map(({ id, name }) => ({ id, name })),
+    language: "Japanese",
+    speakerId: "p3",
+    publicHistory: ["第2ラウンド投票: セナ -> ノゾミ、ノゾミ -> アキオミ。"],
+    previousVotes: []
+  });
+  const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
+
+  assert.equal(plan.discussionAgenda?.kind, "later_day_night_result");
+  assert.match(rendered, /昨夜は死亡なし/);
+  assert.match(rendered, /護衛成功、魔女の救済、襲撃先選びを断定せず/);
+  assert.match(rendered, /誰の反応・役職主張・投票理由を見直すか/);
 });
 
 test("first-day opening moves can satisfy special opening review rules", () => {
@@ -277,7 +387,7 @@ test("round-one opening turn does not force a stance and opens with observation"
 
   // The opening turn has no public material yet, so the after-the-fact stance
   // forcing is off and the intent invites a substantive non-conclusory opening
-  // (self-intro, CO policy, organizing) instead of an unfounded suspicion.
+  // (self-intro, role reveal policy, organizing) instead of an unfounded suspicion.
   assert.equal(plan.requiresForwardMove, false);
   assert.ok(plan.intents.some((item) => item.kind === "open_first_day"));
 
@@ -296,7 +406,7 @@ test("round-one opening turn does not force a stance and opens with observation"
 
   const coPolicy = reviewSpeechAgainstPlan(
     {
-      messages: ["占い師のCOを今日どう扱うかだけ先に決めたいです"],
+      messages: ["占い師が今日名乗る条件だけ先に決めたいです"],
       metadata
     },
     plan,
@@ -339,11 +449,11 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     assert.match(review.revisionHint ?? "", /自己紹介|中身/);
   }
 
-  // Each intended opening topic counts as substance: self-intro, CO/role policy,
+  // Each intended opening topic counts as substance: self-intro, role policy,
   // vote criteria, concrete observation, setup organizing, and engaging a player.
   for (const substantive of [
     "はじめまして、今日は落ち着いて進めたいです",
-    "占い師のCOは今日どう扱うか先に決めませんか",
+    "占い師が今日名乗る条件を先に決めませんか",
     "今日は発言の具体性を投票基準にしたいです",
     "今日はキリエの出方に注目したいです",
     "まずは配役の構成と進め方を整理しませんか",
@@ -415,7 +525,7 @@ test("timeline review rejects unseen prior statements on empty first-day history
   );
   assert.equal(unseenReference.ok, false);
   assert.match(unseenReference.issues.join("\n"), /unseen prior public speech/);
-  assert.match(unseenReference.revisionHint ?? "", /人物傾向/);
+  assert.match(unseenReference.revisionHint ?? "", /見えている材料なしでも話せる議題/);
 
   const characterTendency = reviewSpeechTimeline(
     {

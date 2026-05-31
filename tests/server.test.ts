@@ -36,20 +36,12 @@ test("stream options parse server-side spectator view and zero-speed smoke runs"
   assert.equal(options.language, "Japanese");
 });
 
-test("stream options parse the director mode and default it off", () => {
-  assert.equal(
-    parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&director=describe")).directorMode,
-    "describe"
-  );
-  assert.equal(
-    parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&director=intermediate")).directorMode,
-    "intermediate"
-  );
-  assert.equal(
-    parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&director=bogus")).directorMode,
-    "off"
-  );
-  assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7")).directorMode, "off");
+test("stream options ignore legacy director query params", () => {
+  for (const mode of ["describe", "intermediate", "bogus"]) {
+    const options = parseStreamOptions(new URL(`http://localhost/api/games/stream?players=7&director=${mode}`));
+    assert.equal(options.playerCount, 7);
+    assert.equal(Object.hasOwn(options, "directorMode"), false);
+  }
 });
 
 test("stream options default to LLM provider and LLM summaries", () => {
