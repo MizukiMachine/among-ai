@@ -408,7 +408,7 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
     `表向きの性格: ${personaHeading(player.persona, language)}。`,
     `現在: ${phaseHeading(phase, language)}、第${round}ラウンド。`,
     "",
-    "公開発言の前提:",
+    "昼の発言の前提:",
     bulletList(publicSpeech.boundary),
     "",
     "役職ごとの発言方針:",
@@ -451,15 +451,15 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
   if (publicHistory.length === 0) {
     lines.push(
       "",
-      "見えている公開発言:",
-      "- まだ、この昼の公開発言はありません。",
+      "見えている昼の発言:",
+      "- まだ、この昼の発言はありません。",
       firstDayOpeningMove
         ? firstDayOpeningMove.kind === "tentative_reaction_read"
-          ? "- 初日特別モードが有効です。割り当てられた名指しの軽い圧だけを火種にし、見えていない発言内容や反応は引用しない。"
-          : "- 初日特別モードが有効です。割り当てられた方針だけを火種にし、見えていない公開発言は引用しない。"
+          ? "- 初日特別モードが有効です。割り当てられた名指し質問だけを火種にし、見えていない発言内容や反応は引用しない。"
+          : "- 初日特別モードが有効です。割り当てられた方針だけを火種にし、見えていない発言は引用しない。"
         : "- 見えていない会話内容や反応を、既に見た根拠として扱わない。",
       firstDayOpeningMove?.kind === "tentative_reaction_read"
-        ? "- 「誰かの言う通り」「誰かの発言」「誰かの反応」のように、既に公開発言や反応があった事実として話さない。"
+        ? "- 「誰かの言う通り」「誰かの発言」「誰かの反応」のように、既に発言や反応があった事実として話さない。"
         : "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
       ...(requiresForwardMove
         ? [
@@ -468,11 +468,11 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
           ]
         : [
             "- まだ公開情報がないので、見えていない反応を根拠にしない。代わりに、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、名指し質問、軽い初日仮説のどれかを自分から出す。",
-            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、人物傾向や役職印象からの軽い質問・圧・投票候補まで言い、根拠がない断定はしない。"
+            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、人物傾向や役職印象からの軽い質問・投票候補まで言い、根拠がない断定はしない。"
           ])
     );
   } else {
-    lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));
+    lines.push("", "直近の昼の発言:", ...recentLines(publicHistory, 18));
   }
 
   if (extra.length > 0) {
@@ -533,9 +533,9 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
   }
 
   if (publicHistory.length > 0) {
-    lines.push("", "直近の公開発言:", ...recentLines(publicHistory, 18));
+    lines.push("", "直近の昼の発言:", ...recentLines(publicHistory, 18));
   } else {
-    lines.push("", "直近の公開発言:", "- まだ、この昼の公開発言はありません。");
+    lines.push("", "直近の昼の発言:", "- まだ、この昼の発言はありません。");
   }
 
   if (extra.length > 0) {
@@ -623,7 +623,7 @@ function japanesePublicSpeechSystemPrompt(options: BuildSystemPromptOptions): st
     `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
     "返答言語: 日本語。",
     "",
-    "公開発言の境界:",
+    "昼の発言の境界:",
     bulletList(publicSpeech.boundary),
     "",
     "役職ごとの発言方針:",

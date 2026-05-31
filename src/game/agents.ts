@@ -483,7 +483,7 @@ export function listJapaneseDemoCopySamples(): string[] {
     `${name}は死体なし後に説明を急いだように見えます。`,
     `${name}は初日の発言が少なく、理由を確認する投票です。`,
     `${name}は昨日の投票理由と今日の発言がつながっていません。`,
-    `${name}は今日の公開発言から一番検証しやすい投票先です。`
+    `${name}は今日の発言から一番検証しやすい投票先です。`
   ];
 }
 
@@ -798,8 +798,8 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
   if (!evidence) {
     return japanese
       ? kind === "suspect"
-        ? "公開発言から確認したい点がある"
-        : "公開発言の立場が比較的はっきりしている"
+        ? "今日の発言で確認したい点がある"
+        : "今日の立場が比較的はっきりしている"
       : kind === "suspect"
         ? "public stance needs pressure"
         : "public stance is comparatively clear";
@@ -837,17 +837,17 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
       return kind === "suspect" ? "夜の結果への反応が気になる" : "夜の結果への反応が落ち着いている";
     }
     if (evidence.kind === "participation") {
-      return kind === "suspect" ? "参加姿勢と理由を確認したい" : "参加姿勢と理由が見えている";
+      return kind === "suspect" ? "議論への入り方と理由を確認したい" : "議論への入り方が見えている";
     }
     if (evidence.kind === "consistency") {
       return kind === "suspect" ? "前後の発言がつながっていない" : "前後の発言がつながっている";
     }
     if (evidence.kind === "first_day_tentative") {
       return kind === "suspect"
-        ? "まだ公開発言がないので、軽い印象として気にしている"
-        : "まだ公開発言がないので、軽い印象として置いている";
+        ? "初日の軽い印象として理由を確認したい"
+        : "初日の軽い印象としていったん置いている";
     }
-    return kind === "suspect" ? "公開発言から確認したい点がある" : "公開発言の立場が比較的はっきりしている";
+    return kind === "suspect" ? "今日の発言で確認したい点がある" : "今日の立場が比較的はっきりしている";
   }
 
   if (evidence.kind === "seer_result") {
@@ -1604,7 +1604,7 @@ function fallbackTargetReason(decision: TargetDecision, candidates: TargetCandid
       return "今回は対象を選びません。";
     }
     return phase === "voting"
-      ? `${target.name}は今日の公開発言から一番疑わしいためです。`
+      ? `${target.name}は今日の発言から一番疑わしいためです。`
       : `${target.name}を選ぶのが今の状況で一番よいと判断しました。`;
   }
   if (!target) {
@@ -1872,7 +1872,7 @@ function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate,
     if (situation === "later_day") {
       return `${target.name}は昨日の投票理由と今日の発言がつながっていません。`;
     }
-    return `${target.name}は今日の公開発言から一番検証しやすい投票先です。`;
+    return `${target.name}は今日の発言から一番検証しやすい投票先です。`;
   }
 
   if (situation === "black_result") {
@@ -1925,7 +1925,7 @@ function demoFirstDayOpeningMoveSpeech(
       return `${targetAddress}、最初の投票基準を一つ聞かせてください。私は理由が薄い人を候補に入れます`;
     }
     if (move.kind === "tentative_reaction_read") {
-      return `${targetAddress}に軽く圧をかけます。初日は理由を出せない人を疑い寄りで見ます`;
+      return `${targetAddress}に先に理由を聞きます。初日は理由を出せない人を疑い寄りで見ます`;
     }
     return "占い師・魔女・騎士への触れ方は早めに決めたいです。役職を明かさせすぎない条件を合わせましょう";
   }
@@ -1995,7 +1995,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     metadata.suspects.push({
       targetId: openingTarget.id,
       targetName: openingTarget.name,
-      reason: japanese ? "初日の軽い圧として理由を確認したい" : "light first-day pressure to test their reason",
+      reason: japanese ? "初日の軽い確認として理由を聞きたい" : "light first-day pressure to test their reason",
       weight: input.player.persona === "aggressive" ? 0.48 : 0.36
     });
   }

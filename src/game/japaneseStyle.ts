@@ -3,6 +3,8 @@ import { promptMaterials } from "./prompts/materials";
 
 // Output-only audit list; prompts may mention these terms as examples of wording to avoid.
 export const awkwardJapaneseOutputTerms = [
+  "公開発言",
+  "参加姿勢",
   "位置",
   "盤面",
   "処理枠",
@@ -93,6 +95,8 @@ export function reviewJapaneseOutput(text: string, language: string): { ok: bool
 }
 
 const demoOutputReplacements: Array<[RegExp, string]> = [
+  [/公開発言/g, "発言"],
+  [/参加姿勢/g, "議論への入り方"],
   [/陣営の軸になりそうな位置を落として/g, "議論をまとめそうな人を襲撃して"],
   [/陣営の軸になりそうな位置/g, "議論をまとめそうな人"],
   [/陣営の軸/g, "議論をまとめる人"],

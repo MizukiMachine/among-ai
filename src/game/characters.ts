@@ -386,7 +386,7 @@ export function getPersonaForPlayer(playerId: string): Persona | undefined {
 export function characterVoiceSection(profile: CharacterProfile): string {
   const lines = [
     "この欄は話し方と人物関係の材料であり、現在の試合で起きた事実ではありません。",
-    "発言例や人物関係を、見えている公開発言や実際の行動として引用しないでください。",
+    "発言例や人物関係を、見えている昼の発言や実際の行動として引用しないでください。",
     `キャラクター名: ${profile.nameJa}（${profile.gender === "male" ? "男" : "女"}）`,
     `キャッチフレーズ: ${profile.tagline}`,
     `話し方: ${profile.speechStyle}`,

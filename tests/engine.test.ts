@@ -869,7 +869,7 @@ test("Japanese demo first-day speech opens with agenda instead of forced suspici
   const speech = await agent.speak({
     player,
     phase: "day_discussion",
-    task: "昼議論の公開発言をしてください。",
+    task: "昼議論で発言してください。",
     context: "現在のフェーズ: 昼議論。ラウンド: 1。",
     knownPlayers: [
       { id: "p1", name: "Ada" },
@@ -929,7 +929,7 @@ test("Japanese demo werewolf does not fake a black Seer result on quiet first da
   const input = {
     player,
     phase: "day_discussion" as const,
-    task: "昼議論の公開発言をしてください。",
+    task: "昼議論で発言してください。",
     context: "現在のフェーズ: 昼議論。ラウンド: 1。",
     knownPlayers: [
       { id: "p1", name: "Ada" },
@@ -958,7 +958,7 @@ test("Japanese demo Seer keeps a first-day white result hidden", async () => {
   const speech = await agent.speak({
     player,
     phase: "day_discussion",
-    task: "昼議論の公開発言をしてください。",
+    task: "昼議論で発言してください。",
     context: "現在のフェーズ: 昼議論。ラウンド: 1。",
     knownPlayers: [
       { id: "p1", name: "Ada" },
@@ -993,7 +993,7 @@ test("Japanese demo voting reason uses pre-vote framing", async () => {
     allowSkip: false
   });
 
-  assert.match(decision.reason, /公開発言|検証しやすい|投票理由|今日の発言/);
+  assert.match(decision.reason, /検証しやすい|投票理由|今日の発言/);
   assert.equal(containsAwkwardJapaneseOutputTerm(decision.reason), false);
 });
 
@@ -3850,7 +3850,7 @@ test("Japanese LLM target decision keeps private vote reason free of planning no
       player,
       phase: "voting",
       action: "昼の処刑投票",
-      context: "投票理由の前提:\n公開発言から投票先を選んでください。",
+      context: "投票理由の前提:\n今日の発言から投票先を選んでください。",
       candidates: [
         { id: "p2", name: "サクラコ" },
         { id: "p3", name: "アカネ" }
@@ -3859,7 +3859,7 @@ test("Japanese LLM target decision keeps private vote reason free of planning no
     });
 
     assert.equal(decision.targetId, "p2");
-    assert.equal(decision.reason, "サクラコは今日の公開発言から一番疑わしいためです。");
+    assert.equal(decision.reason, "サクラコは今日の発言から一番疑わしいためです。");
     assert.doesNotMatch(decision.reason, /方針|疑いを強める|strategy|pressure|record|history|slot/i);
   } finally {
     globalThis.fetch = originalFetch;
