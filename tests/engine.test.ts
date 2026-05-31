@@ -24,10 +24,12 @@ import type {
   GameEvent,
   GenerationProgress,
   Player,
+  PublicSpeechPlan,
   Role,
   SpeechGenerationDiagnostic,
   HumanInputHandler,
   HumanInputRequestPayload,
+  TargetCandidate,
   TargetDecision
 } from "../src/game/types";
 
@@ -1432,6 +1434,108 @@ test("speech diagnostics reject unseen prior statements on quiet first day", asy
   assert.deepEqual(rejected.timelineIssues, ["speech cites unseen prior public speech or action"]);
   assert.equal(rejected.attempts, 1);
   assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id));
+});
+
+test("speech retry rejection uses guarded first-day fallback instead of passive output", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  game.agents.set(
+    players[0].id,
+    new ScriptedAgent(players[0].name, [], [], [
+      {
+        messages: ["とりあえず様子を見る"],
+        metadata: emptyMetadata
+      },
+      {
+        messages: ["まだ状況が見えないから、今は保留させて"],
+        metadata: emptyMetadata
+      },
+      {
+        messages: [`${players[1].name}は投票基準がはっきりしたので信頼寄りで見ます`],
+        metadata: {
+          claims: [],
+          suspects: [],
+          trusts: [{ targetId: players[1].id, targetName: players[1].name, reason: "投票基準がはっきりしている", weight: 0.5 }]
+        }
+      }
+    ])
+  );
+
+  const events = await collect(game.runDay());
+  const firstPassSpeech = events.find(
+    (event) => event.type === "player_speech" && event.playerId === players[0].id && event.data?.discussionPass === 1
+  );
+
+  assert.ok(firstPassSpeech);
+  assert.doesNotMatch(firstPassSpeech.message, /様子見|保留|状況が見えない/);
+  assert.match(firstPassSpeech.message, /投票基準|名乗る条件|投票候補|理由/);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_rejected" && diagnostic.playerId === players[0].id));
+  assert.ok(
+    diagnostics.some(
+      (diagnostic) =>
+        diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id && diagnostic.retried && diagnostic.reviewOk
+    )
+  );
+});
+
+test("guarded speech fallback does not accuse the first legal target without visible context", () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [{ role: "Villager" }, { role: "Werewolf" }, { role: "Seer" }]);
+  const fallbackGame = game as unknown as {
+    reviewedSpeechFallback(input: AgentSpeechInput, legalPlayers: TargetCandidate[], speechPlan?: PublicSpeechPlan): AgentSpeech;
+  };
+  const legalPlayers: TargetCandidate[] = [
+    { id: players[1].id, name: players[1].name },
+    { id: players[2].id, name: players[2].name }
+  ];
+  const plan: PublicSpeechPlan = {
+    phase: "day_discussion",
+    round: 2,
+    lastNightDeaths: [],
+    possibleNightDeathCauses: [],
+    intents: ["state_living_read"],
+    requiresForwardMove: true
+  };
+  const baseInput: AgentSpeechInput = {
+    player: players[0],
+    phase: "day_discussion",
+    task: "昼議論で発言してください。",
+    context: "公開情報をもとに発言してください。",
+    knownPlayers: players.map((playerInfo) => ({ id: playerInfo.id, name: playerInfo.name })),
+    legalPlayers,
+    publicHistory: [],
+    privateHistory: []
+  };
+
+  const visibleTargetSpeech = fallbackGame.reviewedSpeechFallback(
+    {
+      ...baseInput,
+      publicHistory: [`${players[2].name}: 占い師の名乗りは結果を見てから信じたいです。`]
+    },
+    legalPlayers,
+    plan
+  );
+  assert.match(visibleTargetSpeech.messages[0], new RegExp(players[2].name));
+  assert.doesNotMatch(visibleTargetSpeech.messages[0], new RegExp(players[1].name));
+  assert.equal(visibleTargetSpeech.metadata.suspects[0]?.targetId, players[2].id);
+
+  const noTargetSpeech = fallbackGame.reviewedSpeechFallback(baseInput, legalPlayers, plan);
+  assert.doesNotMatch(noTargetSpeech.messages[0], new RegExp(players[1].name));
+  assert.match(noTargetSpeech.messages[0], /役職主張|信用寄り/);
+  assert.deepEqual(noTargetSpeech.metadata.suspects, []);
 });
 
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
