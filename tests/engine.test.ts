@@ -978,7 +978,7 @@ test("demo simulations for 6-9 players complete with consistent alive counts", a
 });
 
 test("the match opens on day one before any night actions", async () => {
-  const game = new WerewolfGame({ ...baseConfig, playerCount: 6, maxRounds: 5 });
+  const game = new WerewolfGame({ ...baseConfig, playerCount: 7, maxRounds: 5 });
   const events = await collect(game.run());
 
   const firstDay = events.findIndex((event) => event.phase === "day_discussion");
@@ -1693,6 +1693,47 @@ test("day-1 warm-up excludes the human player", async () => {
   assert.equal(speakerIds.size, players.length - 1, "every AI player intros, the human is skipped");
 });
 
+test("first-day opening keeps the human player last even when the human is p1", async () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", humanPlayerId: "p1", prefetchConcurrency: 5 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new HumanInputAgent(players[0].name, humanInput, "English"));
+  players[0].model = "human";
+  for (const player of players.slice(1)) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runDay());
+  const firstPassSpeakers = events
+    .filter((event) => event.type === "player_speech" && event.data?.discussionPass === 1)
+    .map((event) => event.playerId)
+    .filter((playerId, index, all) => index === 0 || all[index - 1] !== playerId);
+
+  assert.ok(firstPassSpeakers.length >= 2);
+  assert.equal(firstPassSpeakers[firstPassSpeakers.length - 1], players[0].id);
+  assert.ok(firstPassSpeakers.slice(0, -1).every((playerId) => playerId !== players[0].id));
+});
+
 test("day-1 warm-up stays out of real discussion history", async () => {
   const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -1715,9 +1756,87 @@ test("day-1 warm-up stays out of real discussion history", async () => {
 
   assert.ok(warmups.length > 0, "LLM day one still emits day-zero warm-up greetings");
   assert.ok(firstRegular, "regular day discussion still follows warm-up");
-  assert.ok(firstSpeechInput, "the first regular speech is generated after warm-up");
+  assert.ok(firstSpeechInput, "the first regular speech is generated");
   assert.match(firstSpeechInput.context, /No prior public statements are included/);
   assert.doesNotMatch(firstSpeechInput.context, /INTRO /, "warm-up lines must not be visible discussion evidence");
+});
+
+test("first real day speech generation starts before the first streamed game event", async () => {
+  const introGate = createDeferred<void>();
+  const speakStarted = createDeferred<string>();
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  for (const player of players) {
+    game.agents.set(
+      player.id,
+      new BlockingIntroAgent(player.name, introGate.promise, (playerId) => speakStarted.resolve(playerId))
+    );
+  }
+
+  const iterator = game.run();
+  const firstEvent = await iterator.next();
+  const startedPlayerId = await Promise.race([
+    speakStarted.promise,
+    sleepWithAbort(100).then(() => "timeout")
+  ]);
+
+  assert.equal(firstEvent.value?.type, "game_started");
+  assert.equal(startedPlayerId, players[0].id, "the first real day speech starts as soon as the game stream opens");
+  introGate.resolve();
+  await iterator.return?.(undefined);
+});
+
+test("first real day speech prefetch skips a p1 human and starts with an AI speaker", async () => {
+  const introGate = createDeferred<void>();
+  const speakStarted = createDeferred<string>();
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", humanPlayerId: "p1", prefetchConcurrency: 5 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new HumanInputAgent(players[0].name, humanInput, "English"));
+  players[0].model = "human";
+  for (const player of players.slice(1)) {
+    game.agents.set(
+      player.id,
+      new BlockingIntroAgent(player.name, introGate.promise, (playerId) => speakStarted.resolve(playerId))
+    );
+  }
+
+  const iterator = game.run();
+  const firstEvent = await iterator.next();
+  const startedPlayerId = await Promise.race([
+    speakStarted.promise,
+    sleepWithAbort(100).then(() => "timeout")
+  ]);
+
+  assert.equal(firstEvent.value?.type, "game_started");
+  assert.equal(startedPlayerId, players[1].id, "the opening day prefetch must use the first AI speaker, not the p1 human");
+  introGate.resolve();
+  await iterator.return?.(undefined);
 });
 
 test("day-1 warm-up overlaps the first real discussion speech generation", async () => {
