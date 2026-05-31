@@ -1732,7 +1732,7 @@ test("first-day werewolf face-off offers a human werewolf greeting without block
   assert.equal(greetingRequest.nonBlocking, true);
   assert.equal(greetingRequest.options.length, 0, "the face-off prompt is free-input only");
   assert.match(greetingRequest.task, /挨拶/);
-  assert.ok(greetingRequest.context.notes.some((line) => line.includes("以降の推理・作戦・展開には使われません")));
+  assert.ok(greetingRequest.context.notes.every((line) => !line.includes("以降の推理・作戦・展開には使われません")));
   assert.equal(game.wolfHistory.length, 1, "only the AI ally's generated intro is retained for later wolf context");
   assert.ok(game.wolfHistory.every((line) => !line.includes("よろしく、仲間として合わせます")));
   greetingGate.resolve({ speech: "  よろしく、仲間として合わせます。  " });

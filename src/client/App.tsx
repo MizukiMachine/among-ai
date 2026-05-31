@@ -105,8 +105,24 @@ function isBlockingHumanInput(request: HumanInputRequest | null): request is Hum
   return Boolean(request && !request.nonBlocking);
 }
 
+function isOptionalWerewolfGreetingInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+  speechMode: "werewolf_greeting";
+} {
+  return Boolean(
+    request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "werewolf_greeting"
+  );
+}
+
 export function hasSeenHumanInputRevealAnchor(revealAfterEventId: number | null, visibleEvents: Pick<GameEvent, "id">[]): boolean {
   return revealAfterEventId === null || visibleEvents.some((event) => event.id === revealAfterEventId);
+}
+
+export function isCurrentHumanInputRevealAnchor(
+  revealAfterEventId: number | null,
+  currentEvent: Pick<GameEvent, "id"> | undefined
+): boolean {
+  return revealAfterEventId === null || currentEvent?.id === revealAfterEventId;
 }
 
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
@@ -527,6 +543,15 @@ export interface ReadCluster {
   sources: string[];
   latestReason?: string;
 }
+
+type HumanSpeechInputRequest = Extract<HumanInputRequest, { kind: "speech_choice" }>;
+type HumanInputSubmitPayload = {
+  speech?: string;
+  choiceId?: string;
+  targetId?: string | null;
+  reason?: string;
+  decision?: boolean;
+};
 
 function dataString(event: GameEvent | undefined, key: string): string {
   const value = event?.data?.[key];
@@ -1387,7 +1412,11 @@ export function App() {
   const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const readyHumanInput = blockingHumanInput && queuedEvents.length === 0 ? blockingHumanInput : null;
   const deferredNonBlockingHumanInput =
-    nonBlockingHumanInput && hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events) ? nonBlockingHumanInput : null;
+    nonBlockingHumanInput &&
+    hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events) &&
+    isCurrentHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, currentEvent)
+      ? nonBlockingHumanInput
+      : null;
   const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
   const pendingHumanInputNotice =
     blockingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? blockingHumanInput : null;
@@ -2113,10 +2142,18 @@ export function App() {
     setGameStatus(statusForVisibleStory(previousEvent, nextQueue.length));
   }
 
+  function skipOptionalHumanInputOnStoryAdvance() {
+    if (!isOptionalWerewolfGreetingInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
+      return;
+    }
+    void submitHumanInput({ speech: "" });
+  }
+
   function advanceStory() {
     if (paused) {
       return;
     }
+    skipOptionalHumanInputOnStoryAdvance();
     if (settingsConfirmed && events.length === 0 && snapshot === null && queuedRef.current.length === 0) {
       startOpeningScene();
       return;
@@ -2343,27 +2380,73 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive]);
+  }, [events.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive]);
 
-  async function submitHumanInput(payload: {
-    speech?: string;
-    choiceId?: string;
-    targetId?: string | null;
-    reason?: string;
-    decision?: boolean;
-  }) {
-    if (!gameId || !pendingHumanInput || humanSubmitting) {
+  function humanSpeechEchoMessage(value: string | undefined): string | null {
+    const compact = value?.replace(/\s+/g, " ").trim();
+    if (!compact) {
+      return null;
+    }
+    const clipped = compact.length > 240 ? `${compact.slice(0, 237)}...` : compact;
+    return displayMessageText(clipped) || null;
+  }
+
+  function createLocalHumanSpeechEvent(request: HumanInputRequest, payload: HumanInputSubmitPayload): GameEvent | null {
+    if (request.kind !== "speech_choice" || !request.nonBlocking || request.speechMode !== "werewolf_greeting") {
+      return null;
+    }
+    const message = humanSpeechEchoMessage(payload.speech);
+    const eventSnapshot = snapshot ?? currentEvent?.snapshot;
+    if (!message || !eventSnapshot) {
+      return null;
+    }
+    return {
+      id: Date.now(),
+      createdAt: new Date().toISOString(),
+      round: eventSnapshot.round,
+      phase: request.phase,
+      type: "player_speech",
+      message,
+      playerId: request.playerId,
+      playerName: request.playerName,
+      role: request.role,
+      data: {
+        ...(request.phase === "werewolf_discussion" ? { visibility: "werewolf" as const } : {}),
+        localHumanEcho: true,
+        speech: message,
+        speechIndex: 0,
+        speechCount: 1,
+        suspects: [],
+        trusts: [],
+        claims: []
+      },
+      snapshot: eventSnapshot
+    };
+  }
+
+  function showLocalHumanSpeechEvent(event: GameEvent) {
+    setEvents((visible) => [...visible, event]);
+    setSnapshot(event.snapshot);
+    playEventSfx(event);
+    setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
+  }
+
+  async function submitHumanInput(payload: HumanInputSubmitPayload) {
+    const currentGameId = gameId;
+    const request = pendingHumanInput;
+    if (!currentGameId || !request || humanSubmitting) {
       return;
     }
 
+    const localHumanSpeechEvent = createLocalHumanSpeechEvent(request, payload);
     setHumanSubmitting(true);
     setHumanInputError("");
     try {
-      const response = await fetch(`/api/games/${gameId}/input`, {
+      const response = await fetch(`/api/games/${currentGameId}/input`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requestId: pendingHumanInput.id,
+          requestId: request.id,
           ...payload
         })
       });
@@ -2373,14 +2456,18 @@ export function App() {
       }
 
       resetHumanInputState();
-      setGameStatus("生成中");
+      if (localHumanSpeechEvent) {
+        showLocalHumanSpeechEvent(localHumanSpeechEvent);
+      } else {
+        setGameStatus("生成中");
+      }
     } catch (error) {
       setHumanInputError(error instanceof Error ? error.message : String(error));
       setHumanSubmitting(false);
     }
   }
 
-  function renderHumanContextLines(title: string, lines: string[]) {
+  function renderHumanContextLines(title: string, lines: string[], options: { trimTrailingJapanesePeriod?: boolean } = {}) {
     if (lines.length === 0) {
       return null;
     }
@@ -2388,9 +2475,10 @@ export function App() {
       <div className="human-context-section">
         <span>{title}</span>
         <ul>
-          {lines.map((line, index) => (
-            <li key={`${title}-${index}`}>{renderTextWithCharacterNames(line, `${title}-${index}`)}</li>
-          ))}
+          {lines.map((line, index) => {
+            const displayLine = options.trimTrailingJapanesePeriod ? line.replace(/。+$/u, "") : line;
+            return <li key={`${title}-${index}`}>{renderTextWithCharacterNames(displayLine, `${title}-${index}`)}</li>;
+          })}
         </ul>
       </div>
     );
@@ -2407,7 +2495,7 @@ export function App() {
       <details className="human-context">
         <summary>状況</summary>
         <div className="human-context-body">
-          {renderHumanContextLines("今回の判断材料", notes)}
+          {renderHumanContextLines("今回の判断材料", notes, { trimTrailingJapanesePeriod: true })}
           {renderHumanContextLines("自分だけの情報", privateHistory)}
           {renderHumanContextLines("公開ログ", publicHistory)}
         </div>
@@ -2415,20 +2503,77 @@ export function App() {
     );
   }
 
-  function renderHumanInputPanel(prompt: HumanInputRequest | null) {
+  function renderHumanSpeechInputScene(prompt: HumanSpeechInputRequest | null) {
     if (!prompt) {
       return null;
     }
 
-    const role = displayRoleLabel(prompt.role, language);
-    const isWerewolfGreeting = prompt.kind === "speech_choice" && prompt.speechMode === "werewolf_greeting";
-    const title = prompt.kind === "speech_choice" ? (isWerewolfGreeting ? "挨拶" : "発言") : prompt.kind === "target" ? prompt.action : prompt.question;
-    const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
-    const canSubmitHumanSpeech = humanSpeech.trim().length > 0;
+    const isWerewolfGreeting = prompt.speechMode === "werewolf_greeting";
+    const canSubmitHumanSpeech = isWerewolfGreeting || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfGreeting ? "任意の挨拶です。入力しなくても進行します" : "候補から選ぶか、自由に発言を入力してください";
     const speechPlaceholder = isWerewolfGreeting ? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";
     const speechAriaLabel = isWerewolfGreeting ? "挨拶の入力" : "自由入力の発言";
-    const speechSubmitLabel = isWerewolfGreeting ? "挨拶する" : "発言する";
+    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "挨拶する" : "挨拶せず進む") : "発言する";
+
+    return (
+      <section className={`human-speech-composer ${isWerewolfGreeting ? "werewolf-greeting" : ""}`} aria-label="発言入力">
+        <textarea
+          aria-label={speechAriaLabel}
+          autoFocus
+          disabled={humanSubmitting}
+          maxLength={240}
+          onChange={(event) => setHumanSpeech(event.target.value)}
+          placeholder={speechPlaceholder}
+          rows={7}
+          value={humanSpeech}
+        />
+        <div className="human-speech-submit-row">
+          <p className="human-choice-hint">{speechHint}</p>
+          <span className="human-speech-count">{humanSpeech.length}/240</span>
+          <button
+            className="icon-button primary"
+            disabled={humanSubmitting || !canSubmitHumanSpeech}
+            onClick={() => submitHumanInput({ speech: humanSpeech })}
+            type="button"
+          >
+            <Send size={18} />
+            <span>{speechSubmitLabel}</span>
+          </button>
+        </div>
+        {!isWerewolfGreeting && prompt.options.length > 0 ? (
+          <div className="human-choice-list human-speech-choice-list">
+            {prompt.options.map((option, index) => (
+              <button
+                className="human-choice-option"
+                key={option.id}
+                disabled={humanSubmitting}
+                onClick={() => submitHumanInput({ choiceId: option.id })}
+                type="button"
+              >
+                <span className="human-choice-index">{index + 1}</span>
+                <span className="human-choice-text">
+                  {option.text.split("\n").map((line, lineIndex) => (
+                    <span key={lineIndex}>{renderTextWithCharacterNames(line, `${option.id}-${lineIndex}`)}</span>
+                  ))}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {renderHumanContext(prompt)}
+        {humanInputError ? <p className="human-input-error">送信できませんでした: {humanInputError}</p> : null}
+      </section>
+    );
+  }
+
+  function renderHumanInputPanel(prompt: HumanInputRequest | null) {
+    if (!prompt || prompt.kind === "speech_choice") {
+      return null;
+    }
+
+    const role = displayRoleLabel(prompt.role, language);
+    const title = prompt.kind === "target" ? prompt.action : prompt.question;
+    const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
 
     return (
       <section className="human-input-panel" aria-label="操作入力">
@@ -2441,52 +2586,6 @@ export function App() {
         </div>
 
         {renderHumanContext(prompt)}
-
-        {prompt.kind === "speech_choice" ? (
-          <div className={`human-choice-form ${isWerewolfGreeting ? "werewolf-greeting" : ""}`}>
-            <p className="human-choice-hint">{speechHint}</p>
-            {!isWerewolfGreeting && prompt.options.length > 0 ? (
-              <div className="human-choice-list">
-                {prompt.options.map((option, index) => (
-                  <button
-                    className="human-choice-option"
-                    key={option.id}
-                    disabled={humanSubmitting}
-                    onClick={() => submitHumanInput({ choiceId: option.id })}
-                    type="button"
-                  >
-                    <span className="human-choice-index">{index + 1}</span>
-                    <span className="human-choice-text">
-                      {option.text.split("\n").map((line, lineIndex) => (
-                        <span key={lineIndex}>{renderTextWithCharacterNames(line, `${option.id}-${lineIndex}`)}</span>
-                      ))}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <div className="human-speech-form">
-              <textarea
-                aria-label={speechAriaLabel}
-                disabled={humanSubmitting}
-                maxLength={240}
-                onChange={(event) => setHumanSpeech(event.target.value)}
-                placeholder={speechPlaceholder}
-                rows={3}
-                value={humanSpeech}
-              />
-              <button
-                className="icon-button primary"
-                disabled={humanSubmitting || !canSubmitHumanSpeech}
-                onClick={() => submitHumanInput({ speech: humanSpeech })}
-                type="button"
-              >
-                <Send size={16} />
-                <span>{speechSubmitLabel}</span>
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         {prompt.kind === "target" ? (
           <div className="human-target-form">
@@ -2897,6 +2996,24 @@ export function App() {
             <span>ゲームをリセット</span>
           </button>
         ) : null}
+      </div>
+    );
+  }
+
+  function renderHumanInputQuickControls() {
+    return (
+      <div className="human-input-quick-controls" aria-label="入力中の補助操作">
+        <button
+          className="icon-button story-run-button story-pause-button"
+          onClick={paused ? resumeGame : pauseGame}
+          disabled={runControlState.pauseDisabled}
+          title={paused ? "一時停止した対局を再開" : "対局を一時停止"}
+          type="button"
+        >
+          {paused ? <Play size={16} /> : <Square size={15} />}
+          <span>{runControlState.pauseLabel}</span>
+        </button>
+        {renderAudioMuteButton()}
       </div>
     );
   }
@@ -3719,99 +3836,124 @@ export function App() {
           ) : null}
 
           <section className="panel story-panel">
-            <div className={`novel-stage ${currentEvent ? "" : "empty"}`}>
-              {currentEvent ? (
+            <div className={`novel-stage ${currentEvent || visibleHumanInput ? "" : "empty"}`}>
+              {currentEvent || visibleHumanInput ? (
                 (() => {
-                  const hidden = isEventRedactedForSpectator(currentEvent, spectatorMode);
-                  const tone = eventTone(currentEvent);
-                  const isSpeech = currentEvent.type === "player_speech";
-                  const lightTone = currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length);
-                  const mentionedCharacters = mentionedCharactersForEvent(currentEvent, hidden, spectatorMode, language);
+                  const speechInputPrompt = visibleHumanInput?.kind === "speech_choice" ? visibleHumanInput : null;
+                  const actionHumanInput = visibleHumanInput && visibleHumanInput.kind !== "speech_choice" ? visibleHumanInput : null;
+                  const hidden = speechInputPrompt ? false : currentEvent ? isEventRedactedForSpectator(currentEvent, spectatorMode) : false;
+                  const tone = currentEvent ? eventTone(currentEvent) : "";
+                  const isSpeech = currentEvent?.type === "player_speech";
+                  const lightTone = currentEvent ? currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length) : currentStageLightTone ?? "cyan";
+                  const storyPhase = speechInputPrompt?.phase ?? currentEvent?.phase ?? "setup";
+                  const storyEventType = speechInputPrompt ? "player_speech" : currentEvent?.type;
+                  const storyLightKey = speechInputPrompt ? `${currentEvent?.id ?? "input"}-${speechInputPrompt.id}` : currentEvent?.id;
+                  const mentionedCharacters =
+                    currentEvent && !speechInputPrompt ? mentionedCharactersForEvent(currentEvent, hidden, spectatorMode, language) : [];
+                  const heroCharacterImage = speechInputPrompt ? getCharacterPortrait(speechInputPrompt.playerId) : activeSpeakerImage;
                   const speakerName =
-                    isSpeech && currentEvent.playerName && !hidden
-                      ? currentEvent.playerName
-                      : currentEvent.type === "system"
+                    speechInputPrompt
+                      ? speechInputPrompt.playerName
+                      : isSpeech && currentEvent?.playerName && !hidden
+                        ? currentEvent.playerName
+                        : currentEvent?.type === "system"
                         ? "システム"
                         : "進行";
                   return (
-                    <article className={`scene-card story-hero ${currentEvent.type} ${tone} ${hidden ? "secret-redacted" : ""}`}>
-                      {renderStageBackdrop(currentEvent.phase, currentEvent.type, hidden, lightTone, currentEvent.id)}
-                      {activeSpeakerImage && !hidden && isSpeech ? (
-                        <CharacterImage alt={speakerName} className="hero-character" src={activeSpeakerImage} fallback={null} />
+                    <article
+                      className={`scene-card story-hero ${currentEvent?.type ?? "human_input"} ${tone} ${
+                        hidden ? "secret-redacted" : ""
+                      } ${speechInputPrompt ? "human-input-hero" : ""}`}
+                    >
+                      {renderStageBackdrop(storyPhase, storyEventType, hidden, lightTone, storyLightKey)}
+                      {heroCharacterImage && !hidden && (isSpeech || speechInputPrompt) ? (
+                        <CharacterImage
+                          alt={speakerName}
+                          className={`hero-character ${speechInputPrompt ? "human-input-character" : ""}`}
+                          src={heroCharacterImage}
+                          fallback={null}
+                        />
                       ) : null}
-                      <div className="story-copy">
+                      <div className={`story-copy ${speechInputPrompt ? "human-input-copy" : ""}`}>
                         <div className="event-meta hero-meta">
-                          <span>{eventRoundLabel(currentEvent.round, language)}</span>
-                          <span>{eventPhaseMetaLabel(currentEvent.phase, language)}</span>
-                          {currentEvent.role && spectatorMode === "omniscient" && !hidden ? (
+                          <span>{eventRoundLabel(currentEvent?.round ?? snapshot?.round ?? 0, language)}</span>
+                          <span>{eventPhaseMetaLabel(storyPhase, language)}</span>
+                          {speechInputPrompt ? (
+                            <span className={roleClassName(speechInputPrompt.role)}>{displayRoleLabel(speechInputPrompt.role, language)}</span>
+                          ) : currentEvent?.role && spectatorMode === "omniscient" && !hidden ? (
                             <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
                           ) : null}
                         </div>
                         <div className="speaker-line">
                           <span>
-                            {isSpeech && currentEvent.playerId && !hidden ? (
+                            {speechInputPrompt ? (
+                              <CharacterName playerId={speechInputPrompt.playerId}>{speakerName}</CharacterName>
+                            ) : isSpeech && currentEvent?.playerId && !hidden ? (
                               <CharacterName playerId={currentEvent.playerId}>{speakerName}</CharacterName>
                             ) : (
                               speakerName
                             )}
                           </span>
-                          {renderSpeakerUnreadStatus()}
+                          {speechInputPrompt ? null : renderSpeakerUnreadStatus()}
                         </div>
-                        {renderStoryBody(currentEvent, hidden)}
-                        {renderEventDetails(currentEvent, hidden)}
-                        {renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id)}
+                        {speechInputPrompt ? renderHumanSpeechInputScene(speechInputPrompt) : currentEvent ? renderStoryBody(currentEvent, hidden) : null}
+                        {!speechInputPrompt && currentEvent ? renderEventDetails(currentEvent, hidden) : null}
+                        {!speechInputPrompt && currentEvent ? renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id) : null}
                       </div>
-                      {renderHumanInputPanel(visibleHumanInput)}
+                      {renderHumanInputPanel(actionHumanInput)}
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}
+                      {speechInputPrompt ? renderHumanInputQuickControls() : null}
 
-                      <div className="story-controls" ref={storyControlsRef}>
-                        <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
-                          <ChevronLeft size={20} />
-                          <span className="story-button-label">
-                            <span>戻る</span>
-                            <kbd>←</kbd>
-                          </span>
-                        </button>
-                        <button
-                          className={`icon-button primary story-next ${storyWaitingForStream ? "is-loading" : ""}`}
-                          disabled={storyNextDisabled}
-                          onClick={advanceStory}
-                          aria-busy={storyWaitingForStream}
-                          type="button"
-                        >
-                          {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
-                          <span className="story-button-label">
-                            <span>{primaryActionLabel}</span>
-                            <kbd>{primaryActionHint}</kbd>
-                          </span>
-                          <ChevronRight className="story-next-chevron" size={20} />
-                        </button>
-                        {renderRunControls()}
-                        {!humanEnabled ? (
-                          <div className="view-toggle view-toggle-inline">
-                            <button
-                              className={spectatorMode === "omniscient" ? "selected" : ""}
-                              onClick={() => setSpectatorMode("omniscient")}
-                              type="button"
-                              title="すべての役職と非公開イベントを表示"
-                            >
-                              <Eye size={15} />
-                              全情報
-                            </button>
-                            <button
-                              className={spectatorMode === "village" ? "selected" : ""}
-                              onClick={() => setSpectatorMode("village")}
-                              type="button"
-                              title="役職と夜の非公開イベントを隠す"
-                            >
-                              <EyeOff size={15} />
-                              人間視点
-                            </button>
-                          </div>
-                        ) : null}
-                        {renderAudioMuteButton()}
-                      </div>
+                      {!speechInputPrompt ? (
+                        <div className="story-controls" ref={storyControlsRef}>
+                          <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                            <ChevronLeft size={20} />
+                            <span className="story-button-label">
+                              <span>戻る</span>
+                              <kbd>←</kbd>
+                            </span>
+                          </button>
+                          <button
+                            className={`icon-button primary story-next ${storyWaitingForStream ? "is-loading" : ""}`}
+                            disabled={storyNextDisabled}
+                            onClick={advanceStory}
+                            aria-busy={storyWaitingForStream}
+                            type="button"
+                          >
+                            {storyWaitingForStream ? <LoaderCircle className="story-next-spinner" size={18} /> : null}
+                            <span className="story-button-label">
+                              <span>{primaryActionLabel}</span>
+                              <kbd>{primaryActionHint}</kbd>
+                            </span>
+                            <ChevronRight className="story-next-chevron" size={20} />
+                          </button>
+                          {renderRunControls()}
+                          {!humanEnabled ? (
+                            <div className="view-toggle view-toggle-inline">
+                              <button
+                                className={spectatorMode === "omniscient" ? "selected" : ""}
+                                onClick={() => setSpectatorMode("omniscient")}
+                                type="button"
+                                title="すべての役職と非公開イベントを表示"
+                              >
+                                <Eye size={15} />
+                                全情報
+                              </button>
+                              <button
+                                className={spectatorMode === "village" ? "selected" : ""}
+                                onClick={() => setSpectatorMode("village")}
+                                type="button"
+                                title="役職と夜の非公開イベントを隠す"
+                              >
+                                <EyeOff size={15} />
+                                人間視点
+                              </button>
+                            </div>
+                          ) : null}
+                          {renderAudioMuteButton()}
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })()

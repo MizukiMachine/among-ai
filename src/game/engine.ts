@@ -2835,13 +2835,7 @@ export class WerewolfGame {
       return;
     }
 
-    const contextLines = [
-      ...this.werewolfFaceoffContextLines(werewolves),
-      this.text(
-        "This greeting is only shown in the opening face-off and is not used as evidence or strategy for later generation.",
-        "この挨拶は顔合わせの表示用です。以降の推理・作戦・展開には使われません。"
-      )
-    ];
+    const contextLines = this.werewolfFaceoffContextLines(werewolves);
     void handler
       .request({
         kind: "speech_choice",

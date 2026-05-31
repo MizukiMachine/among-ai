@@ -162,6 +162,30 @@ test("human speech choice input accepts either a drafted choice or free text", a
   session.close();
 });
 
+test("optional werewolf greeting input accepts an empty skip", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const greetingPromise = session.request({
+    kind: "speech_choice",
+    speechMode: "werewolf_greeting",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "werewolf_discussion",
+    role: "Werewolf",
+    task: "挨拶してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: []
+  });
+
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
+  assert.deepEqual(await greetingPromise, {});
+  session.close();
+});
+
 test("village stream payload is redacted on the server before SSE delivery", async () => {
   const app = createApp();
   const response = await app.request(
