@@ -660,14 +660,18 @@ test("stream connection errors produce a visible Japanese message", () => {
   assert.equal(streamErrorMessageFromData("plain failure"), "plain failure");
 });
 
-test("setting confirmation starts generation before the game start reveal", () => {
+test("game start begins generation after settings are confirmed", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /const revealFirstEventRef = useRef\(false\)/);
   assert.match(source, /function confirmSettings\(\)/);
-  assert.match(source, /setSettingsConfirmed\(true\);\s*startGame\(\);/);
+  assert.match(source, /setSettingsConfirmed\(true\);/);
+  assert.doesNotMatch(source, /setSettingsConfirmed\(true\);\s*startGame\(\);/);
+  assert.match(source, /function startOpeningScene\(\)/);
+  assert.match(source, /startGame\(\{ revealFirstEvent: true \}\);/);
   assert.match(source, /const primaryActionLabel = primaryActionIsGameStart \? "ゲーム開始"/);
   assert.match(source, /<span>設定を決定<\/span>/);
+  assert.match(source, /ゲーム開始を押すと対局を開始します。/);
   assert.match(source, /summary: "deterministic"/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
@@ -696,7 +700,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
   assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
-  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, startupWaitActive\]\);/);
+  assert.match(source, /\}, \[events\.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 
