@@ -1925,6 +1925,39 @@ test("human participation still reports batched progress for AI day work", async
   assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));
 });
 
+test("human speech choice can publish free text instead of a drafted option", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { speech: "  自分の言葉で話します。  " };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3", language: "Japanese" }, { humanInput }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "Japanese"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const humanSpeechEvents = events.filter((event) => event.type === "player_speech" && event.playerId === players[2].id);
+
+  assert.ok(requests.some((request) => request.kind === "speech_choice" && request.options.length > 0));
+  assert.ok(humanSpeechEvents.some((event) => event.message === "自分の言葉で話します"));
+});
+
 test("human Lover receives partner info in private input context", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {

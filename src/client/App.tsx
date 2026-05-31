@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Play,
   RotateCcw,
+  Send,
   Settings,
   Shield,
   Skull,
@@ -1258,6 +1259,7 @@ export function App() {
   const startupWaitTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
+  const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
@@ -1789,6 +1791,7 @@ export function App() {
 
   function resetHumanInputState() {
     setPendingHumanInput(null);
+    setHumanSpeech("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
     setHumanInputError("");
@@ -1958,6 +1961,7 @@ export function App() {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
       setGenerationProgress(null);
       setPendingHumanInput(request);
+      setHumanSpeech("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
       setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
@@ -2298,6 +2302,7 @@ export function App() {
   }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive]);
 
   async function submitHumanInput(payload: {
+    speech?: string;
     choiceId?: string;
     targetId?: string | null;
     reason?: string;
@@ -2374,6 +2379,7 @@ export function App() {
     const role = displayRoleLabel(prompt.role, language);
     const title = prompt.kind === "speech_choice" ? "発言" : prompt.kind === "target" ? prompt.action : prompt.question;
     const selectedTarget = prompt.kind === "target" ? prompt.candidates.find((candidate) => candidate.id === humanTargetId) : null;
+    const canSubmitHumanSpeech = humanSpeech.trim().length > 0;
 
     return (
       <section className="human-input-panel" aria-label="操作入力">
@@ -2389,7 +2395,7 @@ export function App() {
 
         {prompt.kind === "speech_choice" ? (
           <div className="human-choice-form">
-            <p className="human-choice-hint">話す内容を選んでください</p>
+            <p className="human-choice-hint">候補から選ぶか、自由に発言を入力してください</p>
             <div className="human-choice-list">
               {prompt.options.map((option, index) => (
                 <button
@@ -2407,6 +2413,26 @@ export function App() {
                   </span>
                 </button>
               ))}
+            </div>
+            <div className="human-speech-form">
+              <textarea
+                aria-label="自由入力の発言"
+                disabled={humanSubmitting}
+                maxLength={240}
+                onChange={(event) => setHumanSpeech(event.target.value)}
+                placeholder="発言を入力"
+                rows={3}
+                value={humanSpeech}
+              />
+              <button
+                className="icon-button primary"
+                disabled={humanSubmitting || !canSubmitHumanSpeech}
+                onClick={() => submitHumanInput({ speech: humanSpeech })}
+                type="button"
+              >
+                <Send size={16} />
+                <span>発言する</span>
+              </button>
             </div>
           </div>
         ) : null}
@@ -3368,12 +3394,12 @@ export function App() {
     // Place the callout beside the spotlight, picking the first side with room
     // (below → right → left → above) so tall/wide targets never push it off
     // screen; the chosen position is always clamped inside the viewport.
-    const calloutWidth = 340;
-    const calloutHeight = 200; // estimate used only for placement decisions
     const calloutMargin = 16;
     const gap = pad + 12;
     const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
     const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
+    const calloutWidth = Math.min(420, viewportWidth - calloutMargin * 2);
+    const calloutHeight = 260; // estimate used only for placement decisions
     const clampX = (x: number) => Math.min(Math.max(calloutMargin, x), viewportWidth - calloutWidth - calloutMargin);
     const clampY = (y: number) => Math.min(Math.max(calloutMargin, y), viewportHeight - calloutHeight - calloutMargin);
     let calloutStyle: CSSProperties;

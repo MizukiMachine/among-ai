@@ -695,6 +695,7 @@ test("game start begins generation after settings are confirmed", () => {
 
 test("human input waits behind unread story events with a visible notice", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /const readyHumanInput = pendingHumanInput && queuedEvents\.length === 0 \? pendingHumanInput : null;/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
@@ -709,6 +710,12 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /次へで入力前の会話を確認してください/);
   assert.match(source, /submitHumanInput\(\{ targetId: humanTargetId \}\)/);
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
+  assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
+  assert.match(source, /placeholder="発言を入力"/);
+  assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
+  assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.human-choice-text\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.human-speech-form textarea\s*\{[^}]*font-size:\s*18px;/s);
   assert.doesNotMatch(source, /あなたの判断が近づいています/);
   assert.doesNotMatch(source, /humanReason/);
   assert.doesNotMatch(source, /setHumanReason/);
@@ -788,6 +795,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // Spotlight + callout styling exists.
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
+  assert.match(css, /\.ui-tour-callout p\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(source, /const calloutWidth = Math\.min\(420, viewportWidth - calloutMargin \* 2\);/);
 });
 
 test("returning players skip the tour for a one-time startup generation gate", () => {
