@@ -873,10 +873,6 @@ function TypewriterMessage({ text, onComplete }: { text: string; onComplete?: ()
   return <p>{renderDisplayText(text.slice(0, count))}</p>;
 }
 
-function shortText(text: string, maxLength: number): string {
-  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
-}
-
 function maxCount(items: Array<{ count: number }>): number {
   return Math.max(1, ...items.map((item) => item.count));
 }
@@ -1347,7 +1343,7 @@ export function App() {
     }
     return previousTone;
   }, [events, spectatorMode]);
-  const recentHistory = events.slice(-6).reverse();
+  const conversationHistory = useMemo(() => [...events].reverse(), [events]);
   const latestVoteResult = useMemo(() => events.filter(voteResultHasVisibleData).at(-1), [events]);
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
@@ -3164,21 +3160,25 @@ export function App() {
             <div className="overlay-title">
               <History size={20} />
               <h2>会話ログ</h2>
-              <span>最近の出来事</span>
+              <span>{conversationHistory.length > 0 ? `全${conversationHistory.length}件` : "全履歴"}</span>
             </div>
             <button className="overlay-close" onClick={() => setActiveOverlay(null)} type="button" aria-label="会話ログを閉じる">
               <X size={18} />
             </button>
           </div>
-          <div className="overlay-body">
+          <div className="overlay-body conversation-log-body" tabIndex={0} aria-label="会話ログ一覧">
             <div className="timeline-list conversation-log-list">
-              {recentHistory.length > 0 ? (
-                recentHistory.map((event) => {
+              {conversationHistory.length > 0 ? (
+                conversationHistory.map((event) => {
                   const message = eventMessageForSpectator(event, spectatorMode);
+                  const speaker = eventSpeakerForSpectator(event, spectatorMode, language);
                   return (
                     <p key={event.id}>
-                      <span>R{event.round} {phaseLabel(event.phase, language)}</span>
-                      {renderTextWithCharacterNames(shortText(message, 76), `history-${event.id}`)}
+                      <span className="conversation-log-meta">
+                        R{event.round} {phaseLabel(event.phase, language)}
+                        <strong>{renderTextWithCharacterNames(speaker, `history-speaker-${event.id}`)}</strong>
+                      </span>
+                      {renderTextWithCharacterNames(message, `history-${event.id}`)}
                     </p>
                   );
                 })

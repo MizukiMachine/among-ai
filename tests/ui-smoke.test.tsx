@@ -74,6 +74,23 @@ test("roster vote result overlay is wired next to the conversation log", () => {
   assert.match(css, /\.vote-cast-list\s*\{/);
 });
 
+test("conversation log keeps the full visible history scrollable", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /const conversationHistory = useMemo\(\(\) => \[\.\.\.events\]\.reverse\(\), \[events\]\);/);
+  assert.match(source, /conversationHistory\.map\(\(event\) =>/);
+  assert.match(source, /const speaker = eventSpeakerForSpectator\(event, spectatorMode, language\);/);
+  assert.match(source, /history-speaker-\$\{event\.id\}/);
+  assert.match(source, /aria-label="会話ログ一覧"/);
+  assert.doesNotMatch(source, /events\.slice\(-6\)/);
+  assert.doesNotMatch(source, /shortText\(message,\s*76\)/);
+  assert.match(css, /\.overlay-body\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
+  assert.match(css, /\.player-history-popover \.overlay-body\s*\{[^}]*scrollbar-gutter:\s*stable both-edges;/s);
+  assert.match(css, /\.conversation-log-list p\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /\.conversation-log-meta strong\s*\{[^}]*font-weight:\s*880;/s);
+});
+
 test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster(null, "Japanese"), null);
   assert.equal(winnerLabelForRoster("village", "Japanese"), "勝者: 人間側");
