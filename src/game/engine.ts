@@ -2559,8 +2559,14 @@ export class WerewolfGame {
         });
         if (!options.suppressMemorySideEffects) {
           console.warn(
-            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using retry output anyway.`
+            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using guarded fallback.`
           );
+        }
+        const guardedFallback = this.sanitizeSpeechForPhase(this.reviewedSpeechFallback(input, legalPlayers, options.speechPlan), legalPlayers);
+        const fallbackReview = reviewGeneratedSpeech(guardedFallback);
+        if (fallbackReview.ok) {
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
+          return guardedFallback;
         }
         emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: false });
         return retry;
@@ -2594,6 +2600,106 @@ export class WerewolfGame {
     } finally {
       requestAbort.cleanup();
     }
+  }
+
+  private fallbackTargetFromVisibleContext(input: AgentSpeechInput, legalPlayers: TargetCandidate[]): TargetCandidate | null {
+    for (const line of [...input.publicHistory].reverse()) {
+      const candidate = legalPlayers.find((player) => line.includes(player.name) || line.includes(player.id));
+      if (candidate) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private reviewedSpeechFallback(
+    input: AgentSpeechInput,
+    legalPlayers: TargetCandidate[],
+    speechPlan?: PublicSpeechPlan
+  ): AgentSpeech {
+    const openingTarget = legalPlayers[0] ?? null;
+    const target = speechPlan?.opensFirstDay ? openingTarget : this.fallbackTargetFromVisibleContext(input, legalPlayers);
+    const japanese = this.isJapanese();
+    const metadata: SpeechMetadata = {
+      suspects: [],
+      trusts: [],
+      claims: []
+    };
+    const openingMoveKind = speechPlan?.firstDayOpeningMove?.kind;
+    let message: string;
+
+    if (speechPlan?.opensFirstDay) {
+      if (japanese) {
+        if (openingMoveKind === "ask_role_claim_policy") {
+          message = "占い師は黒結果か吊られそうな時だけ名乗る形にしたいです。反対意見はありますか";
+        } else if (openingMoveKind === "early_power_role_attention") {
+          message = "占い師・魔女・騎士は無理に出さず、名乗る条件だけ先に決めましょう";
+        } else if (openingMoveKind === "ask_table_question" && target) {
+          message = `${target.name}さん、最初の投票基準を一つ聞かせてください。私は理由が薄い人を候補に入れます`;
+        } else if (openingMoveKind === "tentative_reaction_read" && target) {
+          message = `${target.name}さんに軽く圧をかけます。初日は理由を出せない人を疑い寄りで見ます`;
+          metadata.suspects.push({
+            targetId: target.id,
+            targetName: target.name,
+            reason: "初日の軽い圧として理由を確認したい",
+            weight: 0.36
+          });
+        } else if (openingMoveKind === "organize_setup") {
+          message = "先に段取りを決めたいです。占い師の名乗り条件と投票基準を今合わせませんか";
+        } else if (openingMoveKind === "overstate_village_side") {
+          message = "私は人間側として動きます。様子見だけの人は初日の投票候補に入れます";
+        } else if (openingMoveKind === "self_introduction") {
+          message = `${input.player.name}です。今日は理由の薄い便乗を投票候補に入れるつもりです`;
+        } else {
+          message = "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にします";
+        }
+      } else if (openingMoveKind === "ask_table_question" && target) {
+        message = `${target.name}, give one vote criterion first. Mine is whether the reason is concrete.`;
+      } else if (openingMoveKind === "tentative_reaction_read" && target) {
+        message = `${target.name}, I am applying light pressure first: no reason means a suspicion lean today.`;
+        metadata.suspects.push({
+          targetId: target.id,
+          targetName: target.name,
+          reason: "light first-day pressure to test their reason",
+          weight: 0.36
+        });
+      } else {
+        message = "My vote criterion today is concrete reasoning; wait-and-see answers become vote candidates.";
+      }
+    } else if (speechPlan?.requiresForwardMove) {
+      if (target) {
+        if (japanese) {
+          message = `${target.name}は理由を確認するまで投票候補に入れます`;
+          metadata.suspects.push({
+            targetId: target.id,
+            targetName: target.name,
+            reason: "公開発言で名前が出ているため理由を確認したい",
+            weight: 0.5
+          });
+        } else {
+          message = `${target.name} is my vote candidate until their reason is clarified.`;
+          metadata.suspects.push({
+            targetId: target.id,
+            targetName: target.name,
+            reason: "visible public context names them and the reason needs pressure",
+            weight: 0.5
+          });
+        }
+      } else {
+        message = japanese
+          ? "役職主張は名乗る条件と結果が合うものだけ信用寄りで見ます"
+          : "I trust only role claims whose timing and result line up.";
+      }
+    } else {
+      message = japanese
+        ? "今日は理由の具体性を投票基準にします"
+        : "My vote criterion today is concrete reasoning.";
+    }
+
+    return {
+      messages: [stripJapaneseSpeechTerminalPeriod(message, this.config.language)],
+      metadata
+    };
   }
 
   // Generates a single short day-1 warm-up self-intro for one player. Unlike safeSpeak

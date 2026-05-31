@@ -100,18 +100,18 @@ function labels(language: string) {
         ? "公開情報が少ない時も、自分の意見として生存者への暫定の疑い・信頼・投票候補を一つ出して議論を始める。保留する時は理由と次に確認したい点を添える。"
         : "When public information is thin, open with one tentative suspicion, trust, hold, or vote-candidate read on a living player.",
       open_first_day: japanese
-        ? "まだ公開発言も占い結果も投票履歴もない。疑い先や投票先を無理に決めなくてよい。短い自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針など、序盤の議題を一つ出す。『様子見』『保留』だけで終えない。"
-        : "There are no public statements, Seer results, or vote history yet. You do not have to pick a suspect or vote target, but do not waste the turn. Open with substantive content from one of: (1) a short self-introduction and how you will approach today, (2) one concrete thing you want to watch today, (3) a proposal for how to handle Seer claims today, (4) organizing the setup or flow. Do not end with only 'wait and see' or 'hold' — always say one thing with content."
+        ? "まだ公開発言も占い結果も投票履歴もない。見えていない反応は根拠にせず、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い初日仮説のどれかを自分から出して議論を動かす。『様子見』『保留』『話を聞く』で終えない。"
+        : "There are no public statements, Seer results, or vote history yet. Do not invent unseen reactions; move the table by offering vote criteria, claim-handling policy, a direct question, or a light day-one hypothesis. Do not end with only 'wait and see,' 'hold,' or 'hear people out.'"
     },
     revisionHint: japanese
       ? "前の返答は自分の判断が足りません。生存者への疑い・信頼・投票候補、または役職主張への判断を、画面に出るセリフ内ではっきり言ってください。保留する時も理由を添えてください。"
       : "The previous response did not state your stance. Revise the displayed dialogue to include suspicion, trust, hold, a vote candidate, or a claim-trust judgment.",
     emptyHistoryRevisionHint: japanese
-      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、疑いを作るよりも、自己紹介、進め方、投票理由の残し方、占い師が名乗る条件など、見えている材料なしでも話せる議題に直してください。"
+      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、名指し質問、軽い初日仮説など、材料なしでも自分から動かせる議題に直してください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance.",
     openingFillerRevisionHint: japanese
-      ? "前の返答は「様子見」「保留」だけで中身がありません。初日なので結論は急がなくてよいですが、短い自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、配役構成の整理など、中身のある一言を入れてください。"
-      : "The previous response was only 'wait and see' or 'hold' with no content. You do not need a conclusion on day one, but add one substantive thing: a short self-introduction, one concrete thing to watch today, a proposal for handling Seer claims, or organizing the setup."
+      ? "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い投票候補のどれかを自分から出してください。"
+      : "The previous response was passive and did not move the discussion. Even on day one, add vote criteria, claim policy, a direct question, or a light vote candidate."
   };
 }
 
@@ -184,20 +184,19 @@ export function renderPublicSpeechDiversityContext(
   ];
 }
 
-// Round-one opening sparks. Each round-one first-pass speaker is assigned one so
-// the opening turn has concrete, varied, non-conclusory content (self-intro,
-// setup organizing, vote criteria, role-reveal policy, power-role handling) instead of
-// degenerating into content-free "様子見"/"保留" filler.
-// `tentative_reaction_read` is intentionally excluded: on day one there is nothing
-// to react to, so that spark produced the unnatural "暫定材料" filler. The kind is
-// still defined (firstDayOpeningMove below) for completeness, but never assigned.
+// Round-one opening sparks. Each first-pass speaker is assigned one so the table
+// starts with concrete, varied pressure (vote criteria, claim policy, direct
+// questions, light day-one pressure, setup organizing) instead of degenerating
+// into content-free "様子見"/"保留" filler.
 export const firstDayOpeningMoveKinds = [
-  "self_introduction",
-  "organize_setup",
   "state_vote_criteria",
   "ask_role_claim_policy",
+  "ask_table_question",
+  "tentative_reaction_read",
   "early_power_role_attention",
-  "ask_table_question"
+  "organize_setup",
+  "overstate_village_side",
+  "self_introduction"
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
 export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
@@ -207,56 +206,56 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "自己紹介から入る" : "Open with a self-introduction",
       instruction: japanese
-        ? "短い自己紹介から入る。呼ばれたい名前や雰囲気、今日の議論への意気込みや進め方の方針を一言添える。まだ誰も疑わない。"
-        : "Open with a short self-introduction: how you want to be addressed, your mood, and your approach to today's discussion. Do not accuse anyone yet."
+        ? "短い自己紹介から入ったうえで、今日の投票基準か最初に聞きたい質問を一つ出す。『みんなの話を聞いてから』だけで止めない。"
+        : "Open with a short self-introduction, then state one vote criterion or one question you want answered today. Do not stop at hearing people out."
     },
     organize_setup: {
       kind,
       label: japanese ? "配役構成や流れを整理する" : "Organize the setup or flow",
       instruction: japanese
-        ? "配役構成や人数、初日にやるべきこと、今日の進め方を整理して全体に共有する。結論ではなく段取りの提案に留める。"
-        : "Organize and share the setup, role counts, what day one should accomplish, and how to proceed. Keep it to procedure, not a conclusion."
+        ? "配役構成や人数、初日にやるべきことを整理し、投票基準か役職の名乗り条件のどちらを先に決めるか具体的に提案する。"
+        : "Organize the setup and day-one tasks, then make a concrete proposal about vote criteria or role-claim conditions."
     },
     overstate_village_side: {
       kind,
       label: japanese ? "村側アピールが強すぎる" : "Overstate village-side self-defense",
       instruction: japanese
-        ? "初日限定の火種として、自分は人間側だと少し強めに言いすぎる。周囲が防御感を拾える余地を残す。"
+        ? "初日限定の火種として、自分は人間側だと少し強めに言い、様子見だけの相手には投票圧をかける余地を残す。"
         : "As a first-day spark, slightly overstate that you are on the village side, leaving room for others to read it as defensive."
     },
     state_vote_criteria: {
       kind,
       label: japanese ? "投票基準を出す" : "State vote criteria",
       instruction: japanese
-        ? "初日の投票基準を先に出す。理由の具体性、質問への答え方、便乗していないかなど、今後見たい基準を短く示す。"
+        ? "初日の投票基準を先に出す。理由の具体性、質問への答え方、便乗していないかなど、投票候補に入れる条件を短く示す。"
         : "Open by stating first-day vote criteria such as speaking volume, concrete answers, or stiffness."
     },
     ask_role_claim_policy: {
       kind,
       label: japanese ? "占い師が名乗る条件を聞く" : "Ask claim-policy preferences",
       instruction: japanese
-        ? "占い師が今日名乗るべき条件を全体に聞く。すぐ名乗るのか、結果が重い時だけ名乗るのか、伏せるならどう守るのかを話題にする。"
+        ? "占い師が今日名乗るべき条件について、自分の仮案を先に言ってから全体に聞く。すぐ名乗るのか、結果が重い時だけ名乗るのか、伏せるならどう守るのかを話題にする。"
         : "Ask the table how role claims, especially Seer claims, should be handled today."
     },
     ask_table_question: {
       kind,
       label: japanese ? "序盤の質問を投げる" : "Ask an opening table question",
       instruction: japanese
-        ? "誰か一人を疑うのではなく、全体に短い質問を投げる。今日の投票理由、占い師が名乗る条件、役職を明かさせすぎない進め方のどれかを聞く。"
-        : "Ask the table one short opening question about vote reasons, Seer reveal conditions, or avoiding forced role exposure. Do not accuse one player yet."
+        ? "誰か一人か全体に短い質問を投げる。今日の投票理由、占い師が名乗る条件、役職を明かさせすぎない進め方のどれかを聞き、自分の基準も一言添える。"
+        : "Ask one player or the table a short question about vote reasons, Seer reveal conditions, or avoiding forced role exposure, and include your own criterion."
     },
     tentative_reaction_read: {
       kind,
-      label: japanese ? "発言順・態度・反応を暫定材料にする" : "Use order, posture, or reaction as tentative material",
+      label: japanese ? "名指しの軽い圧をかける" : "Apply light named pressure",
       instruction: japanese
-        ? "初日限定で、発言順、態度、反応の薄さを暫定材料として扱う。ただし強い断定ではなく、反応を見るための軽い注目に留める。"
-        : "For day one only, treat speaking order, posture, or thin reactions as tentative material without hard certainty."
+        ? "初日限定で、一人を名指しして軽く揺さぶる。見えていない過去発言は引用せず、人物傾向・役職方針・初日姿勢からの軽い圧や投票候補に留める。"
+        : "For day one only, name one player and apply light pressure from personality, role-policy posture, or first-day stance without citing unseen prior speech."
     },
     early_power_role_attention: {
       kind,
       label: japanese ? "能力者への触れ方が早い" : "Touch power roles early",
       instruction: japanese
-        ? "占い師・魔女・騎士に早めに触れる。役職を明かすよう強く迫らず、守り方や話題に出す範囲の方針を話す。"
+        ? "占い師・魔女・騎士に早めに触れる。役職を明かすよう強く迫らず、名乗る条件、守り方、話題に出す範囲の方針を一つ提案する。"
         : "Bring up Seer, Witch, or Guard early without forcing exposure, using protection or handling policy as the topic."
     }
   };
@@ -430,10 +429,10 @@ function discussionAgendaFor(input: BuildPublicSpeechPlanInput, deaths: PublicNi
   const definitions: Record<DiscussionAgenda["kind"], DiscussionAgenda> = {
     day_one_opening: {
       kind: "day_one_opening",
-      label: japanese ? "初日1巡目: 序盤議題を出す" : "Day one, pass one: open with setup topics",
+      label: japanese ? "初日1巡目: 序盤議題で動かす" : "Day one, pass one: move the opening table",
       instruction: japanese
-        ? "0日目の挨拶は本議論の材料にしない。まだ発言変化・矛盾・投票履歴はないので、自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針のどれかを一つ話す。"
-        : "Do not treat warm-up greetings as discussion evidence. There are no statement changes, contradictions, or votes yet, so open with introductions, process, vote-reason standards, Seer reveal conditions, or avoiding forced role exposure."
+        ? "0日目の挨拶は本議論の材料にしない。まだ発言変化・矛盾・投票履歴はないが、全員が様子見にならないよう、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い初日仮説のどれかを一つ出す。"
+        : "Do not treat warm-up greetings as discussion evidence. There are no statement changes, contradictions, or votes yet, but prevent a passive table by offering vote criteria, claim conditions, role-exposure policy, a direct question, or a light day-one hypothesis."
     },
     day_one_response: {
       kind: "day_one_response",
@@ -664,7 +663,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
       return /(?:どうする|どう扱|聞きたい|質問|投票理由|占い師|名乗|明かさせ|進め方)/u.test(text);
     }
     if (move.kind === "tentative_reaction_read") {
-      return /(?:発言順|態度|反応|様子|硬く|薄さ|暫定材料|暫定)/u.test(text);
+      return /(?:人物傾向|初日姿勢|役職方針|暫定|揺さぶ|圧|投票候補|疑い寄り|理由を確認)/u.test(text);
     }
     return /(?:占い師|魔女|騎士|護衛|守り方|能力者)/u.test(text);
   }
@@ -682,7 +681,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
     return /\b(question|vote reason|Seer|reveal|role exposure|approach)\b/i.test(text);
   }
   if (move.kind === "tentative_reaction_read") {
-    return /\b(tentative|reaction|posture|stiff|speaking order)\b/i.test(text);
+    return /\b(tentative|light pressure|first-day stance|role-policy posture|vote candidate|suspicion lean)\b/i.test(text);
   }
   return /\b(Seer|Witch|Guard|power role|protection)\b/i.test(text);
 }
@@ -700,8 +699,6 @@ export function reviewSpeechTimeline(
   }
 
   const text = speech.messages.join(" ");
-  const allowOpeningAttitudeReference =
-    publicHistory.length === 0 && plan?.firstDayOpeningMove?.kind === "tentative_reaction_read";
   const genericUnseenReference =
     publicHistory.length === 0 &&
     /(?:の言う通り|が言う通り|言った通り|指摘に同意|整理に同意|さっき|先ほど|今の反応|今の発言|乗っただけ|便乗|煙幕|煙に巻)/u.test(
@@ -725,11 +722,7 @@ export function reviewSpeechTimeline(
         `${name}の返答(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}の(?:今の|さっきの|先ほどの)反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}の(?:今の|さっきの|先ほどの)?動き(?:が|は|も|だけ|から|で)?[^。！？!?]{0,20}(?:気になる|不自然|怪し|見え|変わ|ずれ|便乗|ごまか|そら)`,
-        ...(allowOpeningAttitudeReference
-          ? []
-          : [
-              `${name}の反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`
-            ]),
+        `${name}の反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}(?:が|は)?(?:便乗|ごまか|話をそら|煙に巻)`
       ].join("|"),
       "u"
@@ -748,29 +741,52 @@ export function reviewSpeechTimeline(
   return { ok: true, issues: [] };
 }
 
-// Positive substance check for a Japanese opening-turn line. Rather than blocklisting
-// "様子見"/"保留", it requires at least one concrete opening signal so the round-one
-// table actually talks (self-intro, role reveal policy, vote criteria, a concrete
-// watch point, setup organizing, a proposal/question, village-side framing, or
-// engaging a named living player). Anything with none of these — "様子見", "保留",
-// "特に何もない", "出方を見たい" — is treated as content-free and rejected.
-// Deliberately omits generic "流れ"/"まず"/bare "見たい" so wait-and-see filler does
-// not slip through.
+// Positive substance check for a Japanese opening-turn line. The first day has no
+// public evidence yet, but the line still needs to push the table: vote criteria,
+// role policy, a named question, light pressure, or a concrete setup proposal.
+// Generic "整理したい", "話を聞く", "様子見", and "保留" are rejected even when they use
+// agenda-ish words, because those were the reported passive openings.
 function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate[]): boolean {
-  const signals = [
-    /よろしく|はじめまして|初めまして|自己紹介|紹介|私は|僕は|自分は|と申し|呼んで|名前/u, // self-introduction
-    /名乗|潜伏|潜る|伏せ|占い|霊媒|狩人|ハンター|騎士|護衛|魔女|役職|能力者|真偽|対抗/u, // role reveal policy / power roles
-    /基準|具体|返答|理由|便乗|態度/u, // vote criteria
-    /注目|観点|チェック|意識して/u, // concrete observation focus
-    /構成|配役|人数|整理|進め方|段取り|方針/u, // setup / organizing
-    /ましょう|ませんか|提案|どうする|どう扱|決めたい|聞きたい|相談/u, // proposal / question to the table
-    /村側|人間側|村人|吊られ/u // village-side framing
-  ];
-  if (signals.some((pattern) => pattern.test(text))) {
+  const passiveFiller =
+    /(?:様子見|保留|もう少し(?:話|様子)|話を聞|話聞|一通り聞|状況(?:が|は)?(?:見え|分から|わから)|動く理由がない|何とも言えない|なんとも言えない|出方を(?:見|待)|出方(?:が|は)?見たい|今は動かない)/u.test(
+      text
+    );
+  const voteOrReasonPolicy =
+    /(?:投票基準|投票理由|理由を残|理由の具体|投票候補|投票先|候補に入|理由が薄|便乗|質問への答え|返答)/u.test(text) &&
+    /(?:出す|残す|決め|合わせ|基準|候補|疑|聞かせ|答え|見ます|置きます|入れます|入れる)/u.test(text);
+  const rolePolicy =
+    /(?:占い|霊媒|狩人|ハンター|騎士|護衛|魔女|役職|能力者|名乗|潜伏|潜る|伏せ|対抗)/u.test(text) &&
+    /(?:条件|方針|決め|合わせ|守|明かさせ|出る|出す|名乗る|聞かせ|どう扱|どうする|伏せる|潜る)/u.test(text);
+  const setupProposal =
+    /(?:配役|構成|人数|進め方|段取り|方針)/u.test(text) &&
+    /(?:提案|決め|合わせ|整理し(?:ます|ましょう|ませんか)|先に|今日やる|進め(?:ます|ましょう|たい))/u.test(text);
+  const namedEngagement = legalPlayers.some((player) => {
+    const name = `${escapeRegExp(player.name)}(?:さん)?|${escapeRegExp(player.id)}`;
+    return new RegExp(
+      `(?:${name})[^。！？!?]{0,48}(?:どう|聞かせ|答え|基準|候補|疑|信頼|投票|揺さぶ|圧|置きます|置く|入れます|入れる|質問)`,
+      "u"
+    ).test(text);
+  });
+  const selfIntroWithAction =
+    /(?:よろしく|はじめまして|初めまして|自己紹介|紹介|私は|僕は|自分は|と申し|呼んで|名前)/u.test(text) &&
+    (voteOrReasonPolicy || rolePolicy || setupProposal || namedEngagement || /(?:質問|投票|占い|役職|基準|候補)/u.test(text));
+  const villagePressure =
+    /(?:村側|人間側|村人|吊られ)/u.test(text) && /(?:投票|候補|疑|理由|様子見|保留|圧)/u.test(text);
+  const active =
+    voteOrReasonPolicy ||
+    rolePolicy ||
+    setupProposal ||
+    namedEngagement ||
+    selfIntroWithAction ||
+    villagePressure;
+
+  if (!active) {
+    return false;
+  }
+  if (!passiveFiller || voteOrReasonPolicy || rolePolicy || namedEngagement || villagePressure) {
     return true;
   }
-  // Engaging a specific living player by name also counts as substantive.
-  return legalPlayers.some((player) => player.name.length > 0 && text.includes(player.name));
+  return false;
 }
 
 export function reviewSpeechAgainstPlan(

@@ -64,6 +64,11 @@ export interface BuildSystemPromptOptions {
    * suppressed. Defaults to true (forcing on) when omitted.
    */
   requiresForwardMove?: boolean;
+  /**
+   * True on the round-one opening turn. Used by speech prompts to prevent
+   * passive "wait and see" dialogue even when a hard stance is not required.
+   */
+  opensFirstDay?: boolean;
 }
 
 export const speechJsonSchemaInstruction = promptMaterials.outputFormats.speechJson.instruction;

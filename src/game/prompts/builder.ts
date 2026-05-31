@@ -455,11 +455,11 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
       "- まだ、この昼の公開発言はありません。",
       firstDayOpeningMove
         ? firstDayOpeningMove.kind === "tentative_reaction_read"
-          ? "- 初日特別モードが有効です。割り当てられた発言順・態度・反応の暫定材料だけを火種にし、見えていない発言内容は引用しない。"
+          ? "- 初日特別モードが有効です。割り当てられた名指しの軽い圧だけを火種にし、見えていない発言内容や反応は引用しない。"
           : "- 初日特別モードが有効です。割り当てられた方針だけを火種にし、見えていない公開発言は引用しない。"
         : "- 見えていない会話内容や反応を、既に見た根拠として扱わない。",
       firstDayOpeningMove?.kind === "tentative_reaction_read"
-        ? "- 「誰かの言う通り」「誰かの発言」のように、既に公開発言があった事実として話さない。"
+        ? "- 「誰かの言う通り」「誰かの発言」「誰かの反応」のように、既に公開発言や反応があった事実として話さない。"
         : "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
       ...(requiresForwardMove
         ? [
@@ -467,8 +467,8 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
             "- 今後の観察だけで終えず、画面に出るセリフ内で自分の stance まで言う。"
           ]
         : [
-            "- まだ公開情報がないので、無理に疑い先や投票先を決めなくてよい。自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針、情報整理など、材料がなくても成立する話から始める。",
-            "- 名前を出す場合も断定にせず、人物傾向や役職印象からの軽い印象に留め、根拠がないのに結論を急がない。"
+            "- まだ公開情報がないので、見えていない反応を根拠にしない。代わりに、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、名指し質問、軽い初日仮説のどれかを自分から出す。",
+            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、人物傾向や役職印象からの軽い質問・圧・投票候補まで言い、根拠がない断定はしない。"
           ])
     );
   } else {
@@ -681,6 +681,7 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
   const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
   const profile = getRolePromptProfile(options.player.role);
   const requiresForwardMove = options.requiresForwardMove ?? true;
+  const opensFirstDay = options.opensFirstDay ?? false;
   const lines = [
     "あなたは人狼ゲームの公開発話前に、発話意図と公開推理メタデータだけを決めます。",
     `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
@@ -695,6 +696,17 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
     "昼議論の進め方:",
     bulletList(publicSpeech.phaseGuidance),
     ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
+    ...(opensFirstDay
+      ? [
+          "",
+          "初日1巡目の追加ルール:",
+          bulletList([
+            "まだ強い断定はしないが、intent を hold だけにしない。",
+            "投票基準、占い師が名乗る条件、役職露出の方針、名指し質問、軽い投票候補のどれかで議論を動かす。",
+            "見えていない発言・反応・矛盾は根拠にしない。軽い読みを置く場合は first_day_tentative として扱う。"
+          ])
+        ]
+      : []),
     "",
     promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction,
     promptMaterials.outputFormats.japaneseReminder,
@@ -708,6 +720,7 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
 function japaneseSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
   const styleGuide = japaneseStyleGuide(options.language);
   const dialogueContract = japaneseDialogueContract(options.language, options.requiresForwardMove ?? true);
+  const opensFirstDay = options.opensFirstDay ?? false;
   const lines = [
     "あなたは人狼ゲームの発話意図を、画面に表示する短いセリフへ変換します。",
     `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
@@ -717,6 +730,12 @@ function japaneseSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions
     "- この段階では新しい推理を足さない。",
     "- 入力された intent と metadata の内容だけを自然な会話に直す。",
     "- メタデータのラベル、ID、JSON キー、内部用語、進行メモをセリフに写さない。",
+    ...(opensFirstDay
+      ? [
+          "- 初日1巡目でも「様子見」「保留」「話を聞く」だけのセリフにしない。",
+          "- 投票基準、役職方針、名指し質問、軽い投票候補のどれかが聞こえる文にする。"
+        ]
+      : []),
     ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
     ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",

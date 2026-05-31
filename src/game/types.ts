@@ -353,10 +353,9 @@ export interface PublicSpeechPlan {
   firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;
   /**
-   * True on the round-one opening turn. The speech must not be forced into a
-   * stance, but it must still carry substantive opening content (self-intro,
-   * observation focus, claim-handling policy, setup organizing) rather than a
-   * content-free "様子見"/"保留" filler line.
+   * True on the round-one opening turn. The speech need not claim hard evidence,
+   * but it must actively move the table (vote criteria, claim policy, direct
+   * question, light pressure) rather than a content-free "様子見"/"保留" line.
    */
   opensFirstDay?: boolean;
 }
