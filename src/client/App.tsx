@@ -38,7 +38,7 @@ import {
   type AudioSfxId
 } from "./audioAssets";
 import { createGameAudioController, type GameAudioController } from "./audioController";
-import { characterNames, characterProfiles } from "../game/characters";
+import { ORIGINAL_TO_SLOT_ID, characterNames, characterProfiles } from "../game/characters";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
@@ -98,7 +98,11 @@ function markUiTourSeen(): void {
   }
 }
 
-const characterPortraitMap: Record<string, string> = {
+// Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
+// reordering re-keys characters onto slot ids p1..pN (see characters.ts), so we map the asset
+// files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
+// uses. Files are not renamed — only the lookup key changes.
+const portraitFileByOriginalId: Record<string, string> = {
   p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
   p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
   p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
@@ -116,7 +120,7 @@ const characterPortraitMap: Record<string, string> = {
   p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
 };
 
-const characterImageMap: Record<string, string> = {
+const thumbnailFileByOriginalId: Record<string, string> = {
   p1: `${CHARACTER_THUMBNAIL_ROOT}/p1_shion.webp`,
   p2: `${CHARACTER_THUMBNAIL_ROOT}/p2_gaku.webp`,
   p3: `${CHARACTER_THUMBNAIL_ROOT}/p3_akane.webp`,
@@ -133,6 +137,21 @@ const characterImageMap: Record<string, string> = {
   p14: `${CHARACTER_THUMBNAIL_ROOT}/p14_nozomi.webp`,
   p15: `${CHARACTER_THUMBNAIL_ROOT}/p15_akiomi.webp`
 };
+
+function remapAssetMapToSlotIds(fileByOriginalId: Record<string, string>): Record<string, string> {
+  // Build in slot order (p1..pN) so the preload/warmup sequence follows the cast order.
+  const bySlotId = Object.fromEntries(
+    Object.entries(fileByOriginalId).map(([originalId, file]) => [ORIGINAL_TO_SLOT_ID[originalId] ?? originalId, file])
+  );
+  return Object.fromEntries(
+    Object.keys(bySlotId)
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+      .map((slotId) => [slotId, bySlotId[slotId]])
+  );
+}
+
+const characterPortraitMap: Record<string, string> = remapAssetMapToSlotIds(portraitFileByOriginalId);
+const characterImageMap: Record<string, string> = remapAssetMapToSlotIds(thumbnailFileByOriginalId);
 
 const characterThumbnailImages = Object.values(characterImageMap);
 const characterPortraitImages = Object.values(characterPortraitMap);

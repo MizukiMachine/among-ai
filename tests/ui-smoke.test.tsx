@@ -92,7 +92,7 @@ test("dialogue keeps character names as ordinary text", () => {
 test("dialogue mentions resolve to transparent character portraits", () => {
   const mentions = mentionedCharactersForText("シオンがガクを疑う。キリエは保留です。シオンは継続。");
 
-  assert.deepEqual(mentions.map((mention) => mention.id), ["p1", "p2", "p7"]);
+  assert.deepEqual(mentions.map((mention) => mention.id), ["p8", "p9", "p13"]);
   assert.deepEqual(mentions.map((mention) => mention.name), ["シオン", "ガク", "キリエ"]);
   assert.match(mentions[0].image ?? "", /\/assets\/characters\/p1_shion\.png$/);
   assert.match(mentions[1].image ?? "", /\/assets\/characters\/p2_gaku\.png$/);
@@ -109,8 +109,8 @@ test("event mention thumbnails include visible detail data", () => {
     data: {
       reason: "キリエの指摘が決め手",
       totals: [
-        { targetId: "p1", targetName: "シオン", count: 3 },
-        { targetId: "p2", targetName: "ガク", count: 2 }
+        { targetId: "p8", targetName: "シオン", count: 3 },
+        { targetId: "p9", targetName: "ガク", count: 2 }
       ]
     },
     snapshot: {
@@ -124,7 +124,7 @@ test("event mention thumbnails include visible detail data", () => {
     }
   };
 
-  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p1", "p2"]);
+  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p8", "p9"]);
 });
 
 test("round summary mention thumbnails include summary board names", () => {
@@ -136,17 +136,17 @@ test("round summary mention thumbnails include summary board names", () => {
     type: "round_summary",
     message: "ラウンド2の集計です。",
     data: {
-      nightDeaths: [{ playerId: "p5", playerName: "ナギサ" }],
+      nightDeaths: [{ playerId: "p12", playerName: "ナギサ" }],
       claims: [
         {
-          speakerId: "p9",
+          speakerId: "p4",
           speakerName: "イオリ",
-          claim: { type: "seer_result", role: "Seer", targetId: "p12", targetName: "コハル", camp: "village" }
+          claim: { type: "seer_result", role: "Seer", targetId: "p5", targetName: "コハル", camp: "village" }
         }
       ],
-      suspects: [{ sourceId: "p1", sourceName: "シオン", targetId: "p7", targetName: "キリエ", reason: "発言が揺れた" }],
-      trusts: [{ sourceId: "p2", sourceName: "ガク", targetId: "p3", targetName: "アカネ", reason: "投票筋が自然" }],
-      totals: [{ targetId: "p4", targetName: "マヒロ", count: 4 }]
+      suspects: [{ sourceId: "p8", sourceName: "シオン", targetId: "p13", targetName: "キリエ", reason: "発言が揺れた" }],
+      trusts: [{ sourceId: "p9", sourceName: "ガク", targetId: "p10", targetName: "アカネ", reason: "投票筋が自然" }],
+      totals: [{ targetId: "p11", targetName: "マヒロ", count: 4 }]
     },
     snapshot: {
       round: 2,
@@ -159,7 +159,7 @@ test("round summary mention thumbnails include summary board names", () => {
     }
   };
 
-  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p5", "p9", "p12", "p7", "p1", "p3", "p2", "p4"]);
+  assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p12", "p4", "p5", "p13", "p8", "p10", "p9", "p11"]);
 });
 
 test("setup cast character names stay neutral before game start", () => {
@@ -170,7 +170,18 @@ test("setup cast character names stay neutral before game start", () => {
 
   assert.ok(start >= 0);
   assert.ok(end > start);
-  assert.match(castHtml, />シオン</);
+  const castNames = [...castHtml.matchAll(/<button[^>]*>.*?<span>([^<]+)<\/span><\/button>/g)].map(([, name]) => name);
+  const castImages = [...castHtml.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => src);
+  assert.deepEqual(castNames, ["セナ", "ノゾミ", "アキオミ", "イオリ", "コハル", "シュウヘイ", "サクラコ"]);
+  assert.deepEqual(castImages, [
+    "/assets/characters/thumbs/p13_sena.webp",
+    "/assets/characters/thumbs/p14_nozomi.webp",
+    "/assets/characters/thumbs/p15_akiomi.webp",
+    "/assets/characters/thumbs/p9_iori.webp",
+    "/assets/characters/thumbs/p12_koharu.webp",
+    "/assets/characters/thumbs/p6_shuhei.webp",
+    "/assets/characters/thumbs/p10_sakurako.webp"
+  ]);
   assert.doesNotMatch(castHtml, /character-name/);
 });
 
@@ -234,9 +245,9 @@ test("stage lighting follows speech mood and avoids repeated tones", () => {
     phase: "day_discussion",
     type: "player_speech",
     message: "ガクの発言には矛盾がある。ここは人狼の可能性を疑いたい。",
-    playerId: "p1",
+    playerId: "p8",
     playerName: "シオン",
-    data: { suspects: [{ targetId: "p2", targetName: "ガク", reason: "矛盾" }] },
+    data: { suspects: [{ targetId: "p9", targetName: "ガク", reason: "矛盾" }] },
     snapshot: {
       round: 1,
       phase: "day_discussion",
@@ -249,7 +260,7 @@ test("stage lighting follows speech mood and avoids repeated tones", () => {
   };
 
   assert.equal(stageLightMoodForEvent(baseEvent), "suspicion");
-  assert.equal(stageLightMoodForEvent({ ...baseEvent, message: "ナギサは白く見えるので信頼したい。", data: { trusts: [{ targetId: "p5" }] } }), "trust");
+  assert.equal(stageLightMoodForEvent({ ...baseEvent, message: "ナギサは白く見えるので信頼したい。", data: { trusts: [{ targetId: "p12" }] } }), "trust");
   assert.equal(stageLightMoodForEvent({ ...baseEvent, type: "vote_cast", phase: "voting", message: "シオンに投票します。" }), "vote");
 
   let previousTone = stageLightToneForEvent(baseEvent, false, 1);
@@ -391,11 +402,11 @@ test("vote result data is visible from either individual votes or totals", () =>
   };
 
   assert.equal(voteResultHasVisibleData(baseEvent), false);
-  assert.equal(voteResultHasVisibleData({ ...baseEvent, data: { totals: [{ targetId: "p1", targetName: "シオン", count: 2 }] } }), true);
+  assert.equal(voteResultHasVisibleData({ ...baseEvent, data: { totals: [{ targetId: "p8", targetName: "シオン", count: 2 }] } }), true);
   assert.equal(
     voteResultHasVisibleData({
       ...baseEvent,
-      data: { votes: [{ voterId: "p2", voterName: "ガク", targetId: "p1", targetName: "シオン" }] }
+      data: { votes: [{ voterId: "p9", voterName: "ガク", targetId: "p8", targetName: "シオン" }] }
     }),
     true
   );
@@ -697,7 +708,7 @@ test("village spectator history redacts secret event messages and speakers", () 
     phase: "werewolf_discussion",
     type: "player_speech",
     message: "シオンとガクだけに見える相談内容",
-    playerId: "p1",
+    playerId: "p8",
     playerName: "シオン",
     role: "Werewolf",
     data: { visibility: "werewolf" },
@@ -717,7 +728,7 @@ test("village spectator history redacts secret event messages and speakers", () 
   assert.deepEqual(mentionedCharactersForEvent(event, false, "village").map((mention) => mention.id), []);
   assert.equal(eventMessageForSpectator(event, "omniscient"), "シオンとガクだけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
-  assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p1", "p2"]);
+  assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p8", "p9"]);
 });
 
 test("guided UI tour spotlights the main controls at match start", () => {

@@ -1,6 +1,11 @@
 import type { CharacterProfile, Persona } from "./types";
 
-export const characterProfiles: CharacterProfile[] = [
+// Canonical character definitions. The `playerId` here is each character's *original* id; the
+// presentation/cast order is applied just below by remapping these onto slot ids p1..pN. The
+// engine always fills a match from slots p1, p2, … in order, so slot order == cast order == the
+// order these appear on the setup screen. To change who is featured first, edit CAST_ORDER below;
+// these definitions (relations, sample lines, portraits, etc.) never need to move.
+const characterDefinitions: CharacterProfile[] = [
   {
     playerId: "p1",
     nameJa: "シオン",
@@ -317,6 +322,54 @@ export const characterProfiles: CharacterProfile[] = [
     }
   }
 ];
+
+// Cast order: the characters listed here become slots p1, p2, … in this exact order, so this is
+// the order they appear on the setup screen and the order matches fill from for smaller games.
+// Listed by each character's *original* id (see characterDefinitions above). Every id appears once.
+const CAST_ORDER = [
+  "p13", // セナ
+  "p14", // ノゾミ
+  "p15", // アキオミ
+  "p9", //  イオリ
+  "p12", // コハル
+  "p6", //  シュウヘイ
+  "p10", // サクラコ
+  "p1", //  シオン
+  "p2", //  ガク
+  "p3", //  アカネ
+  "p4", //  マヒロ
+  "p5", //  ナギサ
+  "p7", //  キリエ
+  "p8", //  リクト
+  "p11" //  リンタロウ
+];
+
+// original id -> slot id (p1..pN), derived from CAST_ORDER position. Exported so the client can
+// remap portrait/thumbnail assets (which are filed under original ids) onto the slot ids.
+export const ORIGINAL_TO_SLOT_ID: Record<string, string> = Object.fromEntries(
+  CAST_ORDER.map((originalId, index) => [originalId, `p${index + 1}`])
+);
+
+const definitionsByOriginalId = new Map(characterDefinitions.map((profile) => [profile.playerId, profile]));
+
+// Re-key every character onto its slot id, remapping relation keys (which reference other
+// characters by their original id) through the same map so they keep pointing at the same people.
+export const characterProfiles: CharacterProfile[] = CAST_ORDER.map((originalId) => {
+  const profile = definitionsByOriginalId.get(originalId);
+  if (!profile) {
+    throw new Error(`CAST_ORDER references unknown character id: ${originalId}`);
+  }
+  return {
+    ...profile,
+    playerId: ORIGINAL_TO_SLOT_ID[originalId],
+    relations: Object.fromEntries(
+      Object.entries(profile.relations).map(([relatedOriginalId, text]) => [
+        ORIGINAL_TO_SLOT_ID[relatedOriginalId] ?? relatedOriginalId,
+        text
+      ])
+    )
+  };
+});
 
 export const characterNames = characterProfiles.map((profile) => profile.nameJa);
 
