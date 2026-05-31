@@ -314,6 +314,8 @@ export type FirstDayOpeningMoveKind =
   | "self_introduction"
   | "organize_setup"
   | "overstate_village_side"
+  | "wolf_human_side_claim"
+  | "wolf_fake_role_claim"
   | "state_vote_criteria"
   | "ask_role_claim_policy"
   | "ask_table_question"
@@ -446,6 +448,7 @@ export interface HumanSpeechChoiceInputRequest extends HumanInputRequestBase {
   speechMode?: "discussion" | "werewolf_greeting";
   task: string;
   options: SpeechChoiceOption[];
+  allowFreeText?: boolean;
 }
 
 export interface HumanTargetInputRequest extends HumanInputRequestBase {

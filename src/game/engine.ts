@@ -9,6 +9,7 @@ import {
   buildPublicSpeechPlan,
   firstDayOpeningMove,
   firstDayOpeningMoveKinds,
+  firstDayWerewolfOpeningMoveKinds,
   renderPublicSpeechDiversityContext,
   reviewSpeechAgainstPlan,
   reviewSpeechTimeline
@@ -192,6 +193,16 @@ function humanFreeTextSpeech(text: string | undefined, language: string): AgentS
     messages: [message],
     metadata: emptySpeechMetadata()
   };
+}
+
+function shouldLockHumanWerewolfOpeningToChoices(input: AgentSpeechInput): boolean {
+  const moveKind = input.speechPlan?.firstDayOpeningMove?.kind;
+  return (
+    input.phase === "day_discussion" &&
+    input.player.camp === "werewolf" &&
+    input.speechPlan?.opensFirstDay === true &&
+    (moveKind === "wolf_human_side_claim" || moveKind === "wolf_fake_role_claim")
+  );
 }
 
 function dedupeSpeechCandidates(candidates: AgentSpeech[]): AgentSpeech[] {
@@ -1390,12 +1401,19 @@ export class WerewolfGame {
             `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
             `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
           ),
+          this.text(
+            "Choose the kill that helps the wolf team erase the village and gives tomorrow's public acting the cleanest cover.",
+            "村人を全排除するため、明日の昼に人間側として演じやすい襲撃先を選んでください。"
+          ),
           ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
         ];
         const context = this.contextFor(wolf, contextLines);
         const speech = await this.safeSpeak(
           wolf,
-          this.text("Suggest a night victim and explain the strategic reason.", "夜の襲撃先を提案し、戦略的な理由を説明してください。"),
+          this.text(
+            "Suggest a night victim and explain how it advances a complete werewolf win.",
+            "夜の襲撃先を提案し、人狼陣営の完全勝利にどうつながるか説明してください。"
+          ),
           context,
           contextLines
         );
@@ -1977,12 +1995,29 @@ export class WerewolfGame {
       return new Map();
     }
     // Give every round-one first-pass speaker a distinct opening move so the table
-    // covers varied natural topics (self-intro, setup, vote criteria, claim policy,
-    // power-role handling) instead of degenerating into "様子見"/"保留" filler when
-    // there is nothing yet to react to. A random offset varies it across games.
+    // covers varied natural topics instead of degenerating into "様子見"/"保留" filler.
+    // Werewolves are special in the player-facing game: at least two thirds of the
+    // living wolf team open by acting explicitly human-side or by floating a fake
+    // village-role claim, so the user can enjoy the allies' public performance.
+    const assignments = new Map<string, FirstDayOpeningMoveKind>();
+    const wolfSpeakers = speakers.filter((speaker) => speaker.camp === "werewolf");
+    const wolfClaimCount = Math.ceil((wolfSpeakers.length * 2) / 3);
+    const wolfClaimSpeakers = shuffle(wolfSpeakers).slice(0, wolfClaimCount);
+    for (const [index, speaker] of wolfClaimSpeakers.entries()) {
+      assignments.set(speaker.id, firstDayWerewolfOpeningMoveKinds[index % firstDayWerewolfOpeningMoveKinds.length]);
+    }
+
     const kinds = [...firstDayOpeningMoveKinds];
     const offset = Math.floor(Math.random() * kinds.length);
-    return new Map(speakers.map((speaker, index) => [speaker.id, kinds[(offset + index) % kinds.length]]));
+    let cursor = 0;
+    for (const speaker of speakers) {
+      if (assignments.has(speaker.id)) {
+        continue;
+      }
+      assignments.set(speaker.id, kinds[(offset + cursor) % kinds.length]);
+      cursor += 1;
+    }
+    return assignments;
   }
 
   // Day-1 warm-up: a quick round of AI-only self-introductions/greetings, streamed as
@@ -2648,6 +2683,15 @@ export class WerewolfGame {
           message = "先に段取りを決めたいです。占い師の名乗り条件と投票基準を今合わせませんか";
         } else if (openingMoveKind === "overstate_village_side") {
           message = "私は人間側として動きます。様子見だけの人は初日の投票候補に入れます";
+        } else if (openingMoveKind === "wolf_human_side_claim") {
+          message = "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる";
+        } else if (openingMoveKind === "wolf_fake_role_claim") {
+          message = "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい";
+          metadata.claims.push({
+            type: "role_claim",
+            role: "Seer",
+            note: "初日の反応を見るための占い師主張"
+          });
         } else if (openingMoveKind === "self_introduction") {
           message = `${input.player.name}です。今日は理由の薄い便乗を投票候補に入れるつもりです`;
         } else {
@@ -2662,6 +2706,15 @@ export class WerewolfGame {
           targetName: target.name,
           reason: "light first-day pressure to test their reason",
           weight: 0.36
+        });
+      } else if (openingMoveKind === "wolf_human_side_claim") {
+        message = "I am playing for the village side; passive wait-and-see slots go straight into my vote pool.";
+      } else if (openingMoveKind === "wolf_fake_role_claim") {
+        message = "I am the Seer. I want to hold results unless I find black; first I want to see who resists that condition.";
+        metadata.claims.push({
+          type: "role_claim",
+          role: "Seer",
+          note: "day-one reaction-test claim"
         });
       } else {
         message = "My vote criterion today is concrete reasoning; wait-and-see answers become vote candidates.";
@@ -2758,8 +2811,8 @@ export class WerewolfGame {
     }
   }
 
-  // Generates one wolf's first-day face-off intro: allies-only, so the wolf greets the team
-  // and owns their werewolf-camp role (no attack targets/plans yet). Like safeImproviseIntro
+  // Generates one wolf's first-day face-off intro: allies-only, so the wolf greets the team,
+  // owns their role, and previews their public act (no attack targets/plans yet). Like safeImproviseIntro
   // this is a fast single call (no reasoning stage). Agents without improviseWerewolfIntro
   // fall back to a plain role-owning line via the fallback agent.
   private async safeWerewolfFaceoff(
@@ -2776,7 +2829,10 @@ export class WerewolfGame {
     const input: AgentSpeechInput = {
       player,
       phase: this.phase,
-      task: this.text("Introduce yourself to your werewolf allies.", "人狼陣営の仲間に自己紹介してください。"),
+      task: this.text(
+        "Introduce yourself to your werewolf allies and preview your public deception.",
+        "人狼陣営の仲間に自己紹介し、昼にどう騙すかを短く宣言してください。"
+      ),
       context: this.contextFor(player, contextLines),
       uiContext: contextLines,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
@@ -2823,8 +2879,8 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Greet your allies and clearly own your own role. Do not discuss attack targets or plans yet.",
-        "仲間に挨拶し、自分の役職をはっきり名乗ってください。襲撃先や作戦の相談はまだしません。"
+        "Greet your allies, clearly own your own role, and add one short line about the public act you will perform. Do not discuss attack targets or detailed plans yet.",
+        "仲間に挨拶し、自分の役職をはっきり名乗り、昼にどんな人間側の演技をするか一言だけ添えてください。襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
   }
@@ -2845,7 +2901,10 @@ export class WerewolfGame {
         playerName: player.name,
         phase: this.phase,
         role: player.role,
-        task: this.text("Enter a greeting for your werewolf allies.", "人狼陣営の仲間へ挨拶を入力してください。"),
+        task: this.text(
+          "Enter a greeting and deception line for your werewolf allies.",
+          "人狼陣営の仲間へ、挨拶と昼にどう騙すかを入力してください。"
+        ),
         context: buildHumanInputContext({
           uiContext: contextLines,
           publicHistory: [],
@@ -2872,6 +2931,7 @@ export class WerewolfGame {
   ): Promise<AgentSpeech> {
     const shadow = this.humanChoiceAgent;
     const handler = this.humanInput;
+    const lockFreeText = shouldLockHumanWerewolfOpeningToChoices(input);
     if (!shadow || !handler) {
       return this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers);
     }
@@ -2891,13 +2951,15 @@ export class WerewolfGame {
       if (this.abortSignal?.aborted || input.abortSignal?.aborted) {
         throw error;
       }
-      // Generation failed: still let the player confirm a hold rather than silently auto-publishing one.
+      // Generation failed: still let the player confirm a reviewed fallback rather than silently auto-publishing one.
       console.warn(
         `[human-choice] ${player.name}: candidate generation failed (${
           error instanceof Error ? error.message : String(error)
-        }); offering a single hold option.`
+        }); offering a single reviewed fallback option.`
       );
-      candidates = [this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers)];
+      candidates = [
+        this.sanitizeSpeechForPhase(this.reviewedSpeechFallback(input, legalPlayers, input.speechPlan), legalPlayers)
+      ];
     }
 
     const response = await handler.request({
@@ -2912,6 +2974,7 @@ export class WerewolfGame {
         publicHistory: input.publicHistory,
         privateHistory: input.privateHistory
       }),
+      allowFreeText: !lockFreeText,
       options: candidates.map((candidate, index) => ({
         id: String(index),
         text: candidate.messages.join("\n")
@@ -2919,7 +2982,7 @@ export class WerewolfGame {
     });
 
     const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
-    const customSpeech = humanFreeTextSpeech(response.speech, this.config.language);
+    const customSpeech = lockFreeText ? null : humanFreeTextSpeech(response.speech, this.config.language);
     if (customSpeech) {
       return this.sanitizeSpeechForPhase(customSpeech, legalPlayers);
     }

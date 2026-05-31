@@ -199,6 +199,11 @@ export const firstDayOpeningMoveKinds = [
   "self_introduction"
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
+export const firstDayWerewolfOpeningMoveKinds = [
+  "wolf_human_side_claim",
+  "wolf_fake_role_claim"
+] as const satisfies readonly FirstDayOpeningMoveKind[];
+
 export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
   const japanese = isJapaneseLanguage(language);
   const definitions: Record<FirstDayOpeningMoveKind, FirstDayOpeningMove> = {
@@ -222,6 +227,20 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       instruction: japanese
         ? "初日限定の火種として、自分は人間側だと少し強めに言い、様子見だけの相手は投票候補に入れる余地を残す。"
         : "As a first-day spark, slightly overstate that you are on the village side, leaving room for others to read it as defensive."
+    },
+    wolf_human_side_claim: {
+      kind,
+      label: japanese ? "人狼の人間側アピール" : "Werewolf claims village-side alignment",
+      instruction: japanese
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、自分は人間側だとはっきり主張したうえで、理由の薄い相手や様子見の相手を投票候補に入れる流れを作る。仲間や夜の相談は絶対に漏らさない。"
+        : "You are on the werewolf team. In this public opening, hide that identity, explicitly claim you are village-side, and create pressure against thin or passive players. Never expose allies or wolf-only chat."
+    },
+    wolf_fake_role_claim: {
+      kind,
+      label: japanese ? "人狼の偽役職アピール" : "Werewolf seeds a fake role claim",
+      instruction: japanese
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師など人間側役職をはっきり名乗って場を揺らす。結果を作り込みすぎず、反応を見る一言と投票基準につなげる。"
+        : "You are on the werewolf team. In this public opening, hide that identity and clearly claim a village-side role such as Seer. Keep it light and tie it to reactions or vote criteria."
     },
     state_vote_criteria: {
       kind,
@@ -650,8 +669,11 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
   }
 
   if (isJapaneseLanguage(language)) {
-    if (move.kind === "overstate_village_side") {
+    if (move.kind === "overstate_village_side" || move.kind === "wolf_human_side_claim") {
       return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,16}(?:村側|人間側|村人|白|吊られたくない)/u.test(text);
+    }
+    if (move.kind === "wolf_fake_role_claim") {
+      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,30}(?:占い師|魔女|騎士|狩人|役職|能力者|CO|名乗)/u.test(text);
     }
     if (move.kind === "state_vote_criteria") {
       return /(?:投票基準|基準|返答|具体的|理由|便乗|態度)/u.test(text);
@@ -668,8 +690,11 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
     return /(?:占い師|魔女|騎士|護衛|守り方|能力者)/u.test(text);
   }
 
-  if (move.kind === "overstate_village_side") {
+  if (move.kind === "overstate_village_side" || move.kind === "wolf_human_side_claim") {
     return /\b(I|I'm|I am|my)\b.{0,40}\b(village|villager|town|not a wolf|should not be eliminated)\b/i.test(text);
+  }
+  if (move.kind === "wolf_fake_role_claim") {
+    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Guard|Hunter|role|claim)\b/i.test(text);
   }
   if (move.kind === "state_vote_criteria") {
     return /\b(vote criteria|criteria|concrete answers|speaking volume|take a position|stiffness)\b/i.test(text);

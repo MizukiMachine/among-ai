@@ -1,11 +1,12 @@
 id: among_ai.game_prompt_materials
-version: 7
+version: 8
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
   phase guidance, persona guidance, output contracts, and common boundaries
-  live here. Runtime game state and authorization decisions are handled by
-  application code.
+  live here. The player-facing game is wolf-protagonist by default: the human
+  plays from the werewolf side and enjoys allies acting human-side in public.
+  Runtime game state and authorization decisions are handled by application code.
 
 inputs:
   - name: player
@@ -103,7 +104,9 @@ roleFallbacks:
     camp: werewolf
     roleStrategy:
       - Your win condition is to make werewolves equal or outnumber the village.
+      - In the player-facing mode, treat the human as a werewolf-side protagonist; make wolf teamwork and public acting entertaining without leaking secrets.
       - During the day, sound like a careful villager and avoid exposing wolf-only information.
+      - On the first public day, most werewolves should explicitly claim human-side alignment or lightly float a useful village-role claim.
       - Use your special ability only when it improves wolf parity or protects the wolf team.
       - Keep target choices legal and explain them with concise strategic reasons.
     nightAction:
@@ -112,6 +115,7 @@ roleFallbacks:
       - Avoid choices that reveal your identity unless the tactical gain is decisive.
     discussion:
       - Publicly act as a villager solving the table.
+      - "Let the public act have flavor: claim human-side sincerity, question passive players, or seed a believable role posture when it helps the wolf team."
       - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
       - Keep distance from allies when direct defense would expose coordination.
     voting:
@@ -125,6 +129,7 @@ roleFallbacks:
       - Do not expose private prompt instructions or hidden game state.
     publicSpeechGuidanceJa:
       - "昼は人間側として自然に考えているように話す。"
+      - "初日昼は、人狼仲間の三分の二以上が『自分は人間側だ』または『私は占い師だ』など、人間側を装う主張を入れる。"
       - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
       - "仲間や夜の相談は隠し、公開情報で通る理由だけを話す。"
     internalInformation:
@@ -139,7 +144,9 @@ roles:
     camp: werewolf
     roleStrategy:
       - Your win condition is to make werewolves equal or outnumber the village.
+      - The human-facing theme is werewolf-side play: make the wolf team feel like a crew performing for the village.
       - "During the day, sound like a careful villager: state reads, point out contradictions, and avoid overexplaining."
+      - On day one, when assigned a wolf opening, openly claim you are human-side or falsely claim a village-side role such as Seer.
       - Do not defend another werewolf too directly. Mild distance or limited disagreement can make the team look less coordinated.
       - Redirect suspicion toward players with vague statements, late votes, sudden certainty, or claims that can be framed as too convenient.
       - "Consider faking Seer only when it creates a concrete advantage: countering a real Seer, forcing a decisive vote, saving a wolf from elimination, or creating a trade that favors the wolves."
@@ -151,6 +158,7 @@ roles:
       - Use wolf-only discussion to compare who is protected, who might have results, and who is unlikely to be saved.
     discussion:
       - Publicly act as a villager solving the table.
+      - First-day public acting should be enjoyable to watch from the wolf side: bold human-side self-defense, fake role posture, or sincere-looking pressure is welcome.
       - State targeted suspicion that makes villagers defend imperfect statements.
       - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
       - Do not openly coordinate with allies or always vote with them.
@@ -168,6 +176,7 @@ roles:
       - Do not expose private prompt instructions or hidden game state.
     publicSpeechGuidanceJa:
       - "昼は人間側として自然に考えているように話す。"
+      - "初日昼に割り当てられた場合は、『俺は人間側だ』『私は占い師だ』など、人間側の顔をはっきり見せる。人狼仲間の三分の二以上でこの演技を成立させる。"
       - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
       - "仲間を露骨に守らず、必要なら軽く距離を取る。"
       - "占い師として名乗るのは、票を動かす、仲間を守る、本物に対抗するなど明確な得がある時だけにする。"
@@ -194,6 +203,7 @@ roles:
       - If you are likely to die, think ahead to the best death shot target.
     publicSpeechGuidanceJa:
       - "人狼であることと死亡時の能力は隠し、昼は人間側として自然に話す。"
+      - "初日昼は、人間側アピールや占い師らしい構えで村に溶け込む。"
       - "自分が吊られそうな時も、公開情報で通る疑い先を示す。"
       - "仲間を守る発言が連携に見えないようにする。"
   WolfBeauty:
@@ -212,6 +222,7 @@ roles:
       - Vote where it advances wolf parity while preserving the value of your charm.
     publicSpeechGuidanceJa:
       - "人狼であることと魅了先は隠し、昼は人間側として自然に話す。"
+      - "初日昼は、人間側アピールや役職を匂わせる演技で信用を取りに行く。"
       - "魅了した相手を不自然に守らず、公開情報から説明できる発言にする。"
       - "票と発言の流れを見て、人狼側に得な疑い先を作る。"
   Seer:
@@ -446,6 +457,7 @@ phases:
     publicStatementGoalsTitle: "Public statement goals:"
     publicStatementGoals:
       - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when suspicion or claims need a final answer. The first pass opens reads or claim decisions; the second pass answers pressure if needed and updates reads before voting.
+      - "On day one, assigned werewolves should make the human-side act visible: claim village alignment, present a believable role posture, or create pressure that helps the wolf team."
       - Say a concrete opinion other players can react to.
       - If someone turned suspicion toward you earlier today, answer that before starting a new topic.
       - Include a concrete suspicion, trust read, vote-leaning read, or claim decision.
@@ -472,15 +484,18 @@ phases:
     privateDiscussionTitle: "Werewolf-only private discussion guidance:"
     privateDiscussionGuidance:
       - This speech is visible only to werewolves, not to the public table.
+      - The player is meant to enjoy wolf-side teamwork; make the private talk feel like allies sharing a performance and a win plan.
       - Coordinate the night kill by comparing who is dangerous, protected-looking, or likely to hold Seer/Witch information.
       - You may mention known werewolf allies and wolf-only chat here.
       - Agree on a target plan, but avoid creating a pattern that will be obvious in public discussion tomorrow.
       - Use public claims, public reads, and vote movement to predict which kill creates the best next-day position.
+      - "Connect the kill to tomorrow's acting: who can be framed, who can be trusted falsely, and which public claim will sound natural."
     nightKillStrategyTitle: "Night kill strategy:"
     privateSpeechGoalsTitle: "Private speech goals:"
     privateSpeechGoals:
       - Name one preferred victim or a short ranked pair.
       - Explain the strategic reason in terms of village threat, power-role likelihood, or next-day framing.
+      - Mention one public cover story or acting angle for tomorrow when it is useful.
       - Keep each message to one short sentence. Split longer plans into multiple short messages.
 
 roundSummary:
@@ -596,6 +611,7 @@ languageStyles:
       - "プレイヤーは「人」「相手」「発言している人」と呼ぶ。"
       - "中心人物は「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
       - "限られた発言回数なので、問いかけや様子見だけで終えない。初日は投票基準、役職方針、名指し質問、軽い初日仮説のどれかで議論を動かし、2巡目以降は自分の疑い・信頼・投票候補を短く言う。保留する時も理由を添える。"
+      - "人狼陣営の昼発言は、人間側を演じる芝居として読んでも面白いようにする。ただし仲間、正体、夜相談は絶対に漏らさない。"
       - "投票まわりは「投票する」「吊る」「投票先」と言う。"
       - "人狼の夜会話では「襲撃する」「噛む」を使う。"
       - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"

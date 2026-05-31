@@ -13,13 +13,11 @@ import {
   ListChecks,
   LoaderCircle,
   MessageCircle,
-  Moon,
   Play,
   RotateCcw,
   Send,
   Settings,
   Shield,
-  Shuffle,
   Skull,
   Square,
   UserRound,
@@ -197,10 +195,10 @@ const streamConnectionErrorMessage = "ゲームストリームに接続できま
 const streamRateLimitErrorMessage = "生成リクエストが混み合っています。少し待ってから再開してください。";
 const initialPlayerCount = 7;
 const initialDebugScenario: DebugScenario = "none";
-const initialHumanEnabled = false;
+const initialHumanEnabled = true;
 const initialHumanPlayerId = "p1";
-const initialHumanCampPreference: HumanCampPreference = "random";
-const initialSpectatorMode: SpectatorMode = "omniscient";
+const initialHumanCampPreference: HumanCampPreference = "werewolf";
+const initialSpectatorMode: SpectatorMode = "player";
 // How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
 // deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
 // Single source of truth — the CSS fade duration is set inline from this value, so the JS hold
@@ -1046,11 +1044,6 @@ const playerCountOptions = Array.from(
   { length: maxSupportedPlayers - minSupportedPlayers + 1 },
   (_, index) => minSupportedPlayers + index
 );
-const humanCampPreferenceOptions: Array<{ value: HumanCampPreference; label: string; icon: ReactNode }> = [
-  { value: "village", label: "人間陣営", icon: <Shield size={13} /> },
-  { value: "werewolf", label: "狼陣営", icon: <Moon size={13} /> },
-  { value: "random", label: "ランダム", icon: <Shuffle size={13} /> }
-];
 const minPlayerCount = minSupportedPlayers;
 const humanInputNoticeLeadCount = 2;
 const maxMentionedCharacterCards = 5;
@@ -1440,14 +1433,14 @@ export function App() {
       {
         key: "roles",
         getEl: () => roleDistributionRef.current,
-        title: "役職内訳",
-        body: "画面上部のここで、今回の対局の役職構成を確認できます。各役職をクリックすると、勝利条件や能力などの詳しい説明が開きます。対局中でも何度でも開けます。"
+        title: "人狼陣営の目的",
+        body: "このゲームは、自分が人狼陣営として村人の全排除を目指すゲームです。画面上部の役職内訳では、仲間と村側役職の条件を確認できます。"
       },
       {
         key: "roster",
         getEl: () => rosterListRef.current,
         title: "プレイヤー一覧",
-        body: "対局に参加しているメンバーの一覧です。気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます。"
+        body: "対局に参加しているメンバーの一覧です。人狼の仲間が公開発言でどう人間側を演じるか、性格やプロフィールも見ながら追えます。"
       },
       {
         key: "logs",
@@ -1829,6 +1822,7 @@ export function App() {
     if (nextEnabled) {
       setDebugScenario("none");
       setSpectatorMode("player");
+      setHumanCampPreference("werewolf");
     } else {
       setSpectatorMode("omniscient");
     }
@@ -1840,14 +1834,6 @@ export function App() {
       updateHumanEnabled(true, { playSound: false });
     }
     setHumanPlayerId(playerId);
-  }
-
-  function updateHumanCampPreference(preference: HumanCampPreference) {
-    playSetupConfirmSfx();
-    if (!humanEnabled) {
-      updateHumanEnabled(true, { playSound: false });
-    }
-    setHumanCampPreference(preference);
   }
 
   function resetHumanInputState() {
@@ -2509,18 +2495,27 @@ export function App() {
     }
 
     const isWerewolfGreeting = prompt.speechMode === "werewolf_greeting";
-    const canSubmitHumanSpeech = isWerewolfGreeting || humanSpeech.trim().length > 0;
-    const speechHint = isWerewolfGreeting ? "任意の挨拶です。入力しなくても進行します" : "候補から選ぶか、自由に発言を入力してください";
-    const speechPlaceholder = isWerewolfGreeting ? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";
-    const speechAriaLabel = isWerewolfGreeting ? "挨拶の入力" : "自由入力の発言";
-    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "挨拶する" : "挨拶せず進む") : "発言する";
+    const allowFreeText = prompt.allowFreeText !== false;
+    const canSubmitHumanSpeech = isWerewolfGreeting || (allowFreeText && humanSpeech.trim().length > 0);
+    const speechHint = isWerewolfGreeting
+      ? "任意の顔合わせ発言です。入力しなくても進行します"
+      : allowFreeText
+      ? "候補から選ぶか、自由に発言を入力してください"
+      : "この場面では候補から選んでください";
+    const speechPlaceholder = isWerewolfGreeting
+      ? "例: 昼は人間側の顔で信用を取りに行く"
+      : allowFreeText
+      ? "発言を入力"
+      : "候補から選択";
+    const speechAriaLabel = isWerewolfGreeting ? "人狼顔合わせ発言の入力" : "自由入力の発言";
+    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "顔合わせで話す" : "話さず進む") : "発言する";
 
     return (
       <section className={`human-speech-composer ${isWerewolfGreeting ? "werewolf-greeting" : ""}`} aria-label="発言入力">
         <textarea
           aria-label={speechAriaLabel}
           autoFocus
-          disabled={humanSubmitting}
+          disabled={humanSubmitting || !allowFreeText}
           maxLength={240}
           onChange={(event) => setHumanSpeech(event.target.value)}
           placeholder={speechPlaceholder}
@@ -3209,6 +3204,15 @@ export function App() {
         </div>
 
         <div className="setup-grid">
+          <div className="field setup-field play-goal-field">
+            <span>プレイ目標</span>
+            <span className="setup-note play-goal-note" role="note">
+              ・このゲームは人狼陣営をシュミレーション出来るゲームです
+              <br />
+              ・仲間の演技を見ながら村人の全排除を狙います
+            </span>
+          </div>
+
           <div className="field setup-field participant-field">
             <span>参加方式</span>
             <div className="segments participant-mode">
@@ -3226,29 +3230,9 @@ export function App() {
                 type="button"
               >
                 <Gamepad2 size={13} />
-                自分も参加してプレイ
+                人狼として参加
               </button>
             </div>
-
-            {humanEnabled ? (
-              <div className="human-camp-field">
-                <span>陣営</span>
-                <div className="segments human-camp-options" role="group" aria-label="陣営">
-                  {humanCampPreferenceOptions.map((option) => (
-                    <button
-                      aria-pressed={humanCampPreference === option.value}
-                      className={humanCampPreference === option.value ? "selected" : ""}
-                      key={option.value}
-                      onClick={() => updateHumanCampPreference(option.value)}
-                      type="button"
-                    >
-                      {option.icon}
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
 
             <div className="setup-cast-preview" aria-label="参加キャラクター">
               <div className="setup-cast-heading">
