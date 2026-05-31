@@ -597,7 +597,7 @@ test("character roster covers all supported player slots with fixed names and pe
   }
 });
 
-test("configured human player is always assigned to the werewolf camp", () => {
+test("configured human player keeps the normal shuffled role distribution", () => {
   for (const playerCount of [6, 9, maxSupportedPlayers]) {
     for (let index = 1; index <= playerCount; index += 1) {
       const game = new WerewolfGame({
@@ -608,8 +608,6 @@ test("configured human player is always assigned to the werewolf camp", () => {
 
       const human = game.players.find((player) => player.id === `p${index}`);
       assert.ok(human, `Expected p${index} to exist at ${playerCount} players`);
-      assert.equal(human.camp, "werewolf", `Expected p${index} to be a werewolf-camp role at ${playerCount} players`);
-      assert.notEqual(human.role, "Villager", `Expected p${index} to be a role-holder at ${playerCount} players`);
       assert.deepEqual(
         game.players.map((player) => player.role).sort(),
         createRoles(playerCount).sort()
