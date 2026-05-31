@@ -64,8 +64,8 @@ function labels(language: string) {
       ? "死因候補を並べるだけで終わらず、生存者への読み、投票理由、役職主張の評価のどれかに進める。"
       : "Do not stop at listing death causes; advance to a read, vote reason, or claim evaluation about a living player.",
     mustStateStance: japanese
-      ? "発言ターンを使うので、質問、様子見、今後見る点だけで終えず、自分の疑い・信頼・保留・投票候補・役職主張の信用判断のどれかを必ず言う。"
-      : "Because speech turns are limited, do not end with only a question, wait-and-see note, or future watch point; state your suspicion, trust, hold, vote candidate, or claim-trust stance.",
+      ? "発言ターンを使うので、質問、様子見、今後見る点だけで終えず、自分の疑い・信頼・投票候補・役職主張への判断を必ず言う。保留する時も、理由と次に確認したい点を一緒に言う。"
+      : "Because speech turns are limited, do not end with only a question, wait-and-see note, or future watch point; state your suspicion, trust, vote candidate, or claim-trust stance. If you hold, pair it with a reason and what you want checked next.",
     causeLabels: {
       werewolf_attack: japanese ? "人狼の襲撃" : "werewolf attack",
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
@@ -80,7 +80,7 @@ function labels(language: string) {
         ? "昨夜の死亡を、生存者の発言・投票・役職主張への自分の読みにつなげる。"
         : "Connect the night death to your own read on a living player's speech, vote, or claim.",
       state_living_read: japanese
-        ? "生存者を一人以上挙げて、自分の疑い・信頼・保留の理由を言う。"
+        ? "生存者を一人以上挙げて、自分の疑い・信頼・投票候補の理由を言う。保留する時も、理由と次に確認したい点を添える。"
         : "Name at least one living player and state your suspicion, trust, or hold reason.",
       update_living_read: japanese
         ? "死亡者ではなく、生存者への疑いか信頼を一つ更新する。"
@@ -92,20 +92,20 @@ function labels(language: string) {
         ? "投票先を考えられる形で、生存者への読みを一つに絞る。"
         : "Narrow to one living-player read that can support a vote.",
       open_discussion: japanese
-        ? "公開情報が少ない時も、自分の意見として生存者への暫定の疑い・信頼・保留・投票候補を一つ出して議論を始める。"
+        ? "公開情報が少ない時も、自分の意見として生存者への暫定の疑い・信頼・投票候補を一つ出して議論を始める。保留する時は理由と次に確認したい点を添える。"
         : "When public information is thin, open with one tentative suspicion, trust, hold, or vote-candidate read on a living player.",
       open_first_day: japanese
-        ? "まだ公開発言も占い結果も投票履歴もない。疑い先や投票先を無理に決めなくてよいが、ターンを無駄にしない。次のどれかで中身のある口火を切る: ①短い自己紹介と今日の進め方の方針、②今日注目したい観点を具体的に一つ、③占い師COを今日どう扱うかの提案、④配役構成や流れの整理。『様子見』『保留』だけで終えず、必ず中身を一つ言う。"
+        ? "まだ公開発言も占い結果も投票履歴もない。疑い先や投票先を無理に決めなくてよい。短い自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針など、序盤の議題を一つ出す。『様子見』『保留』だけで終えない。"
         : "There are no public statements, Seer results, or vote history yet. You do not have to pick a suspect or vote target, but do not waste the turn. Open with substantive content from one of: (1) a short self-introduction and how you will approach today, (2) one concrete thing you want to watch today, (3) a proposal for how to handle Seer claims today, (4) organizing the setup or flow. Do not end with only 'wait and see' or 'hold' — always say one thing with content."
     },
     revisionHint: japanese
-      ? "前の返答は自分の stance が足りません。生存者への疑い・信頼・保留・投票候補、または役職主張の信用判断を、画面に出るセリフ内ではっきり言ってください。"
+      ? "前の返答は自分の判断が足りません。生存者への疑い・信頼・投票候補、または役職主張への判断を、画面に出るセリフ内ではっきり言ってください。保留する時も理由を添えてください。"
       : "The previous response did not state your stance. Revise the displayed dialogue to include suspicion, trust, hold, a vote candidate, or a claim-trust judgment.",
     emptyHistoryRevisionHint: japanese
-      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。人物傾向や役職印象を根拠に、暫定の疑い・信頼・保留・投票候補のどれかを自分の意見として言ってください。"
+      ? "前の返答は、まだ公開発言がない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、疑いを作るよりも、自己紹介、進め方、投票理由の残し方、占い師が名乗る条件など、見えている材料なしでも話せる議題に直してください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance.",
     openingFillerRevisionHint: japanese
-      ? "前の返答は「様子見」「保留」だけで中身がありません。初日なので結論は急がなくてよいですが、短い自己紹介、今日注目したい観点、占い師COの扱いの提案、配役構成の整理など、中身のある一言を必ず入れてください。"
+      ? "前の返答は「様子見」「保留」だけで中身がありません。初日なので結論は急がなくてよいですが、短い自己紹介、今日の進め方、投票理由の残し方、占い師が名乗る条件、配役構成の整理など、中身のある一言を入れてください。"
       : "The previous response was only 'wait and see' or 'hold' with no content. You do not need a conclusion on day one, but add one substantive thing: a short self-introduction, one concrete thing to watch today, a proposal for handling Seer claims, or organizing the setup."
   };
 }
@@ -164,7 +164,7 @@ export function renderPublicSpeechDiversityContext(
       "発言の重複を避ける:",
       "- 同じ対象と同じ理由を繰り返すだけにしない。",
       "- 同意する時も、自分の投票への影響、別の根拠、反論、比較対象のどれかを一つ足す。",
-      "- 既に複数人が同じ読みを出しているなら、さらに重ねるより、保留、別候補、信用判断、投票方針へ話を進める。"
+      "- 既に複数人が同じ読みを出しているなら、さらに重ねるより、別候補、役職主張への判断、投票方針へ話を進める。"
     ];
   }
 
@@ -181,7 +181,7 @@ export function renderPublicSpeechDiversityContext(
 
 // Round-one opening sparks. Each round-one first-pass speaker is assigned one so
 // the opening turn has concrete, varied, non-conclusory content (self-intro,
-// setup organizing, vote criteria, claim policy, power-role handling) instead of
+// setup organizing, vote criteria, role-reveal policy, power-role handling) instead of
 // degenerating into content-free "様子見"/"保留" filler.
 // `tentative_reaction_read` is intentionally excluded: on day one there is nothing
 // to react to, so that spark produced the unnatural "暫定材料" filler. The kind is
@@ -192,7 +192,7 @@ export const firstDayOpeningMoveKinds = [
   "state_vote_criteria",
   "ask_role_claim_policy",
   "early_power_role_attention",
-  "overstate_village_side"
+  "ask_table_question"
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
 export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
@@ -223,15 +223,22 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "投票基準を出す" : "State vote criteria",
       instruction: japanese
-        ? "初日の投票基準を先に出す。発言量、返答の具体性、態度の硬さなど、今後見たい基準を短く示す。"
+        ? "初日の投票基準を先に出す。理由の具体性、質問への答え方、便乗していないかなど、今後見たい基準を短く示す。"
         : "Open by stating first-day vote criteria such as speaking volume, concrete answers, or stiffness."
     },
     ask_role_claim_policy: {
       kind,
-      label: japanese ? "役職CO方針を聞く" : "Ask claim-policy preferences",
+      label: japanese ? "占い師が名乗る条件を聞く" : "Ask claim-policy preferences",
       instruction: japanese
-        ? "占い師などの役職COを今日どう扱うか、出るべきか潜るべきかの方針を全体に聞く。"
+        ? "占い師が今日名乗るべき条件を全体に聞く。すぐ名乗るのか、結果が重い時だけ名乗るのか、伏せるならどう守るのかを話題にする。"
         : "Ask the table how role claims, especially Seer claims, should be handled today."
+    },
+    ask_table_question: {
+      kind,
+      label: japanese ? "序盤の質問を投げる" : "Ask an opening table question",
+      instruction: japanese
+        ? "誰か一人を疑うのではなく、全体に短い質問を投げる。今日の投票理由、占い師が名乗る条件、役職を明かさせすぎない進め方のどれかを聞く。"
+        : "Ask the table one short opening question about vote reasons, Seer reveal conditions, or avoiding forced role exposure. Do not accuse one player yet."
     },
     tentative_reaction_read: {
       kind,
@@ -244,7 +251,7 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "能力者への触れ方が早い" : "Touch power roles early",
       instruction: japanese
-        ? "占い師・魔女・騎士に早めに触れる。露出を強く迫りすぎず、守り方や触れ方の方針を話題にする。"
+        ? "占い師・魔女・騎士に早めに触れる。役職を明かすよう強く迫らず、守り方や話題に出す範囲の方針を話す。"
         : "Bring up Seer, Witch, or Guard early without forcing exposure, using protection or handling policy as the topic."
     }
   };
@@ -458,10 +465,13 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
       return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,16}(?:村側|人間側|村人|白|吊られたくない)/u.test(text);
     }
     if (move.kind === "state_vote_criteria") {
-      return /(?:投票基準|基準|発言量|返答|具体的|態度)/u.test(text);
+      return /(?:投票基準|基準|返答|具体的|理由|便乗|態度)/u.test(text);
     }
     if (move.kind === "ask_role_claim_policy") {
-      return /(?:役職CO|CO|占い師|出る|潜る|方針)/u.test(text);
+      return /(?:占い師|名乗|伏せ|潜る|方針|条件|結果が重い)/u.test(text);
+    }
+    if (move.kind === "ask_table_question") {
+      return /(?:どうする|どう扱|聞きたい|質問|投票理由|占い師|名乗|明かさせ|進め方)/u.test(text);
     }
     if (move.kind === "tentative_reaction_read") {
       return /(?:発言順|態度|反応|様子|硬く|薄さ|暫定材料|暫定)/u.test(text);
@@ -477,6 +487,9 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
   }
   if (move.kind === "ask_role_claim_policy") {
     return /\b(role claim|claim policy|Seer claim|come out|stay hidden)\b/i.test(text);
+  }
+  if (move.kind === "ask_table_question") {
+    return /\b(question|vote reason|Seer|reveal|role exposure|approach)\b/i.test(text);
   }
   if (move.kind === "tentative_reaction_read") {
     return /\b(tentative|reaction|posture|stiff|speaking order)\b/i.test(text);
@@ -547,7 +560,7 @@ export function reviewSpeechTimeline(
 
 // Positive substance check for a Japanese opening-turn line. Rather than blocklisting
 // "様子見"/"保留", it requires at least one concrete opening signal so the round-one
-// table actually talks (self-intro, role-claim/CO policy, vote criteria, a concrete
+// table actually talks (self-intro, role reveal policy, vote criteria, a concrete
 // watch point, setup organizing, a proposal/question, village-side framing, or
 // engaging a named living player). Anything with none of these — "様子見", "保留",
 // "特に何もない", "出方を見たい" — is treated as content-free and rejected.
@@ -556,8 +569,8 @@ export function reviewSpeechTimeline(
 function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate[]): boolean {
   const signals = [
     /よろしく|はじめまして|初めまして|自己紹介|紹介|私は|僕は|自分は|と申し|呼んで|名前/u, // self-introduction
-    /CO|カミングアウト|名乗|潜伏|潜る|占い|霊媒|狩人|ハンター|騎士|護衛|魔女|役職|能力者|真偽|対抗/u, // role-claim / CO policy / power roles
-    /基準|発言量|具体|返答|態度/u, // vote criteria
+    /名乗|潜伏|潜る|伏せ|占い|霊媒|狩人|ハンター|騎士|護衛|魔女|役職|能力者|真偽|対抗/u, // role reveal policy / power roles
+    /基準|具体|返答|理由|便乗|態度/u, // vote criteria
     /注目|観点|チェック|意識して/u, // concrete observation focus
     /構成|配役|人数|整理|進め方|段取り|方針/u, // setup / organizing
     /ましょう|ませんか|提案|どうする|どう扱|決めたい|聞きたい|相談/u, // proposal / question to the table
@@ -578,7 +591,7 @@ export function reviewSpeechAgainstPlan(
 ): SpeechPlanReview {
   // Opening turn: do not force a stance, but reject content-free "様子見"/"保留"
   // filler so the opening carries real content (self-intro, observation focus,
-  // claim policy, setup organizing).
+  // reveal policy, setup organizing).
   if (plan?.opensFirstDay) {
     if (isJapaneseLanguage(language) && !hasOpeningSubstanceJapanese(speech.messages.join(" "), legalPlayers)) {
       return {

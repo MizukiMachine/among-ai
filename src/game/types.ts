@@ -315,6 +315,7 @@ export type FirstDayOpeningMoveKind =
   | "overstate_village_side"
   | "state_vote_criteria"
   | "ask_role_claim_policy"
+  | "ask_table_question"
   | "tentative_reaction_read"
   | "early_power_role_attention";
 

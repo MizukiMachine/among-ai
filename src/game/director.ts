@@ -59,7 +59,7 @@ function directorSystemPrompt(mode: BuildRoundScriptInput["mode"], language: str
       "- 各プレイヤーの方針は、その人の秘密の役職・陣営・表向きの性格に整合する。",
       "- 人狼陣営には連携した狙い（誰を吊り筋に乗せる、誰をかばう等）を与える。",
       "- 推理を可能にするため、隠れた役職と相関する『手がかり（tell）』を一貫して配置する。ただし露骨にしすぎない。観戦者が後から気づける程度。",
-      "- 村側能力者（占い・魔女・騎士など）には、CO するか潜るか、情報をどう小出しにするかの方針を与える。"
+      "- 村側能力者（占い・魔女・騎士など）には、名乗るか伏せるか、情報をどう小出しにするかの方針を与える。"
     ];
     if (intermediate) {
       lines.push(
@@ -140,6 +140,9 @@ function directorUserContent(input: BuildRoundScriptInput): string {
     return [
       `ラウンド: ${input.round}`,
       `昨夜の死亡: ${deaths}`,
+      input.round === 1
+        ? "初日注意: まだ本議論の公開発言・占い結果・投票履歴はない。見えていない会話内容、発言の変化、前後の矛盾を根拠にした方針は作らず、自己紹介、進め方、投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針を中心にする。"
+        : "",
       "",
       "生存プレイヤー（役職込み・秘密）:",
       roster,
@@ -153,6 +156,9 @@ function directorUserContent(input: BuildRoundScriptInput): string {
   return [
     `Round: ${input.round}`,
     `Last night deaths: ${deaths}`,
+    input.round === 1
+      ? "Day-one note: there are no real public discussion statements, Seer results, or votes yet. Do not base directions on speaking volume, changed statements, or contradictions; focus on introductions, process, vote-reason standards, Seer reveal conditions, and avoiding forced role exposure."
+      : "",
     "",
     "Living players (with hidden roles):",
     roster,

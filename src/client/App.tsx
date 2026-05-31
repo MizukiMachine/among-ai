@@ -614,7 +614,7 @@ const stageLightKeywords: Record<Exclude<StageLightMood, "setup" | "neutral" | "
   vote: ["投票", "票", "決め", "絞", "吊", "vote", "ballot", "eliminate"],
   suspicion: ["疑", "怪し", "矛盾", "人狼", "狼", "黒", "偽", "対抗", "破綻", "不自然", "便乗", "曖昧", "suspect", "suspicious", "contradict", "fake", "wolf", "werewolf", "black"],
   trust: ["信頼", "信用", "白", "村目", "人間側", "護衛", "守", "安心", "trust", "clear", "village", "guard", "protect", "white"],
-  claim: ["主張", "カミングアウト", "占い", "霊媒", "結果", "seer", "claim", "counterclaim"]
+  claim: ["主張", "名乗り", "占い", "霊媒", "結果", "seer", "claim", "counterclaim"]
 };
 
 function eventDataItemCount(event: GameEvent, key: "claims" | "suspects" | "trusts"): number {

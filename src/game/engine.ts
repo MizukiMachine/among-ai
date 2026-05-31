@@ -1657,9 +1657,10 @@ export class WerewolfGame {
     );
 
     const speakers = this.daySpeakerOrder();
-    // When the director plans this round it supplies each player's stance, so the
-    // legacy first-day opening-move spark and the "must state a stance" forcing are
-    // turned off (they are what produced the unnatural day-one filler).
+    // When the director plans this round it supplies each player's role-aware direction.
+    // The first real pass still gets day-one agenda prompts, because opening discussion
+    // should start with process / reveal-policy / vote-criteria topics rather than a
+    // forced suspicion. The stance-forcing lever stays off while the director is active.
     let roundScript: RoundScript | null = null;
     if (directorEnabled) {
       if (isOpeningLlmRound) {
@@ -1694,9 +1695,7 @@ export class WerewolfGame {
         }
       }
     }
-    const firstDayOpeningMoveByPlayerId = directorEnabled
-      ? new Map<string, FirstDayOpeningMoveKind>()
-      : this.firstDayOpeningMoveAssignments(speakers);
+    const firstDayOpeningMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
     const generateSpeech = async (
       player: Player,
       discussionPass: number,

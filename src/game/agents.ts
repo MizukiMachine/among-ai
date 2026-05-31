@@ -153,9 +153,9 @@ const demoDaySituationSpeechEn: Record<DaySituation, string[]> = {
 
 const demoDaySituationSpeechJa: Record<DaySituation, string[]> = {
   first_day: [
-    "初日なので決め打ちはしません。立場が薄い人を暫定で保留寄りに見ます。",
-    "まだ情報が少ないので、発言量と立場の出し方で軽い仮説を置きます。",
-    "今日は強く決めませんが、理由が薄い人を投票候補に入れます。"
+    "初日は疑いを急がず、まず投票理由を残す進め方を合わせたいです。",
+    "まだ情報が少ないので、占い師が名乗る条件と投票基準を先に決めたいです。",
+    "今日は強く決めませんが、理由を出さずに流れに乗る人は後で見返します。"
   ],
   later_day: [
     "昨日の投票と夜の結果をつなげて見ます。考えを変えた人を今日の投票候補に入れます。",
@@ -191,9 +191,9 @@ const demoOpeningDaySituationSpeechEn = [
 ];
 
 const demoOpeningDaySituationSpeechJa = [
-  "初日なので決め打ちはしません。まず気になる相手を一人だけ暫定で保留寄りに置きます。",
-  "まだ誰の発言も材料にしません。最初は軽い投票候補を一人置きます。",
-  "今は情報が少ないので、理由を短く出して投票前に比べます。"
+  "初日なので決め打ちはしません。まず今日の進め方と投票理由の残し方を合わせたいです。",
+  "まだ誰の発言も材料にしません。占い師が名乗る条件だけ先に決めたいです。",
+  "今は情報が少ないので、理由を短く出して投票前に比べる形にしたいです。"
 ];
 
 const personaReasonsEn: Record<AgentSpeechInput["player"]["persona"], string[]> = {
@@ -837,7 +837,7 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
       return kind === "suspect" ? "夜の結果への反応が気になる" : "夜の結果への反応が落ち着いている";
     }
     if (evidence.kind === "participation") {
-      return kind === "suspect" ? "発言量と立場を確認したい" : "発言量と立場が見えている";
+      return kind === "suspect" ? "参加姿勢と理由を確認したい" : "参加姿勢と理由が見えている";
     }
     if (evidence.kind === "consistency") {
       return kind === "suspect" ? "前後の発言がつながっていない" : "前後の発言がつながっている";
@@ -1915,15 +1915,18 @@ function demoFirstDayOpeningMoveSpeech(
       return "私は人間側なので、初日に変な疑いで吊られるのは避けたいです。そこは先に言っておきます";
     }
     if (move.kind === "state_vote_criteria") {
-      return "今日は発言量だけでなく、質問に具体的に答えたかを投票基準にしたいです";
+      return "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にしたいです";
     }
     if (move.kind === "ask_role_claim_policy") {
-      return "占い師のCOを今日どう扱うか先に決めたいです。出すなら理由、潜るなら守り方まで合わせたいです";
+      return "占い師が今日名乗る条件を先に決めたいです。すぐ名乗るのか、結果が重い時だけにするのかを合わせたいです";
+    }
+    if (move.kind === "ask_table_question") {
+      return "初日は誰を疑うかより、投票理由をどう残すかを先に聞きたいです。みんなはどこを基準にしますか";
     }
     if (move.kind === "tentative_reaction_read") {
       return `${targetName}の出方をまず見たいので、今は軽い印象として置いておきます`;
     }
-    return "占い師・魔女・騎士への触れ方は早めに決めたいです。特に占い師を出すか守るかは曖昧にしたくありません";
+    return "占い師・魔女・騎士への触れ方は早めに決めたいです。役職を明かさせすぎない進め方にしたいです";
   }
 
   if (move.kind === "self_introduction") {
@@ -1940,6 +1943,9 @@ function demoFirstDayOpeningMoveSpeech(
   }
   if (move.kind === "ask_role_claim_policy") {
     return "I want us to decide early how we handle Seer claims today, whether they come out or stay hidden.";
+  }
+  if (move.kind === "ask_table_question") {
+    return "Before we accuse anyone, I want to ask how everyone wants vote reasons handled today.";
   }
   if (move.kind === "tentative_reaction_read") {
     return `${targetName} is someone I want to watch first, so I am keeping it as a light early impression for now.`;
@@ -1964,7 +1970,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     !situations.includes("black_result");
   const openingFirstDay = firstDaySoft && input.publicHistory.length === 0;
   const reasonPool = demoSpeechReasonPool(input, situations, language, openingFirstDay);
-  const suspect = candidates.length > 0 ? sample(candidates) : null;
+  const suspect = !openingFirstDay && candidates.length > 0 ? sample(candidates) : null;
   const fallback =
     demoFirstDayOpeningMoveSpeech(input.speechPlan?.firstDayOpeningMove, suspect, language) ??
     buildDemoDaySituationSpeech(input, language) ??
@@ -2091,13 +2097,9 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
         flavor ?? fallback,
         flavor ? fallback : "",
         suspect
-          ? openingFirstDay
-            ? japanese
-              ? `${suspect.name}は暫定で保留より疑い寄りです。${japaneseReasonSentence(personaReason)}`
-              : `${suspect.name} is my tentative read because ${personaReason}.`
-            : japanese
-              ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`
-              : `${suspect.name} stands out because ${personaReason}.`
+          ? japanese
+            ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`
+            : `${suspect.name} stands out because ${personaReason}.`
           : ""
       ],
       language
