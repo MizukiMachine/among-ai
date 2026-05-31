@@ -240,7 +240,7 @@ test("Japanese prompts include a natural conversation style layer", () => {
   assert.match(speech, /同じ対象・同じ理由を繰り返さない/);
   assert.match(context, /役職ごとの発言方針/);
   assert.match(context, /人物の話し方/);
-  assert.match(context, /見えている公開発言/);
+  assert.match(context, /見えている昼の発言/);
   assert.doesNotMatch(generatedPrompt, /Role strategy|Phase guidance|Prompt mode|Information boundary|Public speech|public speech|internal decision/i);
   assert.doesNotMatch(generatedPrompt, /\b(strategy|pressure|record|history|slot)\b/i);
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
@@ -315,7 +315,7 @@ test("first-day opening prompts avoid hard evidence but require active openings"
   assert.match(context, /0日目の挨拶は本議論の材料にしない/);
   assert.match(context, /全員が様子見にならないよう/);
   // Unseen-citation guards stay in place.
-  assert.match(context, /まだ、この昼の公開発言はありません/);
+  assert.match(context, /まだ、この昼の発言はありません/);
   assert.match(context, /見えていない会話内容や反応/);
   assert.match(context, /誰かの言う通り/);
   assert.match(context, /既に起きた事実として話さない/);
@@ -358,11 +358,39 @@ test("first-day opening mode allows assigned conversation sparks", () => {
   });
 
   assert.match(context, /初日特別モード/);
-  assert.match(context, /名指しの軽い圧をかける/);
-  assert.match(context, /割り当てられた名指しの軽い圧だけを火種にし/);
-  assert.match(context, /既に公開発言や反応があった事実として話さない/);
+  assert.match(context, /名指しで軽く理由を聞く/);
+  assert.match(context, /割り当てられた名指し質問だけを火種にし/);
+  assert.match(context, /既に発言や反応があった事実として話さない/);
   assert.doesNotMatch(context, /投票基準・役職名乗り方針・自己申告/);
   assert.doesNotMatch(context, /見えていない会話内容や反応/);
+});
+
+test("first-day follow-up context does not reset visible speech to empty", () => {
+  const speechPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "Ada"), player("Werewolf", "p2", "ノゾミ"), player("Witch", "p3", "Curie")],
+    lastNightDeaths: [],
+    legalPlayers: alivePlayers.slice(1),
+    language: "Japanese"
+  });
+  const context = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["ノゾミ: 今は役職方針を伏せて、投票理由を見ます"],
+    privateHistory: [],
+    language: "Japanese",
+    speechPlan
+  });
+
+  assert.match(context, /直近の昼の発言/);
+  assert.match(context, /ノゾミ: 今は役職方針を伏せて/);
+  assert.doesNotMatch(context, /まだ、この昼の発言はありません/);
+  assert.doesNotMatch(context, /まだ公開発言|公開発言/);
 });
 
 test("speech system prompts suppress stance forcing on the opening turn (requiresForwardMove=false)", () => {

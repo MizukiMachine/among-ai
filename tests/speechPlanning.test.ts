@@ -282,7 +282,7 @@ test("first-day opening moves can satisfy special opening review rules", () => {
   });
   const reaction = reviewSpeechTimeline(
     {
-      messages: ["ミナトさんには軽く圧をかけます。初日は理由を出せない人を疑い寄りで見ます。"],
+      messages: ["ミナトさんに先に理由を聞きます。初日は理由を出せない人を疑い寄りで見ます。"],
       metadata
     },
     [],
@@ -311,6 +311,26 @@ test("first-day opening moves can satisfy special opening review rules", () => {
     );
     assert.equal(observedPastAction.ok, false);
   }
+});
+
+test("speech timeline rejects saying a visible speaker has not spoken", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "ノゾミ" },
+    { id: "p3", name: "ユイ" }
+  ];
+  const review = reviewSpeechTimeline(
+    {
+      messages: ["ノゾミさんはまだ発言していないので、投票候補に入れます"],
+      metadata
+    },
+    ["ノゾミ: 今は役職方針を伏せて、投票理由を見ます"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+
+  assert.equal(review.ok, false);
+  assert.match(review.issues.join(","), /visibly speaking player/);
 });
 
 test("speech plan review rejects death-cause recap that does not advance discussion", () => {
