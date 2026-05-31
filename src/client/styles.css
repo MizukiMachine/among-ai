@@ -2174,18 +2174,17 @@ input[type="range"] {
 }
 
 .mentioned-character-strip {
-  position: absolute;
-  left: 84px;
-  top: 50%;
-  bottom: auto;
-  z-index: 3;
+  position: relative;
+  z-index: 1;
   display: flex;
-  max-width: min(76%, 860px);
+  width: min(100%, 860px);
+  max-width: 100%;
   align-items: end;
   gap: 14px;
+  margin-top: 2px;
   overflow: visible;
   pointer-events: none;
-  transform: translateY(-50%);
+  transform: none;
 }
 
 .mentioned-character-card {
@@ -4700,7 +4699,7 @@ input[type="range"] {
   .story-copy {
     width: min(100%, 660px);
     max-height: 66%;
-    padding: 54px 24px 154px 56px;
+    padding: 54px 24px 28px 56px;
   }
 
   .hero-character {
@@ -4715,10 +4714,7 @@ input[type="range"] {
   }
 
   .mentioned-character-strip {
-    left: 56px;
-    top: 50%;
-    bottom: auto;
-    max-width: min(82%, 640px);
+    width: min(100%, 640px);
   }
 
   .story-controls {
@@ -4813,16 +4809,12 @@ input[type="range"] {
 
   .story-copy {
     max-height: 62%;
-    padding: 42px 16px 320px 32px;
+    padding: 42px 16px 28px 32px;
   }
 
   .mentioned-character-strip {
-    right: 14px;
-    left: 32px;
-    top: 50%;
-    bottom: auto;
     flex-wrap: wrap;
-    max-width: none;
+    width: 100%;
     gap: 8px;
   }
 
