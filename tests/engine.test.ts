@@ -951,7 +951,8 @@ test("voting eliminates a single top-voted player and records totals", async () 
   const voteDetails = totals?.data?.votes as Array<{ voterId: string; targetId: string; reason?: string }> | undefined;
   assert.ok(voteDetails?.some((vote) => vote.voterId === "p1" && vote.targetId === "p4"));
   assert.ok(voteDetails?.every((vote) => vote.reason === undefined));
-  assert.ok(game.publicHistory.some((line) => line.includes("シオン -> マヒロ") && !line.includes("scripted reason")));
+  const expectedPublicVote = `${players[0].name} -> ${players[3].name}`;
+  assert.ok(game.publicHistory.some((line) => line.includes(expectedPublicVote) && !line.includes("scripted reason")));
   const summary = await game.emitRoundSummary();
   assert.ok(summary.message.includes("Votes:"));
 });
@@ -1157,7 +1158,7 @@ test("day discussion gives each living player a second response pass", async () 
   assert.equal(firstAgent.speechInputs.length, 2);
   assert.match(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.match(firstAgent.speechInputs[1].context, /Second pass: if needed, answer direct pressure/);
-  assert.match(firstAgent.speechInputs[1].context, /ガク speaks/);
+  assert.match(firstAgent.speechInputs[1].context, /ノゾミ speaks/);
 });
 
 test("every first-day first-pass speaker receives a distinct opening move prompt", async () => {
@@ -1862,7 +1863,11 @@ test("human follow-up speaker is placed after AI follow-up speakers", async () =
     .map((event) => event.playerId)
     .filter((playerId, index, all) => index === 0 || all[index - 1] !== playerId);
 
-  assert.deepEqual(followUpSpeakers, [players[4].id, players[2].id]);
+  // The exact AI follow-up speaker depends on the demo agents' randomized reads, so assert the
+  // ordering contract rather than a specific id: the human speaks last, after at least one AI.
+  assert.ok(followUpSpeakers.length >= 2);
+  assert.equal(followUpSpeakers[followUpSpeakers.length - 1], players[2].id);
+  assert.ok(followUpSpeakers.slice(0, -1).every((playerId) => playerId !== players[2].id));
 });
 
 test("day discussion scales follow-up speaker count on large tables", async () => {

@@ -391,16 +391,16 @@ test("speech system prompts suppress stance forcing on the opening turn (require
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {
   const akane = {
-    ...player("Villager", "p3", "アカネ", "logical"),
-    characterProfile: getCharacterProfile("p3")
+    ...player("Villager", "p10", "アカネ", "logical"),
+    characterProfile: getCharacterProfile("p10")
   };
   const context = buildPromptContext({
     player: akane,
     phase: "day_discussion",
     round: 1,
     alivePlayers: [
-      { id: "p3", name: "アカネ" },
-      { id: "p9", name: "イオリ" }
+      { id: "p10", name: "アカネ" },
+      { id: "p4", name: "イオリ" }
     ],
     deadPlayers: [],
     publicHistory: [],
