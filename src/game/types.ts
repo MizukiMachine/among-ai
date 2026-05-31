@@ -428,6 +428,7 @@ export interface HumanInputRequestBase {
   phase: Phase;
   role: Role;
   context: HumanInputContext;
+  nonBlocking?: boolean;
 }
 
 export interface HumanInputContext {
