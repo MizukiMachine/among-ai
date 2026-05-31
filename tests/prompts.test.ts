@@ -314,6 +314,31 @@ test("first-day opening prompts avoid hard evidence but require active openings"
   assert.match(context, /議題スケジューラ/);
   assert.match(context, /0日目の挨拶は本議論の材料にしない/);
   assert.match(context, /全員が様子見にならないよう/);
+  assert.doesNotMatch(context, /人狼陣営は初日昼の演技が見せ場/);
+  assert.doesNotMatch(context, /三分の二以上/);
+
+  const wolfContext = buildPromptContext({
+    player: player("Werewolf"),
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    speechPlan: buildPublicSpeechPlan({
+      phase: "day_discussion",
+      round: 1,
+      discussionPass: 1,
+      players: [player("Werewolf", "p1", "Ada"), player("Werewolf", "p2", "Byron"), player("Seer", "p3", "Curie")],
+      lastNightDeaths: [],
+      legalPlayers: alivePlayers.slice(1),
+      language: "Japanese",
+      firstDayOpeningMove: firstDayOpeningMove("wolf_fake_role_claim", "Japanese")
+    })
+  });
+  assert.match(wolfContext, /三分の二以上/);
+
   // Unseen-citation guards stay in place.
   assert.match(context, /まだ、この昼の発言はありません/);
   assert.match(context, /見えていない会話内容や反応/);

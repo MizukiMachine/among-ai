@@ -293,6 +293,48 @@ test("first-day opening moves can satisfy special opening review rules", () => {
   );
   assert.equal(reaction.ok, true);
 
+  const wolfHumanClaimPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Werewolf", "p1", "アカネ"), player("Villager", "p2", "ミナト"), player("Witch", "p3", "ユイ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("wolf_human_side_claim", "Japanese")
+  });
+  const wolfHumanClaim = reviewSpeechAgainstPlan(
+    {
+      messages: ["俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる"],
+      metadata
+    },
+    wolfHumanClaimPlan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(wolfHumanClaim.ok, true);
+
+  const wolfFakeRolePlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Werewolf", "p1", "アカネ"), player("Villager", "p2", "ミナト"), player("Witch", "p3", "ユイ")],
+    lastNightDeaths: [],
+    legalPlayers,
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("wolf_fake_role_claim", "Japanese")
+  });
+  const wolfFakeRole = reviewSpeechAgainstPlan(
+    {
+      messages: ["私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい"],
+      metadata
+    },
+    wolfFakeRolePlan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(wolfFakeRole.ok, true);
+
   for (const message of [
     "ミナトさんの反応が少し硬く見えるので、初日は暫定材料として返答を見たいです。",
     "ミナトさんの先ほどの動きが怪しく見えます。",
