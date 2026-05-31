@@ -467,6 +467,7 @@ export type HumanInputRequestPayload =
   | Omit<HumanBooleanInputRequest, "id">;
 
 export interface HumanInputResponse {
+  speech?: string;
   choiceId?: string;
   targetId?: string | null;
   reason?: string;

@@ -3,7 +3,7 @@ import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
-import { reviewJapaneseOutput } from "./japaneseStyle";
+import { reviewJapaneseOutput, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
@@ -155,12 +155,33 @@ function emptySpeechMetadata(): SpeechMetadata {
 }
 
 const humanSpeechChoiceCount = 3;
+const maxHumanSpeechLength = 240;
 // Draft one extra so that, after deduping, the player still sees a full set of distinct options.
 const humanSpeechDraftCount = humanSpeechChoiceCount + 1;
 
 function defaultHumanHoldSpeech(language: string): AgentSpeech {
   return {
     messages: [isJapaneseLanguage(language) ? "今は発言を控える" : "I will hold my statement for now"],
+    metadata: emptySpeechMetadata()
+  };
+}
+
+function compactHumanSpeech(value: string | undefined, language: string): string | null {
+  const compact = value?.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+  const truncated = compact.length > maxHumanSpeechLength ? `${compact.slice(0, maxHumanSpeechLength - 3)}...` : compact;
+  return stripJapaneseSpeechTerminalPeriod(truncated, language);
+}
+
+function humanFreeTextSpeech(text: string | undefined, language: string): AgentSpeech | null {
+  const message = compactHumanSpeech(text, language);
+  if (!message) {
+    return null;
+  }
+  return {
+    messages: [message],
     metadata: emptySpeechMetadata()
   };
 }
@@ -2602,6 +2623,11 @@ export class WerewolfGame {
     });
 
     const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
+    const customSpeech = humanFreeTextSpeech(response.speech, this.config.language);
+    if (customSpeech) {
+      return this.sanitizeSpeechForPhase(customSpeech, legalPlayers);
+    }
+
     return candidates[chosenIndex] ?? candidates[0];
   }
 

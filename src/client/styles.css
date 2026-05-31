@@ -3703,14 +3703,49 @@ input[type="range"] {
 
 .human-choice-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
+  line-height: 1.45;
   color: rgba(218, 230, 236, 0.72);
 }
 
 .human-choice-list {
   display: grid;
   gap: 8px;
+}
+
+.human-speech-form {
+  display: grid;
+  min-width: 0;
+  align-items: end;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.human-speech-form textarea {
+  width: 100%;
+  min-height: 82px;
+  border: 1px solid rgba(218, 230, 236, 0.22);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(16, 26, 33, 0.92), rgba(7, 13, 18, 0.94)),
+    var(--ship-trim-texture);
+  background-blend-mode: normal, multiply;
+  color: #ffffff;
+  padding: 10px 11px;
+  font-size: 18px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.human-speech-form textarea::placeholder {
+  color: rgba(218, 230, 236, 0.56);
+}
+
+.human-speech-form .icon-button {
+  min-height: 42px;
+  font-size: 18px;
+  white-space: nowrap;
 }
 
 .human-choice-option {
@@ -3751,7 +3786,7 @@ input[type="range"] {
   border-radius: 50%;
   background: rgba(103, 216, 223, 0.2);
   color: rgba(218, 245, 247, 0.95);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 850;
 }
 
@@ -3759,9 +3794,9 @@ input[type="range"] {
   display: grid;
   gap: 3px;
   min-width: 0;
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.58;
 }
 
 .human-target-grid {
@@ -4914,6 +4949,10 @@ input[type="range"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .human-speech-form {
+    grid-template-columns: 1fr;
+  }
+
   .story-copy > p {
     font-size: 29px;
     line-height: 1.5;
@@ -5101,7 +5140,7 @@ input[type="range"] {
 
 .ui-tour-step {
   color: var(--ship-cyan);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.06em;
 }
@@ -5111,7 +5150,7 @@ input[type="range"] {
   background: none;
   color: var(--ship-muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   padding: 4px 6px;
   border-radius: 6px;
@@ -5124,15 +5163,16 @@ input[type="range"] {
 
 .ui-tour-callout h2 {
   margin: 0 0 8px;
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 800;
+  line-height: 1.28;
   color: #f2f7fa;
 }
 
 .ui-tour-callout p {
   margin: 0 0 16px;
-  font-size: 13.5px;
-  line-height: 1.7;
+  font-size: 18px;
+  line-height: 1.64;
   color: #d6e2e9;
 }
 
@@ -5147,7 +5187,7 @@ input[type="range"] {
 .ui-tour-next {
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 800;
   padding: 9px 18px;
   transition: filter 0.15s ease, background 0.15s ease;

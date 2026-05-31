@@ -125,6 +125,34 @@ test("human input session rejects responses that do not match the pending reques
   session.close();
 });
 
+test("human speech choice input accepts either a drafted choice or free text", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const request = {
+    kind: "speech_choice" as const,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion" as const,
+    role: "Villager" as const,
+    task: "発言してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: [{ id: "0", text: "候補発言" }]
+  };
+
+  const freeTextPromise = session.request(request);
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { speech: "  自分の言葉で話します  " }), { ok: true });
+  assert.deepEqual(await freeTextPromise, { speech: "自分の言葉で話します" });
+
+  const choicePromise = session.request(request);
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { choiceId: "0" }), { ok: true });
+  assert.deepEqual(await choicePromise, { choiceId: "0" });
+  session.close();
+});
+
 test("village stream payload is redacted on the server before SSE delivery", async () => {
   const app = createApp();
   const response = await app.request(
