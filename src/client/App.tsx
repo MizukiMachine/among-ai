@@ -2025,9 +2025,15 @@ export function App() {
       return;
     }
     playSetupConfirmSfx();
-    playBgmRotationFromStart();
     setSettingsConfirmed(true);
-    startGame();
+  }
+
+  function startOpeningScene() {
+    if (!settingsConfirmed || running || sourceRef.current || events.length > 0 || queuedRef.current.length > 0 || snapshot !== null) {
+      return;
+    }
+    playBgmRotationFromStart();
+    startGame({ revealFirstEvent: true });
   }
 
   function revealNext() {
@@ -2069,6 +2075,10 @@ export function App() {
 
   function advanceStory() {
     if (paused) {
+      return;
+    }
+    if (settingsConfirmed && events.length === 0 && snapshot === null && queuedRef.current.length === 0) {
+      startOpeningScene();
       return;
     }
     if (queuedRef.current.length > 0) {
@@ -2277,7 +2287,8 @@ export function App() {
 
       const isBackKey = event.key === "ArrowLeft";
       const canRetreat = !paused && !readyHumanInput && events.length > 0;
-      const canAdvance = !paused && !readyHumanInput && !isBackKey && queuedRef.current.length > 0;
+      const canStartOpening = settingsConfirmed && events.length === 0 && !running && queuedRef.current.length === 0;
+      const canAdvance = !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || canStartOpening);
       if (isBackKey && canRetreat) {
         event.preventDefault();
         retreatStory();
@@ -2292,7 +2303,7 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, startupWaitActive]);
+  }, [events.length, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive]);
 
   async function submitHumanInput(payload: {
     choiceId?: string;
@@ -2694,7 +2705,7 @@ export function App() {
 
   const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
   const setupMode = events.length === 0 && snapshot === null;
-  const firstScenePending = setupMode && settingsConfirmed && queuedEvents.length === 0;
+  const firstScenePending = setupMode && settingsConfirmed && running && queuedEvents.length === 0;
   const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
   // The returning-player startup gate reuses the ordinary "thinking" HUD instead of a
   // dedicated modal, so it folds into the same processing state as a real generation wait.
@@ -2992,7 +3003,7 @@ export function App() {
         type="button"
       >
         {audioMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        <span>{audioMuted ? "BGMオン" : "BGMオフ"}</span>
+        <span>{audioMuted ? "BGMオフ" : "BGMオン"}</span>
       </button>
     );
   }
@@ -3742,8 +3753,8 @@ export function App() {
                   <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
                     {settingsConfirmed ? (
                       <div className="scene-placeholder">
-                        <strong>対局準備中</strong>
-                        <p>{queuedEvents.length > 0 ? "最初の場面を表示できます。" : "最初の場面を準備しています。"}</p>
+                        <strong>{running ? "対局準備中" : "設定完了"}</strong>
+                        <p>{running ? (queuedEvents.length > 0 ? "最初の場面を表示できます。" : "最初の場面を準備しています。") : "ゲーム開始を押すと対局を開始します。"}</p>
                       </div>
                     ) : null}
                     {!settingsConfirmed ? renderSetupControls() : renderSetupConfirmedActions()}
