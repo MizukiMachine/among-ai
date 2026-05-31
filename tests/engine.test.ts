@@ -11,7 +11,7 @@ import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
-import { firstDayOpeningMoveKinds } from "../src/game/speechPlanning";
+import { firstDayOpeningMoveKinds, firstDayWerewolfOpeningMoveKinds } from "../src/game/speechPlanning";
 import type {
   Agent,
   AgentBooleanInput,
@@ -767,12 +767,12 @@ test("Japanese demo werewolf private chat uses night-kill context instead of day
   const speech = await agent.speak({
     player,
     phase: "werewolf_discussion",
-    task: "夜の襲撃先を提案してください。",
+    task: "夜の襲撃先を提案し、人狼陣営の完全勝利にどうつながるか説明してください。",
     context: [
       "あなたはAdaです。",
       "把握している人狼: Ada, Byron。",
       "襲撃候補: Curie, Darwin。",
-      "夜の襲撃先を提案し、戦略的な理由を説明してください。"
+      "村人を全排除するため、明日の昼に人間側として演じやすい襲撃先を選んでください。"
     ].join("\n"),
     knownPlayers: [
       { id: "p1", name: "Ada" },
@@ -1291,7 +1291,7 @@ test("every first-day first-pass speaker receives a distinct opening move prompt
 
   await collect(game.runDay());
 
-  const allowedKinds = new Set<string>(firstDayOpeningMoveKinds);
+  const allowedKinds = new Set<string>([...firstDayOpeningMoveKinds, ...firstDayWerewolfOpeningMoveKinds]);
   const assignedKinds: string[] = [];
   for (const player of players) {
     const agent = game.agents.get(player.id) as ScriptedAgent;
@@ -2294,6 +2294,50 @@ test("human speech choice can publish free text instead of a drafted option", as
 
   assert.ok(requests.some((request) => request.kind === "speech_choice" && request.options.length > 0));
   assert.ok(humanSpeechEvents.some((event) => event.message === "自分の言葉で話します"));
+});
+
+test("human werewolf first-day forced opening must use a drafted deception choice", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { speech: "  今日は普通に様子見します。  " };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p1", language: "Japanese" }, { humanInput }) as TestableGame;
+  (game as OpeningTestableGame).round = 1;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[0].id, new HumanInputAgent(players[0].name, humanInput, "Japanese"));
+  players[0].model = "human";
+
+  const events = await collect(game.runDay());
+  const firstHumanSpeech = events.find(
+    (event) =>
+      event.type === "player_speech" &&
+      event.playerId === players[0].id &&
+      event.phase === "day_discussion" &&
+      event.data?.discussionPass === 1
+  );
+  const firstSpeechRequest = requests.find((request) => request.kind === "speech_choice" && request.phase === "day_discussion");
+
+  assert.ok(firstSpeechRequest && firstSpeechRequest.kind === "speech_choice");
+  assert.equal(firstSpeechRequest.allowFreeText, false);
+  assert.ok(firstHumanSpeech);
+  assert.notEqual(firstHumanSpeech.message, "今日は普通に様子見します");
+  assert.match(firstHumanSpeech.message, /人間側|占い師/);
 });
 
 test("human Lover receives partner info in private input context", async () => {

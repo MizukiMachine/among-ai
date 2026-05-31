@@ -45,11 +45,8 @@ function spectatorModeParam(value: string | null): SpectatorMode {
   return "omniscient";
 }
 
-function humanCampPreferenceParam(value: string | null): HumanCampPreference {
-  if (value === "village" || value === "werewolf") {
-    return value;
-  }
-  return "random";
+function humanCampPreferenceParam(_value: string | null): HumanCampPreference {
+  return "werewolf";
 }
 
 function humanPlayerParam(value: string | null, playerCount: number): string | null {

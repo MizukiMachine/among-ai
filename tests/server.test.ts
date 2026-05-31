@@ -74,10 +74,14 @@ test("stream options accept a human player and player view", () => {
   assert.equal(options.debugScenario, "none");
 });
 
-test("stream options default human camp preference to random", () => {
+test("stream options force human players onto the werewolf camp", () => {
   assert.equal(
     parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanCamp=bogus")).humanCampPreference,
-    "random"
+    "werewolf"
+  );
+  assert.equal(
+    parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanCamp=village")).humanCampPreference,
+    "werewolf"
   );
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanCamp=werewolf")).humanCampPreference, "random");
 });
@@ -157,6 +161,31 @@ test("human speech choice input accepts either a drafted choice or free text", a
 
   const choicePromise = session.request(request);
   assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { choiceId: "0" }), { ok: true });
+  assert.deepEqual(await choicePromise, { choiceId: "0" });
+  session.close();
+});
+
+test("human speech choice input can require a drafted choice", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const request = {
+    kind: "speech_choice" as const,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion" as const,
+    role: "Werewolf" as const,
+    task: "発言してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    allowFreeText: false,
+    options: [{ id: "0", text: "候補発言" }]
+  };
+
+  const choicePromise = session.request(request);
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { speech: "  自由入力です  " }), { ok: false, error: "invalid_input" });
   assert.deepEqual(session.submit(requestId, { choiceId: "0" }), { ok: true });
   assert.deepEqual(await choicePromise, { choiceId: "0" });
   session.close();

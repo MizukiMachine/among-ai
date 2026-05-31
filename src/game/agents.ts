@@ -469,10 +469,13 @@ export function listJapaneseDemoCopySamples(): string[] {
     `私が死ぬなら、撃つ候補は${name}です。`,
     "私は安易に吊っていい人ではありません。",
     "疑いを向けるための偽主張",
+    "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる",
+    "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい",
+    "初日の反応を見るための占い師主張",
     `強い主張が必要なら、私は占い師として出ます。${name}は人狼判定です。動きが不自然です。`,
-    "今夜は議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。",
-    `今夜は${name}で合わせたいです。直近の相談を踏まえると、議論をまとめそうな人を先に噛むのが自然です。`,
-    `今夜は${name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`,
+    "今夜は議論をまとめそうな人を優先したいです。明日は全員で人間側の顔をして、残った村を疑わせましょう。",
+    `今夜は${name}で合わせたいです。議論をまとめそうな人を噛めば、明日は人間側のふりで疑い先を作りやすいです。`,
+    `今夜は${name}を襲撃候補にしたいです。発言力を持ちそうな人を先に噛んで、明日の村を崩しやすくしましょう。`,
     "襲撃相談で優先したい人",
     "今は選択肢を残す方が低リスクです。",
     "ここで見送る方が後半の手を残せます。",
@@ -1758,8 +1761,8 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
   const target = candidates.length > 0 ? sample(candidates) : null;
   const hasWolfChat = /Werewolf chat|人狼チャット/.test(input.context);
   const fallback = japanese
-    ? "今夜は議論をまとめそうな人を優先したいです。初日は情報が少ないので、明日こちらが疑いやすくなる襲撃にしましょう。"
-    : "Tonight I want to remove someone likely to organize the village. With little day-one information, the kill should make tomorrow easier to frame.";
+    ? "今夜は議論をまとめそうな人を優先したいです。明日は全員で人間側の顔をして、残った村を疑わせましょう。"
+    : "Tonight I want to remove someone likely to organize the village. Tomorrow we wear village faces and make the survivors doubt each other.";
 
   if (!target) {
     return {
@@ -1770,11 +1773,11 @@ function buildDemoWerewolfDiscussion(input: AgentSpeechInput, language: string):
 
   const messageText = japanese
     ? hasWolfChat
-      ? `今夜は${target.name}で合わせたいです。直近の相談を踏まえると、議論をまとめそうな人を先に噛むのが自然です。`
-      : `今夜は${target.name}を襲撃候補にしたいです。初日は公開情報が少ないので、発言力を持ちそうな人を先に噛んで明日の議論を作りやすくしましょう。`
+      ? `今夜は${target.name}で合わせたいです。議論をまとめそうな人を噛めば、明日は人間側のふりで疑い先を作りやすいです。`
+      : `今夜は${target.name}を襲撃候補にしたいです。発言力を持ちそうな人を先に噛んで、明日の村を崩しやすくしましょう。`
     : hasWolfChat
-      ? `I want us to settle on ${target.name} tonight. Based on our chat, removing a likely village anchor gives us the cleanest tomorrow.`
-      : `I want ${target.name} as tonight's victim. On day one there is little public evidence, so we should remove someone likely to become a village anchor.`;
+      ? `I want us to settle on ${target.name} tonight. Removing a likely village anchor gives our public act the cleanest cover tomorrow.`
+      : `I want ${target.name} as tonight's victim. Removing a likely village anchor makes tomorrow's table easier to break.`;
 
   return {
     messages: buildDemoSpeechMessages([messageText], language),
@@ -1915,6 +1918,12 @@ function demoFirstDayOpeningMoveSpeech(
     if (move.kind === "overstate_village_side") {
       return "私は人間側として動きます。様子見だけの人は初日の投票候補に入れます";
     }
+    if (move.kind === "wolf_human_side_claim") {
+      return "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる";
+    }
+    if (move.kind === "wolf_fake_role_claim") {
+      return "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい";
+    }
     if (move.kind === "state_vote_criteria") {
       return "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にします";
     }
@@ -1938,6 +1947,12 @@ function demoFirstDayOpeningMoveSpeech(
   }
   if (move.kind === "overstate_village_side") {
     return "I am playing for the village, and I will pressure anyone who hides behind wait-and-see today.";
+  }
+  if (move.kind === "wolf_human_side_claim") {
+    return "I am playing for the village side; passive wait-and-see slots go straight into my vote pool.";
+  }
+  if (move.kind === "wolf_fake_role_claim") {
+    return "I am the Seer. I want to hold results unless I find black; first I want to see who resists that condition.";
   }
   if (move.kind === "state_vote_criteria") {
     return "My vote criteria today are concrete answers and whether people actually take a position.";
@@ -1970,6 +1985,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     !situations.includes("seer_claim") &&
     !situations.includes("black_result");
   const openingFirstDay = firstDaySoft && input.publicHistory.length === 0;
+  const plannedOpeningMove = input.speechPlan?.opensFirstDay === true && Boolean(input.speechPlan.firstDayOpeningMove);
   const reasonPool = demoSpeechReasonPool(input, situations, language, openingFirstDay);
   const openingTarget = openingFirstDay && candidates.length > 0 ? sample(candidates) : null;
   const suspect = !openingFirstDay && candidates.length > 0 ? sample(candidates) : null;
@@ -1978,6 +1994,13 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     buildDemoDaySituationSpeech(input, language) ??
     sample(demoSpeechForRole(speechPool, input.player.role));
   const metadata = emptySpeechMetadata();
+  if ((openingFirstDay || plannedOpeningMove) && input.speechPlan?.firstDayOpeningMove?.kind === "wolf_fake_role_claim") {
+    metadata.claims.push({
+      type: "role_claim",
+      role: "Seer",
+      note: japanese ? "初日の反応を見るための占い師主張" : "day-one reaction-test claim"
+    });
+  }
   const trustPool = suspect ? candidates.filter((candidate) => candidate.id !== suspect.id) : candidates;
   const trusted = trustPool.length > 0 ? sample(trustPool) : null;
   const personaReason = sample(reasonPool);
@@ -2102,11 +2125,12 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   }
 
   const flavor = demoCharacterFlavorLine(input, language);
+  const openingMoveFallback = plannedOpeningMove ? fallback : null;
   return {
     messages: buildDemoSpeechMessages(
       [
-        flavor ?? fallback,
-        flavor ? fallback : "",
+        openingMoveFallback ?? flavor ?? fallback,
+        openingMoveFallback && flavor ? flavor : flavor ? fallback : "",
         suspect
           ? japanese
             ? `${suspect.name}が気になります。${japaneseReasonSentence(personaReason)}`
@@ -2152,19 +2176,19 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
   const roleName = roleLabel(role, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の顔合わせの場で、仲間に向けて短く名乗ります。",
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の顔合わせの場で、仲間に向けて短く名乗り、村をだます演技の意気込みを見せます。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり名乗ってください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
-      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。ただし襲撃先や具体的な作戦の相談はまだしない。挨拶と自分の役職の名乗りだけ。",
+      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
       "重要: 『普段は〜』のような決まり文句や、毎回同じ書き出しは禁止。切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; you introduce yourself to your fellow wolves.",
+    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; introduce yourself and show your appetite for deceiving the village.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
-    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity, but do NOT discuss attack targets or concrete plans yet. Just a greeting and naming your role.",
+    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
     "Important: no stock opener like \"I usually...\"; open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
@@ -2172,7 +2196,9 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
 
 function defaultWerewolfIntroLine(name: string, role: Role | undefined, language: string): string {
   const roleName = roleLabel(role, language);
-  return isJapaneseLanguage(language) ? `${name}だ。俺が${roleName}、よろしく頼む。` : `I'm ${name} — I'm the ${roleName}, let's work together.`;
+  return isJapaneseLanguage(language)
+    ? `${name}だ。俺が${roleName}、昼は人間側の顔で村を崩す`
+    : `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`;
 }
 
 export class DemoAgent implements Agent {
@@ -2218,16 +2244,16 @@ export class DemoAgent implements Agent {
     const roleName = roleLabel(input.player.role, this.language);
     const variants = isJapaneseLanguage(this.language)
       ? [
-          `${name}だ。俺が${roleName}、よろしく頼む。`,
-          `どうも、${name}。${roleName}担当だ、${persona_}なりにやるよ。`,
-          `${name}です。${roleName}なので、仲間としてよろしく。`,
-          `こんばんは、${name}。こっちが${roleName}、${persona_}だけど頼りにしてくれ。`
+          `${name}だ。俺が${roleName}、昼は人間側の顔で村を崩す`,
+          `どうも、${name}。${roleName}担当だ、${persona_}なりにうまく騙すよ`,
+          `${name}です。${roleName}として、今日は人間っぽく信用を取りに行きます`,
+          `こんばんは、${name}。こっちが${roleName}、必要なら占い師っぽく場を揺らす`
         ]
       : [
-          `I'm ${name} — I'm the ${roleName}, count me in.`,
-          `Hey, ${name} here. I'm the ${roleName}; I'll play it ${persona_}.`,
-          `${name}, and I'm the ${roleName}. Good to have allies.`,
-          `Evening — ${name}, the ${roleName}. A bit ${persona_}, but lean on me.`
+          `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`,
+          `Hey, ${name} here. I'm the ${roleName}; I will sell the act ${persona_}.`,
+          `${name}, the ${roleName}. I will build trust first, then turn it on them.`,
+          `Evening, ${name}, the ${roleName}; if needed, I can shake the table with a fake claim.`
         ];
     const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
     const line = variants[index];

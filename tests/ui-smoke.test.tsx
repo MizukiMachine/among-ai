@@ -30,9 +30,11 @@ test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /among ai/);
-  assert.match(html, /自分も参加してプレイ/);
-  assert.match(html, /全情報/);
-  assert.match(html, /人間視点/);
+  assert.match(html, /人狼として参加/);
+  assert.match(html, /プレイ目標/);
+  assert.match(html, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
+  assert.match(html, /仲間の演技を見ながら村人の全排除を狙います/);
+  assert.doesNotMatch(html, /狼陣営でプレイ/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
@@ -58,7 +60,7 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
   assert.doesNotMatch(html, /insight-grid/);
-  assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
+  assert.match(html, /10人以上は認知負荷が大きい/);
 });
 
 test("roster vote result overlay is wired next to the conversation log", () => {
@@ -707,17 +709,24 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
-test("setup exposes human camp preference choices", () => {
+test("setup locks human play to the werewolf camp", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
-  assert.match(source, /label: "人間陣営"/);
-  assert.match(source, /label: "狼陣営"/);
-  assert.match(source, /label: "ランダム"/);
+  assert.match(source, /const initialHumanEnabled = true;/);
+  assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "werewolf";/);
+  assert.match(source, /className="field setup-field play-goal-field"/);
+  assert.match(source, /className="setup-note play-goal-note"/);
+  assert.match(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
+  assert.match(source, /仲間の演技を見ながら村人の全排除を狙います/);
+  assert.match(source, /className="field setup-field play-goal-field"[\s\S]*<span>プレイ目標<\/span>[\s\S]*className="field setup-field participant-field"[\s\S]*<span>参加方式<\/span>/);
+  assert.doesNotMatch(source, /label: "狼陣営でプレイ"/);
+  assert.doesNotMatch(source, /label: "人間陣営"/);
+  assert.doesNotMatch(source, /label: "ランダム"/);
   assert.match(source, /params\.set\("humanCamp", humanCampPreference\)/);
-  assert.match(source, /className="segments human-camp-options"/);
-  assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.doesNotMatch(source, /className="segments human-camp-options"/);
+  assert.match(css, /\.play-goal-field\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s);
+  assert.doesNotMatch(css, /\.human-camp-options/);
 });
 
 test("human input waits behind unread story events with a visible notice", () => {
@@ -778,11 +787,14 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
-  assert.match(source, /任意の挨拶です。入力しなくても進行します/);
-  assert.match(source, /const speechPlaceholder = isWerewolfGreeting \? "例: よろしく、まずは落ち着いて合わせよう" : "発言を入力";/);
-  assert.match(source, /const canSubmitHumanSpeech = isWerewolfGreeting \|\| humanSpeech\.trim\(\)\.length > 0;/);
-  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "挨拶する" : "挨拶せず進む"/);
+  assert.match(source, /任意の顔合わせ発言です。入力しなくても進行します/);
+  assert.match(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
+  assert.match(source, /"この場面では候補から選んでください"/);
+  assert.match(source, /"候補から選択"/);
+  assert.match(source, /const canSubmitHumanSpeech = isWerewolfGreeting \|\| \(allowFreeText && humanSpeech\.trim\(\)\.length > 0\);/);
+  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "顔合わせで話す" : "話さず進む"/);
   assert.match(source, /rows=\{7\}/);
+  assert.match(source, /disabled=\{humanSubmitting \|\| !allowFreeText\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
@@ -867,7 +879,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
 
   // The four ordered steps the player asked for.
-  assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "役職内訳"/);
+  assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "人狼陣営の目的"/);
+  assert.match(source, /人狼陣営として村人の全排除を目指すゲーム/);
   assert.match(source, /getEl: \(\) => rosterListRef\.current,\s*\n\s*title: "プレイヤー一覧"/);
   assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
   assert.match(source, /getEl: \(\) => storyControlsRef\.current,\s*\n\s*title: "視点・BGM・進行"/);
