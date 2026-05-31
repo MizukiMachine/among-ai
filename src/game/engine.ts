@@ -1160,8 +1160,8 @@ export class WerewolfGame {
     const speech = await this.safeSpeak(
       player,
       discussionPass <= regularDayDiscussionPasses
-        ? this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。")
-        : this.text("Make a short public follow-up statement.", "短い追加の公開発言をしてください。"),
+        ? this.text("Make a public day discussion statement.", "昼議論で発言してください。")
+        : this.text("Make a short public follow-up statement.", "短い追加発言をしてください。"),
       context,
       contextLines,
       options.signal,
@@ -2637,11 +2637,11 @@ export class WerewolfGame {
         } else if (openingMoveKind === "ask_table_question" && target) {
           message = `${target.name}さん、最初の投票基準を一つ聞かせてください。私は理由が薄い人を候補に入れます`;
         } else if (openingMoveKind === "tentative_reaction_read" && target) {
-          message = `${target.name}さんに軽く圧をかけます。初日は理由を出せない人を疑い寄りで見ます`;
+          message = `${target.name}さんに先に理由を聞きます。初日は理由を出せない人を疑い寄りで見ます`;
           metadata.suspects.push({
             targetId: target.id,
             targetName: target.name,
-            reason: "初日の軽い圧として理由を確認したい",
+            reason: "初日の軽い確認として理由を聞きたい",
             weight: 0.36
           });
         } else if (openingMoveKind === "organize_setup") {
@@ -2673,7 +2673,7 @@ export class WerewolfGame {
           metadata.suspects.push({
             targetId: target.id,
             targetName: target.name,
-            reason: "公開発言で名前が出ているため理由を確認したい",
+            reason: "今日の発言で名前が出ているため理由を確認したい",
             weight: 0.5
           });
         } else {
