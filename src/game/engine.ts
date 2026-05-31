@@ -129,6 +129,13 @@ interface SafeGenerationOptions {
   suppressMemorySideEffects?: boolean;
 }
 
+interface DayDiscussionSpeechPrefetch {
+  round: number;
+  openingSpeakerId: string;
+  openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>;
+  promise: Promise<{ player: Player; speech: AgentSpeech }>;
+}
+
 function speechEventData(
   speech: AgentSpeech,
   message: string,
@@ -620,6 +627,7 @@ export class WerewolfGame {
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
   private lastNightDeathRecords: DeathRecord[] = [];
+  private firstDayOpeningSpeechPrefetch: DayDiscussionSpeechPrefetch | null = null;
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.humanInput = options.humanInput;
@@ -785,17 +793,25 @@ export class WerewolfGame {
     return this.progressReporterAt(this.phase, this.round, task, label, extra);
   }
 
-  private emitSpeechDiagnostic(diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">): void {
+  private emitSpeechDiagnosticAt(
+    round: number,
+    phase: Phase,
+    diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">
+  ): void {
     try {
       this.onSpeechDiagnostics?.({
         createdAt: new Date().toISOString(),
-        round: this.round,
-        phase: this.phase,
+        round,
+        phase,
         ...diagnostic
       });
     } catch {
       // Diagnostic observers are best-effort and must not affect game generation.
     }
+  }
+
+  private emitSpeechDiagnostic(diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">): void {
+    this.emitSpeechDiagnosticAt(this.round, this.phase, diagnostic);
   }
 
   private progressReporterAt(
@@ -1058,8 +1074,132 @@ export class WerewolfGame {
     return Math.max(1, Math.min(this.prefetchConcurrency, Math.floor(parsed)));
   }
 
+  private async generateDayDiscussionSpeech(
+    player: Player,
+    discussionPass: number,
+    openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>,
+    options: SpeculativeRunOptions = {}
+  ): Promise<{ player: Player; speech: AgentSpeech }> {
+    const openingMoveKind = discussionPass === 1 ? openingMoveByPlayerId.get(player.id) : undefined;
+    const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
+    const contextLines = [
+      this.nightDeathContextLine(),
+      this.text(
+        "Discuss suspicions, claims, or information with the whole table.",
+        "疑い、役職主張、情報を全体に向けて話してください。"
+      ),
+      discussionPass <= regularDayDiscussionPasses
+        ? this.text(
+            `Discussion pass ${discussionPass} of ${regularDayDiscussionPasses}.`,
+            `昼議論 ${discussionPass}巡目 / ${regularDayDiscussionPasses}巡。`
+          )
+        : this.text(
+            "Follow-up pass for selected speakers after the two table passes.",
+            "2巡後に必要な人だけが行う追加発言です。"
+          ),
+      discussionPass === 1
+        ? this.round === 1
+          ? this.text(
+              "First pass: open one day-one agenda topic such as process, vote-reason standards, or Seer reveal conditions. Do not invent prior reactions.",
+              "1巡目: 進め方、投票理由の残し方、占い師が名乗る条件など、初日の議題を一つだけ出してください。まだ見えていない反応や矛盾は作らないでください。"
+            )
+          : this.text(
+              "First pass: state one clear read, claim decision, or vote-leaning view from your own position.",
+              "1巡目: 自分の立場から、読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
+            )
+        : discussionPass === 2
+          ? this.text(
+              "Second pass: if needed, answer direct pressure briefly, then update one vote-ready read.",
+              "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
+            )
+          : this.text(
+              "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
+              "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
+            ),
+      ...(openingMove
+        ? [
+            this.isJapanese()
+              ? `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
+              : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
+          ]
+        : []),
+      ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
+    ];
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const speechPlan = buildPublicSpeechPlan({
+      phase: this.phase,
+      round: this.round,
+      discussionPass,
+      players: this.players,
+      lastNightDeaths: this.lastNightDeathRecords,
+      legalPlayers,
+      language: this.config.language,
+      speakerId: player.id,
+      publicHistory: this.publicHistory,
+      previousVotes: this.lastVotes,
+      firstDayOpeningMove: openingMove
+    });
+    const context = this.contextFor(player, contextLines, {}, speechPlan);
+    const diagnosticRound = this.round;
+    const diagnosticPhase = this.phase;
+    const speech = await this.safeSpeak(
+      player,
+      discussionPass <= regularDayDiscussionPasses
+        ? this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。")
+        : this.text("Make a short public follow-up statement.", "短い追加の公開発言をしてください。"),
+      context,
+      contextLines,
+      options.signal,
+      { suppressMemorySideEffects: Boolean(options.speculative), speechPlan, diagnosticRound, diagnosticPhase }
+    );
+    return { player, speech };
+  }
+
+  private getOrStartFirstDayOpeningSpeechPrefetch(round: number): DayDiscussionSpeechPrefetch | null {
+    if (this.firstDayOpeningSpeechPrefetch?.round === round) {
+      return this.firstDayOpeningSpeechPrefetch;
+    }
+    if (round !== 1 || this.config.provider !== "llm") {
+      return null;
+    }
+
+    const previousRound = this.round;
+    const previousPhase = this.phase;
+    this.round = round;
+    this.phase = "day_discussion";
+    try {
+      const speakers = this.daySpeakerOrder();
+      const openingMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
+      const openingSpeaker = this.firstAiDayOpeningSpeaker(speakers, openingMoveByPlayerId);
+      if (!openingSpeaker) {
+        return null;
+      }
+
+      const promise = this.generateDayDiscussionSpeech(openingSpeaker, 1, openingMoveByPlayerId);
+      promise.catch(() => undefined);
+      this.firstDayOpeningSpeechPrefetch = {
+        round,
+        openingSpeakerId: openingSpeaker.id,
+        openingMoveByPlayerId,
+        promise
+      };
+      return this.firstDayOpeningSpeechPrefetch;
+    } finally {
+      this.round = previousRound;
+      this.phase = previousPhase;
+    }
+  }
+
+  private firstAiDayOpeningSpeaker(
+    speakers: Player[],
+    openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>
+  ): Player | undefined {
+    return speakers.find((speaker) => openingMoveByPlayerId.has(speaker.id) && !this.isHumanControlledPlayer(speaker));
+  }
+
   async *run(): AsyncGenerator<GameEvent> {
     this.throwIfCancelled();
+    this.getOrStartFirstDayOpeningSpeechPrefetch(1);
     yield this.emit("game_started", this.text("A new AI werewolf match has started.", "AI人狼の新しい対局を開始しました。"), {
       provider: this.config.provider,
       model: this.config.model || "demo",
@@ -1700,10 +1840,15 @@ export class WerewolfGame {
 
   private async *runDay(): AsyncGenerator<GameEvent> {
     const isOpeningLlmRound = this.round === 1 && this.config.provider === "llm";
+    const openingPrefetch = isOpeningLlmRound ? this.getOrStartFirstDayOpeningSpeechPrefetch(this.round) : null;
+    const speakers = this.daySpeakerOrder();
+    const firstDayOpeningMoveByPlayerId = openingPrefetch?.openingMoveByPlayerId ?? this.firstDayOpeningMoveAssignments(speakers);
 
     // Before the public day breaks, the werewolf team meets privately so a human werewolf
     // learns who their allies are. Always runs on the first day's opening, independent of
-    // agenda scheduling; a lone wolf (or an all-human wolf team) is a no-op.
+    // agenda scheduling; a lone wolf (or an all-human wolf team) is a no-op. The first
+    // public day line has already been requested above, so this face-off now overlaps
+    // real day-discussion generation instead of delaying it.
     if (isOpeningLlmRound) {
       yield* this.runWerewolfFaceoffPass();
     }
@@ -1715,85 +1860,6 @@ export class WerewolfGame {
       this.text(`Day ${this.round} begins.`, `${this.round}日目の昼が始まりました`)
     );
 
-    const speakers = this.daySpeakerOrder();
-    const firstDayOpeningMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
-    const generateSpeech = async (
-      player: Player,
-      discussionPass: number,
-      options: { signal?: AbortSignal; speculative?: boolean } = {}
-    ): Promise<{ player: Player; speech: AgentSpeech }> => {
-      const openingMoveKind = discussionPass === 1 ? firstDayOpeningMoveByPlayerId.get(player.id) : undefined;
-      const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
-      const contextLines = [
-        this.nightDeathContextLine(),
-        this.text(
-          "Discuss suspicions, claims, or information with the whole table.",
-          "疑い、役職主張、情報を全体に向けて話してください。"
-        ),
-        discussionPass <= regularDayDiscussionPasses
-          ? this.text(
-              `Discussion pass ${discussionPass} of ${regularDayDiscussionPasses}.`,
-              `昼議論 ${discussionPass}巡目 / ${regularDayDiscussionPasses}巡。`
-            )
-          : this.text(
-              "Follow-up pass for selected speakers after the two table passes.",
-              "2巡後に必要な人だけが行う追加発言です。"
-            ),
-        discussionPass === 1
-          ? this.round === 1
-            ? this.text(
-                "First pass: open one day-one agenda topic such as process, vote-reason standards, or Seer reveal conditions. Do not invent prior reactions.",
-                "1巡目: 進め方、投票理由の残し方、占い師が名乗る条件など、初日の議題を一つだけ出してください。まだ見えていない反応や矛盾は作らないでください。"
-              )
-            : this.text(
-                "First pass: state one clear read, claim decision, or vote-leaning view from your own position.",
-                "1巡目: 自分の立場から、読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
-              )
-          : discussionPass === 2
-          ? this.text(
-              "Second pass: if needed, answer direct pressure briefly, then update one vote-ready read.",
-              "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
-            )
-          : this.text(
-              "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
-              "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
-            ),
-        ...(openingMove
-          ? [
-              this.isJapanese()
-                ? `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
-                : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
-            ]
-          : []),
-        ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
-      ];
-      const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
-      const speechPlan = buildPublicSpeechPlan({
-        phase: this.phase,
-        round: this.round,
-        discussionPass,
-        players: this.players,
-        lastNightDeaths: this.lastNightDeathRecords,
-        legalPlayers,
-        language: this.config.language,
-        speakerId: player.id,
-        publicHistory: this.publicHistory,
-        previousVotes: this.lastVotes,
-        firstDayOpeningMove: openingMove
-      });
-      const context = this.contextFor(player, contextLines, {}, speechPlan);
-      const speech = await this.safeSpeak(
-        player,
-        discussionPass <= regularDayDiscussionPasses
-          ? this.text("Make a public day discussion statement.", "昼議論の公開発言をしてください。")
-          : this.text("Make a short public follow-up statement.", "短い追加の公開発言をしてください。"),
-        context,
-        contextLines,
-        options.signal,
-        { suppressMemorySideEffects: Boolean(options.speculative), speechPlan }
-      );
-      return { player, speech };
-    };
     const publishSpeech = (player: Player, speech: AgentSpeech, discussionPass: number, discussionPasses: number): GameEvent[] => {
       this.publicHistory.push(this.formatSpeechHistory(player, speech));
       this.lastDiscussion.push({
@@ -1815,16 +1881,20 @@ export class WerewolfGame {
         )
       );
     };
-    const openingSpeaker = speakers.find((player) => firstDayOpeningMoveByPlayerId.has(player.id));
-    let prefetchedOpeningSpeech: Promise<{ player: Player; speech: AgentSpeech }> | null = null;
+    const openingSpeaker = this.firstAiDayOpeningSpeaker(speakers, firstDayOpeningMoveByPlayerId);
+    let prefetchedOpeningSpeech =
+      openingPrefetch && openingSpeaker?.id === openingPrefetch.openingSpeakerId ? openingPrefetch.promise : null;
+    if (prefetchedOpeningSpeech) {
+      this.firstDayOpeningSpeechPrefetch = null;
+    }
 
     // Keep the "day zero" greetings even without the old director layer. They give the
     // player something to read while the first real public line is already being generated,
     // but they are not fed back into publicHistory/lastDiscussion and therefore cannot
     // become fake evidence.
     if (isOpeningLlmRound) {
-      if (openingSpeaker && !this.isHumanControlledPlayer(openingSpeaker)) {
-        prefetchedOpeningSpeech = generateSpeech(openingSpeaker, 1);
+      if (!prefetchedOpeningSpeech && openingSpeaker) {
+        prefetchedOpeningSpeech = this.generateDayDiscussionSpeech(openingSpeaker, 1, firstDayOpeningMoveByPlayerId);
         prefetchedOpeningSpeech.catch(() => undefined);
       }
       yield* this.runFirstDayWarmupPass();
@@ -1834,7 +1904,8 @@ export class WerewolfGame {
       let passSpeakers = speakers;
       if (discussionPass === 1 && firstDayOpeningMoveByPlayerId.size > 0) {
         if (openingSpeaker) {
-          const { player, speech } = await (prefetchedOpeningSpeech ?? generateSpeech(openingSpeaker, discussionPass));
+          const { player, speech } = await (prefetchedOpeningSpeech ??
+            this.generateDayDiscussionSpeech(openingSpeaker, discussionPass, firstDayOpeningMoveByPlayerId));
           for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
             yield event;
           }
@@ -1844,7 +1915,7 @@ export class WerewolfGame {
 
       for await (const { player, speech } of this.raceAiWithHumanLast(
         passSpeakers,
-        (player, options) => generateSpeech(player, discussionPass, options),
+        (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
         this.progressReporter("day_speech", this.text("Day discussion", "昼議論"), {
           pass: discussionPass,
           passes: regularDayDiscussionPasses
@@ -1860,7 +1931,7 @@ export class WerewolfGame {
     if (followUpSpeakers.length > 0) {
       for await (const { player, speech } of this.raceAiWithHumanLast(
         followUpSpeakers,
-        (player, options) => generateSpeech(player, followUpDayDiscussionPass, options),
+        (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
         this.progressReporter("day_speech", this.text("Day discussion follow-up", "昼議論の追加発言"), {
           pass: followUpDayDiscussionPass,
           passes: followUpDayDiscussionPass
@@ -2338,7 +2409,13 @@ export class WerewolfGame {
     context: string,
     uiContext: string[] = [],
     abortSignal?: AbortSignal,
-    options: { suppressMemorySideEffects?: boolean; speechPlan?: PublicSpeechPlan; agentOverride?: Agent } = {}
+    options: {
+      suppressMemorySideEffects?: boolean;
+      speechPlan?: PublicSpeechPlan;
+      agentOverride?: Agent;
+      diagnosticRound?: number;
+      diagnosticPhase?: Phase;
+    } = {}
   ): Promise<AgentSpeech> {
     this.throwIfCancelled();
     const agent = options.agentOverride ?? this.agents.get(player.id) ?? fallbackAgent;
@@ -2377,10 +2454,12 @@ export class WerewolfGame {
       speechPlanReviewEnabled: shouldReviewSpeechPlan,
       speechPlanRequiresForwardMove: Boolean(options.speechPlan?.requiresForwardMove)
     };
+    const diagnosticRound = options.diagnosticRound ?? this.round;
+    const diagnosticPhase = options.diagnosticPhase ?? this.phase;
     const startedAt = Date.now();
     let attempts = 0;
     const emitSpeechAttemptDiagnostic = (diagnostic: Omit<SpeechGenerationDiagnostic, "createdAt" | "round" | "phase">) => {
-      this.emitSpeechDiagnostic({
+      this.emitSpeechDiagnosticAt(diagnosticRound, diagnosticPhase, {
         ...diagnosticBase,
         durationMs: Date.now() - startedAt,
         ...diagnostic
