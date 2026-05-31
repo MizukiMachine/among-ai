@@ -696,6 +696,43 @@ test("human player role assignment balances werewolf and village camp odds by pl
   }
 });
 
+test("human camp preference pins the human player to the requested camp", () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null };
+      }
+      return { decision: false };
+    }
+  };
+
+  for (const humanCampPreference of ["village", "werewolf"] as const) {
+    for (const playerCount of [6, 7, 9, 14, maxSupportedPlayers]) {
+      const game = new WerewolfGame(
+        {
+          ...baseConfig,
+          playerCount,
+          humanPlayerId: "p3",
+          humanCampPreference
+        },
+        { humanInput }
+      ) as TestableGame;
+      const human = game.players.find((player) => player.id === "p3");
+
+      assert.ok(human);
+      assert.equal(human.camp, humanCampPreference);
+      assert.deepEqual(
+        game.players.map((player) => player.role).sort(),
+        createRoles(playerCount).sort(),
+        "camp preference must not change the table's role distribution"
+      );
+    }
+  }
+});
+
 test("Japanese demo agents produce Japanese speech", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Villager" }]);

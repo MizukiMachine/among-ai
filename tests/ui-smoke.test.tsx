@@ -695,6 +695,19 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
+test("setup exposes human camp preference choices", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
+  assert.match(source, /label: "人間陣営"/);
+  assert.match(source, /label: "狼陣営"/);
+  assert.match(source, /label: "ランダム"/);
+  assert.match(source, /params\.set\("humanCamp", humanCampPreference\)/);
+  assert.match(source, /className="segments human-camp-options"/);
+  assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+});
+
 test("human input waits behind unread story events with a visible notice", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");

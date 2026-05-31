@@ -14,6 +14,7 @@ export type Role =
   | "Villager";
 export type Camp = "werewolf" | "village";
 export type CampId = Camp | "neutral" | "lover";
+export type HumanCampPreference = Camp | "random";
 export type Persona =
   | "cautious"
   | "aggressive"
@@ -265,6 +266,7 @@ export interface GameConfig {
   summaryMode?: SummaryMode;
   debugScenario?: DebugScenario;
   humanPlayerId?: string | null;
+  humanCampPreference?: HumanCampPreference;
   prefetchConcurrency?: number;
 }
 

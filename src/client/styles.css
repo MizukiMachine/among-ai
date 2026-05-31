@@ -2925,6 +2925,40 @@ input[type="range"] {
   flex: 0 0 auto;
 }
 
+.human-camp-field {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 8px;
+}
+
+.setup-card .human-camp-field > span {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 16px;
+  font-weight: 820;
+}
+
+.human-camp-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.human-camp-options button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.human-camp-options button svg {
+  flex: 0 0 auto;
+}
+
 .setup-cast-preview {
   display: grid;
   gap: 10px;
@@ -4913,6 +4947,16 @@ input[type="range"] {
     font-size: 12px;
     white-space: nowrap;
     line-height: 1.15;
+  }
+
+  .human-camp-field {
+    width: 100%;
+  }
+
+  .human-camp-options button {
+    min-height: 40px;
+    padding: 8px 6px;
+    font-size: 12px;
   }
 
   .setup-cast-grid {

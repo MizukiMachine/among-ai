@@ -51,6 +51,7 @@ import type {
   GameSnapshot,
   GenerationProgress,
   GenerationProgressTask,
+  HumanCampPreference,
   HumanInputHandler,
   Persona,
   Phase,
@@ -236,7 +237,16 @@ function normalizeHumanPlayerId(playerId: string | null | undefined, playerCount
   return index === null ? null : `p${index + 1}`;
 }
 
-function createMatchRoles(playerCount: number, humanPlayerId: string | null, humanInputAvailable: boolean): Role[] {
+function normalizeHumanCampPreference(preference: HumanCampPreference | undefined): HumanCampPreference {
+  return preference === "village" || preference === "werewolf" ? preference : "random";
+}
+
+function createMatchRoles(
+  playerCount: number,
+  humanPlayerId: string | null,
+  humanInputAvailable: boolean,
+  humanCampPreference: HumanCampPreference = "random"
+): Role[] {
   const roles = createRoles(playerCount);
   if (!humanInputAvailable || !humanPlayerId) {
     return shuffle(roles);
@@ -247,14 +257,20 @@ function createMatchRoles(playerCount: number, humanPlayerId: string | null, hum
     return shuffle(roles);
   }
 
-  return assignBalancedHumanRole(roles, humanIndex);
+  return assignHumanRole(roles, humanIndex, humanCampPreference);
 }
 
-function assignBalancedHumanRole(roles: Role[], humanIndex: number): Role[] {
-  const humanRole = sampleBalancedHumanRole(roles);
+function assignHumanRole(roles: Role[], humanIndex: number, campPreference: HumanCampPreference): Role[] {
+  const preference = normalizeHumanCampPreference(campPreference);
+  const humanRole = preference === "random" ? sampleBalancedHumanRole(roles) : sampleHumanRoleForCamp(roles, preference);
   const remainingRoles = removeOneRole(roles, humanRole);
   const shuffledRemaining = shuffle(remainingRoles);
   return [...shuffledRemaining.slice(0, humanIndex), humanRole, ...shuffledRemaining.slice(humanIndex)];
+}
+
+function sampleHumanRoleForCamp(roles: Role[], camp: Camp): Role {
+  const candidates = roles.filter((role) => roleCamp(role) === camp);
+  return candidates.length > 0 ? sample(candidates) : sampleBalancedHumanRole(roles);
 }
 
 function sampleBalancedHumanRole(roles: Role[]): Role {
@@ -649,6 +665,7 @@ export class WerewolfGame {
       summaryMode: normalizeSummaryMode(config.summaryMode),
       debugScenario,
       humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount),
+      humanCampPreference: normalizeHumanCampPreference(config.humanCampPreference),
       prefetchConcurrency
     };
 
@@ -682,7 +699,12 @@ export class WerewolfGame {
     const activeDebugScenario = this.config.debugScenario ?? "none";
     const roles =
       activeDebugScenario === "none"
-        ? createMatchRoles(this.config.playerCount, this.config.humanPlayerId ?? null, Boolean(options.humanInput))
+        ? createMatchRoles(
+            this.config.playerCount,
+            this.config.humanPlayerId ?? null,
+            Boolean(options.humanInput),
+            this.config.humanCampPreference
+          )
         : createScenarioRoles(activeDebugScenario, this.config.playerCount);
     const createAgent = createAgentFactory({
       provider: this.config.provider,
