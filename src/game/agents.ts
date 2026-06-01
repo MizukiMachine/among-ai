@@ -1731,6 +1731,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり確認してください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
       "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にせず、『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
+      "入力に『顔合わせでの発言』がある場合は、それを直前の会話として受け、仲間の方針への反応や補完する角度を自然に足してください。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
@@ -1741,6 +1742,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
     "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
+    'If the input includes "Face-off so far" lines, treat them as the live conversation and naturally respond to or complement an ally\'s direction.',
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");

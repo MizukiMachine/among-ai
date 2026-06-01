@@ -121,6 +121,7 @@ class IntroAgent implements Agent {
 
   async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
     this.werewolfIntroCalls.push(input.player.id);
+    this.speechInputs.push(input);
     return {
       messages: [`WOLF-INTRO ${input.player.name} ${input.player.role}`],
       metadata: { suspects: [], trusts: [], claims: [] }
@@ -1756,6 +1757,46 @@ test("first-day werewolf face-off: every AI wolf greets the team and owns their 
     const wolfView = redactEventForPlayer(event, wolves[0].id);
     assert.match(wolfView.message, /WOLF-INTRO/, "any werewolf-camp viewer sees the face-off");
   }
+});
+
+test("first-day werewolf face-off carries previous ally lines into later prompts", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "AlphaWolf" },
+    { role: "WolfBeauty" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const speeches = events.filter((event) => event.type === "player_speech");
+  const wolves = players.filter((player) => player.camp === "werewolf");
+  const firstAgent = game.agents.get(wolves[0].id) as IntroAgent;
+  const secondAgent = game.agents.get(wolves[1].id) as IntroAgent;
+  const thirdAgent = game.agents.get(wolves[2].id) as IntroAgent;
+
+  assert.deepEqual(
+    speeches.map((event) => event.playerId),
+    wolves.map((wolf) => wolf.id),
+    "face-off lines are generated in table order so later speakers can use earlier context"
+  );
+  assert.ok(!firstAgent.speechInputs[0].context.includes("Face-off so far"), "the first wolf opens without invented prior context");
+  assert.ok(
+    secondAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[0].name}`),
+    "the second wolf sees the first wolf's face-off line"
+  );
+  assert.ok(
+    thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[0].name}`) &&
+      thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[1].name}`),
+    "later wolves see every prior face-off line"
+  );
+  assert.match(thirdAgent.speechInputs[0].context, /Respond to an ally|補完/u);
 });
 
 test("first-day werewolf face-off offers a human werewolf alignment line without blocking later generation", async () => {

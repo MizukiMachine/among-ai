@@ -2398,8 +2398,9 @@ export class WerewolfGame {
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
-  // AI wolves use fast single-call alignment lines. A human werewolf may enter an optional line, but
-  // it is display-only input and intentionally does not gate or feed later generation.
+  // AI wolves use fast single-call alignment lines, generated sequentially so each ally can react
+  // to the face-off lines already spoken. A human werewolf may enter an optional line without
+  // blocking the opening stream.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     // A lone wolf has no allies to meet, and the player already knows their own role.
@@ -2419,20 +2420,42 @@ export class WerewolfGame {
       { visibility: "werewolf" }
     );
 
-    for await (const { wolf, speech } of orderedConcurrentMap(
-      aiWerewolves,
-      this.prefetchConcurrency,
-      async (wolf) => ({ wolf, speech: await this.safeWerewolfFaceoff(wolf, werewolves) }),
-      this.progressReporter("werewolf_discussion", this.text("Werewolf alignment", "人狼の意思合わせ"))
-    )) {
-      this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
+    const faceoffHistory: string[] = [];
+    const reportProgress = this.progressReporter("werewolf_discussion", this.text("Werewolf alignment", "人狼の意思合わせ"));
+    let started = 0;
+    let completed = 0;
+    const reportFaceoffProgress = () => {
+      try {
+        reportProgress?.({
+          total: aiWerewolves.length,
+          started,
+          completed,
+          active: Math.max(0, started - completed),
+          queued: Math.max(0, aiWerewolves.length - started),
+          concurrency: 1
+        });
+      } catch {
+        // Progress observers are best-effort and must not break game generation.
+      }
+    };
+    reportFaceoffProgress();
+
+    for (const wolf of aiWerewolves) {
+      started += 1;
+      reportFaceoffProgress();
+      const speech = await this.safeWerewolfFaceoff(wolf, werewolves, faceoffHistory);
+      completed += 1;
+      const historyLine = this.formatWerewolfFaceoffHistory(wolf, speech);
+      faceoffHistory.push(historyLine);
+      this.wolfHistory.push(historyLine);
+      reportFaceoffProgress();
       for (const [index, message] of speech.messages.entries()) {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
       }
     }
 
     if (humanWerewolf) {
-      this.requestHumanWerewolfAlignment(humanWerewolf, werewolves);
+      this.requestHumanWerewolfAlignment(humanWerewolf, werewolves, faceoffHistory);
     }
   }
 
@@ -2989,6 +3012,7 @@ export class WerewolfGame {
   private async safeWerewolfFaceoff(
     player: Player,
     werewolves: Player[],
+    previousFaceoffHistory: string[] = [],
     abortSignal?: AbortSignal,
     speculative = false
   ): Promise<AgentSpeech> {
@@ -2996,7 +3020,7 @@ export class WerewolfGame {
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
-    const contextLines = this.werewolfFaceoffContextLines(werewolves);
+    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory);
     const input: AgentSpeechInput = {
       player,
       phase: this.phase,
@@ -3036,11 +3060,15 @@ export class WerewolfGame {
     }
   }
 
-  private werewolfFaceoffContextLines(werewolves: Player[]): string[] {
+  private formatWerewolfFaceoffHistory(player: Player, speech: AgentSpeech): string {
+    return `${player.name}: ${speech.messages.join(" ")}`;
+  }
+
+  private werewolfFaceoffContextLines(werewolves: Player[], previousFaceoffHistory: string[] = []): string[] {
     const teamRoster = werewolves
       .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
       .join("、");
-    return [
+    const lines = [
       this.text(
         "This is a private, allies-only werewolf alignment meeting before the first day opens. The crew already knows each other; this is not a first-meeting introduction.",
         "ここは初日が始まる前、人狼陣営だけの内緒の意思合わせです。クルー同士はすでに知り合いであり、初対面の自己紹介ではありません。"
@@ -3054,15 +3082,27 @@ export class WerewolfGame {
         "仲間と意思を合わせ、自分の役職をはっきり確認し、昼にどんな人間側の演技をするか一言だけ添えてください。襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
+    if (previousFaceoffHistory.length > 0) {
+      lines.push(
+        ...previousFaceoffHistory
+          .slice(-6)
+          .map((line) => this.text(`Face-off so far: ${line}`, `顔合わせでの発言: ${line}`)),
+        this.text(
+          "Treat those prior lines as the live conversation. Respond to an ally's direction or add a complementary angle instead of simply restarting the same declaration.",
+          "これまでの発言を今の会話として受けてください。仲間の方針に反応するか、同じ宣言を最初から言い直すのではなく補完する角度を足してください。"
+        )
+      );
+    }
+    return lines;
   }
 
-  private requestHumanWerewolfAlignment(player: Player, werewolves: Player[]): void {
+  private requestHumanWerewolfAlignment(player: Player, werewolves: Player[], previousFaceoffHistory: string[] = []): void {
     const handler = this.humanInput;
     if (!handler) {
       return;
     }
 
-    const contextLines = this.werewolfFaceoffContextLines(werewolves);
+    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory);
     void handler
       .request({
         kind: "speech_choice",
