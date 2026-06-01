@@ -677,6 +677,80 @@ test("timeline review rejects invented Seer claims when no claim is visible", ()
   assert.equal(actualVisibleClaim.ok, true);
 });
 
+test("timeline review rejects invented first-day role results and unseen entry reads", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p1", name: "ノゾミ" },
+    { id: "p2", name: "セナ" },
+    { id: "p3", name: "アキオミ" },
+    { id: "p4", name: "サクラコ" }
+  ];
+  const publicHistory = ["ノゾミ: 皆さん、まず占い師を名乗る条件を決めましょう"];
+
+  const inventedRoleTiming = reviewSpeechTimeline(
+    {
+      messages: ["ノゾミは保留だ、名乗ったタイミングが気になる"],
+      metadata
+    },
+    publicHistory,
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(inventedRoleTiming.ok, false);
+  assert.match(inventedRoleTiming.issues.join("\n"), /visible role claim/);
+
+  const inventedPublicClaim = reviewSpeechTimeline(
+    {
+      messages: ["ノゾミは今は保留だ、役職主張は公開情報として一旦見極めよう"],
+      metadata
+    },
+    publicHistory,
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(inventedPublicClaim.ok, false);
+  assert.match(inventedPublicClaim.issues.join("\n"), /visible role claim/);
+
+  const inventedHumanResult = reviewSpeechTimeline(
+    {
+      messages: ["俺が人間側判定されてるのは嬉しいが、今はまだセナを疑い寄りで見ておく"],
+      metadata
+    },
+    publicHistory,
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(inventedHumanResult.ok, false);
+  assert.match(inventedHumanResult.issues.join("\n"), /visible role result/);
+
+  const unseenEntryRead = reviewSpeechTimeline(
+    {
+      messages: ["セナの議論への入り方が不自然です。理由を確認したいので、今の段階でセナを疑い寄りで見ています"],
+      metadata
+    },
+    publicHistory,
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(unseenEntryRead.ok, false);
+  assert.match(unseenEntryRead.issues.join("\n"), /unseen prior public speech/);
+
+  const actualVisibleResult = reviewSpeechTimeline(
+    {
+      messages: ["アキオミが人間側判定されているなら、今日は投票先から外します"],
+      metadata
+    },
+    ["ノゾミ: 私は占い師です。アキオミは人間側判定です。"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(actualVisibleResult.ok, true);
+});
+
 test("timeline review checks referenced speakers against visible history", () => {
   const legalPlayers: TargetCandidate[] = [
     { id: "p2", name: "アカネ" },
