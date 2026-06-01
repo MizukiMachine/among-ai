@@ -2,7 +2,7 @@ import type { Persona, Phase, Player, Role, TargetCandidate } from "../types";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "../i18n";
 import { characterVoiceSection } from "../characters";
 import { daySituationGuidance } from "../daySituations";
-import { japaneseDialogueContract, japaneseStyleGuide } from "../japaneseStyle";
+import { japaneseStyleGuide } from "../japaneseStyle";
 import { renderPublicSpeechPlan } from "../speechPlanning";
 import {
   bulletList,
@@ -22,8 +22,6 @@ import {
   booleanJsonSchemaInstruction,
   outputFormatReminder,
   speechReasoningJsonSchemaInstruction,
-  speechRealizationJsonSchemaInstruction,
-  speechJsonSchemaInstruction,
   targetJsonSchemaInstruction,
   type BuildPromptContextOptions,
   type BuildSystemPromptOptions,
@@ -285,7 +283,6 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const japanese = isJapaneseLanguage(language);
   const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
-  const dialogueContract = mode === "public_speech" ? japaneseDialogueContract(language) : [];
   if (japanese && mode === "public_speech") {
     return buildJapanesePublicSpeechContext({
       ...options,
@@ -308,7 +305,6 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       ? `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`
       : `Current phase: ${phase}. Round: ${round}.`,
     `Prompt mode: ${mode === "public_speech" ? "public speech" : "internal decision"}.`,
-    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",
     "Information boundary:",
     bulletList(commonBoundaryLines(mode)),
@@ -464,11 +460,11 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
       ...(requiresForwardMove
         ? [
             "- 名前を出す場合は、人物傾向や役職印象を根拠に、暫定の疑い・信頼・投票候補のどれかまで言う。保留する時は理由と次に確認したい点も添える。",
-            "- 今後の観察だけで終えず、画面に出るセリフ内で自分の stance まで言う。"
+            "- 今後の観察だけで終えず、画面に出るセリフ内で自分の判断まで言う。"
           ]
         : [
-            "- まだ公開情報がないので、見えていない反応を根拠にしない。代わりに、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、名指し質問、軽い初日仮説のどれかを自分から出す。",
-            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、人物傾向や役職印象からの軽い質問・投票候補まで言い、根拠がない断定はしない。"
+            "- まだ公開情報がないので、見えていない反応を根拠にしない。代わりに、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出す。",
+            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、投票基準や役職方針など相手が今答えられる質問にし、根拠がない断定はしない。"
           ])
     );
   } else {
@@ -570,15 +566,10 @@ export function buildBaseContext(options: {
 }
 
 function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, outputInstruction: string): string {
-  if (mode === "public_speech" && isJapaneseLanguage(options.language)) {
-    return japanesePublicSpeechSystemPrompt(options);
-  }
-
   const promptPhase = promptPhaseFromGamePhase(options.phase);
   const profile = getRolePromptProfile(options.player.role);
   const legal = legalPlayerLine(options.legalPlayers);
   const styleGuide = japaneseStyleGuide(options.language);
-  const dialogueContract = mode === "public_speech" ? japaneseDialogueContract(options.language) : [];
   const lines = [
     "You are playing a hidden-role werewolf game.",
     `You are ${options.player.name}; role=${options.player.role}; persona=${options.player.persona}.`,
@@ -593,53 +584,14 @@ function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, o
     "Phase guidance:",
     ...phaseInstructions(profile, promptPhase),
     ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
-    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
     "",
     outputInstruction,
     outputFormatReminder
   ];
 
-  if (mode === "public_speech") {
-    lines.push("", "Public speech must not reveal:", bulletList(profile.publicSpeechMustNotReveal));
-  }
-
-  if (mode === "public_speech") {
-    lines.push("", legalReadTargetLineForLanguage(options.legalPlayers, options.language));
-  } else if (legal) {
+  if (legal) {
     lines.push("", legal);
   }
-
-  return lines.join("\n");
-}
-
-function japanesePublicSpeechSystemPrompt(options: BuildSystemPromptOptions): string {
-  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
-  const profile = getRolePromptProfile(options.player.role);
-  const styleGuide = japaneseStyleGuide(options.language);
-  const requiresForwardMove = options.requiresForwardMove ?? true;
-  const dialogueContract = japaneseDialogueContract(options.language, requiresForwardMove);
-  const lines = [
-    ...publicSpeech.systemPreamble,
-    `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
-    "返答言語: 日本語。",
-    "",
-    "昼の発言の境界:",
-    bulletList(publicSpeech.boundary),
-    "",
-    "役職ごとの発言方針:",
-    bulletList(profile.publicSpeechGuidanceJa),
-    "",
-    "昼議論の進め方:",
-    bulletList(publicSpeech.phaseGuidance),
-    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
-    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
-    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
-    "",
-    promptMaterials.outputFormats.speechJson.japaneseInstruction,
-    promptMaterials.outputFormats.japaneseReminder,
-    "",
-    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
-  ];
 
   return lines.join("\n");
 }
@@ -673,8 +625,27 @@ function japaneseTargetSystemPrompt(options: BuildSystemPromptOptions, outputIns
   return lines.join("\n");
 }
 
-export function buildSpeechSystemPrompt(options: BuildSystemPromptOptions): string {
-  return baseSystemPrompt(options, promptModeFromGamePhase(options.phase), speechJsonSchemaInstruction);
+function surfaceCharacterVoiceLines(options: BuildSystemPromptOptions): string[] {
+  const profile = options.player.characterProfile;
+  if (!profile) {
+    return [];
+  }
+  if (isJapaneseLanguage(options.language)) {
+    return [
+      "",
+      "人物の口調:",
+      `- 話し方: ${profile.speechStyle}`,
+      `- 大事にすること: ${profile.values}`,
+      `- 切り出しの雰囲気: ${profile.tagline}`
+    ];
+  }
+  return [
+    "",
+    "Character voice:",
+    `- Speaking style: ${profile.speechStyle}`,
+    `- Values: ${profile.values}`,
+    `- Opening feel: ${profile.tagline}`
+  ];
 }
 
 function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
@@ -683,7 +654,7 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
   const requiresForwardMove = options.requiresForwardMove ?? true;
   const opensFirstDay = options.opensFirstDay ?? false;
   const lines = [
-    "あなたは人狼ゲームの公開発話前に、発話意図と公開推理メタデータだけを決めます。",
+    "あなたは人狼ゲームの公開発話前に、発言に使う構造化判断だけを決めます。",
     `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
     "返答言語: 日本語。",
     "",
@@ -702,8 +673,8 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
           "初日1巡目の追加ルール:",
           bulletList([
             "まだ強い断定はしないが、intent を hold だけにしない。",
-            "投票基準、占い師が名乗る条件、役職露出の方針、名指し質問、軽い投票候補のどれかで議論を動かす。",
-            "見えていない発言・反応・矛盾は根拠にしない。軽い読みを置く場合は first_day_tentative として扱う。"
+            "投票基準、占い師が名乗る条件、役職露出の方針、配役整理、答えやすい名指し質問のどれかで議論を動かす。",
+            "見えていない発言・反応・矛盾は根拠にしない。序盤の読みを置く場合は first_day_tentative として扱う。"
           ])
         ]
       : []),
@@ -712,35 +683,6 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
     promptMaterials.outputFormats.japaneseReminder,
     "",
     legalReadTargetLineForLanguage(options.legalPlayers, options.language)
-  ];
-
-  return lines.join("\n");
-}
-
-function japaneseSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
-  const styleGuide = japaneseStyleGuide(options.language);
-  const dialogueContract = japaneseDialogueContract(options.language, options.requiresForwardMove ?? true);
-  const opensFirstDay = options.opensFirstDay ?? false;
-  const lines = [
-    "あなたは人狼ゲームの発話意図を、画面に表示する短いセリフへ変換します。",
-    `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
-    "返答言語: 日本語。",
-    "",
-    "重要:",
-    "- この段階では新しい推理を足さない。",
-    "- 入力された intent と metadata の内容だけを自然な会話に直す。",
-    "- メタデータのラベル、ID、JSON キー、内部用語、進行メモをセリフに写さない。",
-    ...(opensFirstDay
-      ? [
-          "- 初日1巡目でも「様子見」「保留」「話を聞く」だけのセリフにしない。",
-          "- 投票基準、役職方針、名指し質問、軽い投票候補のどれかが聞こえる文にする。"
-        ]
-      : []),
-    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
-    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
-    "",
-    promptMaterials.outputFormats.speechRealizationJson.japaneseInstruction,
-    promptMaterials.outputFormats.japaneseReminder
   ];
 
   return lines.join("\n");
@@ -778,41 +720,47 @@ export function buildSpeechReasoningSystemPrompt(options: BuildSystemPromptOptio
   return lines.join("\n");
 }
 
-export function buildSpeechRealizationSystemPrompt(options: BuildSystemPromptOptions): string {
+export function buildSpeechSurfaceSystemPrompt(options: BuildSystemPromptOptions): string {
   if (isJapaneseLanguage(options.language)) {
-    return japaneseSpeechRealizationSystemPrompt(options);
+    const styleGuide = japaneseStyleGuide(options.language);
+    return [
+      "あなたは人狼ゲームの参加者が今口に出す発言文だけを書きます。",
+      `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+      "返答言語: 日本語。",
+      "",
+      "入力には、公開してよい内容だけを普通の日本語に直したメモが渡されます。",
+      "対象、理由、判断は保ち、人物の性格に合わせて言い出し方を変えてください。",
+      "メモにない人物名、役職結果、出来事、理由、対象は足しません。",
+      "出力は画面に出す発言文だけです。短い1文、必要な時だけ2文にしてください。",
+      ...surfaceCharacterVoiceLines(options),
+      ...(styleGuide.length > 0 ? ["", ...styleGuide] : [])
+    ].join("\n");
   }
 
-  const dialogueContract = japaneseDialogueContract(options.language);
-  const lines = [
-    "You convert a hidden-role werewolf speech intent into displayed dialogue.",
+  return [
+    "You write only the line this hidden-role werewolf player says now.",
     `You are ${options.player.name}; persona=${options.player.persona}.`,
     `Respond in ${options.language}.`,
     "",
-    "Important:",
-    "- Do not add new reasoning, facts, targets, claims, or results.",
-    "- Use only the supplied intent and metadata.",
-    "- Do not copy metadata labels, JSON keys, ids, schema text, or planning notes into messages.",
-    ...(dialogueContract.length > 0 ? ["", ...dialogueContract] : []),
-    "",
-    speechRealizationJsonSchemaInstruction,
-    outputFormatReminder
-  ];
-
-  return lines.join("\n");
+    "The input notes are already rewritten into public-safe facts.",
+    "Keep the target, reason, and judgment, but vary the wording to match the persona.",
+    "Do not add names, role results, events, reasons, or targets that are not in the notes.",
+    "Output only the displayed spoken line. Use one short sentence, or two only when useful.",
+    ...surfaceCharacterVoiceLines(options)
+  ].join("\n");
 }
 
 export function buildTargetSystemPrompt(options: BuildSystemPromptOptions): string {
   if (isJapaneseLanguage(options.language)) {
     const skipLine = options.allowSkip
-      ? "対象を選ばない方がよい場合だけ、targetId に null を返せます。"
-      : "必ず一覧にある対象 ID を一つ選んでください。";
+      ? "対象を選ばない方がよい場合だけ、targetId に null、reasonKind に skip_preserve を返せます。"
+      : "必ず一覧にある対象 ID と reasonKind を一つ選んでください。";
     return japaneseTargetSystemPrompt(options, [promptMaterials.outputFormats.targetJson.japaneseInstruction, skipLine].join("\n"));
   }
 
   const skipLine = options.allowSkip
-    ? "You may return null if skipping is strategically best and the action allows it."
-    : "You must choose one listed target.";
+    ? "You may return targetId null with reasonKind skip_preserve if skipping is strategically best and the action allows it."
+    : "You must choose one listed target and one reasonKind.";
   return baseSystemPrompt(options, "internal_decision", [targetJsonSchemaInstruction, skipLine].join("\n"));
 }
 

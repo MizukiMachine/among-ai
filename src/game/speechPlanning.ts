@@ -101,20 +101,20 @@ function labels(language: string) {
         ? "公開情報が少ない時も、自分の意見として生存者への暫定の疑い・信頼・投票候補を一つ出して議論を始める。保留する時は理由と次に確認したい点を添える。"
         : "When public information is thin, open with one tentative suspicion, trust, hold, or vote-candidate read on a living player.",
       open_first_day: japanese
-        ? "まだ占い結果も投票履歴もなく、会話の材料は薄い。見えていない反応は根拠にせず、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い初日仮説のどれかを自分から出して議論を動かす。『様子見』『保留』『話を聞く』で終えない。"
+        ? "まだ占い結果も投票履歴もなく、会話の材料は薄い。見えていない反応は根拠にせず、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出して議論を動かす。『様子見』『保留』『話を聞く』で終えない。"
         : "There are no public statements, Seer results, or vote history yet. Do not invent unseen reactions; move the table by offering vote criteria, claim-handling policy, a direct question, or a light day-one hypothesis. Do not end with only 'wait and see,' 'hold,' or 'hear people out.'"
     },
     revisionHint: japanese
       ? "前の返答は自分の判断が足りません。生存者への疑い・信頼・投票候補、または役職主張への判断を、画面に出るセリフ内ではっきり言ってください。保留する時も理由を添えてください。"
       : "The previous response did not state your stance. Revise the displayed dialogue to include suspicion, trust, hold, a vote candidate, or a claim-trust judgment.",
     emptyHistoryRevisionHint: japanese
-      ? "前の返答は、まだこの昼の発言が見えていない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、名指し質問、軽い初日仮説など、材料なしでも自分から動かせる議題に直してください。"
+      ? "前の返答は、まだこの昼の発言が見えていない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問など、材料なしでも自分から動かせる議題に直してください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance.",
     unseenClaimRevisionHint: japanese
-      ? "前の返答は、見えている昼の発言にない占い師COや役職主張が出た前提で話しています。初日は、まだ出ていない主張を既成事実にせず、投票基準、占い師が名乗る条件、名指し質問、軽い初日仮説などに直してください。"
+      ? "前の返答は、見えている昼の発言にない占い師COや役職主張が出た前提で話しています。初日は、まだ出ていない主張を既成事実にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問などに直してください。"
       : "The previous response treated a Seer or role claim as visible even though no such public claim is in the visible discussion. Revise without assuming that claim exists.",
     openingFillerRevisionHint: japanese
-      ? "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い投票候補のどれかを自分から出してください。"
+      ? "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出してください。"
       : "The previous response was passive and did not move the discussion. Even on day one, add vote criteria, claim policy, a direct question, or a light vote candidate."
   };
 }
@@ -269,9 +269,9 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
     },
     tentative_reaction_read: {
       kind,
-      label: japanese ? "名指しで軽く理由を聞く" : "Apply light named pressure",
+      label: japanese ? "名指しで投票基準を聞く" : "Apply light named pressure",
       instruction: japanese
-        ? "初日限定で、一人を名指しして軽く理由を聞く。見えていない過去発言は引用せず、人物傾向・役職方針・初日姿勢からの軽い質問や投票候補に留める。"
+        ? "初日限定で、一人を名指しして投票基準や役職方針を聞く。見えていない過去発言は引用せず、返答が曖昧なら投票候補に入れる形に留める。"
         : "For day one only, name one player and apply light pressure from personality, role-policy posture, or first-day stance without citing unseen prior speech."
     },
     early_power_role_attention: {
@@ -453,14 +453,14 @@ function discussionAgendaFor(input: BuildPublicSpeechPlanInput, deaths: PublicNi
       kind: "day_one_opening",
       label: japanese ? "初日1巡目: 序盤議題で動かす" : "Day one, pass one: move the opening table",
       instruction: japanese
-        ? "0日目の挨拶は本議論の材料にしない。まだ発言変化・矛盾・投票履歴はないが、全員が様子見にならないよう、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い初日仮説のどれかを一つ出す。"
+        ? "0日目の挨拶は本議論の材料にしない。まだ発言変化・矛盾・投票履歴はないが、全員が様子見にならないよう、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを一つ出す。"
         : "Do not treat warm-up greetings as discussion evidence. There are no statement changes, contradictions, or votes yet, but prevent a passive table by offering vote criteria, claim conditions, role-exposure policy, a direct question, or a light day-one hypothesis."
     },
     day_one_response: {
       kind: "day_one_response",
       label: japanese ? "初日2巡目: 見えた議題に答える" : "Day one, pass two: answer visible agenda",
       instruction: japanese
-        ? "1巡目で実際に見えた話だけに反応する。議題への賛否、投票基準の比較、占い師が名乗る条件への意見を短く出し、必要なら軽い投票候補まで進める。"
+        ? "1巡目で実際に見えた話だけに反応する。議題への賛否、投票基準の比較、占い師が名乗る条件への意見を短く出し、必要なら投票候補まで進める。"
         : "React only to visible first-pass statements. Give agreement/disagreement on the agenda, compare vote standards, address Seer reveal conditions, and move to a light vote candidate if needed."
     },
     later_day_night_result: {
@@ -825,7 +825,7 @@ function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate
   const namedEngagement = legalPlayers.some((player) => {
     const name = `${escapeRegExp(player.name)}(?:さん)?|${escapeRegExp(player.id)}`;
     return new RegExp(
-      `(?:${name})[^。！？!?]{0,48}(?:どう|聞かせ|答え|基準|候補|疑|信頼|投票|揺さぶ|圧|置きます|置く|入れます|入れる|質問)`,
+      `(?:${name})[^。！？!?]{0,48}(?:投票基準|投票理由|占い|役職|名乗|進め方|方針|配役|基準|候補|疑い寄り|信頼寄り|投票|質問)`,
       "u"
     ).test(text);
   });

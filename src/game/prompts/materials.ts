@@ -80,14 +80,6 @@ export interface PromptMaterials {
       instruction: string;
       japaneseInstruction: string;
     };
-    speechRealizationJson: {
-      instruction: string;
-      japaneseInstruction: string;
-    };
-    speechJson: {
-      instruction: string;
-      japaneseInstruction: string;
-    };
     targetJson: {
       instruction: string;
       japaneseInstruction: string;
@@ -101,8 +93,6 @@ export interface PromptMaterials {
   languageStyles: {
     japanese: {
       systemStyleGuide: string[];
-      dialogueContract: string[];
-      dialogueContractForwardMove: string[];
       publicSpeech: {
         systemPreamble: string[];
         boundary: string[];
@@ -431,8 +421,6 @@ function readPhases(root: Record<string, unknown>, errors: string[]): PromptMate
 function readOutputFormats(root: Record<string, unknown>, errors: string[]): PromptMaterials["outputFormats"] {
   const outputFormats = recordAt(root, "outputFormats", "materials", errors);
   const speechReasoningJson = recordAt(outputFormats, "speechReasoningJson", "outputFormats", errors);
-  const speechRealizationJson = recordAt(outputFormats, "speechRealizationJson", "outputFormats", errors);
-  const speechJson = recordAt(outputFormats, "speechJson", "outputFormats", errors);
   const targetJson = recordAt(outputFormats, "targetJson", "outputFormats", errors);
   const booleanJson = recordAt(outputFormats, "booleanJson", "outputFormats", errors);
 
@@ -440,14 +428,6 @@ function readOutputFormats(root: Record<string, unknown>, errors: string[]): Pro
     speechReasoningJson: {
       instruction: stringAt(speechReasoningJson, "instruction", "outputFormats.speechReasoningJson", errors),
       japaneseInstruction: stringAt(speechReasoningJson, "japaneseInstruction", "outputFormats.speechReasoningJson", errors)
-    },
-    speechRealizationJson: {
-      instruction: stringAt(speechRealizationJson, "instruction", "outputFormats.speechRealizationJson", errors),
-      japaneseInstruction: stringAt(speechRealizationJson, "japaneseInstruction", "outputFormats.speechRealizationJson", errors)
-    },
-    speechJson: {
-      instruction: stringAt(speechJson, "instruction", "outputFormats.speechJson", errors),
-      japaneseInstruction: stringAt(speechJson, "japaneseInstruction", "outputFormats.speechJson", errors)
     },
     targetJson: {
       instruction: stringAt(targetJson, "instruction", "outputFormats.targetJson", errors),
@@ -486,8 +466,6 @@ function readLanguageStyles(root: Record<string, unknown>, errors: string[]): Pr
   return {
     japanese: {
       systemStyleGuide: stringArrayAt(japanese, "systemStyleGuide", "languageStyles.japanese", errors),
-      dialogueContract: stringArrayAt(japanese, "dialogueContract", "languageStyles.japanese", errors),
-      dialogueContractForwardMove: stringArrayAt(japanese, "dialogueContractForwardMove", "languageStyles.japanese", errors),
       publicSpeech: {
         systemPreamble: stringArrayAt(publicSpeech, "systemPreamble", "languageStyles.japanese.publicSpeech", errors),
         boundary: stringArrayAt(publicSpeech, "boundary", "languageStyles.japanese.publicSpeech", errors),

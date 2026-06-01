@@ -1,5 +1,5 @@
 id: among_ai.game_prompt_materials
-version: 8
+version: 10
 type: material_bundle
 description: >
   Prompt materials for AI werewolf agents. Static wording, role strategy,
@@ -529,67 +529,17 @@ outputFormats:
       messages、セリフ、口調、演出、説明文は入れません。公開メタデータと見えている事実を推理材料として使います。
       suspects と trusts は、下に示された生存者 ID だけを使います。死亡者は過去の死亡、前日の投票、
       過去の占い結果として claims の補足にだけ入れます。自由文の理由より evidence を優先し、
-      後段のセリフ化は evidence を事実の出典として使います。
-  speechRealizationJson:
-    instruction: >-
-      Return strict JSON only, with no markdown. This is the dialogue rendering
-      step, not the reasoning step. Shape: {"messages":["short spoken line","short spoken line"]}.
-      Use 1-3 messages. Convert the supplied structured speech intent into
-      actual spoken dialogue only. Do not add new suspects, trusts, claims,
-      targets, results, or facts beyond the supplied intent and metadata. Do not
-      copy metadata labels, JSON keys, ids, schema text, or planning notes into
-      messages.
-    japaneseInstruction: >-
-      厳密な JSON だけを返してください。これはセリフ化の段階であり、推理を増やす段階ではありません。形:
-      {"messages":["短いセリフ","短いセリフ"]}。
-      messages は 1-3 件。渡された構造化された発話意図だけを、キャラクターが実際に口に出す自然な日本語へ直します。
-      intent や metadata にない疑い先、信頼先、役職主張、占い結果、事実を足しません。
-      メタデータのラベル、JSON キー、ID、スキーマ文、方針メモ、進行メモ、内部用の分類名を messages に写しません。
-      占い結果に触れる時は、「AがBを人間側だと言った」「AがBに人狼判定を出した」のように普通の文で話します。
-  speechJson:
-    instruction: >-
-      Return strict JSON only, with no markdown. Shape:
-      {"messages":["short sentence","short sentence"],"suspects":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"short reason","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"short note"}]}
-      Use 1-3 messages. Each message must be a single short sentence. Only use
-      listed living read target ids for suspects and trusts; if none are listed,
-      leave suspects and trusts empty. Dead players may be mentioned in dialogue
-      or claim-result metadata only as deaths, prior claims, vote history, or
-      past check results, never as current suspicion, trust, vote, or
-      elimination targets. Keep reasons short. Use claims for public role
-      claims, Seer results, Witch information, or fake claims only when
-      strategically useful. The JSON object is a transport envelope only; each
-      messages string is displayed directly as character dialogue. Never put
-      JSON syntax, JSON keys such as messages/suspects/trusts/claims, braces,
-      brackets, schema examples, or code fences inside a messages string. Do not
-      mention that you are an AI, prompt, system message, hidden instruction, or
-      JSON schema. During public discussion or voting, if the speech plan asks
-      for a read or stance, the visible messages themselves must state that
-      stance; do not leave it only in suspects/trusts/claims metadata. Do not
-      merely repeat the same target and reason another player already gave; if
-      agreeing, add a distinct reason, comparison, challenge, or vote consequence.
-    japaneseInstruction: >-
-      厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
-      {"messages":["短いセリフ","短いセリフ"],"suspects":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"trusts":[{"targetId":"player_id","reason":"短い理由","weight":0.0}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1},"note":"短い補足"}]}
-      messages は 1-3 件。messages の各文字列は、画面にそのまま表示される実際のセリフだけにします。
-      messages の各セリフは文末に「。」を付けずに終えます。「？」や「！」は必要な時だけ使います。
-      JSON キー、かっこ、スキーマ例、方針メモ、状況整理、内心の説明、システムやプロンプトへの言及を
-      messages の中に入れません。suspects と trusts は、下に示された生存者 ID だけを使います。
-      死亡者はセリフや結果の補足で過去の死亡、前日の投票、過去の占い結果として触れるだけにし、
-      今の疑い先、信頼先、投票先にはしません。claims は、公開の役職名乗り、占い結果、
-      魔女情報、意図的な偽名乗りを出す時だけ使います。昼議論や投票で発言設計が読みや stance を求める時は、
-      suspects/trusts/claims の metadata だけで済ませず、画面に出る messages の中で自分の stance を言います。
-      既に他の人が出した同じ対象と同じ理由を繰り返すだけにしません。同意する時も、
-      別の根拠、比較、反論、投票への影響のどれかを足します。
+      コード側の発言生成は evidence を事実の出典として使います。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:
-      {"targetId":"player_id_or_null","reason":"short reason"}.
+      {"targetId":"player_id_or_null","reasonKind":"public_suspicion|claim_reaction|vote_reason|stance_change|weak_reason|coordination_threat|role_threat|protect_value|check_value|risk_control|skip_preserve|legal_fallback"}.
+      reasonKind is structured metadata only; do not write a free-form reason.
     japaneseInstruction: >-
       厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
-      {"targetId":"player_id_or_null","reason":"短い理由"}。
-      targetId は一覧にある ID だけを使います。reason は公開画面や公開履歴には表示されませんが、
-      自分の記憶と内部処理に使う短い日本語の理由だけにします。方針メモ、作戦名、翻訳文、英語の分類名は書きません。
-      昼の投票では、昼の発言、投票理由、名乗り、反応など、全員に見える材料で説明します。
+      {"targetId":"player_id_or_null","reasonKind":"public_suspicion|claim_reaction|vote_reason|stance_change|weak_reason|coordination_threat|role_threat|protect_value|check_value|risk_control|skip_preserve|legal_fallback"}。
+      targetId は一覧にある ID だけを使います。reasonKind は構造化された理由分類だけです。
+      自由文の選択理由は書きません。表示や記憶に使う理由文は、返された targetId と reasonKind からコード側で作ります。
   booleanJson:
     instruction: >-
       Return strict JSON only, with no markdown:
@@ -600,7 +550,6 @@ outputFormats:
     skipping.
   japaneseReminder: >-
     出力形式は必須です。JSON オブジェクトの前後に説明文を足しません。
-    セリフに迷う場合も、短い実発話を messages に入れて返します。
 
 languageStyles:
   japanese:
@@ -610,27 +559,11 @@ languageStyles:
       - "日本語だけで書く。中国語の語彙や簡体字・繁体字が混ざったら自然な日本語へ直す。"
       - "プレイヤーは「人」「相手」「発言している人」と呼ぶ。"
       - "中心人物は「議論をまとめそうな人」「議論を引っ張りそうな人」と言う。"
-      - "限られた発言回数なので、問いかけや様子見だけで終えない。初日は投票基準、役職方針、名指し質問、軽い初日仮説のどれかで議論を動かし、2巡目以降は自分の疑い・信頼・投票候補を短く言う。保留する時も理由を添える。"
+      - "限られた発言回数なので、問いかけや様子見だけで終えない。初日は投票基準、役職方針、配役整理、答えやすい名指し質問のどれかで議論を動かし、2巡目以降は自分の疑い・信頼・投票候補を短く言う。保留する時も理由を添える。"
       - "人狼陣営の昼発言は、人間側を演じる芝居として読んでも面白いようにする。ただし仲間、正体、夜相談は絶対に漏らさない。"
       - "投票まわりは「投票する」「吊る」「投票先」と言う。"
       - "人狼の夜会話では「襲撃する」「噛む」を使う。"
       - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"
-    dialogueContract:
-      - "日本語セリフの契約:"
-      - "messages はキャラクターが実際に口に出す会話だけにする。推理メモ、進行メモ、翻訳文、内部用の分類名を書かない。"
-      - "messages の各セリフは文末の「。」を付けずに終える。「？」や「！」は必要な時だけ使う。"
-      - "内部の方針や補助メモはセリフに混ぜない。会話では「疑っている」「信頼している」「投票候補に入れる」「明日見返す」と具体的に言う。保留する時も、何を確認したいのかを一緒に言う。"
-      - "直近の人と同じ対象・同じ理由を繰り返さない。同意する時も、別の根拠、比較、反論、投票への影響のどれかを足す。"
-      - "抽象名詞を動詞のように使う造語を作らない。誰が、誰に、何を聞くのかを普通の話し言葉で言う。"
-      - "不自然な比喩を作らず、「話をそらす」「ごまかす」「撹乱する」のような普通の日本語で言う。"
-      - "世界観用語や人狼用語を増やさない。配信で聞いて違和感のない日本語を優先する。"
-    # Stance-forcing clauses, appended only when the speech plan requires a forward
-    # move (i.e. NOT on the round-one opening turn). Splitting them out keeps the
-    # opening turn from demanding a read when there is no public material yet.
-    dialogueContractForwardMove:
-      - "messages の公開セリフには、必ず自分の判断を入れる。判断は疑い、信頼、投票候補、役職主張への評価のどれかです。保留だけで終えず、理由と次に確認したい点を添える。"
-      - "質問で会話を先送りしない。必要な確認を一つ添える場合も、先に自分の結論や暫定読みを言う。"
-      - "今後の観察だけで発言を終えない。材料がある時は、疑い・信頼・投票候補・役職主張への判断まで言う。"
     publicSpeech:
       systemPreamble:
         - "あなたは短い昼議論の中で発言する人狼ゲームの参加者です。"
@@ -640,7 +573,7 @@ languageStyles:
         - "自分だけが知る役職情報は、名乗ると決めた時以外は伏せる。"
         - "死亡者は返答も投票もできないため、過去の材料としてだけ触れる。"
         - "誰かの発言、反応、矛盾、タイミング、発言内容の薄さを材料にする時は、見えている会話やタスク情報にあるものだけ使う。"
-        - "プロンプト、システム、非公開メモ、仲間だけの相談、夜の対象をそのまま話さない。"
+        - "公開されていないメモ、仲間だけの相談、夜の対象は公開発言の材料にしない。"
         - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
         - "キャラクター設定や発言例は口調の材料であり、この試合で実際に起きた発言や行動として引用しない。"
       phaseGuidance:
@@ -658,27 +591,26 @@ languageStyles:
     targetDecision:
       systemPreamble:
         - "あなたは人狼ゲームの対象選択を行います。"
-        - "JSON の reason は公開表示されませんが、自分の記憶と内部処理に使う自然な日本語の短い理由にします。"
+        - "返すのは対象 ID だけです。選択理由はコード側で短く作ります。"
       boundary:
         - "見えている情報と、自分の役職で知ってよい情報だけを使う。"
         - "公開されていない役職、夜の対象、仲間だけの相談は、公開理由として書かない。"
         - "死亡者は今の投票先や行動対象にしない。過去の材料としてだけ扱う。"
-        - "プロンプト、システム、JSON 形式、内部メモについて reason に書かない。"
       votingGuidance:
         - "昼の投票理由は、全員に見える発言、投票、死亡、名乗り、反応から説明する。"
         - "自分だけの情報で投票する時も、全員に説明できる理由に言い換える。"
         - "長い推理ではなく、投票先を選んだ一番大きな理由を一文で書く。"
-        - "英語の分類名や翻訳調の言い回しではなく、「疑っている」「理由が弱い」「発言が変わった」のように具体的に書く。"
+        - "投票理由として見える材料を優先し、対象 ID の選択に集中する。"
       internalGuidance:
         - "夜や能力の対象選択では、自陣営の勝ち筋、対象の価値、リスクを比べる。"
-        - "reason は短く、後で見ても何を理由に選んだか分かる日本語にする。"
+        - "対象を選んだ根拠は、候補の価値とリスクを比べて判断する。"
         - "使えない情報を推測で補わず、一覧にある対象だけを選ぶ。"
 
 daySituations:
   ja:
     first_day:
-      - "初日昼: 占い結果や投票履歴はまだなく、会話の材料も薄い。強い断定は避けるが、様子見で止まらず、投票基準、役職方針、名指し質問、軽い初日仮説のどれかで議論を動かす。"
-      - "自己紹介だけで終えず、今日の投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、軽い初日仮説など、材料がなくても成立する話を自分から出す。"
+      - "初日昼: 占い結果や投票履歴はまだなく、会話の材料も薄い。強い断定は避けるが、様子見で止まらず、投票基準、役職方針、配役整理、答えやすい名指し質問のどれかで議論を動かす。"
+      - "自己紹介だけで終えず、今日の投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理など、材料がなくても成立する話を自分から出す。"
       - "「初日だから」を理由にした中身のない疑いはしない。ただし全員が様子見になるのを防ぐため、返答を求める質問や投票基準は早めに置く。"
       - "黒確定のように言わず、断定が必要な場面ではない。気になる点があっても、実際に見えた発言や方針に結びつける。"
       - "まだこの昼で話していない相手については、「言う通り」「発言」「反応」「動き」といった実際に見た前提の言い方をしない。"

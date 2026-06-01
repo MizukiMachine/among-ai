@@ -53,7 +53,7 @@ export interface BuildPromptContextOptions {
 }
 
 export interface BuildSystemPromptOptions {
-  player: Pick<Player, "role" | "name" | "persona">;
+  player: Pick<Player, "role" | "name" | "persona" | "characterProfile">;
   phase: Phase;
   language: string;
   legalPlayers?: TargetCandidate[];
@@ -71,11 +71,7 @@ export interface BuildSystemPromptOptions {
   opensFirstDay?: boolean;
 }
 
-export const speechJsonSchemaInstruction = promptMaterials.outputFormats.speechJson.instruction;
-
 export const speechReasoningJsonSchemaInstruction = promptMaterials.outputFormats.speechReasoningJson.instruction;
-
-export const speechRealizationJsonSchemaInstruction = promptMaterials.outputFormats.speechRealizationJson.instruction;
 
 export const targetJsonSchemaInstruction = promptMaterials.outputFormats.targetJson.instruction;
 

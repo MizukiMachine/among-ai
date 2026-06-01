@@ -4,13 +4,11 @@ import {
   buildBooleanSystemPrompt,
   buildPromptContext,
   buildSpeechReasoningSystemPrompt,
-  buildSpeechRealizationSystemPrompt,
-  buildSpeechSystemPrompt,
+  buildSpeechSurfaceSystemPrompt,
   buildTargetSystemPrompt
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
 import { buildPublicSpeechPlan, firstDayOpeningMove } from "../src/game/speechPlanning";
-import { containsAwkwardJapaneseOutputTerm, sanitizeDemoJapaneseGameText } from "../src/game/japaneseStyle";
 import { getCharacterProfile } from "../src/game/characters";
 import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
 import type { Camp, Persona, Player, Role } from "../src/game/types";
@@ -62,14 +60,14 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
     "Witch",
     "WolfBeauty"
   ]);
-  assert.match(promptMaterials.outputFormats.speechJson.instruction, /Return strict JSON only/);
-  assert.match(promptMaterials.outputFormats.speechJson.instruction, /listed living read target ids/);
-  assert.match(promptMaterials.outputFormats.speechJson.instruction, /Dead players may be mentioned/);
-  assert.match(promptMaterials.outputFormats.speechJson.instruction, /visible messages themselves must state that stance/);
-  assert.match(promptMaterials.outputFormats.speechJson.instruction, /same target and reason/);
-  assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /画面に出る messages の中で自分の stance/);
-  assert.match(promptMaterials.outputFormats.speechJson.japaneseInstruction, /同じ対象と同じ理由/);
-  assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /公開画面や公開履歴には表示されません/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.instruction, /Return strict JSON only/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.instruction, /reasoning step, not\s+the displayed dialogue/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.instruction, /evidence is the source of truth/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction, /これは推理段階/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction, /セリフではありません/);
+  assert.equal("speechJson" in promptMaterials.outputFormats, false);
+  assert.match(promptMaterials.outputFormats.targetJson.instruction, /reasonKind/);
+  assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /選択理由は.*コード側/);
   assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
   for (const profile of Object.values(promptMaterials.roles)) {
     assert.ok(profile.publicSpeechGuidanceJa.length > 0, profile.role);
@@ -182,7 +180,7 @@ test("werewolf private discussion uses private wolf guidance without public spee
   assert.doesNotMatch(context, /Public speech boundary/);
 });
 
-test("system prompts require strict JSON for speech, target, and boolean outputs", () => {
+test("system prompts split speech reasoning, surface wording, target, and boolean outputs", () => {
   const base = {
     player: player("Seer"),
     phase: "voting" as const,
@@ -190,31 +188,40 @@ test("system prompts require strict JSON for speech, target, and boolean outputs
     legalPlayers: alivePlayers
   };
 
-  const speech = buildSpeechSystemPrompt({ ...base, phase: "day_discussion" });
+  const reasoning = buildSpeechReasoningSystemPrompt({ ...base, phase: "day_discussion" });
+  const surface = buildSpeechSurfaceSystemPrompt({ ...base, phase: "day_discussion" });
   const target = buildTargetSystemPrompt({ ...base, allowSkip: false });
   const boolean = buildBooleanSystemPrompt(base);
 
-  assert.match(speech, /Return strict JSON only/);
-  assert.match(speech, /"messages"/);
-  assert.match(speech, /transport envelope only/);
-  assert.match(speech, /Never put JSON syntax/);
-  assert.match(speech, /visible messages themselves must state that stance/);
-  assert.match(speech, /Public speech must not reveal/);
-  assert.match(speech, /Legal living read target ids for suspects\/trusts/);
-  assert.match(speech, /two short table passes/);
-  assert.match(speech, /follow-up statements/);
-  assert.match(speech, /answer that before starting a new topic/);
-  assert.match(speech, /same target and rationale/);
-  assert.match(speech, /Evaluate another player's statements/);
+  assert.match(reasoning, /Return strict JSON only/);
+  assert.match(reasoning, /reasoning metadata/);
+  assert.match(reasoning, /not\s+the displayed dialogue/);
+  assert.match(reasoning, /Legal living read target ids for suspects\/trusts/);
+  assert.match(reasoning, /two short table passes/);
+  assert.match(reasoning, /follow-up statements/);
+  assert.match(reasoning, /answer that before starting a new topic/);
+  assert.match(reasoning, /same target and rationale/);
+  assert.match(reasoning, /Evaluate another player's statements/);
+  assert.match(surface, /public-safe facts/);
+  assert.match(surface, /Keep the target, reason, and judgment/);
+  assert.match(surface, /Do not add names/);
+  assert.match(surface, /Output only the displayed spoken line/);
   assert.match(target, /Return strict JSON only/);
   assert.match(target, /"targetId"/);
-  assert.match(target, /You must choose one listed target/);
+  assert.match(target, /"reasonKind"/);
+  assert.match(target, /You must choose one listed target and one reasonKind/);
   assert.match(boolean, /Return strict JSON only/);
   assert.match(boolean, /"decision"/);
 });
 
 test("Japanese prompts include a natural conversation style layer", () => {
-  const speech = buildSpeechSystemPrompt({
+  const reasoning = buildSpeechReasoningSystemPrompt({
+    player: player("Werewolf"),
+    phase: "day_discussion",
+    language: "Japanese",
+    legalPlayers: alivePlayers
+  });
+  const surface = buildSpeechSurfaceSystemPrompt({
     player: player("Werewolf"),
     phase: "day_discussion",
     language: "Japanese",
@@ -230,14 +237,16 @@ test("Japanese prompts include a natural conversation style layer", () => {
     privateHistory: [],
     language: "Japanese"
   });
-  const generatedPrompt = `${speech}\n${context}`;
+  const generatedPrompt = `${reasoning}\n${surface}\n${context}`;
 
-  assert.match(speech, /日本語の話し方/);
-  assert.match(speech, /日本語セリフの契約/);
-  assert.match(speech, /messages の各文字列は、画面にそのまま表示される実際のセリフだけ/);
-  assert.match(speech, /文末の「。」を付けず/);
-  assert.match(speech, /プレイヤーは「人」「相手」「発言している人」/);
-  assert.match(speech, /同じ対象・同じ理由を繰り返さない/);
+  assert.match(reasoning, /これは推理段階/);
+  assert.match(reasoning, /messages、セリフ、口調、演出、説明文は入れません/);
+  assert.match(reasoning, /公開メタデータと見えている事実/);
+  assert.match(surface, /公開してよい内容だけ/);
+  assert.match(surface, /言い出し方を変えて/);
+  assert.match(surface, /出力は画面に出す発言文だけ/);
+  assert.match(surface, /日本語の話し方/);
+  assert.match(surface, /プレイヤーは「人」「相手」「発言している人」/);
   assert.match(context, /役職ごとの発言方針/);
   assert.match(context, /人物の話し方/);
   assert.match(context, /見えている昼の発言/);
@@ -268,8 +277,8 @@ test("Japanese voting target prompts keep private reasons separate from English 
   });
   const generatedPrompt = `${target}\n${context}`;
 
-  assert.match(target, /reason は公開表示されません/);
-  assert.match(target, /短い日本語の理由だけ/);
+  assert.match(target, /返すのは対象 ID だけ/);
+  assert.match(target, /選択理由はコード側/);
   assert.match(context, /投票理由の前提/);
   assert.match(context, /投票判断の方針/);
   assert.doesNotMatch(generatedPrompt, /Role strategy|Phase guidance|Prompt mode|Information boundary|internal decision|Action:|Legal targets:/i);
@@ -433,7 +442,7 @@ test("first-day opening mode allows assigned conversation sparks", () => {
   });
 
   assert.match(context, /初日特別モード/);
-  assert.match(context, /名指しで軽く理由を聞く/);
+  assert.match(context, /名指しで投票基準を聞く/);
   assert.match(context, /割り当てられた名指し質問だけを火種にし/);
   assert.match(context, /既に発言や反応があった事実として話さない/);
   assert.doesNotMatch(context, /投票基準・役職名乗り方針・自己申告/);
@@ -465,10 +474,10 @@ test("first-day follow-up context does not reset visible speech to empty", () =>
   assert.match(context, /直近の昼の発言/);
   assert.match(context, /ノゾミ: 今は役職方針を伏せて/);
   assert.doesNotMatch(context, /まだ、この昼の発言はありません/);
-  assert.doesNotMatch(context, /まだ公開発言|公開発言/);
+  assert.doesNotMatch(context, /まだ公開発言|まだ、この昼の発言はありません/);
 });
 
-test("speech system prompts suppress stance forcing on the opening turn (requiresForwardMove=false)", () => {
+test("speech reasoning prompt suppresses stance forcing on the opening turn (requiresForwardMove=false)", () => {
   const base = {
     player: player("Villager"),
     phase: "day_discussion" as const,
@@ -476,29 +485,20 @@ test("speech system prompts suppress stance forcing on the opening turn (require
     legalPlayers: alivePlayers
   };
 
-  // Opening turn: the reasoning/realization system prompts must NOT carry the
-  // stance-forcing clauses that otherwise tell the model to surface a read.
+  // Opening turn: the reasoning prompt must not carry the clauses that
+  // otherwise tell the model to surface a read.
   const reasoningOpening = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: false });
-  const realizationOpening = buildSpeechRealizationSystemPrompt({ ...base, requiresForwardMove: false });
   assert.doesNotMatch(reasoningOpening, /公開情報が少なくても/);
   assert.doesNotMatch(reasoningOpening, /名乗るかどうかの判断を出す/);
-  assert.doesNotMatch(realizationOpening, /まだ材料が薄い時も/);
-  assert.doesNotMatch(realizationOpening, /暫定読み/);
-  assert.doesNotMatch(realizationOpening, /必ず自分の stance を入れる/);
   assert.doesNotMatch(reasoningOpening, /初日1巡目の追加ルール/);
 
   // Non-opening turns (and the default when no flag is passed) keep the forcing.
   const reasoningForward = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: true });
-  const realizationForward = buildSpeechRealizationSystemPrompt(base);
   assert.match(reasoningForward, /公開情報が少ない時は/);
-  assert.match(realizationForward, /材料がある時は/);
-  assert.match(realizationForward, /必ず自分の判断を入れる/);
 
   const reasoningFirstDay = buildSpeechReasoningSystemPrompt({ ...base, requiresForwardMove: false, opensFirstDay: true });
-  const realizationFirstDay = buildSpeechRealizationSystemPrompt({ ...base, requiresForwardMove: false, opensFirstDay: true });
   assert.match(reasoningFirstDay, /初日1巡目の追加ルール/);
   assert.match(reasoningFirstDay, /intent を hold だけにしない/);
-  assert.match(realizationFirstDay, /話を聞く/);
 });
 
 test("character voice context marks examples as non-factual and avoids unnatural smoke-screen wording", () => {
@@ -593,19 +593,37 @@ test("day situation detection recognizes common Japanese Seer CO wording", () =>
   );
 });
 
-test("Japanese demo text sanitizer rewrites only contextual translationese terms", () => {
-  const text = sanitizeDemoJapaneseGameText(
-    "陣営の軸になりそうな位置を落として、処理枠へ圧をかける盤面です。",
-    "Japanese"
-  );
-  const unrelated = sanitizeDemoJapaneseGameText("信用を落としてはいけません。", "Japanese");
+test("public speech prompting uses structured reasoning and public-safe surface wording", () => {
+  assert.ok("speechReasoningJson" in promptMaterials.outputFormats);
+  assert.equal("speechRealizationJson" in promptMaterials.outputFormats, false);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction, /evidence を優先/);
+  assert.match(promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction, /コード側の発言生成/);
 
-  assert.equal(containsAwkwardJapaneseOutputTerm(text), false);
-  assert.match(text, /議論をまとめそうな人/);
-  assert.match(text, /襲撃して/);
-  assert.match(text, /投票先/);
-  assert.match(text, /疑いを向ける/);
-  assert.match(text, /状況/);
-  assert.equal(unrelated, "信用を落としてはいけません。");
-  assert.equal(containsAwkwardJapaneseOutputTerm("煙幕に見える発言です。"), true);
+  const surface = buildSpeechSurfaceSystemPrompt({
+    player: player("Villager"),
+    phase: "day_discussion",
+    language: "Japanese",
+    legalPlayers: alivePlayers
+  });
+  assert.match(surface, /公開してよい内容だけ/);
+  assert.match(surface, /言い出し方を変えて/);
+  assert.match(surface, /メモにない人物名/);
+});
+
+test("surface prompt receives character voice without sample-line facts", () => {
+  const profiledPlayer = {
+    ...player("Villager", "p1", "シオン", "cautious"),
+    characterProfile: getCharacterProfile("p1")
+  };
+  const surface = buildSpeechSurfaceSystemPrompt({
+    player: profiledPlayer,
+    phase: "day_discussion",
+    language: "Japanese",
+    legalPlayers: alivePlayers
+  });
+
+  assert.match(surface, /人物の口調/);
+  assert.match(surface, /話し方:/);
+  assert.match(surface, /大事にすること:/);
+  assert.doesNotMatch(surface, /口調の例|人物関係の傾向/);
 });
