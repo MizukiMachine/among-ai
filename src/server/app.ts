@@ -45,7 +45,7 @@ function spectatorModeParam(value: string | null): SpectatorMode {
   return "omniscient";
 }
 
-function humanCampPreferenceParam(_value: string | null): HumanCampPreference {
+function humanCampPreferenceParam(): HumanCampPreference {
   return "werewolf";
 }
 
@@ -98,7 +98,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     humanPlayerParam(url.searchParams.get("human"), playerCount) ??
     humanPlayerParam(url.searchParams.get("humanPlayerId"), playerCount);
   const humanCampPreference = humanPlayerId
-    ? humanCampPreferenceParam(url.searchParams.get("humanCamp") ?? url.searchParams.get("humanCampPreference"))
+    ? humanCampPreferenceParam()
     : "random";
   const debugScenario = humanPlayerId ? "none" : debugScenarioParam(url.searchParams.get("scenario"));
   return {

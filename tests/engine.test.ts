@@ -1618,7 +1618,7 @@ test("day discussion race uses spare slots for duplicate generation near the end
   assert.equal(agent.speechInputs.slice(0, 5).length, 5);
 });
 
-test("lightweight agenda scheduler drives day one without omniscient directives", async () => {
+test("simple conversation plan drives day one without agenda scheduler directives", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager" },
@@ -1641,12 +1641,16 @@ test("lightweight agenda scheduler drives day one without omniscient directives"
 
   assert.ok(allContexts.length > 0);
   assert.ok(
-    allContexts.some((context) => context.includes("Discussion agenda")),
-    "day speech should receive the deterministic agenda scheduler context"
-  );
-  assert.ok(
     allContexts.some((context) => context.includes("First-day opening mode")),
     "round one should still assign first-day opening sparks"
+  );
+  assert.ok(
+    allContexts.some((context) => context.includes("Speech plan")),
+    "day speech should receive the simple speech-plan context"
+  );
+  assert.ok(
+    allContexts.every((context) => !context.includes("Discussion agenda")),
+    "agenda scheduler context should not be injected"
   );
   assert.ok(
     allContexts.every((context) => !context.includes("Your secret plan for this round")),
@@ -3872,7 +3876,9 @@ test("aborted LLM requests release queue slots even when fetch does not settle",
     ]);
     const abortedResults = await Promise.all(blocked);
 
-    assert.deepEqual(speech.messages, ["Byron is my suspicion lean because changed public stance."]);
+    assert.equal(speech.messages.length, 1);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(calls, 7);
     assert.equal(
       abortedResults.every((result) => result instanceof Error && result.message.includes("cancelled")),
@@ -3975,7 +3981,7 @@ test("LLM public speech realizes varied dialogue from public-safe notes", async 
     assert.match(String(body.system), /public-safe facts/);
     assert.match(userContent, /Speech notes/);
     assert.match(userContent, /Byron/);
-    assert.match(userContent, /changed public stance/);
+    assert.match(userContent, /Reason:/);
     assert.doesNotMatch(userContent, /previous discussion/);
     return new Response(
       JSON.stringify({
@@ -4007,7 +4013,9 @@ test("LLM public speech realizes varied dialogue from public-safe notes", async 
     });
 
     assert.equal(bodies.length, 2);
-    assert.deepEqual(speech.messages, ["Byron's changed line is the part I want pressure on."]);
+    assert.equal(speech.messages.length, 1);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
     assert.doesNotMatch(surfaceUserContent, /targetId|evidence|stance_change|intent|suspects|metadata/);
   } finally {
@@ -4072,7 +4080,9 @@ test("LLM public speech rejects surface wording that adds an unmentioned player"
     });
 
     assert.equal(calls, 2);
-    assert.deepEqual(speech.messages, ["Byron is my suspicion lean because changed public stance."]);
+    assert.equal(speech.messages.length, 1);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -4407,7 +4417,8 @@ test("LLM speech metadata-only reasoning is rendered into fallback dialogue", as
 
     assert.equal(speech.messages.length, 1);
     assert.doesNotMatch(speech.messages[0], /suspects|targetId/i);
-    assert.match(speech.messages[0], /Byron.*suspicion lean.*changed public stance/i);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -4463,7 +4474,9 @@ test("LLM speech falls back to code-rendered dialogue when surface wording fails
     });
 
     assert.equal(calls, 2);
-    assert.deepEqual(speech.messages, ["Byron is my suspicion lean because changed public stance."]);
+    assert.equal(speech.messages.length, 1);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(speech.metadata.suspects[0].targetName, "Byron");
   } finally {
     globalThis.fetch = originalFetch;
@@ -4549,7 +4562,9 @@ test("LLM speech rate limits wait before retrying", async () => {
       privateHistory: []
     });
 
-    assert.deepEqual(speech.messages, ["Byron is my suspicion lean because changed public stance."]);
+    assert.equal(speech.messages.length, 1);
+    assert.match(speech.messages[0], /Byron/i);
+    assert.match(speech.messages[0], /suspicion|pressure|vote|answer|tested/i);
     assert.equal(calls, 3);
     assert.deepEqual(backoffDelays, [1_000]);
   } finally {

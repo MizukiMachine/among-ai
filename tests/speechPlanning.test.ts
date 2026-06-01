@@ -134,7 +134,7 @@ test("public speech diversity context summarizes used reads and asks for a new a
   assert.match(rendered, /別の根拠/);
 });
 
-test("later-day agenda scheduler spreads concrete evidence focus across first-pass speakers", () => {
+test("later-day speech plan no longer assigns agenda topics per speaker", () => {
   const players = [
     player("Villager", "p1", "セナ"),
     player("Seer", "p2", "ノゾミ"),
@@ -171,26 +171,17 @@ test("later-day agenda scheduler spreads concrete evidence focus across first-pa
       previousVotes
     })
   );
+  const renderedPlans = plans.map((plan) => renderPublicSpeechPlan(plan, "Japanese").join("\n"));
 
-  assert.deepEqual(
-    plans.map((plan) => plan.discussionAgenda?.kind),
-    [
-      "later_day_black_result",
-      "later_day_claim_review",
-      "later_day_vote_review",
-      "later_day_night_result",
-      "later_day_read_update"
-    ]
-  );
-  assert.match(renderPublicSpeechPlan(plans[0], "Japanese").join("\n"), /黒判定をどう扱うか/);
-  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /前日の投票を材料/);
-  assert.match(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /得票上位: アキオミ3票、コハル2票/);
-  assert.doesNotMatch(renderPublicSpeechPlan(plans[2], "Japanese").join("\n"), /身内票|理由の薄い票/);
-  assert.match(renderPublicSpeechPlan(plans[3], "Japanese").join("\n"), /昨夜の死亡: セナ/);
-  assert.match(renderPublicSpeechPlan(plans[4], "Japanese").join("\n"), /前日から見方が変わった相手/);
+  assert.ok(plans.every((plan) => plan.requiresForwardMove));
+  assert.ok(renderedPlans.every((rendered) => /直前までの昼発言に自然につなげる/.test(rendered)));
+  assert.ok(renderedPlans.every((rendered) => /自分の疑い・信頼・投票候補/.test(rendered)));
+  assert.ok(renderedPlans.every((rendered) => /昨夜の死亡: セナ/.test(rendered)));
+  assert.ok(renderedPlans.every((rendered) => !/議題スケジューラ|Discussion agenda/.test(rendered)));
+  assert.ok(renderedPlans.every((rendered) => !/黒判定をどう扱うか|前日の投票を材料|前日から見方が変わった相手/.test(rendered)));
 });
 
-test("later-day agenda scheduler does not treat claim-policy talk as a Seer claim", () => {
+test("later-day speech plan treats claim-policy talk as visible context, not a scheduled claim review", () => {
   const players = [
     player("Villager", "p1", "セナ"),
     player("Seer", "p2", "ノゾミ"),
@@ -207,12 +198,14 @@ test("later-day agenda scheduler does not treat claim-policy talk as a Seer clai
     speakerId: "p1",
     publicHistory: ["ノゾミ: 占い師が今日名乗る条件だけ先に決めたいです。"]
   });
+  const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
 
-  assert.notEqual(plan.discussionAgenda?.kind, "later_day_claim_review");
-  assert.doesNotMatch(renderPublicSpeechPlan(plan, "Japanese").join("\n"), /役職主張を検証する/);
+  assert.equal(plan.requiresForwardMove, true);
+  assert.match(rendered, /直前までの昼発言に自然につなげる/);
+  assert.doesNotMatch(rendered, /役職主張を検証する|議題スケジューラ/);
 });
 
-test("later-day black-result agenda ignores dead black targets", () => {
+test("later-day speech plan does not schedule black-result handling from public history", () => {
   const players = [
     player("Villager", "p1", "セナ"),
     player("Seer", "p2", "ノゾミ"),
@@ -236,11 +229,11 @@ test("later-day black-result agenda ignores dead black targets", () => {
   });
   const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
 
-  assert.notEqual(plan.discussionAgenda?.kind, "later_day_black_result");
   assert.doesNotMatch(rendered, /黒判定をどう扱うか/);
+  assert.match(rendered, /直前までの昼発言に自然につなげる/);
 });
 
-test("later-day no-death agenda avoids certainty and points back to visible reactions", () => {
+test("later-day no-death plan stays generic and asks for a recent-context stance", () => {
   const players = [
     player("Villager", "p1", "セナ"),
     player("Werewolf", "p2", "ノゾミ"),
@@ -260,10 +253,9 @@ test("later-day no-death agenda avoids certainty and points back to visible reac
   });
   const rendered = renderPublicSpeechPlan(plan, "Japanese").join("\n");
 
-  assert.equal(plan.discussionAgenda?.kind, "later_day_night_result");
-  assert.match(rendered, /昨夜は死亡なし/);
-  assert.match(rendered, /護衛成功、魔女の救済、襲撃先選びを断定せず/);
-  assert.match(rendered, /誰の反応・役職主張・投票理由を見直すか/);
+  assert.match(rendered, /昨夜の死亡: なし/);
+  assert.match(rendered, /直前までの昼発言に自然につなげる/);
+  assert.doesNotMatch(rendered, /護衛成功、魔女の救済、襲撃先選びを断定せず/);
 });
 
 test("first-day opening moves can satisfy special opening review rules", () => {
