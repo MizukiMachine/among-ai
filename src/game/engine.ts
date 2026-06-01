@@ -2512,7 +2512,7 @@ export class WerewolfGame {
         ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
         : { ok: true, issues: [] };
       const timelineReview = shouldReviewSpeechTimeline
-        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language, options.speechPlan)
+        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language)
         : { ok: true, issues: [] };
       const styleIssues = styleReview.issues;
       const speechPlanIssues = planReview.issues;

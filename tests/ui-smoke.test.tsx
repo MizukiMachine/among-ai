@@ -762,6 +762,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /line\.replace\(\s*\/。\+\$\/u,\s*""\s*\)/);
   assert.match(source, /renderHumanContextLines\("今回の判断材料", notes, \{ trimTrailingJapanesePeriod: true \}\)/);
   assert.match(source, /<summary>状況<\/summary>/);
+  assert.doesNotMatch(
+    source,
+    /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)[\s\S]*?renderHumanContext\(prompt\)[\s\S]*?function renderHumanInputPanel/
+  );
   assert.match(source, /const speechInputPrompt = visibleHumanInput\?\.kind === "speech_choice" \? visibleHumanInput : null;/);
   assert.match(source, /const actionHumanInput = visibleHumanInput && visibleHumanInput\.kind !== "speech_choice" \? visibleHumanInput : null;/);
   assert.match(source, /speechInputPrompt \? "human-input-hero" : ""/);
@@ -805,12 +809,14 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(210px,\s*34vh,\s*260px\);[^}]*font-size:\s*25px;/s);
   assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*background:\s*#2d3338;/s);
   assert.doesNotMatch(css, /\.human-speech-composer textarea\s*\{[^}]*var\(--ship-trim-texture\)/s);
+  assert.match(css, /\.human-speech-choice-list\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/s);
   assert.match(css, /\.human-context summary\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-context summary::after\s*\{[^}]*content:\s*"開く";/s);
   assert.match(css, /\.human-context\[open\] summary::after\s*\{[^}]*content:\s*"閉じる";/s);
   assert.match(css, /\.human-context-body\s*\{[^}]*font-size:\s*18px;[^}]*line-height:\s*1\.64;/s);
   assert.match(css, /\.human-input-quick-controls\s*\{[^}]*position:\s*absolute;/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(184px,\s*30vh,\s*220px\);/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-choice-list\s*\{[^}]*max-height:\s*none;/s);
   assert.match(css, /\.human-speech-composer\.werewolf-greeting \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
   assert.doesNotMatch(source, /あなたの判断が近づいています/);
   assert.doesNotMatch(source, /humanReason/);

@@ -2433,10 +2433,9 @@ input[type="range"] {
 }
 
 .human-speech-choice-list {
-  max-height: 156px;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .human-input-quick-controls {
@@ -4982,7 +4981,7 @@ input[type="range"] {
   }
 
   .human-speech-choice-list {
-    max-height: 142px;
+    max-height: none;
   }
 
   .mentioned-character-strip {

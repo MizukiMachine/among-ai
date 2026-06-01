@@ -2555,7 +2555,6 @@ export function App() {
             ))}
           </div>
         ) : null}
-        {renderHumanContext(prompt)}
         {humanInputError ? <p className="human-input-error">送信できませんでした: {humanInputError}</p> : null}
       </section>
     );
