@@ -8,7 +8,7 @@ export function isJapaneseLanguage(language = defaultLanguage): boolean {
 
 const roleJa: Record<Role | "Hidden", string> = {
   Werewolf: "人狼",
-  AlphaWolf: "アルファ人狼",
+  AlphaWolf: "α人狼",
   WolfBeauty: "美女狼",
   Seer: "占い師",
   Witch: "魔女",

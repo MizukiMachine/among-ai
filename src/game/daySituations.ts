@@ -54,7 +54,7 @@ function unique(values: string[]): string[] {
 function japaneseRoleAliases(role: Role, language: string): string[] {
   const aliases: Record<Role, string[]> = {
     Werewolf: ["人狼"],
-    AlphaWolf: ["アルファ人狼"],
+    AlphaWolf: ["α人狼", "アルファ人狼"],
     WolfBeauty: ["美女狼"],
     Seer: ["占い師", "占い"],
     Witch: ["魔女"],

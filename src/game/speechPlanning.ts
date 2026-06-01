@@ -78,7 +78,7 @@ function labels(language: string) {
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
       werewolf_and_witch_overlap: japanese ? "人狼の襲撃と魔女の毒薬の重なり" : "overlap of werewolf attack and Witch poison",
       hunter_death_shot: japanese ? "ハンター死亡時の反撃" : "Hunter death shot",
-      alpha_wolf_death_shot: japanese ? "アルファ人狼死亡時の反撃" : "Alpha Wolf death shot",
+      alpha_wolf_death_shot: japanese ? "α人狼死亡時の反撃" : "Alpha Wolf death shot",
       lover_linked_death: japanese ? "恋人の後追い" : "lover linked death",
       wolf_beauty_charm_linked_death: japanese ? "美女狼の魅了による道連れ" : "Wolf Beauty charm linked death"
     },

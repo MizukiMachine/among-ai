@@ -1872,7 +1872,7 @@ test("first-day werewolf face-off softens special-role fake-claim plans into sit
       const messages: Record<Role, string> = {
         WolfBeauty: "俺が美女狼だ、明日は占い師っぽく立ち回って村の目を俺に集めよう！",
         Werewolf: "私が人狼です。明日はあえて占い師を騙り、初日霊能結果の有無で村の前提を揺さぶります",
-        AlphaWolf: "俺がアルファ人狼だ、明日からは占い師っぽく真っ直ぐ振る舞って村を引っ張るぜ！",
+        AlphaWolf: "俺がα人狼だ、明日からは占い師っぽく真っ直ぐ振る舞って村を引っ張るぜ！",
         Seer: "",
         Witch: "",
         Guard: "",
@@ -1911,7 +1911,7 @@ test("first-day werewolf face-off softens special-role fake-claim plans into sit
   assert.equal(messages.length, 3);
   assert.ok(messages.some((message) => message.includes("美女狼")));
   assert.ok(messages.some((message) => message.includes("人狼")));
-  assert.ok(messages.some((message) => message.includes("アルファ人狼")));
+  assert.ok(messages.some((message) => message.includes("α人狼")));
   assert.ok(
     messages.every((message) => /(状況次第|必要なら)/u.test(message)),
     "special-role fake-claim plans are softened into situational options"
@@ -4024,7 +4024,7 @@ test("AlphaWolf gets the same death-shot path with internal cause data", async (
   assert.equal(players[0].alive, false);
   const alphaWolfDeath = events.find((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "alpha_wolf");
   assert.ok(alphaWolfDeath);
-  assert.doesNotMatch(alphaWolfDeath.message, /Alpha Wolf|shot|アルファ人狼|撃/);
+  assert.doesNotMatch(alphaWolfDeath.message, /Alpha Wolf|shot|α人狼|アルファ人狼|撃/);
   assert.ok((game.agents.get("p4") as ScriptedAgent).targetInputs.some((input) => input.action === "Alpha Wolf death shot"));
 });
 
@@ -4184,7 +4184,7 @@ test("public death events keep target roles in data for village-view redaction",
   for (const event of deathEvents) {
     const role = String(event.data?.targetRole);
     assert.ok(!event.message.includes(role));
-    assert.doesNotMatch(event.message, /Hunter|Alpha Wolf|Wolf Beauty|heartbreak|shot|charm|ハンター|アルファ人狼|美女狼|恋人|撃|魅了/);
+    assert.doesNotMatch(event.message, /Hunter|Alpha Wolf|Wolf Beauty|heartbreak|shot|charm|ハンター|α人狼|アルファ人狼|美女狼|恋人|撃|魅了/);
   }
 });
 

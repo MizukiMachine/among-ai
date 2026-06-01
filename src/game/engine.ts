@@ -2812,7 +2812,7 @@ export class WerewolfGame {
 
     this.hunterShotsUsed.add(hunter.id);
     const legalTargetIds = new Set(targets.map((player) => player.id));
-    const deathShotRole = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf", "アルファ人狼") : this.text("Hunter", "ハンター");
+    const deathShotRole = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf", "α人狼") : this.text("Hunter", "ハンター");
     const contextLines = [
       this.text(
         `You died as the ${deathShotRole} and may shoot one living player before leaving the game.`,
@@ -2824,7 +2824,7 @@ export class WerewolfGame {
       )
     ];
     const context = this.contextFor(hunter, contextLines);
-    const action = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf death shot", "アルファ人狼の道連れ") : this.text("Hunter death shot", "ハンターの道連れ");
+    const action = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf death shot", "α人狼の道連れ") : this.text("Hunter death shot", "ハンターの道連れ");
     const decision = await this.raceChooseTarget(hunter, action, context, targets, false, contextLines);
     if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
