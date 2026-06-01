@@ -190,6 +190,28 @@ test("later-day agenda scheduler spreads concrete evidence focus across first-pa
   assert.match(renderPublicSpeechPlan(plans[4], "Japanese").join("\n"), /前日から見方が変わった相手/);
 });
 
+test("later-day agenda scheduler does not treat claim-policy talk as a Seer claim", () => {
+  const players = [
+    player("Villager", "p1", "セナ"),
+    player("Seer", "p2", "ノゾミ"),
+    player("Villager", "p3", "アキオミ")
+  ];
+  const plan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 2,
+    discussionPass: 1,
+    players,
+    lastNightDeaths: [],
+    legalPlayers: players.slice(1).map(({ id, name }) => ({ id, name })),
+    language: "Japanese",
+    speakerId: "p1",
+    publicHistory: ["ノゾミ: 占い師が今日名乗る条件だけ先に決めたいです。"]
+  });
+
+  assert.notEqual(plan.discussionAgenda?.kind, "later_day_claim_review");
+  assert.doesNotMatch(renderPublicSpeechPlan(plan, "Japanese").join("\n"), /役職主張を検証する/);
+});
+
 test("later-day black-result agenda ignores dead black targets", () => {
   const players = [
     player("Villager", "p1", "セナ"),
@@ -607,6 +629,51 @@ test("timeline review rejects unseen prior statements on empty first-day history
     "Japanese"
   );
   assert.equal(characterTendency.ok, true);
+});
+
+test("timeline review rejects invented Seer claims when no claim is visible", () => {
+  const legalPlayers: TargetCandidate[] = [
+    { id: "p2", name: "アカネ" },
+    { id: "p3", name: "イオリ" }
+  ];
+
+  const inventedOpeningClaim = reviewSpeechTimeline(
+    {
+      messages: ["占い師を名乗った人がいるけど、役職主張は一旦そのまま置いておく"],
+      metadata
+    },
+    [],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(inventedOpeningClaim.ok, false);
+  assert.match(inventedOpeningClaim.issues.join("\n"), /visible Seer claim/);
+  assert.match(inventedOpeningClaim.revisionHint ?? "", /占い師COや役職主張が出た前提/);
+
+  const inventedAfterPolicyTalk = reviewSpeechTimeline(
+    {
+      messages: ["占い師を名乗った人がいるので、今は信用を保留します"],
+      metadata
+    },
+    ["アカネ: 占い師が今日名乗る条件だけ先に決めたいです。"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(inventedAfterPolicyTalk.ok, false);
+
+  const actualVisibleClaim = reviewSpeechTimeline(
+    {
+      messages: ["占い師を名乗った人がいるので、結果の出し方を見てから保留します"],
+      metadata
+    },
+    ["アカネ: 私は占い師です。イオリは人間判定です。"],
+    legalPlayers,
+    "day_discussion",
+    "Japanese"
+  );
+  assert.equal(actualVisibleClaim.ok, true);
 });
 
 test("timeline review checks referenced speakers against visible history", () => {

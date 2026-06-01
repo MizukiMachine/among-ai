@@ -355,6 +355,56 @@ test("first-day opening prompts avoid hard evidence but require active openings"
   assert.doesNotMatch(context, /2日目以降の昼/);
 });
 
+test("first-day claim-policy agenda is not treated as a visible Seer claim", () => {
+  const agendaLine =
+    "1巡目: 進め方、投票理由の残し方、占い師が名乗る条件など、初日の議題を一つだけ出してください。まだ見えていない反応や矛盾は作らないでください。";
+  const speechPlan = buildPublicSpeechPlan({
+    phase: "day_discussion",
+    round: 1,
+    discussionPass: 1,
+    players: [player("Villager", "p1", "Ada"), player("Werewolf", "p2", "Byron"), player("Seer", "p3", "Curie")],
+    lastNightDeaths: [],
+    legalPlayers: alivePlayers.slice(1),
+    language: "Japanese",
+    firstDayOpeningMove: firstDayOpeningMove("ask_role_claim_policy", "Japanese")
+  });
+
+  assert.deepEqual(
+    detectDaySituations({
+      phase: "day_discussion",
+      round: 1,
+      publicHistory: [],
+      extra: [agendaLine]
+    }),
+    ["first_day"]
+  );
+  assert.deepEqual(
+    detectDaySituations({
+      phase: "day_discussion",
+      round: 1,
+      publicHistory: ["Ada: 占い師が今日名乗る条件だけ先に決めたいです。"]
+    }),
+    ["first_day"]
+  );
+
+  const context = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    extra: [agendaLine],
+    speechPlan
+  });
+
+  assert.match(context, /占い師が名乗る条件/);
+  assert.doesNotMatch(context, /占い師を名乗った人が出た後/);
+  assert.doesNotMatch(context, /真偽を即断/);
+});
+
 test("first-day opening mode allows assigned conversation sparks", () => {
   const speechPlan = buildPublicSpeechPlan({
     phase: "day_discussion",

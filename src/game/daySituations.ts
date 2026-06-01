@@ -19,6 +19,29 @@ function visibleText(input: DaySituationInput): string {
   return [input.context, ...(input.publicHistory ?? []), ...(input.extra ?? [])].filter(Boolean).join("\n");
 }
 
+function publicClaimText(input: DaySituationInput): string {
+  const publicHistory = input.publicHistory ?? [];
+  if (publicHistory.length > 0) {
+    return publicHistory.join("\n");
+  }
+  return taskSpecificContext(input.context);
+}
+
+export function textHasSeerClaimEvidence(text: string): boolean {
+  return (
+    /\b(?:I(?: am|'m) (?:the )?Seer|claims? (?:to be )?(?:the )?Seer|claiming (?:to be )?(?:the )?Seer|Seer claim(?:ed|s)?)\b/i.test(
+      text
+    ) ||
+    /占い(?:師)?CO|占い師を主張|占い師として出(?:ます|る|た|ました|ている|ています)|(?:私|僕|俺|自分|こちら)(?:は|が)?占い師(?:です|だ|として)|(?:^|[\s:：])占い師(?:です|だ)(?:$|[\s。！？!、,])|占いです(?:$|[\s。！？!、,])|占い師を名乗(?:ります|りました|った|っている|っています|る人|る者)|占い(?:師)?主張/.test(
+      text
+    )
+  );
+}
+
+export function textHasBlackResultEvidence(text: string): boolean {
+  return /checked as werewolf|checked werewolf|reads as werewolf/i.test(text) || /人狼判定/.test(text);
+}
+
 function taskSpecificContext(text: string | undefined): string {
   if (!text) {
     return "";
@@ -67,14 +90,12 @@ export function detectDaySituations(input: DaySituationInput): DaySituation[] {
     situations.add("no_death");
   }
 
-  if (
-    /\bclaims? Seer\b|\bclaiming Seer\b|\bSeer claim\b|\bI am Seer\b/i.test(text) ||
-    /占い(?:師)?CO|占い師を主張|占い師として出|占い師を名乗|占い師です|占いです/.test(text)
-  ) {
+  const claimText = publicClaimText(input);
+  if (textHasSeerClaimEvidence(claimText)) {
     situations.add("seer_claim");
   }
 
-  if (/checked as werewolf|checked werewolf|reads as werewolf/i.test(text) || /人狼判定/.test(text)) {
+  if (textHasBlackResultEvidence(claimText)) {
     situations.add("black_result");
   }
 

@@ -1,4 +1,5 @@
 import { isJapaneseLanguage } from "./i18n";
+import { textHasSeerClaimEvidence } from "./daySituations";
 import type { DeathRecord } from "./rules/types";
 import type {
   AgentSpeech,
@@ -109,6 +110,9 @@ function labels(language: string) {
     emptyHistoryRevisionHint: japanese
       ? "前の返答は、まだこの昼の発言が見えていない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、名指し質問、軽い初日仮説など、材料なしでも自分から動かせる議題に直してください。"
       : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance.",
+    unseenClaimRevisionHint: japanese
+      ? "前の返答は、見えている昼の発言にない占い師COや役職主張が出た前提で話しています。初日は、まだ出ていない主張を既成事実にせず、投票基準、占い師が名乗る条件、名指し質問、軽い初日仮説などに直してください。"
+      : "The previous response treated a Seer or role claim as visible even though no such public claim is in the visible discussion. Revise without assuming that claim exists.",
     openingFillerRevisionHint: japanese
       ? "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、名指し質問、軽い投票候補のどれかを自分から出してください。"
       : "The previous response was passive and did not move the discussion. Even on day one, add vote criteria, claim policy, a direct question, or a light vote candidate."
@@ -373,8 +377,7 @@ function lineMentionsLivingBlackTarget(line: string, input: BuildPublicSpeechPla
 }
 
 function hasVisibleSeerClaim(input: BuildPublicSpeechPlanInput): boolean {
-  const claimPattern = /\bclaims? Seer\b|\bclaiming Seer\b|\bSeer claim\b|\bI am Seer\b|占い(?:師)?CO|占い師を主張|占い師として出|占い師を名乗|占い師です|占いです/i;
-  return recentPublicHistory(input).some((line) => claimPattern.test(line) && lineMentionsLivingPlayer(line, input));
+  return recentPublicHistory(input).some((line) => textHasSeerClaimEvidence(line) && lineMentionsLivingPlayer(line, input));
 }
 
 function hasVisibleBlackResult(input: BuildPublicSpeechPlanInput): boolean {
@@ -711,13 +714,18 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
   return /\b(Seer|Witch|Guard|power role|protection)\b/i.test(text);
 }
 
+function referencesExistingSeerClaimJapanese(text: string): boolean {
+  return /(?:占い(?:師)?(?:を)?(?:名乗った|名乗っている|名乗っています|COが出|COは出|COがあ|COはあ|主張が出|主張は出|主張があ|主張はあ|として出た|として出ている)|占い(?:師)?主張(?:が|は)?(?:出|あ)|占い師を名乗る人)/u.test(
+    text
+  );
+}
+
 export function reviewSpeechTimeline(
   speech: AgentSpeech,
   publicHistory: string[],
   legalPlayers: TargetCandidate[],
   phase: Phase,
-  language: string,
-  plan?: PublicSpeechPlan
+  language: string
 ): SpeechPlanReview {
   if (!isJapaneseLanguage(language) || phase !== "day_discussion") {
     return { ok: true, issues: [] };
@@ -770,6 +778,15 @@ export function reviewSpeechTimeline(
       "u"
     ).test(text);
   });
+
+  const inventsSeerClaim = !publicHistory.some((line) => textHasSeerClaimEvidence(line)) && referencesExistingSeerClaimJapanese(text);
+  if (inventsSeerClaim) {
+    return {
+      ok: false,
+      issues: ["speech invents a visible Seer claim"],
+      revisionHint: labels(language).unseenClaimRevisionHint
+    };
+  }
 
   if (genericUnseenReference || citesUnseenPlayer || misstatesVisibleSilence) {
     return {
