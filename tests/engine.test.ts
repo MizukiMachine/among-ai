@@ -1798,7 +1798,7 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
   );
   assert.match(secondAgent.speechInputs[0].task, /complementary social job|補完/u);
   assert.match(secondAgent.speechInputs[0].context, /support or contrast|支援または対比/u);
-  assert.match(thirdAgent.speechInputs[0].context, /Do not add another role claim|別の役職騙り/u);
+  assert.match(thirdAgent.speechInputs[0].context, /Do not add a firm role claim|役職騙りを確定で足さず/u);
 });
 
 test("first-day werewolf face-off compacts long generated lines for the story display", async () => {
@@ -1837,7 +1837,7 @@ test("first-day werewolf face-off compacts long generated lines for the story di
   assert.match(speech.message, /\.\.\.$/, "long face-off speech is visibly compacted rather than overflowing the hero");
 });
 
-test("first-day werewolf face-off rewrites special-role fake-claim plans into distinct social jobs", async () => {
+test("first-day werewolf face-off softens special-role fake-claim plans into situational options", async () => {
   class SpecialRolePlanIntroAgent extends IntroAgent {
     override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
       this.werewolfIntroCalls.push(input.player.id);
@@ -1886,10 +1886,14 @@ test("first-day werewolf face-off rewrites special-role fake-claim plans into di
   assert.ok(messages.some((message) => message.includes("人狼")));
   assert.ok(messages.some((message) => message.includes("アルファ人狼")));
   assert.ok(
-    messages.every((message) => !/(占い師|霊能|霊媒|騙|っぽく|振る舞)/u.test(message)),
-    "face-off output does not repeat special-role fake-claim plans"
+    messages.every((message) => /(状況次第|必要なら)/u.test(message)),
+    "special-role fake-claim plans are softened into situational options"
   );
-  assert.match(messages.join("\n"), /処刑先/u);
+  assert.ok(
+    messages.every((message) => !/(明日は|占い師っぽく|霊能結果|真っ直ぐ振る舞|村を引っ張る)/u.test(message)),
+    "face-off output removes hard special-role fake-claim commitments"
+  );
+  assert.match(messages.join("\n"), /占い騙り/u);
   assert.match(messages.join("\n"), /距離/u);
   assert.match(messages.join("\n"), /票先/u);
 });

@@ -349,23 +349,26 @@ function werewolfFaceoffRoleConfirmationPrefix(player: Player, message: string, 
   return isJapaneseLanguage(language) ? `こちらは${player.name}、${roleName}だ` : `I'm ${player.name}, the ${roleName}`;
 }
 
-function werewolfFaceoffSocialJob(previousSpeakerCount: number, language: string): string {
+function werewolfFaceoffConditionalRoleJob(value: string, previousSpeakerCount: number, language: string): string {
   if (isJapaneseLanguage(language)) {
+    const roleOption = /(占い師|占い|Seer)/iu.test(value) ? "占い騙り" : "役職騙り";
     if (previousSpeakerCount === 0) {
-      return "昼は役職を匂わせず、発言量と票の流れから処刑先を作る";
+      return `${roleOption}は状況次第の選択肢に残し、まずは票の流れを見る`;
     }
     if (previousSpeakerCount === 1) {
-      return "その流れをなぞらず、少し距離を取りながら慎重な村人として疑いを散らす";
+      return `その線は状況次第に残し、俺は距離を取って疑いを散らす`;
     }
-    return "二人の動きに合わせ、反応を見て票先を絞る役に回る";
+    return `${roleOption}は状況次第で必要なら任せ、俺は反応を見て票先を絞る`;
   }
+  const lower = value.toLowerCase();
+  const roleOption = lower.includes("seer") ? "a Seer claim" : "a fake-role claim";
   if (previousSpeakerCount === 0) {
-    return "I will steer suspicion through talk and votes without adding a fake-role claim";
+    return `I will keep ${roleOption} situational and read the vote flow first`;
   }
   if (previousSpeakerCount === 1) {
-    return "I will keep some distance and sound cautious so the cover does not look coordinated";
+    return `I will leave that line situational and keep distance while seeding doubt`;
   }
-  return "I will watch reactions and narrow the vote target when the table starts to move";
+  return `I will only use ${roleOption} if needed and narrow votes from reactions`;
 }
 
 function normalizeWerewolfFaceoffSpeech(
@@ -380,7 +383,7 @@ function normalizeWerewolfFaceoffSpeech(
   }
 
   const prefix = werewolfFaceoffRoleConfirmationPrefix(player, compact, language);
-  const job = werewolfFaceoffSocialJob(previousSpeakerCount, language);
+  const job = werewolfFaceoffConditionalRoleJob(compact, previousSpeakerCount, language);
   const separator = isJapaneseLanguage(language) ? "。" : ".";
   return compactWerewolfFaceoffSpeech(
     {
@@ -3134,12 +3137,12 @@ export class WerewolfGame {
     const task =
       previousFaceoffHistory.length > 0
         ? this.text(
-            "Confirm your role, react to the face-off so far, and take the assigned complementary social job instead of adding another special-role fake claim.",
-            "自分の役職を確認し、これまでの顔合わせに反応して、別の特殊役職騙りを足さず、割り当てられた補完的な社会的役回りを短く宣言してください。"
+            "Confirm your role, react to the face-off so far, and take the assigned complementary social job. If a Seer-style fake claim is mentioned, keep it as a situational option instead of a commitment.",
+            "自分の役職を確認し、これまでの顔合わせに反応して、割り当てられた補完的な社会的役回りを短く宣言してください。占い騙りに触れる場合は、確定ではなく状況次第の選択肢として残してください。"
           )
         : this.text(
-            "Open the private werewolf face-off by confirming your role and setting one broad social-pressure lane for the team, without declaring a fake special-role claim.",
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、特殊役職騙りを宣言せず、社会的な圧力で昼を動かす大まかな方針を一つ短く置いてください。"
+            "Open the private werewolf face-off by confirming your role and setting one broad social-pressure lane for the team. Keep any Seer-style fake claim only as a situational option.",
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、社会的な圧力で昼を動かす大まかな方針を一つ短く置いてください。占い騙りは確定宣言ではなく、状況次第の選択肢に留めてください。"
           );
     const input: AgentSpeechInput = {
       player,
@@ -3197,19 +3200,19 @@ export class WerewolfGame {
   private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
     if (previousSpeakerCount === 0) {
       return this.text(
-        "Your slot: opener. Set one broad public-facing lane for the team through social pressure and vote flow, not through a special-role fake claim.",
-        "あなたの枠: 最初の発言者。特殊役職騙りではなく、発言圧や票の流れでチーム全体の昼の大まかな方針を一つ置いてください。"
+        "Your slot: opener. Set one broad public-facing lane through social pressure and vote flow. A Seer-style fake claim may remain only a situational option.",
+        "あなたの枠: 最初の発言者。発言圧や票の流れでチーム全体の昼の大まかな方針を一つ置いてください。占い騙りは状況次第の選択肢に留めてください。"
       );
     }
     if (previousSpeakerCount === 1) {
       return this.text(
-        "Your slot: support or contrast. A teammate has already set the main lane. Do not say that you will fake a special role too; say whether you will back them, keep distance, sound cautious, or question them lightly.",
-        "あなたの枠: 支援または対比。仲間がすでに主な方針を置いています。自分も特殊役職を騙るとは言わず、信じる側・距離を取る側・慎重な村人・軽く疑う側のどれで補完するかを言ってください。"
+        "Your slot: support or contrast. A teammate has already set the main lane. Do not commit to a special-role fake claim too; keep that line situational and say whether you will back them, keep distance, sound cautious, or question them lightly.",
+        "あなたの枠: 支援または対比。仲間がすでに主な方針を置いています。自分も特殊役職騙りを確定せず、その線は状況次第に残し、信じる側・距離を取る側・慎重な村人・軽く疑う側のどれで補完するかを言ってください。"
       );
     }
     return this.text(
-      "Your slot: pressure or vote work. The team already has a lane and a cover. Do not add another role claim; fill a social job such as nudging suspicion, narrowing vote options, or staying quiet until someone reacts.",
-      "あなたの枠: 圧力または票の調整。チームにはすでに方針とカバー役があります。別の役職騙りを足さず、疑いを寄せる・投票先を狭める・反応を見るまで黙るなど、社会的な役回りを埋めてください。"
+      "Your slot: pressure or vote work. The team already has a lane and a cover. Do not add a firm role claim; fill a social job such as nudging suspicion, narrowing vote options, or staying quiet until someone reacts.",
+      "あなたの枠: 圧力または票の調整。チームにはすでに方針とカバー役があります。役職騙りを確定で足さず、疑いを寄せる・投票先を狭める・反応を見るまで黙るなど、社会的な役回りを埋めてください。"
     );
   }
 
@@ -3231,8 +3234,8 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, clearly own your own role, and coordinate a distinct public-facing social job in one display-safe line. Do not declare Seer/Medium/etc. fake claims here, and do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼に担う社会的な役回りが仲間と分かれるように一画面に収まる短さで話してください。ここでは占い師・霊能などの特殊役職騙りは宣言せず、襲撃先や細かい作戦の相談もまだしません。"
+        "Check in with your allies, clearly own your own role, and coordinate a distinct public-facing social job in one display-safe line. If you mention Seer/Medium/etc. fake claims here, phrase them as situational options, and do not discuss attack targets or detailed plans yet.",
+        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼に担う社会的な役回りが仲間と分かれるように一画面に収まる短さで話してください。ここで占い師・霊能などの特殊役職騙りに触れる場合は状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
     if (roleBrief) {
@@ -3244,8 +3247,8 @@ export class WerewolfGame {
           .slice(-6)
           .map((line) => this.text(`Face-off so far: ${line}`, `顔合わせでの発言: ${line}`)),
         this.text(
-          "Treat those prior lines as the live conversation. The team already has public-facing roles in progress; do not restart by naming the same special-role fake claim for yourself. Refer to an ally's plan and fill the missing social job.",
-          "これまでの発言を今の会話として受けてください。チーム内の昼の役回りはすでに進んでいます。同じ特殊役職騙りを自分の役として言い直さないでください。仲間の方針に触れ、不足している社会的な役回りを埋めてください。"
+          "Treat those prior lines as the live conversation. The team already has public-facing roles in progress; do not restart with a firm special-role fake claim for yourself. Refer to an ally's plan and fill the missing social job.",
+          "これまでの発言を今の会話として受けてください。チーム内の昼の役回りはすでに進んでいます。特殊役職騙りを自分の確定役として言い直さないでください。仲間の方針に触れ、不足している社会的な役回りを埋めてください。"
         )
       );
     }
