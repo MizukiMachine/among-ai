@@ -468,6 +468,7 @@ test("character voice context uses compact profile fields without sample-line fa
     language: "Japanese"
   });
 
+  assert.match(context, /性別: 女/);
   assert.match(context, /話し方: 冷静な分析官の丁寧語/);
   assert.match(context, /大事にすること: 「矛盾は意図から生まれる」/);
   assert.match(context, /切り出しの雰囲気:/);

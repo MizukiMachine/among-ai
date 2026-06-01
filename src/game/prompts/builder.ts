@@ -251,12 +251,14 @@ function simplePersonaLines(player: Player, language: string): string[] {
     const profile = player.characterProfile;
     if (isJapaneseLanguage(language)) {
       return [
+        `- 性別: ${profile.gender === "male" ? "男" : "女"}`,
         `- 話し方: ${profile.speechStyle}`,
         `- 大事にすること: ${profile.values}`,
         `- 切り出しの雰囲気: ${profile.tagline}`
       ];
     }
     return [
+      `- Gender: ${profile.gender}`,
       `- Speaking style: ${profile.speechStyle}`,
       `- Values: ${profile.values}`,
       `- Opening feel: ${profile.tagline}`
