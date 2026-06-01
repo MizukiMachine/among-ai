@@ -717,6 +717,7 @@ textarea:focus-visible {
 .player-section-heading > span {
   min-width: 0;
   overflow: hidden;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

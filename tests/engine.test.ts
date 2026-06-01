@@ -1796,7 +1796,102 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
       thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[1].name}`),
     "later wolves see every prior face-off line"
   );
-  assert.match(thirdAgent.speechInputs[0].context, /Respond to an ally|補完/u);
+  assert.match(secondAgent.speechInputs[0].task, /complementary social job|補完/u);
+  assert.match(secondAgent.speechInputs[0].context, /support or contrast|支援または対比/u);
+  assert.match(thirdAgent.speechInputs[0].context, /Do not add another role claim|別の役職騙り/u);
+});
+
+test("first-day werewolf face-off compacts long generated lines for the story display", async () => {
+  class LongWerewolfIntroAgent extends IntroAgent {
+    override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+      this.werewolfIntroCalls.push(input.player.id);
+      this.speechInputs.push(input);
+      return {
+        messages: [
+          "私が人狼です、仲間の距離取りは論理的に有効ですが、二人が同じ一般枠という事実自体が表に出ないよう、序盤で疑いを広げすぎる発言を黙って誘導しつつ、中盤では票の偏りも隠します"
+        ],
+        metadata: { suspects: [], trusts: [], claims: [] }
+      };
+    }
+  }
+
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new LongWerewolfIntroAgent(player.name));
+  }
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const speech = events.find((event) => event.type === "player_speech");
+
+  assert.ok(speech, "a werewolf face-off speech is emitted");
+  assert.ok(speech.message.length <= 72, "face-off speech is capped to the Japanese display budget");
+  assert.match(speech.message, /\.\.\.$/, "long face-off speech is visibly compacted rather than overflowing the hero");
+});
+
+test("first-day werewolf face-off rewrites special-role fake-claim plans into distinct social jobs", async () => {
+  class SpecialRolePlanIntroAgent extends IntroAgent {
+    override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+      this.werewolfIntroCalls.push(input.player.id);
+      this.speechInputs.push(input);
+      const messages: Record<Role, string> = {
+        WolfBeauty: "俺が美女狼だ、明日は占い師っぽく立ち回って村の目を俺に集めよう！",
+        Werewolf: "私が人狼です。明日はあえて占い師を騙り、初日霊能結果の有無で村の前提を揺さぶります",
+        AlphaWolf: "俺がアルファ人狼だ、明日からは占い師っぽく真っ直ぐ振る舞って村を引っ張るぜ！",
+        Seer: "",
+        Witch: "",
+        Guard: "",
+        Hunter: "",
+        Raven: "",
+        Idiot: "",
+        Elder: "",
+        Lover: "",
+        Jester: "",
+        Villager: ""
+      };
+      return {
+        messages: [messages[input.player.role] ?? `俺が${input.player.role}だ`],
+        metadata: { suspects: [], trusts: [], claims: [] }
+      };
+    }
+  }
+
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "WolfBeauty" },
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new SpecialRolePlanIntroAgent(player.name));
+  }
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const messages = events.filter((event) => event.type === "player_speech").map((event) => event.message);
+
+  assert.equal(messages.length, 3);
+  assert.ok(messages.some((message) => message.includes("美女狼")));
+  assert.ok(messages.some((message) => message.includes("人狼")));
+  assert.ok(messages.some((message) => message.includes("アルファ人狼")));
+  assert.ok(
+    messages.every((message) => !/(占い師|霊能|霊媒|騙|っぽく|振る舞)/u.test(message)),
+    "face-off output does not repeat special-role fake-claim plans"
+  );
+  assert.match(messages.join("\n"), /処刑先/u);
+  assert.match(messages.join("\n"), /距離/u);
+  assert.match(messages.join("\n"), /票先/u);
 });
 
 test("first-day werewolf face-off offers a human werewolf alignment line without blocking later generation", async () => {

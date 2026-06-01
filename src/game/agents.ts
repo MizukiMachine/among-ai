@@ -1726,23 +1726,23 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
   const roleName = roleLabel(role, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、村をだます演技の意気込みを短く見せます。",
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、村をだますためのチーム内の役割分担を短く見せます。",
       "舞台設定: プレイヤー同士は初対面ではありません。同じ宇宙船内のクルーとして互いの名前や普段の雰囲気は知っています。ただし、ここで初めて人狼陣営の仲間と役職内訳を確認します。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり確認してください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
-      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にせず、『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
-      "入力に『顔合わせでの発言』がある場合は、それを直前の会話として受け、仲間の方針への反応や補完する角度を自然に足してください。",
+      "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。顔合わせでは占い師・霊能などの特殊役職騙りを宣言せず、信用補強・距離取り・疑い作り・票の寄せ役など別の社会的な役回りを選ぶ。ただし襲撃先や具体的な作戦の相談はまだしない。",
+      "入力に『顔合わせでの発言』がある場合は、それを直前の会話として受け、仲間の方針への反応や別角度の補完を自然に足してください。自分も特殊役職を騙る宣言で上書きしないでください。標的誘導は、役職COではなく発言量・距離感・票の流れで行う前提にしてください。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately to align; confirm your role to allies and show your appetite for deceiving the village.",
+    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately to align; confirm your role to allies and show the team's division of public-facing jobs.",
     "Setting: the players are not strangers. They are crew on the same spaceship and already know each other's names and usual demeanor, but this is when the werewolf team confirms its members and role mix.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
-    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
-    'If the input includes "Face-off so far" lines, treat them as the live conversation and naturally respond to or complement an ally\'s direction.',
+    "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. In this face-off, do not declare a Seer/Medium/etc. fake claim; choose a social job such as backing, keeping distance, seeding suspicion, or nudging votes. Do NOT discuss attack targets or concrete plans yet.",
+    'If the input includes "Face-off so far" lines, treat them as the live conversation and naturally respond with a different complementary angle. Do not overwrite it by declaring your own special-role fake claim. Target steering should be through talk, distance, and votes rather than role CO.',
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");

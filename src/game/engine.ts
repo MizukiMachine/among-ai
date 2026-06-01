@@ -252,6 +252,8 @@ function emptySpeechMetadata(): SpeechMetadata {
 
 const humanSpeechChoiceCount = 3;
 const maxHumanSpeechLength = 240;
+const maxWerewolfFaceoffSpeechLengthJa = 72;
+const maxWerewolfFaceoffSpeechLengthEn = 150;
 // Draft one extra so that, after deduping, the player still sees a full set of distinct options.
 const humanSpeechDraftCount = humanSpeechChoiceCount + 1;
 
@@ -280,6 +282,113 @@ function humanFreeTextSpeech(text: string | undefined, language: string): AgentS
     messages: [message],
     metadata: emptySpeechMetadata()
   };
+}
+
+function compactWerewolfFaceoffMessage(value: string, language: string): string | null {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+
+  const maxLength = isJapaneseLanguage(language) ? maxWerewolfFaceoffSpeechLengthJa : maxWerewolfFaceoffSpeechLengthEn;
+  if (compact.length <= maxLength) {
+    return stripJapaneseSpeechTerminalPeriod(compact, language);
+  }
+
+  const head = compact.slice(0, maxLength - 3);
+  const minUsefulCut = Math.floor(maxLength * 0.58);
+  const cutAt = ["。", "！", "？", ".", "!", "?", "、", ",", "；", ";"].reduce(
+    (best, mark) => Math.max(best, head.lastIndexOf(mark)),
+    -1
+  );
+  const trimmed = cutAt >= minUsefulCut ? head.slice(0, cutAt + 1) : head;
+  return stripJapaneseSpeechTerminalPeriod(`${trimmed.trimEnd()}...`, language);
+}
+
+function compactWerewolfFaceoffSpeech(speech: AgentSpeech, language: string): AgentSpeech {
+  const compactMessages = speech.messages
+    .map((message) => compactWerewolfFaceoffMessage(message, language))
+    .filter((message): message is string => Boolean(message));
+  return {
+    ...speech,
+    messages: compactMessages.length > 0 ? [compactMessages.join(" ")] : speech.messages
+  };
+}
+
+function containsWerewolfFaceoffSpecialRolePlan(value: string, language: string): boolean {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return false;
+  }
+  if (isJapaneseLanguage(language)) {
+    return (
+      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|共有)/u.test(compact) &&
+      /(騙|ふり|振る舞|っぽく|名乗|CO|カミングアウト|結果|白|黒|対抗)/iu.test(compact)
+    );
+  }
+  const lower = compact.toLowerCase();
+  return (
+    /\b(seer|medium|guard|knight|hunter|witch|raven|oracle)\b/u.test(lower) &&
+    /\b(fake|claim|pretend|pose|act|result|counterclaim|co)\b/u.test(lower)
+  );
+}
+
+function werewolfFaceoffRoleConfirmationPrefix(player: Player, message: string, language: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  const roleName = roleLabel(player.role, language);
+  const roleIndex = compact.indexOf(roleName);
+  if (roleIndex >= 0) {
+    const afterRole = compact.slice(roleIndex + roleName.length);
+    const delimiterIndex = afterRole.search(/[。！？、,.!?]/u);
+    const end = delimiterIndex >= 0 ? roleIndex + roleName.length + delimiterIndex : roleIndex + roleName.length;
+    const candidate = compact.slice(0, end).trim();
+    if (candidate.length > 0 && candidate.length <= 42 && candidate.includes(roleName)) {
+      return stripJapaneseSpeechTerminalPeriod(candidate.replace(/[、,]$/u, ""), language);
+    }
+  }
+  return isJapaneseLanguage(language) ? `こちらは${player.name}、${roleName}だ` : `I'm ${player.name}, the ${roleName}`;
+}
+
+function werewolfFaceoffSocialJob(previousSpeakerCount: number, language: string): string {
+  if (isJapaneseLanguage(language)) {
+    if (previousSpeakerCount === 0) {
+      return "昼は役職を匂わせず、発言量と票の流れから処刑先を作る";
+    }
+    if (previousSpeakerCount === 1) {
+      return "その流れをなぞらず、少し距離を取りながら慎重な村人として疑いを散らす";
+    }
+    return "二人の動きに合わせ、反応を見て票先を絞る役に回る";
+  }
+  if (previousSpeakerCount === 0) {
+    return "I will steer suspicion through talk and votes without adding a fake-role claim";
+  }
+  if (previousSpeakerCount === 1) {
+    return "I will keep some distance and sound cautious so the cover does not look coordinated";
+  }
+  return "I will watch reactions and narrow the vote target when the table starts to move";
+}
+
+function normalizeWerewolfFaceoffSpeech(
+  speech: AgentSpeech,
+  player: Player,
+  language: string,
+  previousSpeakerCount: number
+): AgentSpeech {
+  const compact = speech.messages.join(" ").replace(/\s+/g, " ").trim();
+  if (!containsWerewolfFaceoffSpecialRolePlan(compact, language)) {
+    return compactWerewolfFaceoffSpeech(speech, language);
+  }
+
+  const prefix = werewolfFaceoffRoleConfirmationPrefix(player, compact, language);
+  const job = werewolfFaceoffSocialJob(previousSpeakerCount, language);
+  const separator = isJapaneseLanguage(language) ? "。" : ".";
+  return compactWerewolfFaceoffSpeech(
+    {
+      messages: [`${prefix}${separator}${job}`],
+      metadata: emptySpeechMetadata()
+    },
+    language
+  );
 }
 
 function shouldLockHumanWerewolfOpeningToChoices(input: AgentSpeechInput): boolean {
@@ -3020,14 +3129,22 @@ export class WerewolfGame {
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
-    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory);
+    const faceoffRoleBrief = this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length);
+    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory, faceoffRoleBrief);
+    const task =
+      previousFaceoffHistory.length > 0
+        ? this.text(
+            "Confirm your role, react to the face-off so far, and take the assigned complementary social job instead of adding another special-role fake claim.",
+            "自分の役職を確認し、これまでの顔合わせに反応して、別の特殊役職騙りを足さず、割り当てられた補完的な社会的役回りを短く宣言してください。"
+          )
+        : this.text(
+            "Open the private werewolf face-off by confirming your role and setting one broad social-pressure lane for the team, without declaring a fake special-role claim.",
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、特殊役職騙りを宣言せず、社会的な圧力で昼を動かす大まかな方針を一つ短く置いてください。"
+          );
     const input: AgentSpeechInput = {
       player,
       phase: this.phase,
-      task: this.text(
-        "Confirm yourself to your werewolf allies and preview your public deception.",
-        "人狼陣営の仲間に自分の役職を確認し、昼にどう騙すかを短く宣言してください。"
-      ),
+      task,
       context: this.contextFor(player, contextLines),
       uiContext: contextLines,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
@@ -3042,7 +3159,11 @@ export class WerewolfGame {
         : agent.improviseIntro
           ? agent.improviseIntro.bind(agent)
           : agent.speak.bind(agent);
-      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers, player);
+      const speech = this.sanitizeSpeechForPhase(
+        normalizeWerewolfFaceoffSpeech(await generate(input), player, this.config.language, previousFaceoffHistory.length),
+        legalPlayers,
+        player
+      );
       if (requestAbort.signal?.aborted) {
         throw new Error("Werewolf face-off request cancelled.");
       }
@@ -3054,7 +3175,16 @@ export class WerewolfGame {
       if (!speculative) {
         console.warn(`[faceoff] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
       }
-      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseWerewolfIntro!(input), legalPlayers, player);
+      return this.sanitizeSpeechForPhase(
+        normalizeWerewolfFaceoffSpeech(
+          await fallbackAgent.improviseWerewolfIntro!(input),
+          player,
+          this.config.language,
+          previousFaceoffHistory.length
+        ),
+        legalPlayers,
+        player
+      );
     } finally {
       requestAbort.cleanup();
     }
@@ -3064,7 +3194,30 @@ export class WerewolfGame {
     return `${player.name}: ${speech.messages.join(" ")}`;
   }
 
-  private werewolfFaceoffContextLines(werewolves: Player[], previousFaceoffHistory: string[] = []): string[] {
+  private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
+    if (previousSpeakerCount === 0) {
+      return this.text(
+        "Your slot: opener. Set one broad public-facing lane for the team through social pressure and vote flow, not through a special-role fake claim.",
+        "あなたの枠: 最初の発言者。特殊役職騙りではなく、発言圧や票の流れでチーム全体の昼の大まかな方針を一つ置いてください。"
+      );
+    }
+    if (previousSpeakerCount === 1) {
+      return this.text(
+        "Your slot: support or contrast. A teammate has already set the main lane. Do not say that you will fake a special role too; say whether you will back them, keep distance, sound cautious, or question them lightly.",
+        "あなたの枠: 支援または対比。仲間がすでに主な方針を置いています。自分も特殊役職を騙るとは言わず、信じる側・距離を取る側・慎重な村人・軽く疑う側のどれで補完するかを言ってください。"
+      );
+    }
+    return this.text(
+      "Your slot: pressure or vote work. The team already has a lane and a cover. Do not add another role claim; fill a social job such as nudging suspicion, narrowing vote options, or staying quiet until someone reacts.",
+      "あなたの枠: 圧力または票の調整。チームにはすでに方針とカバー役があります。別の役職騙りを足さず、疑いを寄せる・投票先を狭める・反応を見るまで黙るなど、社会的な役回りを埋めてください。"
+    );
+  }
+
+  private werewolfFaceoffContextLines(
+    werewolves: Player[],
+    previousFaceoffHistory: string[] = [],
+    roleBrief = ""
+  ): string[] {
     const teamRoster = werewolves
       .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
       .join("、");
@@ -3078,18 +3231,21 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, clearly own your own role, and add one short line about the public act you will perform. Do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼にどんな人間側の演技をするか一言だけ添えてください。襲撃先や細かい作戦の相談はまだしません。"
+        "Check in with your allies, clearly own your own role, and coordinate a distinct public-facing social job in one display-safe line. Do not declare Seer/Medium/etc. fake claims here, and do not discuss attack targets or detailed plans yet.",
+        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼に担う社会的な役回りが仲間と分かれるように一画面に収まる短さで話してください。ここでは占い師・霊能などの特殊役職騙りは宣言せず、襲撃先や細かい作戦の相談もまだしません。"
       )
     ];
+    if (roleBrief) {
+      lines.push(roleBrief);
+    }
     if (previousFaceoffHistory.length > 0) {
       lines.push(
         ...previousFaceoffHistory
           .slice(-6)
           .map((line) => this.text(`Face-off so far: ${line}`, `顔合わせでの発言: ${line}`)),
         this.text(
-          "Treat those prior lines as the live conversation. Respond to an ally's direction or add a complementary angle instead of simply restarting the same declaration.",
-          "これまでの発言を今の会話として受けてください。仲間の方針に反応するか、同じ宣言を最初から言い直すのではなく補完する角度を足してください。"
+          "Treat those prior lines as the live conversation. The team already has public-facing roles in progress; do not restart by naming the same special-role fake claim for yourself. Refer to an ally's plan and fill the missing social job.",
+          "これまでの発言を今の会話として受けてください。チーム内の昼の役回りはすでに進んでいます。同じ特殊役職騙りを自分の役として言い直さないでください。仲間の方針に触れ、不足している社会的な役回りを埋めてください。"
         )
       );
     }
@@ -3102,7 +3258,11 @@ export class WerewolfGame {
       return;
     }
 
-    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory);
+    const contextLines = this.werewolfFaceoffContextLines(
+      werewolves,
+      previousFaceoffHistory,
+      this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length)
+    );
     void handler
       .request({
         kind: "speech_choice",
