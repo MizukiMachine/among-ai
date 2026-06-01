@@ -115,6 +115,20 @@ function isOptionalWerewolfGreetingInput(request: HumanInputRequest | null): req
   );
 }
 
+function shouldHoldSubmittedHumanInputScene(request: HumanInputRequest): boolean {
+  return request.kind === "speech_choice" && !request.nonBlocking;
+}
+
+function isSubmittedHumanSpeechEvent(request: HumanInputRequest, event: GameEvent): boolean {
+  return request.kind === "speech_choice" && event.type === "player_speech" && event.playerId === request.playerId;
+}
+
+interface PendingHumanInputEntry {
+  request: HumanInputRequest;
+  revealAfterEventId: number | null;
+  anchorAcknowledged: boolean;
+}
+
 export function hasSeenHumanInputRevealAnchor(revealAfterEventId: number | null, visibleEvents: Pick<GameEvent, "id">[]): boolean {
   return revealAfterEventId === null || visibleEvents.some((event) => event.id === revealAfterEventId);
 }
@@ -133,6 +147,14 @@ export function shouldRevealBlockingHumanInputAfterAdvance(
   anchorAcknowledged: boolean
 ): boolean {
   return !anchorAcknowledged && !hasUnreadEvents && hasSeenHumanInputRevealAnchor(revealAfterEventId, visibleEvents);
+}
+
+export function shouldRevealNonBlockingHumanInputAfterAdvance(
+  revealAfterEventId: number | null,
+  currentEvent: Pick<GameEvent, "id"> | undefined,
+  anchorAcknowledged: boolean
+): boolean {
+  return !anchorAcknowledged && isCurrentHumanInputRevealAnchor(revealAfterEventId, currentEvent);
 }
 
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
@@ -1456,14 +1478,14 @@ export function App() {
   const [startupWaitActive, setStartupWaitActive] = useState(false);
   const startupWaitTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
-  const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
-  const [pendingHumanInputRevealAfterEventId, setPendingHumanInputRevealAfterEventId] = useState<number | null>(null);
-  const [humanInputAnchorAcknowledged, setHumanInputAnchorAcknowledged] = useState(false);
+  const [pendingHumanInputs, setPendingHumanInputsState] = useState<PendingHumanInputEntry[]>([]);
   const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
+  const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
+  const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
   const eventsRef = useRef<GameEvent[]>([]);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
@@ -1583,9 +1605,13 @@ export function App() {
   const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
+  const pendingHumanInputEntry = pendingHumanInputs[0] ?? null;
+  const pendingHumanInput = pendingHumanInputEntry?.request ?? null;
+  const pendingHumanInputRevealAfterEventId = pendingHumanInputEntry?.revealAfterEventId ?? null;
+  const humanInputAnchorAcknowledged = pendingHumanInputEntry?.anchorAcknowledged ?? false;
   const blockingHumanInput = isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
-  const humanInputAdvanceReady = Boolean(
+  const blockingHumanInputAdvanceReady = Boolean(
     blockingHumanInput &&
       shouldRevealBlockingHumanInputAfterAdvance(
         pendingHumanInputRevealAfterEventId,
@@ -1594,11 +1620,16 @@ export function App() {
         humanInputAnchorAcknowledged
       )
   );
+  const nonBlockingHumanInputAdvanceReady = Boolean(
+    nonBlockingHumanInput &&
+      shouldRevealNonBlockingHumanInputAfterAdvance(pendingHumanInputRevealAfterEventId, currentEvent, humanInputAnchorAcknowledged)
+  );
+  const humanInputAdvanceReady = blockingHumanInputAdvanceReady || nonBlockingHumanInputAdvanceReady;
   const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents.length === 0 ? blockingHumanInput : null;
   const deferredNonBlockingHumanInput =
     nonBlockingHumanInput &&
     hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events) &&
-    isCurrentHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, currentEvent)
+    humanInputAnchorAcknowledged
       ? nonBlockingHumanInput
       : null;
   const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
@@ -2032,10 +2063,57 @@ export function App() {
     setHumanPlayerId(playerId);
   }
 
+  function commitPendingHumanInputs(nextInputs: PendingHumanInputEntry[]) {
+    pendingHumanInputsRef.current = nextInputs;
+    setPendingHumanInputsState(nextInputs);
+  }
+
+  function updatePendingHumanInputs(updater: (currentInputs: PendingHumanInputEntry[]) => PendingHumanInputEntry[]) {
+    commitPendingHumanInputs(updater(pendingHumanInputsRef.current));
+  }
+
+  function initializeHumanInputForm(request: HumanInputRequest | null) {
+    setHumanSpeech("");
+    setHumanTargetId(request?.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
+    setHumanInputError("");
+    setHumanSubmitting(false);
+  }
+
+  function enqueueHumanInput(request: HumanInputRequest, revealAfterEventId: number | null) {
+    const wasEmpty = pendingHumanInputsRef.current.length === 0;
+    updatePendingHumanInputs((currentInputs) => [
+      ...currentInputs,
+      {
+        request,
+        revealAfterEventId,
+        anchorAcknowledged: revealAfterEventId === null
+      }
+    ]);
+    if (wasEmpty) {
+      initializeHumanInputForm(request);
+    }
+  }
+
+  function acknowledgeActiveHumanInput() {
+    updatePendingHumanInputs((currentInputs) =>
+      currentInputs.map((entry, index) => (index === 0 ? { ...entry, anchorAcknowledged: true } : entry))
+    );
+  }
+
+  function completeHumanInputRequest(request: HumanInputRequest) {
+    const wasActive = pendingHumanInputsRef.current[0]?.request.id === request.id;
+    const nextInputs = pendingHumanInputsRef.current.filter((entry) => entry.request.id !== request.id);
+    commitPendingHumanInputs(nextInputs);
+    if (wasActive) {
+      initializeHumanInputForm(nextInputs[0]?.request ?? null);
+    } else {
+      setHumanInputError("");
+    }
+  }
+
   function resetHumanInputState() {
-    setPendingHumanInput(null);
-    setPendingHumanInputRevealAfterEventId(null);
-    setHumanInputAnchorAcknowledged(false);
+    submittedHumanInputRef.current = null;
+    commitPendingHumanInputs([]);
     setHumanSpeech("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
@@ -2203,6 +2281,18 @@ export function App() {
           return;
         }
       }
+      const submittedHumanInput = submittedHumanInputRef.current;
+      if (submittedHumanInput && isSubmittedHumanSpeechEvent(submittedHumanInput, event)) {
+        const nextEvents = [...eventsRef.current, event];
+        submittedHumanInputRef.current = null;
+        completeHumanInputRequest(submittedHumanInput);
+        eventsRef.current = nextEvents;
+        setEvents(nextEvents);
+        setSnapshot(event.snapshot);
+        playEventSfx(event);
+        setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
+        return;
+      }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
@@ -2210,15 +2300,13 @@ export function App() {
 
     source.addEventListener("human_input", (message) => {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
-      const revealAfterEventId = queuedRef.current.at(-1)?.id ?? eventsRef.current.at(-1)?.id ?? null;
+      const revealAfterEventId =
+        typeof request.revealAfterEventId === "number"
+          ? request.revealAfterEventId
+          : (queuedRef.current.at(-1)?.id ?? eventsRef.current.at(-1)?.id ?? null);
       setGenerationProgress(null);
       hideProcessingHudNow();
-      setPendingHumanInput(request);
-      setPendingHumanInputRevealAfterEventId(revealAfterEventId);
-      setHumanInputAnchorAcknowledged(revealAfterEventId === null);
-      setHumanSpeech("");
-      setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
-      setHumanInputError("");
+      enqueueHumanInput(request, revealAfterEventId);
       if (isBlockingHumanInput(request)) {
         setGameStatus(statusForPendingHumanInputLeadIn(queuedRef.current.length));
       } else {
@@ -2335,29 +2423,36 @@ export function App() {
     setGameStatus(statusForVisibleStory(previousEvent, nextQueue.length));
   }
 
-  function skipOptionalHumanInputOnStoryAdvance() {
+  function skipOptionalHumanInputOnStoryAdvance(): boolean {
     if (!isOptionalWerewolfGreetingInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
-      return;
+      return false;
     }
     void submitHumanInput({ speech: "" });
+    return true;
   }
 
   function advanceStory() {
     if (paused) {
       return;
     }
-    skipOptionalHumanInputOnStoryAdvance();
+    if (skipOptionalHumanInputOnStoryAdvance()) {
+      return;
+    }
     if (settingsConfirmed && events.length === 0 && snapshot === null && queuedRef.current.length === 0) {
       startOpeningScene();
+      return;
+    }
+    if (humanInputAdvanceReady) {
+      acknowledgeActiveHumanInput();
+      setGameStatus("入力待ち");
+      return;
+    }
+    if (visibleHumanInput) {
       return;
     }
     if (queuedRef.current.length > 0) {
       revealNext();
       return;
-    }
-    if (humanInputAdvanceReady) {
-      setHumanInputAnchorAcknowledged(true);
-      setGameStatus("入力待ち");
     }
   }
 
@@ -2561,7 +2656,7 @@ export function App() {
       }
 
       const isBackKey = event.key === "ArrowLeft";
-      const canRetreat = !paused && !readyHumanInput && events.length > 0;
+      const canRetreat = !paused && !visibleHumanInput && events.length > 0;
       const canStartOpening = settingsConfirmed && events.length === 0 && !running && queuedRef.current.length === 0;
       const canAdvance =
         !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || canStartOpening || humanInputAdvanceReady);
@@ -2589,7 +2684,8 @@ export function App() {
     running,
     selectedCharacterId,
     settingsConfirmed,
-    startupWaitActive
+    startupWaitActive,
+    visibleHumanInput
   ]);
 
   function humanSpeechEchoMessage(value: string | undefined): string | null {
@@ -2651,6 +2747,8 @@ export function App() {
     }
 
     const localHumanSpeechEvent = createLocalHumanSpeechEvent(request, payload);
+    const holdSubmittedScene = shouldHoldSubmittedHumanInputScene(request);
+    submittedHumanInputRef.current = holdSubmittedScene ? request : null;
     setHumanSubmitting(true);
     setHumanInputError("");
     try {
@@ -2667,13 +2765,22 @@ export function App() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      resetHumanInputState();
       if (localHumanSpeechEvent) {
+        completeHumanInputRequest(request);
         showLocalHumanSpeechEvent(localHumanSpeechEvent);
+      } else if (holdSubmittedScene) {
+        if (submittedHumanInputRef.current === request) {
+          showProcessingHudNow();
+          setGameStatus("生成中");
+        }
       } else {
+        completeHumanInputRequest(request);
         setGameStatus("生成中");
       }
     } catch (error) {
+      if (submittedHumanInputRef.current === request) {
+        submittedHumanInputRef.current = null;
+      }
       setHumanInputError(error instanceof Error ? error.message : String(error));
       setHumanSubmitting(false);
     }
@@ -3152,7 +3259,7 @@ export function App() {
     );
   }
 
-  const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
+  const storyBackDisabled = paused || Boolean(visibleHumanInput) || events.length === 0 || startupWaitActive;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && running && queuedEvents.length === 0;
   const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !visibleHumanInput && !humanInputAdvanceReady;

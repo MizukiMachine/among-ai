@@ -2373,6 +2373,45 @@ test("human speech choice can publish free text instead of a drafted option", as
   assert.ok(humanSpeechEvents.some((event) => event.message === "自分の言葉で話します"));
 });
 
+test("human speech input requests carry the prior emitted event as their reveal anchor", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3" }, { humanInput }) as TestableGame;
+
+  const events = await collect(game.runDay());
+  const speechRequests = requests.filter((request) => request.kind === "speech_choice" && request.phase === "day_discussion");
+  let searchStart = 0;
+
+  assert.ok(speechRequests.length > 0);
+  for (const request of speechRequests) {
+    const speechIndex = events.findIndex(
+      (event, index) =>
+        index >= searchStart && event.type === "player_speech" && event.phase === "day_discussion" && event.playerId === "p3"
+    );
+    assert.ok(speechIndex > 0, "human speech should be emitted after a prior visible event");
+    assert.equal(request.revealAfterEventId, events[speechIndex - 1].id);
+    searchStart = speechIndex + 1;
+    while (
+      events[searchStart]?.type === "player_speech" &&
+      events[searchStart]?.phase === "day_discussion" &&
+      events[searchStart]?.playerId === "p3"
+    ) {
+      searchStart += 1;
+    }
+  }
+});
+
 test("human werewolf first-day forced opening must use a drafted deception choice", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {

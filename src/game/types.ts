@@ -427,6 +427,7 @@ export interface HumanInputRequestBase {
   role: Role;
   context: HumanInputContext;
   nonBlocking?: boolean;
+  revealAfterEventId?: number | null;
 }
 
 export interface HumanInputContext {

@@ -19,6 +19,7 @@ import {
   mentionedCharactersForText,
   personalVictoryOutcomeForSnapshot,
   shouldRevealBlockingHumanInputAfterAdvance,
+  shouldRevealNonBlockingHumanInputAfterAdvance,
   stageLightMoodForEvent,
   stageLightToneForEvent,
   storyRunControlState,
@@ -925,20 +926,33 @@ test("human input waits behind unread story events with a visible notice", () =>
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /function isBlockingHumanInput\(request: HumanInputRequest \| null\): request is HumanInputRequest/);
+  assert.match(source, /interface PendingHumanInputEntry/);
+  assert.match(source, /const \[pendingHumanInputs, setPendingHumanInputsState\] = useState<PendingHumanInputEntry\[\]>\(\[\]\);/);
+  assert.match(source, /const pendingHumanInputsRef = useRef<PendingHumanInputEntry\[\]>\(\[\]\);/);
+  assert.match(source, /function enqueueHumanInput\(request: HumanInputRequest, revealAfterEventId: number \| null\)/);
+  assert.match(source, /function acknowledgeActiveHumanInput\(\)/);
+  assert.match(source, /function completeHumanInputRequest\(request: HumanInputRequest\)/);
+  assert.match(source, /const pendingHumanInputEntry = pendingHumanInputs\[0\] \?\? null;/);
+  assert.match(source, /const pendingHumanInput = pendingHumanInputEntry\?\.request \?\? null;/);
+  assert.match(source, /const pendingHumanInputRevealAfterEventId = pendingHumanInputEntry\?\.revealAfterEventId \?\? null;/);
+  assert.match(source, /const humanInputAnchorAcknowledged = pendingHumanInputEntry\?\.anchorAcknowledged \?\? false;/);
   assert.match(source, /const blockingHumanInput = isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
-  assert.match(source, /const \[humanInputAnchorAcknowledged, setHumanInputAnchorAcknowledged\] = useState\(false\);/);
-  assert.match(source, /const humanInputAdvanceReady = Boolean\(/);
+  assert.match(source, /const blockingHumanInputAdvanceReady = Boolean\(/);
   assert.match(source, /shouldRevealBlockingHumanInputAfterAdvance\(/);
+  assert.match(source, /const nonBlockingHumanInputAdvanceReady = Boolean\(/);
+  assert.match(source, /shouldRevealNonBlockingHumanInputAfterAdvance\(pendingHumanInputRevealAfterEventId, currentEvent, humanInputAnchorAcknowledged\)/);
+  assert.match(source, /const humanInputAdvanceReady = blockingHumanInputAdvanceReady \|\| nonBlockingHumanInputAdvanceReady;/);
   assert.match(source, /const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
   assert.match(
     source,
-    /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput &&\s*hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) &&\s*isCurrentHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, currentEvent\)\s*\?\s*nonBlockingHumanInput\s*:\s*null;/s
+    /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput &&\s*hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) &&\s*humanInputAnchorAcknowledged\s*\?\s*nonBlockingHumanInput\s*:\s*null;/s
   );
   assert.match(source, /const visibleHumanInput = readyHumanInput \?\? deferredNonBlockingHumanInput;/);
-  assert.match(source, /const revealAfterEventId = queuedRef\.current\.at\(-1\)\?\.id \?\? eventsRef\.current\.at\(-1\)\?\.id \?\? null;/);
-  assert.match(source, /setPendingHumanInputRevealAfterEventId\(revealAfterEventId\);/);
-  assert.match(source, /setHumanInputAnchorAcknowledged\(revealAfterEventId === null\);/);
+  assert.match(source, /typeof request\.revealAfterEventId === "number"/);
+  assert.match(source, /request\.revealAfterEventId/);
+  assert.match(source, /queuedRef\.current\.at\(-1\)\?\.id \?\? eventsRef\.current\.at\(-1\)\?\.id \?\? null/);
+  assert.match(source, /enqueueHumanInput\(request, revealAfterEventId\);/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
   assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? blockingHumanInput : null;/);
   assert.doesNotMatch(source, /const visibleBeforeInput = queuedRef\.current;/);
@@ -971,10 +985,11 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /renderHumanInputPanel\(actionHumanInput\)/);
   assert.match(source, /function isOptionalWerewolfGreetingInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
+  assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
   assert.match(source, /humanInputAdvanceReady,/);
   assert.doesNotMatch(source, /resetImmediately/);
-  assert.match(source, /skipOptionalHumanInputOnStoryAdvance\(\);/);
+  assert.match(source, /if \(skipOptionalHumanInputOnStoryAdvance\(\)\) \{/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
   assert.match(source, /request\.kind !== "speech_choice" \|\| !request\.nonBlocking \|\| request\.speechMode !== "werewolf_greeting"/);
   assert.match(source, /type:\s*"player_speech"/);
@@ -985,7 +1000,19 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setEvents\(nextEvents\);/);
   assert.match(source, /setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);/);
   assert.match(source, /const localHumanSpeechEvent = createLocalHumanSpeechEvent\(request, payload\);/);
-  assert.match(source, /if \(localHumanSpeechEvent\) \{\s*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
+  assert.match(source, /const holdSubmittedScene = shouldHoldSubmittedHumanInputScene\(request\);/);
+  assert.match(source, /submittedHumanInputRef\.current = holdSubmittedScene \? request : null;/);
+  assert.match(source, /function shouldHoldSubmittedHumanInputScene\(request: HumanInputRequest\): boolean/);
+  assert.match(source, /return request\.kind === "speech_choice" && !request\.nonBlocking;/);
+  assert.match(source, /function isSubmittedHumanSpeechEvent\(request: HumanInputRequest, event: GameEvent\): boolean/);
+  assert.match(source, /event\.type === "player_speech" && event\.playerId === request\.playerId/);
+  assert.match(source, /const submittedHumanInputRef = useRef<HumanInputRequest \| null>\(null\);/);
+  assert.match(source, /const submittedHumanInput = submittedHumanInputRef\.current;/);
+  assert.match(source, /submittedHumanInput && isSubmittedHumanSpeechEvent\(submittedHumanInput, event\)/);
+  assert.match(source, /completeHumanInputRequest\(submittedHumanInput\);[\s\S]*eventsRef\.current = nextEvents;[\s\S]*setEvents\(nextEvents\);[\s\S]*setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);[\s\S]*return;/);
+  assert.match(source, /function resetHumanInputState\(\) \{\s*submittedHumanInputRef\.current = null;/);
+  assert.match(source, /if \(localHumanSpeechEvent\) \{\s*completeHumanInputRequest\(request\);[\s\S]*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
+  assert.match(source, /else if \(holdSubmittedScene\) \{\s*if \(submittedHumanInputRef\.current === request\) \{[\s\S]*showProcessingHudNow\(\);[\s\S]*setGameStatus\("生成中"\);/s);
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
@@ -1020,11 +1047,11 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.doesNotMatch(source, /humanReason/);
   assert.doesNotMatch(source, /setHumanReason/);
   assert.doesNotMatch(source, /placeholder="理由"/);
-  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\)/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(visibleHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
-  assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
+  assert.match(source, /const canRetreat = !paused && !visibleHumanInput/);
   assert.match(source, /const canAdvance =\s*!paused && !readyHumanInput && !isBackKey && \(queuedRef\.current\.length > 0 \|\| canStartOpening \|\| humanInputAdvanceReady\);/s);
-  assert.match(source, /setHumanInputAnchorAcknowledged\(true\);/);
+  assert.match(source, /acknowledgeActiveHumanInput\(\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 
@@ -1036,6 +1063,9 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(isCurrentHumanInputRevealAnchor(2, undefined), false);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 2 }), true);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 3 }), false);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 1 }, false), false);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 2 }, false), true);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 2 }, true), false);
 });
 
 test("blocking human input requires an extra advance after the story anchor is visible", () => {
@@ -1204,5 +1234,5 @@ test("returning players skip the tour for a one-time startup generation gate", (
   // The gate still blocks story progress (keyboard + buttons) so the story
   // cannot advance while generation is being buffered.
   assert.match(source, /selectedCharacterId \|\|\s*\n\s*startupWaitActive \|\|/);
-  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\) \|\| events\.length === 0 \|\| startupWaitActive;/);
+  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(visibleHumanInput\) \|\| events\.length === 0 \|\| startupWaitActive;/);
 });
