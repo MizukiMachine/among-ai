@@ -21,6 +21,7 @@ class BrowserGameAudioController implements GameAudioController {
   private muted = false;
   private playlistIds: string[] = [];
   private playlistIndex = 0;
+  private readonly activeSfx = new Set<HTMLAudioElement>();
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -34,6 +35,7 @@ class BrowserGameAudioController implements GameAudioController {
     this.muted = muted;
     if (muted) {
       this.bgm?.pause();
+      this.stopActiveSfx();
     }
   }
 
@@ -133,7 +135,25 @@ class BrowserGameAudioController implements GameAudioController {
     const audio = new Audio(resolveAssetUrl(this.baseUrl, asset.src));
     audio.preload = "auto";
     audio.volume = asset.volume ?? 0.25;
-    await audio.play().catch(() => undefined);
+    this.activeSfx.add(audio);
+    const cleanup = () => {
+      audio.removeEventListener("ended", cleanup);
+      audio.removeEventListener("error", cleanup);
+      this.activeSfx.delete(audio);
+    };
+    audio.addEventListener("ended", cleanup);
+    audio.addEventListener("error", cleanup);
+    await audio.play().catch(() => {
+      cleanup();
+    });
+  }
+
+  private stopActiveSfx() {
+    for (const audio of this.activeSfx) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    this.activeSfx.clear();
   }
 
   stopBgm() {
@@ -149,6 +169,7 @@ class BrowserGameAudioController implements GameAudioController {
 
   dispose() {
     this.stopBgm();
+    this.stopActiveSfx();
     this.bgm = null;
     this.manifest = null;
   }
