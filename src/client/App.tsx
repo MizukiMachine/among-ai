@@ -125,6 +125,15 @@ export function isCurrentHumanInputRevealAnchor(
   return revealAfterEventId === null || currentEvent?.id === revealAfterEventId;
 }
 
+export function shouldRevealBlockingHumanInputAfterAdvance(
+  revealAfterEventId: number | null,
+  visibleEvents: Pick<GameEvent, "id">[],
+  hasUnreadEvents: boolean,
+  anchorAcknowledged: boolean
+): boolean {
+  return !anchorAcknowledged && !hasUnreadEvents && hasSeenHumanInputRevealAnchor(revealAfterEventId, visibleEvents);
+}
+
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
 // reordering re-keys characters onto slot ids p1..pN (see characters.ts), so we map the asset
 // files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
@@ -1448,11 +1457,13 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInput, setPendingHumanInput] = useState<HumanInputRequest | null>(null);
   const [pendingHumanInputRevealAfterEventId, setPendingHumanInputRevealAfterEventId] = useState<number | null>(null);
+  const [humanInputAnchorAcknowledged, setHumanInputAnchorAcknowledged] = useState(false);
   const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
+  const eventsRef = useRef<GameEvent[]>([]);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
@@ -1573,7 +1584,16 @@ export function App() {
   const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
   const blockingHumanInput = isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
-  const readyHumanInput = blockingHumanInput && queuedEvents.length === 0 ? blockingHumanInput : null;
+  const humanInputAdvanceReady = Boolean(
+    blockingHumanInput &&
+      shouldRevealBlockingHumanInputAfterAdvance(
+        pendingHumanInputRevealAfterEventId,
+        events,
+        queuedEvents.length > 0,
+        humanInputAnchorAcknowledged
+      )
+  );
+  const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents.length === 0 ? blockingHumanInput : null;
   const deferredNonBlockingHumanInput =
     nonBlockingHumanInput &&
     hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events) &&
@@ -1976,6 +1996,10 @@ export function App() {
     return remainingCount <= humanInputNoticeLeadCount ? "入力前確認" : "進行中";
   }
 
+  function statusForPendingHumanInputLeadIn(remainingCount: number): string {
+    return remainingCount === 0 ? "入力前確認" : statusForPendingHumanInput(remainingCount);
+  }
+
   function updatePlayerCount(nextCount: number) {
     playSetupConfirmSfx();
     const normalized = Math.max(nextCount, scenarioMinimumPlayerCount);
@@ -2010,6 +2034,7 @@ export function App() {
   function resetHumanInputState() {
     setPendingHumanInput(null);
     setPendingHumanInputRevealAfterEventId(null);
+    setHumanInputAnchorAcknowledged(false);
     setHumanSpeech("");
     setHumanTargetId(null);
     setHumanSubmitting(false);
@@ -2049,6 +2074,7 @@ export function App() {
     setPaused(false);
     setActiveOverlay(null);
     setSelectedRoleRule(null);
+    eventsRef.current = [];
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
@@ -2106,6 +2132,7 @@ export function App() {
     revealFirstEventRef.current = Boolean(options.revealFirstEvent);
     resetHumanInputState();
     setPaused(false);
+    eventsRef.current = [];
     setEvents([]);
     queuedRef.current = [];
     setQueuedEvents([]);
@@ -2166,7 +2193,9 @@ export function App() {
       if (revealFirstEventRef.current) {
         revealFirstEventRef.current = false;
         if (!pausedRef.current) {
-          setEvents([event]);
+          const nextEvents = [event];
+          eventsRef.current = nextEvents;
+          setEvents(nextEvents);
           setSnapshot(event.snapshot);
           playEventSfx(event);
           setGameStatus(event.type === "game_ended" ? "完了" : "生成中");
@@ -2180,14 +2209,17 @@ export function App() {
 
     source.addEventListener("human_input", (message) => {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
+      const revealAfterEventId = queuedRef.current.at(-1)?.id ?? eventsRef.current.at(-1)?.id ?? null;
       setGenerationProgress(null);
+      hideProcessingHudNow();
       setPendingHumanInput(request);
-      setPendingHumanInputRevealAfterEventId(queuedRef.current.at(-1)?.id ?? null);
+      setPendingHumanInputRevealAfterEventId(revealAfterEventId);
+      setHumanInputAnchorAcknowledged(revealAfterEventId === null);
       setHumanSpeech("");
       setHumanTargetId(request.kind === "target" ? (request.candidates[0]?.id ?? null) : null);
       setHumanInputError("");
       if (isBlockingHumanInput(request)) {
-        setGameStatus(statusForPendingHumanInput(queuedRef.current.length));
+        setGameStatus(statusForPendingHumanInputLeadIn(queuedRef.current.length));
       } else {
         setGameStatus("生成中");
       }
@@ -2271,11 +2303,13 @@ export function App() {
     const remaining = queuedRef.current.slice(1);
     queuedRef.current = remaining;
     setQueuedEvents(remaining);
-    setEvents((visible) => [...visible, next]);
+    const nextEvents = [...eventsRef.current, next];
+    eventsRef.current = nextEvents;
+    setEvents(nextEvents);
     setSnapshot(next.snapshot);
     playEventSfx(next);
     setGameStatus(
-      isBlockingHumanInput(pendingHumanInput) ? statusForPendingHumanInput(remaining.length) : statusForVisibleStory(next, remaining.length)
+      isBlockingHumanInput(pendingHumanInput) ? statusForPendingHumanInputLeadIn(remaining.length) : statusForVisibleStory(next, remaining.length)
     );
   }
 
@@ -2294,6 +2328,7 @@ export function App() {
     playSfx("ui_back");
     queuedRef.current = nextQueue;
     setQueuedEvents(nextQueue);
+    eventsRef.current = previousEvents;
     setEvents(previousEvents);
     setSnapshot(previousEvent?.snapshot ?? null);
     setGameStatus(statusForVisibleStory(previousEvent, nextQueue.length));
@@ -2317,6 +2352,11 @@ export function App() {
     }
     if (queuedRef.current.length > 0) {
       revealNext();
+      return;
+    }
+    if (humanInputAdvanceReady) {
+      setHumanInputAnchorAcknowledged(true);
+      setGameStatus("入力待ち");
     }
   }
 
@@ -2522,7 +2562,8 @@ export function App() {
       const isBackKey = event.key === "ArrowLeft";
       const canRetreat = !paused && !readyHumanInput && events.length > 0;
       const canStartOpening = settingsConfirmed && events.length === 0 && !running && queuedRef.current.length === 0;
-      const canAdvance = !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || canStartOpening);
+      const canAdvance =
+        !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || canStartOpening || humanInputAdvanceReady);
       if (isBackKey && canRetreat) {
         event.preventDefault();
         retreatStory();
@@ -2537,7 +2578,18 @@ export function App() {
 
     window.addEventListener("keydown", handleStoryShortcut);
     return () => window.removeEventListener("keydown", handleStoryShortcut);
-  }, [events.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive]);
+  }, [
+    events.length,
+    humanInputAdvanceReady,
+    humanSpeech,
+    paused,
+    pendingHumanInput,
+    readyHumanInput,
+    running,
+    selectedCharacterId,
+    settingsConfirmed,
+    startupWaitActive
+  ]);
 
   function humanSpeechEchoMessage(value: string | undefined): string | null {
     const compact = value?.replace(/\s+/g, " ").trim();
@@ -2582,7 +2634,9 @@ export function App() {
   }
 
   function showLocalHumanSpeechEvent(event: GameEvent) {
-    setEvents((visible) => [...visible, event]);
+    const nextEvents = [...eventsRef.current, event];
+    eventsRef.current = nextEvents;
+    setEvents(nextEvents);
     setSnapshot(event.snapshot);
     playEventSfx(event);
     setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
@@ -3100,7 +3154,7 @@ export function App() {
   const storyBackDisabled = paused || Boolean(readyHumanInput) || events.length === 0 || startupWaitActive;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && running && queuedEvents.length === 0;
-  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !readyHumanInput;
+  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !visibleHumanInput && !humanInputAdvanceReady;
   // The returning-player startup gate reuses the ordinary "thinking" HUD instead of a
   // dedicated modal, so it folds into the same processing state as a real generation wait.
   const storyProcessingActive = storyWaitingForStream || processingHudVisible || startupWaitActive;
@@ -3109,11 +3163,12 @@ export function App() {
     Boolean(readyHumanInput) ||
     (setupMode && !settingsConfirmed) ||
     firstScenePending ||
-    storyProcessingActive ||
-    (queuedEvents.length === 0 && (running || events.length > 0));
+    (storyProcessingActive && !humanInputAdvanceReady) ||
+    (queuedEvents.length === 0 && (running || events.length > 0) && !humanInputAdvanceReady);
   const primaryActionIsGameStart = setupMode && settingsConfirmed;
-  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : storyProcessingActive ? "処理中" : "次へ";
-  const primaryActionHint = primaryActionIsGameStart && storyProcessingActive ? "準備中" : storyProcessingActive ? "思考中" : "Enter / →";
+  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : humanInputAdvanceReady ? "入力へ" : storyProcessingActive ? "処理中" : "次へ";
+  const primaryActionHint =
+    primaryActionIsGameStart && storyProcessingActive ? "準備中" : storyProcessingActive && !humanInputAdvanceReady ? "思考中" : "Enter / →";
   const runControlState = storyRunControlState(gameStarted, paused);
 
   useEffect(() => {

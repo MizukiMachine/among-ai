@@ -18,6 +18,7 @@ import {
   mentionedCharactersForEvent,
   mentionedCharactersForText,
   personalVictoryOutcomeForSnapshot,
+  shouldRevealBlockingHumanInputAfterAdvance,
   stageLightMoodForEvent,
   stageLightToneForEvent,
   storyRunControlState,
@@ -896,7 +897,7 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /<span>設定を決定<\/span>/);
   assert.match(source, /ゲーム開始を押すと対局を開始します。/);
   assert.match(source, /summary: "deterministic"/);
-  assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*setEvents\(\[event\]\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
+  assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*const nextEvents = \[event\];[^}]*eventsRef\.current = nextEvents;[^}]*setEvents\(nextEvents\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
 test("setup locks human play to the werewolf camp", () => {
@@ -926,21 +927,26 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function isBlockingHumanInput\(request: HumanInputRequest \| null\): request is HumanInputRequest/);
   assert.match(source, /const blockingHumanInput = isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
   assert.match(source, /const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput\(pendingHumanInput\) \? pendingHumanInput : null;/);
-  assert.match(source, /const readyHumanInput = blockingHumanInput && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
+  assert.match(source, /const \[humanInputAnchorAcknowledged, setHumanInputAnchorAcknowledged\] = useState\(false\);/);
+  assert.match(source, /const humanInputAdvanceReady = Boolean\(/);
+  assert.match(source, /shouldRevealBlockingHumanInputAfterAdvance\(/);
+  assert.match(source, /const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
   assert.match(
     source,
     /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput &&\s*hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) &&\s*isCurrentHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, currentEvent\)\s*\?\s*nonBlockingHumanInput\s*:\s*null;/s
   );
   assert.match(source, /const visibleHumanInput = readyHumanInput \?\? deferredNonBlockingHumanInput;/);
-  assert.match(source, /setPendingHumanInputRevealAfterEventId\(queuedRef\.current\.at\(-1\)\?\.id \?\? null\);/);
+  assert.match(source, /const revealAfterEventId = queuedRef\.current\.at\(-1\)\?\.id \?\? eventsRef\.current\.at\(-1\)\?\.id \?\? null;/);
+  assert.match(source, /setPendingHumanInputRevealAfterEventId\(revealAfterEventId\);/);
+  assert.match(source, /setHumanInputAnchorAcknowledged\(revealAfterEventId === null\);/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
   assert.match(source, /queuedEvents\.length > 0 && queuedEvents\.length <= humanInputNoticeLeadCount \? blockingHumanInput : null;/);
   assert.doesNotMatch(source, /const visibleBeforeInput = queuedRef\.current;/);
   assert.match(source, /入力前確認/);
   assert.match(source, /function statusForPendingHumanInput\(remainingCount: number\)/);
   assert.match(source, /if \(isBlockingHumanInput\(request\)\) \{/);
-  assert.match(source, /setGameStatus\(statusForPendingHumanInput\(queuedRef\.current\.length\)\);/);
-  assert.match(source, /isBlockingHumanInput\(pendingHumanInput\) \? statusForPendingHumanInput\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)/);
+  assert.match(source, /setGameStatus\(statusForPendingHumanInputLeadIn\(queuedRef\.current\.length\)\);/);
+  assert.match(source, /isBlockingHumanInput\(pendingHumanInput\) \? statusForPendingHumanInputLeadIn\(remaining\.length\) : statusForVisibleStory\(next, remaining\.length\)/);
   assert.match(source, /function renderPendingHumanInputNotice/);
   assert.match(source, /あなたの意思決定が近づいています/);
   assert.match(source, /次へで入力前の会話を確認してください/);
@@ -966,7 +972,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function isOptionalWerewolfGreetingInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
-  assert.match(source, /\}, \[events\.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
+  assert.match(source, /humanInputAdvanceReady,/);
   assert.doesNotMatch(source, /resetImmediately/);
   assert.match(source, /skipOptionalHumanInputOnStoryAdvance\(\);/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
@@ -974,7 +980,9 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /type:\s*"player_speech"/);
   assert.match(source, /localHumanEcho:\s*true/);
   assert.match(source, /function showLocalHumanSpeechEvent\(event: GameEvent\)/);
-  assert.match(source, /setEvents\(\(visible\) => \[\.\.\.visible, event\]\);/);
+  assert.match(source, /const nextEvents = \[\.\.\.eventsRef\.current, event\];/);
+  assert.match(source, /eventsRef\.current = nextEvents;/);
+  assert.match(source, /setEvents\(nextEvents\);/);
   assert.match(source, /setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);/);
   assert.match(source, /const localHumanSpeechEvent = createLocalHumanSpeechEvent\(request, payload\);/);
   assert.match(source, /if \(localHumanSpeechEvent\) \{\s*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
@@ -1015,8 +1023,8 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(readyHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
   assert.match(source, /const canRetreat = !paused && !readyHumanInput/);
-  assert.match(source, /const canAdvance = !paused && !readyHumanInput/);
-  assert.match(source, /\}, \[events\.length, humanSpeech, paused, pendingHumanInput, readyHumanInput, running, selectedCharacterId, settingsConfirmed, startupWaitActive\]\);/);
+  assert.match(source, /const canAdvance =\s*!paused && !readyHumanInput && !isBackKey && \(queuedRef\.current\.length > 0 \|\| canStartOpening \|\| humanInputAdvanceReady\);/s);
+  assert.match(source, /setHumanInputAnchorAcknowledged\(true\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
 
@@ -1028,6 +1036,13 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(isCurrentHumanInputRevealAnchor(2, undefined), false);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 2 }), true);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 3 }), false);
+});
+
+test("blocking human input requires an extra advance after the story anchor is visible", () => {
+  assert.equal(shouldRevealBlockingHumanInputAfterAdvance(2, [{ id: 1 }], false, false), false);
+  assert.equal(shouldRevealBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], true, false), false);
+  assert.equal(shouldRevealBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, false), true);
+  assert.equal(shouldRevealBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, true), false);
 });
 
 test("village spectator history redacts secret event messages and speakers", () => {
