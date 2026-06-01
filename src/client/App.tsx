@@ -13,6 +13,7 @@ import {
   ListChecks,
   LoaderCircle,
   MessageCircle,
+  Moon,
   Play,
   RotateCcw,
   Send,
@@ -498,6 +499,10 @@ function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
 }
 
+function isWerewolfRole(role: Role | string | undefined): boolean {
+  return role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty";
+}
+
 function roleFromEventData(event: GameEvent | undefined, key: string): Role | undefined {
   const role = dataString(event, key);
   return role in roleClass ? (role as Role) : undefined;
@@ -812,11 +817,6 @@ function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: stri
   const save = player.witch.savePotion ? "S" : "-";
   const poison = player.witch.poisonPotion ? "P" : "-";
   return `${displayRoleLabel(role, language)} ${save}/${poison}`;
-}
-
-function rosterRoleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, revealed = true): string {
-  const label = roleDisplay(player, mode, language, revealed);
-  return isJapaneseLanguage(language) && label === displayRoleLabel("AlphaWolf", language) ? "α人狼" : label;
 }
 
 function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, revealed = true): string {
@@ -1554,6 +1554,21 @@ export function App() {
     }
     return revealed;
   }, [events, humanPlayerId]);
+  const knownWerewolfIds = useMemo(
+    () => {
+      const ids = new Set<string>();
+      for (const player of snapshot?.players ?? []) {
+        const publicRole = publicRoleReveals.get(player.id);
+        const role = publicRole ?? player.role;
+        const roleKnown = publicRole !== undefined || spectatorMode === "omniscient" || revealedRoleIds.has(player.id);
+        if (roleKnown && isWerewolfRole(role)) {
+          ids.add(player.id);
+        }
+      }
+      return ids;
+    },
+    [publicRoleReveals, revealedRoleIds, snapshot, spectatorMode]
+  );
   // The ally being unveiled by the current event — drives the one-shot focus + reveal animation on
   // their roster card. Only the first face-off line per wolf pulses, and only in the human "player"
   // view where the reveal is actually news (omniscient already shows every role).
@@ -3485,8 +3500,15 @@ export function App() {
   function renderHumanPlayerBadge() {
     return (
       <span className="human-player-badge">
-        <Gamepad2 size={12} />
         <span>自分</span>
+      </span>
+    );
+  }
+
+  function renderKnownWerewolfBadge() {
+    return (
+      <span className="known-werewolf-badge" aria-hidden="true" title="判明した人狼陣営">
+        <Moon size={13} />
       </span>
     );
   }
@@ -4145,17 +4167,14 @@ export function App() {
                   const revealing = revealingRoleId === player.id;
                   const publicRole = publicRoleReveals.get(player.id);
                   const roleLabel = publicRole ? displayRoleLabel(publicRole, language) : roleDisplay(player, spectatorMode, language, revealed);
-                  const compactRoleLabel = publicRole
-                    ? isJapaneseLanguage(language) && publicRole === "AlphaWolf"
-                      ? "α人狼"
-                      : displayRoleLabel(publicRole, language)
-                    : rosterRoleDisplay(player, spectatorMode, language, revealed);
                   const roleClass = publicRole ? roleClassName(publicRole) : roleChipClass(player, spectatorMode, revealed);
+                  const knownWerewolf = knownWerewolfIds.has(player.id);
+                  const showKnownWerewolfBadge = knownWerewolf && !humanPlayer;
                   return (
                     <button
-                      aria-label={`${player.name}の公開プロフィールを表示`}
+                      aria-label={`${player.name}の公開プロフィールを表示${showKnownWerewolfBadge ? "、判明した人狼陣営" : ""}`}
                       data-player-id={player.id}
-                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${revealing ? "revealing-role" : ""}`}
+                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${knownWerewolf ? "known-werewolf" : ""} ${revealing ? "revealing-role" : ""}`}
                       key={player.id}
                       onClick={(event) => openCharacterProfile(player.id, event.currentTarget)}
                       title={`${player.name}の公開プロフィールを表示`}
@@ -4180,13 +4199,17 @@ export function App() {
                       <div className="player-main">
                         <div className="player-name-row">
                           <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
-                          <span className={`persona-pill ${personaClassName(player.persona)}`}>{personaLabel(player.persona, language)}</span>
                         </div>
                         <span aria-label={roleLabel} className={`role-chip ${roleClass} ${revealing ? "role-reveal" : ""}`} title={roleLabel}>
-                          {compactRoleLabel}
+                          {roleLabel}
                         </span>
                       </div>
-                      {humanPlayer ? renderHumanPlayerBadge() : null}
+                      {showKnownWerewolfBadge || humanPlayer ? (
+                        <span className="player-card-badges">
+                          {showKnownWerewolfBadge ? renderKnownWerewolfBadge() : null}
+                          {humanPlayer ? renderHumanPlayerBadge() : null}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })

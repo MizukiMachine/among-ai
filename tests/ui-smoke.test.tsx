@@ -688,7 +688,7 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.info-bar\s*\{[^}]*grid-column:\s*3[^}]*grid-row:\s*1/s);
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.header-role-distribution\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*auto/s);
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.info-bar\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*auto/s);
-  assert.match(source, /"α人狼"/);
+  assert.equal(displayRoleLabel("AlphaWolf", "Japanese"), "α人狼");
   assert.match(source, /function headerRoleLabel\(role: Role, language: string\): string/);
   assert.match(source, /function renderHeaderCampRatio\(count: number, language: string\): ReactNode/);
   assert.match(source, /<header className="topbar">/);
@@ -758,7 +758,7 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /const characterProfileByIdMap = new Map\(characterProfiles\.map/);
   assert.match(source, /function openCharacterProfile\(playerId: string, trigger\?: HTMLButtonElement\)/);
   assert.match(source, /onClick=\{\(event\) => openCharacterProfile\(player\.id, event\.currentTarget\)\}/);
-  assert.match(source, /aria-label=\{`\$\{player\.name\}の公開プロフィールを表示`\}/);
+  assert.match(source, /aria-label=\{`\$\{player\.name\}の公開プロフィールを表示\$\{showKnownWerewolfBadge \? "、判明した人狼陣営" : ""\}`\}/);
   assert.match(source, /function renderCharacterProfilePopover\(\)/);
   assert.match(source, /className="player-history-popover character-profile-popover"/);
   assert.doesNotMatch(source, /aria-modal="true"/);
@@ -816,11 +816,12 @@ test("story speaker header omits the speaking status label", () => {
   assert.doesNotMatch(css, /\.speaker-line small/);
 });
 
-test("player roster distinguishes persona and hidden role labels", () => {
+test("player roster hides persona and emphasizes role labels", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
   assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
+  assert.equal(displayRoleLabel("AlphaWolf", "Japanese"), "α人狼");
   // Player mode trusts the server-redacted snapshot, but a non-Hidden role is only shown once it
   // has been "revealed" in the story: the viewer's own role plus, for a werewolf, each ally after
   // they name themselves at the face-off (see revealedRoleIds). Public victory-condition role
@@ -834,14 +835,44 @@ test("player roster distinguishes persona and hidden role labels", () => {
   assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
   assert.match(source, /event\.type === "player_speech" && event\.phase === "werewolf_discussion"/);
   assert.match(source, /function personaClassName\(persona: PlayerSnapshot\["persona"\] \| string \| undefined\): string/);
-  assert.match(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);
-  assert.match(css, /\.player-main\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*0\.7fr\)\s*minmax\(72px,\s*1fr\)[^}]*grid-template-rows:\s*auto auto/s);
-  assert.match(css, /\.player-name-row strong\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*1 \/ 3/s);
-  assert.match(css, /\.persona-pill\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*1/s);
-  assert.match(css, /\.role-chip\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*2/s);
+  assert.doesNotMatch(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);
+  assert.match(css, /\.player-avatar\s*\{[^}]*width:\s*92px[^}]*height:\s*92px/s);
+  assert.match(css, /\.player-card-badges\s*\{[^}]*top:\s*6px[^}]*right:\s*7px[^}]*display:\s*inline-flex/s);
+  assert.match(source, /function renderHumanPlayerBadge\(\)/);
+  assert.match(source, /<span>自分<\/span>/);
+  assert.doesNotMatch(source, /<Gamepad2 size=\{12\} \/>/);
+  assert.match(css, /\.player-main\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*grid-template-rows:\s*auto auto/s);
+  assert.match(css, /\.player-name-row strong\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*1/s);
+  assert.match(css, /\.role-chip\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*2[^}]*font-size:\s*15px/s);
   for (const persona of ["cautious", "aggressive", "logical", "opportunistic", "empathetic", "trickster", "stoic", "passionate"]) {
     assert.match(css, new RegExp(`\\.persona-${persona}\\s*\\{[^}]*border-color:[^}]*background:[^}]*color:`, "s"));
   }
+});
+
+test("known werewolf identities tint roster cards and show a moon badge", () => {
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Moon,/);
+  assert.match(source, /function isWerewolfRole\(role: Role \| string \| undefined\): boolean/);
+  assert.match(source, /const knownWerewolfIds = useMemo/);
+  assert.match(source, /const ids = new Set<string>\(\);/);
+  assert.match(source, /const roleKnown = publicRole !== undefined \|\| spectatorMode === "omniscient" \|\| revealedRoleIds\.has\(player\.id\);/);
+  assert.match(source, /ids\.add\(player\.id\);/);
+  assert.match(source, /const knownWerewolf = knownWerewolfIds\.has\(player\.id\);/);
+  assert.match(source, /const showKnownWerewolfBadge = knownWerewolf && !humanPlayer;/);
+  assert.match(source, /\$\{knownWerewolf \? "known-werewolf" : ""\}/);
+  assert.match(source, /function renderKnownWerewolfBadge\(\)/);
+  assert.match(source, /className="known-werewolf-badge"/);
+  assert.match(source, /<Moon size=\{13\} \/>/);
+  assert.match(source, /className="player-card-badges"/);
+  assert.match(source, /\{showKnownWerewolfBadge \? renderKnownWerewolfBadge\(\) : null\}/);
+  assert.doesNotMatch(source, /renderKnownWerewolfPanel/);
+  assert.doesNotMatch(source, /known-wolves-panel/);
+  assert.match(css, /\.player-card\.known-werewolf\s*\{[^}]*rgba\(60,\s*16,\s*24,\s*0\.7\)[^}]*var\(--ship-decal-texture\)/s);
+  assert.match(css, /\.player-card\.known-werewolf\.human-player\s*\{[^}]*rgba\(111,\s*72,\s*14,\s*0\.46\)[^}]*rgba\(60,\s*16,\s*24,\s*0\.72\)/s);
+  assert.match(css, /\.known-werewolf-badge\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px;[^}]*color:\s*#ffd782;/s);
+  assert.doesNotMatch(css, /\.known-wolves-panel/);
 });
 
 test("story can advance from keyboard shortcuts outside form controls", () => {
