@@ -989,12 +989,12 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
-  assert.match(source, /任意の顔合わせ発言です。入力しなくても進行します/);
+  assert.match(source, /未入力なら「よろしく」で顔合わせ発言します/);
   assert.match(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
   assert.match(source, /"この場面では候補から選んでください"/);
   assert.match(source, /"候補から選択"/);
   assert.match(source, /const canSubmitHumanSpeech = isWerewolfGreeting \|\| \(allowFreeText && humanSpeech\.trim\(\)\.length > 0\);/);
-  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "顔合わせで話す" : "話さず進む"/);
+  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "顔合わせで話す" : "よろしくで進む"/);
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting \|\| !allowFreeText\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);

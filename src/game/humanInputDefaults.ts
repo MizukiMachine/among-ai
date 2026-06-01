@@ -1,0 +1,1 @@
+export const DEFAULT_WEREWOLF_GREETING_SPEECH = "よろしく";
