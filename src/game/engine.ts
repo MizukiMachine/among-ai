@@ -113,6 +113,15 @@ interface PreparedTargetAction {
   reason: string;
 }
 
+interface WerewolfAttackResolution {
+  target: Player | null;
+  votes: VoteRecord[];
+  totals: Array<{ targetId: string; count: number }>;
+  candidates: string[];
+  tied: boolean;
+  randomSelectionReason: "tie" | "no_votes" | null;
+}
+
 type PreparedWitchAction =
   | { kind: "save"; witch: Player; target: Player }
   | { kind: "poison"; witch: Player; target: Player; reason: string };
@@ -1388,11 +1397,19 @@ export class WerewolfGame {
       }
       if (step.kind === "werewolf_attack") {
         this.phase = "night";
-        killTarget = await this.resolveWerewolfAttack(
+        const attackResolution = await this.resolveWerewolfAttack(
           werewolves,
           this.progressReporterAt("night", this.round, "werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
         );
+        killTarget = attackResolution.target;
         if (killTarget) {
+          yield this.emit(
+            "system",
+            this.werewolfAttackVoteResultMessage(attackResolution),
+            this.werewolfAttackVoteResultData(attackResolution),
+            undefined,
+            killTarget
+          );
           yield this.emit(
             "night_action",
             this.text("The werewolves selected a victim.", "人狼は襲撃先を選びました。"),
@@ -1575,11 +1592,11 @@ export class WerewolfGame {
   private async resolveWerewolfAttack(
     werewolves: Player[],
     onProgress = this.progressReporter("werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
-  ): Promise<Player | null> {
+  ): Promise<WerewolfAttackResolution> {
     const actionPhase = this.phase;
     const targets = this.werewolfAttackTargets();
     if (werewolves.length === 0 || targets.length === 0) {
-      return null;
+      return { target: null, votes: [], totals: [], candidates: [], tied: false, randomSelectionReason: null };
     }
 
     const legalTargetIds = new Set(targets.map((player) => player.id));
@@ -1613,11 +1630,89 @@ export class WerewolfGame {
     }
 
     if (votes.length === 0) {
-      return sample(targets);
+      return {
+        target: sample(targets),
+        votes,
+        totals: [],
+        candidates: [],
+        tied: false,
+        randomSelectionReason: "no_votes"
+      };
     }
 
-    const candidates = topVoted(tallyVotes(votes));
-    return this.requirePlayer(sample(candidates));
+    const counts = tallyVotes(votes);
+    const candidates = topVoted(counts);
+    const tied = candidates.length > 1;
+    return {
+      target: this.requirePlayer(sample(candidates)),
+      votes,
+      totals: [...counts.entries()].map(([targetId, count]) => ({ targetId, count })),
+      candidates,
+      tied,
+      randomSelectionReason: tied ? "tie" : null
+    };
+  }
+
+  private werewolfAttackVoteResultMessage(resolution: WerewolfAttackResolution): string {
+    if (!resolution.target) {
+      return this.text("No werewolf attack target was selected.", "人狼の襲撃先は選ばれませんでした。");
+    }
+
+    const targetName = resolution.target.name;
+    if (resolution.randomSelectionReason === "no_votes") {
+      return this.text(
+        `No valid werewolf attack votes were cast. A random victim was selected, and ${targetName} will be attacked tonight.`,
+        `人狼の襲撃投票は有効票がありませんでした。ランダムで襲撃先を決めた結果、${targetName}が襲撃先になりました。`
+      );
+    }
+
+    const totalsText = this.formatWerewolfAttackVoteTotals(resolution.totals);
+    if (resolution.randomSelectionReason === "tie") {
+      const candidateNames = resolution.candidates
+        .map((candidateId) => this.requirePlayer(candidateId).name)
+        .join(this.text(", ", "、"));
+      return this.text(
+        `Werewolf attack vote totals: ${totalsText}. The top vote was tied between ${candidateNames}, so a random victim was selected and ${targetName} will be attacked tonight.`,
+        `人狼の襲撃投票結果は${totalsText}です。最多票が${candidateNames}で並んだため、ランダムで襲撃先を決めた結果、${targetName}が襲撃先になりました。`
+      );
+    }
+
+    return this.text(
+      `Werewolf attack vote totals: ${totalsText}. ${targetName} had the most votes, so they will be attacked tonight.`,
+      `人狼の襲撃投票結果は${totalsText}です。最多票の${targetName}を襲撃することが決定しました。`
+    );
+  }
+
+  private werewolfAttackVoteResultData(resolution: WerewolfAttackResolution): Record<string, unknown> {
+    return {
+      visibility: "werewolf",
+      action: "werewolf_attack_vote_result",
+      votes: this.voteDetails(resolution.votes),
+      totals: resolution.totals.map(({ targetId, count }) => ({
+        targetId,
+        targetName: this.requirePlayer(targetId).name,
+        count
+      })),
+      candidates: resolution.candidates.map((targetId) => ({
+        targetId,
+        targetName: this.requirePlayer(targetId).name
+      })),
+      tied: resolution.tied,
+      randomSelectionReason: resolution.randomSelectionReason,
+      selectedTargetId: resolution.target?.id ?? null,
+      selectedTargetName: resolution.target?.name ?? null
+    };
+  }
+
+  private formatWerewolfAttackVoteTotals(totals: Array<{ targetId: string; count: number }>): string {
+    if (totals.length === 0) {
+      return this.text("none", "なし");
+    }
+    return totals
+      .map(({ targetId, count }) =>
+        this.text(`${this.requirePlayer(targetId).name} ${count}`, `${this.requirePlayer(targetId).name} ${count}票`)
+      )
+      .join(this.text(", ", "、"));
   }
 
   private humanAttackProtectionLastRound(): number {

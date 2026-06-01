@@ -3196,6 +3196,67 @@ test("LLM werewolf attack decisions distribute the five-request budget across wo
   );
 });
 
+test("werewolf attack vote emits a werewolf-visible system result for a clear top vote", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "AlphaWolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+  const result = events.find((event) => event.type === "system" && event.data?.action === "werewolf_attack_vote_result");
+
+  assert.ok(result);
+  assert.equal(result.data?.visibility, "werewolf");
+  assert.equal(result.data?.selectedTargetId, "p3");
+  assert.equal(result.data?.tied, false);
+  assert.equal(result.data?.randomSelectionReason, null);
+  assert.match(result.message, new RegExp(`${players[2].name} 2票`));
+  assert.match(result.message, new RegExp(`最多票の${players[2].name}を襲撃することが決定しました`));
+  assert.deepEqual(result.data?.totals, [{ targetId: "p3", targetName: players[2].name, count: 2 }]);
+  assert.equal(redactEventForPlayer(result, players[0].id).message, result.message);
+  assert.equal(redactEventForPlayer(result, players[2].id).data.redacted, true);
+  assert.equal(redactEventForVillage(result).data.redacted, true);
+});
+
+test("werewolf attack vote explains tied top votes and the random victim", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "AlphaWolf", targets: ["p4"] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  const originalRandom = Math.random;
+  Math.random = () => 0.99;
+
+  try {
+    const events = await collect(game.runNight());
+    const result = events.find((event) => event.type === "system" && event.data?.action === "werewolf_attack_vote_result");
+
+    assert.ok(result);
+    assert.equal(result.data?.selectedTargetId, "p4");
+    assert.equal(result.data?.tied, true);
+    assert.equal(result.data?.randomSelectionReason, "tie");
+    assert.match(result.message, new RegExp(`${players[2].name} 1票`));
+    assert.match(result.message, new RegExp(`${players[3].name} 1票`));
+    assert.match(result.message, /最多票が.+で並んだため、ランダムで襲撃先を決めた結果/);
+    assert.match(result.message, new RegExp(`${players[3].name}が襲撃先になりました`));
+    assert.deepEqual(result.data?.candidates, [
+      { targetId: "p3", targetName: players[2].name },
+      { targetId: "p4", targetName: players[3].name }
+    ]);
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
 test("witch save potion prevents the werewolf kill and consumes explicit engine state", async () => {
   const game = createGame();
   const players = setTable(game, [
