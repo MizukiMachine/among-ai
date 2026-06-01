@@ -76,10 +76,6 @@ export interface PromptMaterials {
     sourcePolicy: string;
   };
   outputFormats: {
-    speechReasoningJson: {
-      instruction: string;
-      japaneseInstruction: string;
-    };
     targetJson: {
       instruction: string;
       japaneseInstruction: string;
@@ -93,12 +89,6 @@ export interface PromptMaterials {
   languageStyles: {
     japanese: {
       systemStyleGuide: string[];
-      publicSpeech: {
-        systemPreamble: string[];
-        boundary: string[];
-        phaseGuidance: string[];
-        phaseGuidanceForwardMove: string[];
-      };
       targetDecision: {
         systemPreamble: string[];
         boundary: string[];
@@ -420,15 +410,10 @@ function readPhases(root: Record<string, unknown>, errors: string[]): PromptMate
 
 function readOutputFormats(root: Record<string, unknown>, errors: string[]): PromptMaterials["outputFormats"] {
   const outputFormats = recordAt(root, "outputFormats", "materials", errors);
-  const speechReasoningJson = recordAt(outputFormats, "speechReasoningJson", "outputFormats", errors);
   const targetJson = recordAt(outputFormats, "targetJson", "outputFormats", errors);
   const booleanJson = recordAt(outputFormats, "booleanJson", "outputFormats", errors);
 
   return {
-    speechReasoningJson: {
-      instruction: stringAt(speechReasoningJson, "instruction", "outputFormats.speechReasoningJson", errors),
-      japaneseInstruction: stringAt(speechReasoningJson, "japaneseInstruction", "outputFormats.speechReasoningJson", errors)
-    },
     targetJson: {
       instruction: stringAt(targetJson, "instruction", "outputFormats.targetJson", errors),
       japaneseInstruction: stringAt(targetJson, "japaneseInstruction", "outputFormats.targetJson", errors)
@@ -460,18 +445,11 @@ function readRoundSummary(root: Record<string, unknown>, errors: string[]): Prom
 function readLanguageStyles(root: Record<string, unknown>, errors: string[]): PromptMaterials["languageStyles"] {
   const languageStyles = recordAt(root, "languageStyles", "materials", errors);
   const japanese = recordAt(languageStyles, "japanese", "languageStyles", errors);
-  const publicSpeech = recordAt(japanese, "publicSpeech", "languageStyles.japanese", errors);
   const targetDecision = recordAt(japanese, "targetDecision", "languageStyles.japanese", errors);
 
   return {
     japanese: {
       systemStyleGuide: stringArrayAt(japanese, "systemStyleGuide", "languageStyles.japanese", errors),
-      publicSpeech: {
-        systemPreamble: stringArrayAt(publicSpeech, "systemPreamble", "languageStyles.japanese.publicSpeech", errors),
-        boundary: stringArrayAt(publicSpeech, "boundary", "languageStyles.japanese.publicSpeech", errors),
-        phaseGuidance: stringArrayAt(publicSpeech, "phaseGuidance", "languageStyles.japanese.publicSpeech", errors),
-        phaseGuidanceForwardMove: stringArrayAt(publicSpeech, "phaseGuidanceForwardMove", "languageStyles.japanese.publicSpeech", errors)
-      },
       targetDecision: {
         systemPreamble: stringArrayAt(targetDecision, "systemPreamble", "languageStyles.japanese.targetDecision", errors),
         boundary: stringArrayAt(targetDecision, "boundary", "languageStyles.japanese.targetDecision", errors),

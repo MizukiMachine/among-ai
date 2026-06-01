@@ -1,5 +1,5 @@
 import { setMaxListeners } from "node:events";
-import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
+import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import { textHasCampResultEvidence, textHasRoleClaimEvidence, textHasSeerClaimEvidence } from "./daySituations";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
@@ -11,9 +11,7 @@ import {
   firstDayOpeningMove,
   firstDayOpeningMoveKinds,
   firstDayWerewolfOpeningMoveKinds,
-  renderPublicSpeechDiversityContext,
-  reviewSpeechAgainstPlan,
-  reviewSpeechTimeline
+  renderPublicSpeechDiversityContext
 } from "./speechPlanning";
 import {
   canUseDeathTrigger,
@@ -2526,15 +2524,13 @@ export class WerewolfGame {
         requestAbort.cleanup();
       }
     }
-    const shouldReviewSpeechPlan = Boolean(options.speechPlan && this.config.provider === "llm" && agent.model === this.config.model);
-    const shouldReviewSpeechTimeline = Boolean(this.config.provider === "llm" && agent.model === this.config.model);
     const diagnosticBase = {
       playerId: player.id,
       playerName: player.name,
       provider: this.config.provider,
       model: agent.model,
       speculative: Boolean(options.suppressMemorySideEffects),
-      speechPlanReviewEnabled: shouldReviewSpeechPlan,
+      speechPlanReviewEnabled: false,
       speechPlanRequiresForwardMove: Boolean(options.speechPlan?.requiresForwardMove)
     };
     const diagnosticRound = options.diagnosticRound ?? this.round;
@@ -2548,32 +2544,6 @@ export class WerewolfGame {
         ...diagnostic
       });
     };
-    const reviewGeneratedSpeech = (
-      candidate: AgentSpeech
-    ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; timelineIssues: string[]; revisionHint?: string } => {
-      const planReview = shouldReviewSpeechPlan
-        ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
-        : { ok: true, issues: [] };
-      const timelineReview = shouldReviewSpeechTimeline
-        ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language)
-        : { ok: true, issues: [] };
-      const styleIssues: string[] = [];
-      const speechPlanIssues = planReview.issues;
-      const timelineIssues = timelineReview.issues;
-      return {
-        ok: planReview.ok && timelineReview.ok,
-        issues: [...styleIssues, ...speechPlanIssues, ...timelineIssues],
-        styleIssues,
-        speechPlanIssues,
-        timelineIssues,
-        revisionHint:
-          "revisionHint" in planReview && planReview.revisionHint
-            ? planReview.revisionHint
-            : "revisionHint" in timelineReview
-            ? timelineReview.revisionHint
-            : undefined
-      };
-    };
     emitSpeechAttemptDiagnostic({ kind: "speech_started" });
     try {
       attempts += 1;
@@ -2582,75 +2552,7 @@ export class WerewolfGame {
         throw new Error("Speech request cancelled.");
       }
 
-      const review = reviewGeneratedSpeech(speech);
-      if (!review.ok) {
-        emitSpeechAttemptDiagnostic({
-          kind: "speech_review_rejected",
-          attempts,
-          issues: review.issues,
-          styleIssues: review.styleIssues,
-          speechPlanIssues: review.speechPlanIssues,
-          timelineIssues: review.timelineIssues,
-          revisionHint: review.revisionHint
-        });
-        if (!options.suppressMemorySideEffects) {
-          console.warn(
-            `[speech-review] ${player.name}: ${review.issues.join(", ")} — retrying once. Original: "${speech.messages.join(" ").substring(0, 120)}…"`
-          );
-        }
-        this.throwIfCancelled();
-        if (requestAbortSignal?.aborted) {
-          throw new Error("Speech request cancelled.");
-        }
-        const retryInput = review.revisionHint
-          ? {
-              ...input,
-              task: [input.task, "", "Revision required:", review.revisionHint].join("\n")
-            }
-          : input;
-        attempts += 1;
-        const retry = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers);
-        if (requestAbortSignal?.aborted) {
-          throw new Error("Speech request cancelled.");
-        }
-        const retryReview = reviewGeneratedSpeech(retry);
-        if (retryReview.ok) {
-          emitSpeechAttemptDiagnostic({
-            kind: "speech_retry_accepted",
-            attempts,
-            retried: true,
-            reviewOk: true
-          });
-          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
-          return retry;
-        }
-        emitSpeechAttemptDiagnostic({
-          kind: "speech_retry_rejected",
-          attempts,
-          retried: true,
-          reviewOk: false,
-          issues: retryReview.issues,
-          styleIssues: retryReview.styleIssues,
-          speechPlanIssues: retryReview.speechPlanIssues,
-          timelineIssues: retryReview.timelineIssues,
-          revisionHint: retryReview.revisionHint
-        });
-        if (!options.suppressMemorySideEffects) {
-          console.warn(
-            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(", ")}). Using guarded fallback.`
-          );
-        }
-        const guardedFallback = this.sanitizeSpeechForPhase(this.reviewedSpeechFallback(input, legalPlayers, options.speechPlan), legalPlayers);
-        const fallbackReview = reviewGeneratedSpeech(guardedFallback);
-        if (fallbackReview.ok) {
-          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
-          return guardedFallback;
-        }
-        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: false });
-        return retry;
-      }
-
-      emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false, reviewOk: true });
+      emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false });
       return speech;
     } catch (error) {
       if (this.abortSignal?.aborted || requestAbortSignal?.aborted) {
@@ -2674,133 +2576,24 @@ export class WerewolfGame {
       if (!shouldFallbackFromLlmError(agent, error)) {
         throw error;
       }
-      return this.sanitizeSpeechForPhase(await fallbackAgent.speak(input), legalPlayers);
+      return this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers);
     } finally {
       requestAbort.cleanup();
     }
   }
 
-  private fallbackTargetFromVisibleContext(input: AgentSpeechInput, legalPlayers: TargetCandidate[]): TargetCandidate | null {
-    for (const line of [...input.publicHistory].reverse()) {
-      const candidate = legalPlayers.find((player) => line.includes(player.name) || line.includes(player.id));
-      if (candidate) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  private reviewedSpeechFallback(
+  private simpleSpeechFallback(
     input: AgentSpeechInput,
-    legalPlayers: TargetCandidate[],
-    speechPlan?: PublicSpeechPlan
+    _legalPlayers: TargetCandidate[],
+    _speechPlan?: PublicSpeechPlan
   ): AgentSpeech {
-    const openingTarget = legalPlayers[0] ?? null;
-    const target = speechPlan?.opensFirstDay ? openingTarget : this.fallbackTargetFromVisibleContext(input, legalPlayers);
-    const japanese = this.isJapanese();
-    const metadata: SpeechMetadata = {
-      suspects: [],
-      trusts: [],
-      claims: []
-    };
-    const openingMoveKind = speechPlan?.firstDayOpeningMove?.kind;
-    let message: string;
-
-    if (speechPlan?.opensFirstDay) {
-      if (japanese) {
-        if (openingMoveKind === "ask_role_claim_policy") {
-          message = "占い師は黒結果か吊られそうな時だけ名乗る形にしたいです。反対意見はありますか";
-        } else if (openingMoveKind === "early_power_role_attention") {
-          message = "占い師・魔女・騎士は無理に出さず、名乗る条件だけ先に決めましょう";
-        } else if (openingMoveKind === "ask_table_question" && target) {
-          message = `${target.name}さん、最初の投票基準を一つ聞かせてください。私は理由が薄い人を候補に入れます`;
-        } else if (openingMoveKind === "tentative_reaction_read" && target) {
-          message = `${target.name}さん、最初の投票基準を聞かせてください。答えが曖昧なら疑い寄りで見ます`;
-          metadata.suspects.push({
-            targetId: target.id,
-            targetName: target.name,
-            reason: "最初の返答で考えを確認したい",
-            weight: 0.36
-          });
-        } else if (openingMoveKind === "organize_setup") {
-          message = "先に段取りを決めたいです。占い師の名乗り条件と投票基準を今合わせませんか";
-        } else if (openingMoveKind === "overstate_village_side") {
-          message = "私は人間側として動きます。様子見だけの人は初日の投票候補に入れます";
-        } else if (openingMoveKind === "wolf_human_side_claim") {
-          message = "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる";
-        } else if (openingMoveKind === "wolf_fake_role_claim") {
-          message = "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい";
-          metadata.claims.push({
-            type: "role_claim",
-            role: "Seer",
-            note: "初日の反応を見るための占い師主張"
-          });
-        } else if (openingMoveKind === "self_introduction") {
-          message = `${input.player.name}です。今日は理由の薄い便乗を投票候補に入れるつもりです`;
-        } else {
-          message = "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にします";
-        }
-      } else if (openingMoveKind === "ask_table_question" && target) {
-        message = `${target.name}, give one vote criterion first. Mine is whether the reason is concrete.`;
-      } else if (openingMoveKind === "tentative_reaction_read" && target) {
-        message = `${target.name}, I am applying light pressure first: no reason means a suspicion lean today.`;
-        metadata.suspects.push({
-          targetId: target.id,
-          targetName: target.name,
-          reason: "light first-day pressure to test their reason",
-          weight: 0.36
-        });
-      } else if (openingMoveKind === "wolf_human_side_claim") {
-        message = "I am playing for the village side; passive wait-and-see slots go straight into my vote pool.";
-      } else if (openingMoveKind === "wolf_fake_role_claim") {
-        message = "I am the Seer. I want to hold results unless I find black; first I want to see who resists that condition.";
-        metadata.claims.push({
-          type: "role_claim",
-          role: "Seer",
-          note: "day-one reaction-test claim"
-        });
-      } else {
-        message = "My vote criterion today is concrete reasoning; wait-and-see answers become vote candidates.";
-      }
-    } else if (speechPlan?.requiresForwardMove) {
-      if (target) {
-        if (japanese) {
-          message = `${target.name}は理由を確認するまで投票候補に入れます`;
-          metadata.suspects.push({
-            targetId: target.id,
-            targetName: target.name,
-            reason: "今日の発言で名前が出ているため理由を確認したい",
-            weight: 0.5
-          });
-        } else {
-          message = `${target.name} is my vote candidate until their reason is clarified.`;
-          metadata.suspects.push({
-            targetId: target.id,
-            targetName: target.name,
-            reason: "visible public context names them and the reason needs pressure",
-            weight: 0.5
-          });
-        }
-      } else {
-        message = japanese
-          ? "役職主張は名乗る条件と結果が合うものだけ信用寄りで見ます"
-          : "I trust only role claims whose timing and result line up.";
-      }
-    } else {
-      message = japanese
-        ? "今日は理由の具体性を投票基準にします"
-        : "My vote criterion today is concrete reasoning.";
-    }
-
-    return {
-      messages: [stripJapaneseSpeechTerminalPeriod(message, this.config.language)],
-      metadata
-    };
+    void _legalPlayers;
+    void _speechPlan;
+    return buildSimpleFallbackSpeech(input, this.config.language);
   }
 
-  // Generates a single short day-1 warm-up self-intro for one player. Unlike safeSpeak
-  // this skips the reasoning stage and the plan/timeline review — it is just a greeting,
-  // so it is fast and can cover the first real public line's generation latency.
+  // Generates a single short day-1 warm-up self-intro for one player. It is just a
+  // greeting, so it stays separate from normal public discussion generation.
   // Agents without improviseIntro fall back to a plain speak().
   private async safeImproviseIntro(
     player: Player,
@@ -2994,14 +2787,14 @@ export class WerewolfGame {
       if (this.abortSignal?.aborted || input.abortSignal?.aborted) {
         throw error;
       }
-      // Generation failed: still let the player confirm a reviewed fallback rather than silently auto-publishing one.
+      // Generation failed: still let the player confirm a simple fallback rather than silently auto-publishing one.
       console.warn(
         `[human-choice] ${player.name}: candidate generation failed (${
           error instanceof Error ? error.message : String(error)
-        }); offering a single reviewed fallback option.`
+        }); offering a single fallback option.`
       );
       candidates = [
-        this.sanitizeSpeechForPhase(this.reviewedSpeechFallback(input, legalPlayers, input.speechPlan), legalPlayers)
+        this.sanitizeSpeechForPhase(this.simpleSpeechFallback(input, legalPlayers, input.speechPlan), legalPlayers)
       ];
     }
 
