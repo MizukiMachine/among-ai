@@ -320,9 +320,9 @@ test("first-day opening prompts avoid hard evidence but require active openings"
   assert.match(context, /様子見で止まらず/);
   assert.match(context, /投票基準/);
   assert.match(context, /名指し質問/);
-  assert.match(context, /議題スケジューラ/);
-  assert.match(context, /0日目の挨拶は本議論の材料にしない/);
-  assert.match(context, /全員が様子見にならないよう/);
+  assert.match(context, /まだ公開情報がないので/);
+  assert.match(context, /見えていない反応を根拠にしない/);
+  assert.doesNotMatch(context, /議題スケジューラ/);
   assert.doesNotMatch(context, /人狼陣営は初日昼の演技が見せ場/);
   assert.doesNotMatch(context, /三分の二以上/);
 

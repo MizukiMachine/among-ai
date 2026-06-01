@@ -343,29 +343,11 @@ export interface FirstDayOpeningMove {
   instruction: string;
 }
 
-export type DiscussionAgendaKind =
-  | "day_one_opening"
-  | "day_one_response"
-  | "later_day_night_result"
-  | "later_day_vote_review"
-  | "later_day_claim_review"
-  | "later_day_black_result"
-  | "later_day_read_update"
-  | "later_day_response"
-  | "pre_vote_follow_up";
-
-export interface DiscussionAgenda {
-  kind: DiscussionAgendaKind;
-  label: string;
-  instruction: string;
-}
-
 export interface PublicSpeechPlan {
   phase: Phase;
   round: number;
   lastNightDeaths: PublicNightDeathInfo[];
   possibleNightDeathCauses: PublicNightDeathCause[];
-  discussionAgenda?: DiscussionAgenda;
   intents: SpeechIntent[];
   firstDayOpeningMove?: FirstDayOpeningMove;
   requiresForwardMove: boolean;

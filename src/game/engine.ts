@@ -1170,12 +1170,12 @@ export class WerewolfGame {
       discussionPass === 1
         ? this.round === 1
           ? this.text(
-              "First pass: open one day-one agenda topic such as process, vote-reason standards, or Seer reveal conditions. Do not invent prior reactions.",
-              "1巡目: 進め方、投票理由の残し方、占い師が名乗る条件など、初日の議題を一つだけ出してください。まだ見えていない反応や矛盾は作らないでください。"
+              "First pass: there is no prior day discussion yet. State one opening opinion such as vote-reason standards, claim-handling conditions, setup flow, or a direct question. Do not invent prior reactions.",
+              "1巡目: まだ昼の発言はありません。投票理由の残し方、役職主張の扱い、進め方、答えやすい名指し質問など、自分の初期意見を一つ出してください。見えていない反応や矛盾は作らないでください。"
             )
           : this.text(
-              "First pass: state one clear read, claim decision, or vote-leaning view from your own position.",
-              "1巡目: 自分の立場から、読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
+              "First pass: connect to the visible public history so far, then state one clear read, claim decision, or vote-leaning view from your own position.",
+              "1巡目: ここまで見えている昼発言に自然につなげたうえで、自分の読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
             )
         : discussionPass === 2
           ? this.text(

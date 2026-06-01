@@ -1618,7 +1618,7 @@ test("day discussion race uses spare slots for duplicate generation near the end
   assert.equal(agent.speechInputs.slice(0, 5).length, 5);
 });
 
-test("lightweight agenda scheduler drives day one without omniscient directives", async () => {
+test("simple conversation plan drives day one without agenda scheduler directives", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [
     { role: "Villager" },
@@ -1641,12 +1641,16 @@ test("lightweight agenda scheduler drives day one without omniscient directives"
 
   assert.ok(allContexts.length > 0);
   assert.ok(
-    allContexts.some((context) => context.includes("Discussion agenda")),
-    "day speech should receive the deterministic agenda scheduler context"
-  );
-  assert.ok(
     allContexts.some((context) => context.includes("First-day opening mode")),
     "round one should still assign first-day opening sparks"
+  );
+  assert.ok(
+    allContexts.some((context) => context.includes("Speech plan")),
+    "day speech should receive the simple speech-plan context"
+  );
+  assert.ok(
+    allContexts.every((context) => !context.includes("Discussion agenda")),
+    "agenda scheduler context should not be injected"
   );
   assert.ok(
     allContexts.every((context) => !context.includes("Your secret plan for this round")),

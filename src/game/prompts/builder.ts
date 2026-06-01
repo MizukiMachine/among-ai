@@ -367,7 +367,13 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
         : "- Do not describe any specific player's earlier statement, reaction, contradiction, speaking volume, or vagueness as observed evidence yet."
     );
   } else if (publicHistory.length > 0) {
-    lines.push("", "Recent public discussion:", ...recentLines(publicHistory, 18));
+    lines.push(
+      "",
+      "Recent public discussion:",
+      "- Connect to the last one or two visible public statements with agreement, disagreement, a supplement, or an answer to pressure before stating your own read.",
+      "- Use only visible statements as evidence; do not invent reactions, contradictions, claims, or speaking volume.",
+      ...recentLines(publicHistory, 18)
+    );
   }
 
   if (extra.length > 0) {
@@ -468,7 +474,13 @@ function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): s
           ])
     );
   } else {
-    lines.push("", "直近の昼の発言:", ...recentLines(publicHistory, 18));
+    lines.push(
+      "",
+      "直近の昼の発言:",
+      "- 最後の1〜2発言に、賛成・反対・補足・自分への疑いへの返答のどれかで自然につなげてから、自分の判断を言う。",
+      "- 見えている発言だけを根拠にし、見えていない反応・矛盾・役職主張・発言量は作らない。",
+      ...recentLines(publicHistory, 18)
+    );
   }
 
   if (extra.length > 0) {
@@ -667,6 +679,14 @@ function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions):
     "昼議論の進め方:",
     bulletList(publicSpeech.phaseGuidance),
     ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
+    ...(requiresForwardMove
+      ? [
+          bulletList([
+            "直近の昼発言がある場合は、最後の1〜2発言への賛成、反対、補足、自分への疑いへの返答のどれかを判断に入れる。",
+            "質問や新しい話題だけで終えず、自分の疑い・信頼・保留・投票候補・役職主張への判断を一つ決める。"
+          ])
+        ]
+      : []),
     ...(opensFirstDay
       ? [
           "",
@@ -709,6 +729,16 @@ export function buildSpeechReasoningSystemPrompt(options: BuildSystemPromptOptio
     "",
     "Phase guidance:",
     ...phaseInstructions(profile, promptPhase),
+    ...(options.requiresForwardMove !== false
+      ? [
+          "",
+          "Conversation response rule:",
+          bulletList([
+            "If recent public statements are present, base the next judgment on agreement, disagreement, a supplement, or an answer to pressure from the last one or two visible lines.",
+            "Do not end with only a question or a new topic; state one suspicion, trust, hold, vote candidate, or claim judgment."
+          ])
+        ]
+      : []),
     ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
     "",
     speechReasoningJsonSchemaInstruction,

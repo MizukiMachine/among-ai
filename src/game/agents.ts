@@ -1995,7 +1995,9 @@ function speechSurfaceUserContent(reasoning: SpeechReasoningResult, input: Agent
       `- 伝える判断: ${core.judgment}`,
       ...(core.reason ? [`- 理由: ${core.reason}`] : []),
       ...claimNotes.map((note) => `- 触れてよい材料: ${note}`),
-      ...(recent.length > 0 ? ["- 直前の発言と同じ言い回しに寄せず、違う切り出しにする"] : []),
+      ...(recent.length > 0
+        ? ["- 直前の発言への返答として自然に聞こえる切り出しにする。ただし上の判断・理由にない人物名や事実は足さない"]
+        : []),
       "",
       "上のメモから、この人が今言う自然な短い発言を書いてください。"
     ].join("\n");
@@ -2008,7 +2010,11 @@ function speechSurfaceUserContent(reasoning: SpeechReasoningResult, input: Agent
     `- Judgment to express: ${core.judgment}`,
     ...(core.reason ? [`- Reason: ${core.reason}`] : []),
     ...claimNotes.map((note) => `- Public fact you may mention: ${note}`),
-    ...(recent.length > 0 ? ["- Use a different opening from the immediately previous public lines."] : []),
+    ...(recent.length > 0
+      ? [
+          "- Make the line sound like a natural response to the immediately previous public statements, without adding names or facts outside the judgment and reason above."
+        ]
+      : []),
     "",
     "Write the short natural line this player says now."
   ].join("\n");
@@ -2518,7 +2524,7 @@ function buildDemoSpeechMessages(parts: string[], language: string): string[] {
   return messages.length > 0 ? messages : [naturalizeDemoText(parts.join(" "), language)];
 }
 
-function naturalizeDemoReason(text: string, language: string): string {
+function naturalizeDemoReason(text: string): string {
   return clampReason(text, text);
 }
 
@@ -2553,16 +2559,16 @@ function finalizeDemoSpeech(speech: AgentSpeech, language: string): AgentSpeech 
     metadata: {
       suspects: speech.metadata.suspects.map((read) => ({
         ...read,
-        reason: read.reason ? naturalizeDemoReason(read.reason, language) : read.reason
+        reason: read.reason ? naturalizeDemoReason(read.reason) : read.reason
       })),
       trusts: speech.metadata.trusts.map((read) => ({
         ...read,
-        reason: read.reason ? naturalizeDemoReason(read.reason, language) : read.reason
+        reason: read.reason ? naturalizeDemoReason(read.reason) : read.reason
       })),
       claims: speech.metadata.claims.map((claim) => ({
         ...claim,
-        note: claim.note ? naturalizeDemoReason(claim.note, language) : claim.note,
-        result: typeof claim.result === "string" ? naturalizeDemoReason(claim.result, language) : claim.result
+        note: claim.note ? naturalizeDemoReason(claim.note) : claim.note,
+        result: typeof claim.result === "string" ? naturalizeDemoReason(claim.result) : claim.result
       }))
     }
   };
@@ -3138,8 +3144,7 @@ export class DemoAgent implements Agent {
       targetId: target.id,
       reason: naturalizeDemoReason(
         buildDemoVotingReason(input, target, this.language) ??
-          sample(isJapaneseLanguage(this.language) ? personaReasonsJa[input.player.persona] : personaReasonsEn[input.player.persona]),
-        this.language
+          sample(isJapaneseLanguage(this.language) ? personaReasonsJa[input.player.persona] : personaReasonsEn[input.player.persona])
       )
     };
   }
