@@ -422,25 +422,6 @@ function getCharacterProfile(playerId: string | null | undefined) {
   return playerId ? characterProfileByIdMap.get(playerId) ?? null : null;
 }
 
-function characterRelationEntries(
-  playerId: string,
-  availablePlayerIds?: Set<string>,
-  limit = 3
-): Array<{ id: string; name: string; text: string }> {
-  const profile = getCharacterProfile(playerId);
-  if (!profile) {
-    return [];
-  }
-  return Object.entries(profile.relations)
-    .filter(([id]) => id !== playerId && (!availablePlayerIds || availablePlayerIds.has(id)))
-    .slice(0, limit)
-    .map(([id, text]) => ({
-      id,
-      name: characterName(id),
-      text
-    }));
-}
-
 export function mentionedCharactersForText(text: string): MentionedCharacterItem[] {
   if (!text) {
     return [];
@@ -556,6 +537,16 @@ export interface ReadCluster {
   count: number;
   sources: string[];
   latestReason?: string;
+}
+
+export interface CharacterReadHistoryItem extends ReadDetail {
+  eventId: number;
+  round: number;
+}
+
+export interface CharacterReadHistory {
+  suspects: CharacterReadHistoryItem[];
+  trusts: CharacterReadHistoryItem[];
 }
 
 type HumanSpeechInputRequest = Extract<HumanInputRequest, { kind: "speech_choice" }>;
@@ -1062,6 +1053,68 @@ export function clusterReads(reads: ReadDetail[]): ReadCluster[] {
     clusters.set(read.targetId, current);
   }
   return [...clusters.values()].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
+}
+
+function readSourceId(read: PlayerReadMetadata | ReadDetail, event: GameEvent): string {
+  return ("sourceId" in read ? read.sourceId : "") || event.playerId || dataString(event, "sourceId");
+}
+
+function readSourceName(read: PlayerReadMetadata | ReadDetail, event: GameEvent, sourceId: string): string {
+  return ("sourceName" in read ? read.sourceName : "") || event.playerName || dataString(event, "sourceName") || characterName(sourceId);
+}
+
+function latestCharacterReads(reads: CharacterReadHistoryItem[]): CharacterReadHistoryItem[] {
+  const latestBySourceAndTarget = new Map<string, CharacterReadHistoryItem>();
+  for (const read of reads) {
+    const key = `${read.sourceId}:${read.targetId}`;
+    latestBySourceAndTarget.delete(key);
+    latestBySourceAndTarget.set(key, read);
+  }
+  return [...latestBySourceAndTarget.values()].sort((a, b) => b.eventId - a.eventId || b.round - a.round);
+}
+
+export function characterReadHistoryForEvents(
+  events: GameEvent[],
+  playerId: string,
+  mode: SpectatorMode = initialSpectatorMode
+): CharacterReadHistory {
+  const history: CharacterReadHistory = {
+    suspects: [],
+    trusts: []
+  };
+
+  const collect = (event: GameEvent, key: keyof CharacterReadHistory) => {
+    for (const read of dataArray<PlayerReadMetadata | ReadDetail>(event, key)) {
+      const sourceId = readSourceId(read, event);
+      if (sourceId !== playerId || !read.targetId) {
+        continue;
+      }
+
+      history[key].push({
+        sourceId,
+        sourceName: readSourceName(read, event, sourceId),
+        targetId: read.targetId,
+        targetName: read.targetName ?? characterName(read.targetId),
+        reason: read.reason,
+        weight: read.weight,
+        eventId: event.id,
+        round: event.round
+      });
+    }
+  };
+
+  for (const event of events) {
+    if (event.type === "round_summary" || isEventRedactedForSpectator(event, mode)) {
+      continue;
+    }
+    collect(event, "suspects");
+    collect(event, "trusts");
+  }
+
+  return {
+    suspects: latestCharacterReads(history.suspects),
+    trusts: latestCharacterReads(history.trusts)
+  };
 }
 
 const playerCountOptions = Array.from(
@@ -3618,6 +3671,40 @@ export function App() {
     );
   }
 
+  function renderCharacterReadColumn(title: string, reads: CharacterReadHistoryItem[], tone: "suspect" | "trust") {
+    const shownReads = reads.slice(0, 4);
+    return (
+      <div className={`character-read-column ${tone}`}>
+        <div className="character-read-heading">
+          {tone === "suspect" ? <Crosshair size={14} /> : <Shield size={14} />}
+          <span>{title}</span>
+          <strong>{reads.length}</strong>
+        </div>
+        {shownReads.length > 0 ? (
+          <ul className="character-read-list">
+            {shownReads.map((read) => (
+              <li key={`${tone}-${read.eventId}-${read.targetId}`}>
+                <div className="character-read-target">
+                  <small>R{read.round}</small>
+                  <ChevronRight size={13} aria-hidden="true" />
+                  <strong><CharacterName playerId={read.targetId}>{read.targetName}</CharacterName></strong>
+                </div>
+                {read.reason ? (
+                  <span className="character-read-reason">
+                    {renderTextWithCharacterNames(read.reason, `profile-read-${tone}-${read.eventId}-${read.targetId}`)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+            {reads.length > shownReads.length ? <li className="character-read-more">他{reads.length - shownReads.length}件</li> : null}
+          </ul>
+        ) : (
+          <p className="character-read-empty">まだなし</p>
+        )}
+      </div>
+    );
+  }
+
   function renderCharacterProfilePopover() {
     if (!selectedCharacterId || !selectedCharacterProfile) {
       return null;
@@ -3635,7 +3722,7 @@ export function App() {
         : roleDisplay(player, spectatorMode, language, profileRevealed)
       : displayRoleLabel("Hidden", language);
     const visibleRoleClass = publicRole ? roleClassName(publicRole) : player ? roleChipClass(player, spectatorMode, profileRevealed) : "role-hidden";
-    const relationEntries = characterRelationEntries(selectedCharacterId, new Set(snapshot?.players.map((candidate) => candidate.id) ?? []));
+    const readHistory = characterReadHistoryForEvents(events, selectedCharacterId, spectatorMode);
 
     return (
       <>
@@ -3684,19 +3771,13 @@ export function App() {
               </div>
             </div>
 
-            {relationEntries.length > 0 ? (
-              <section className="character-profile-section character-profile-relations">
-                <h3>関係の傾向</h3>
-                <ul>
-                  {relationEntries.map((relation) => (
-                    <li key={relation.id}>
-                      <strong><CharacterName playerId={relation.id}>{relation.name}</CharacterName></strong>
-                      <span>{relation.text}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+            <section className="character-profile-section character-profile-reads">
+              <h3>この人物の読み</h3>
+              <div className="character-read-grid">
+                {renderCharacterReadColumn("疑い", readHistory.suspects, "suspect")}
+                {renderCharacterReadColumn("信頼", readHistory.trusts, "trust")}
+              </div>
+            </section>
 
             <section className="character-profile-section">
               <h3>人物像</h3>
