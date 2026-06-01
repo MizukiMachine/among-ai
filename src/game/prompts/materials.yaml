@@ -568,7 +568,7 @@ daySituations:
   ja:
     first_day:
       - "初日昼: 占い結果や投票履歴はまだなく、会話の材料も薄い。強い断定は避けるが、様子見で止まらず、投票基準、役職方針、配役整理、答えやすい名指し質問のどれかで議論を動かす。"
-      - "自己紹介だけで終えず、今日の投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理など、材料がなくても成立する話を自分から出す。"
+      - "意気込みだけで終えず、今日の投票理由の残し方、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理など、材料がなくても成立する話を自分から出す。"
       - "「初日だから」を理由にした中身のない疑いはしない。ただし全員が様子見になるのを防ぐため、返答を求める質問や投票基準は早めに置く。"
       - "黒確定のように言わず、断定が必要な場面ではない。気になる点があっても、実際に見えた発言や方針に結びつける。"
       - "まだこの昼で話していない相手については、「言う通り」「発言」「反応」「動き」といった実際に見た前提の言い方をしない。"
@@ -590,7 +590,7 @@ daySituations:
   en:
     first_day:
       - "First day: there are no public statements, Seer results, or vote history yet. Avoid hard certainty and do not rush to pick a suspect or vote target without grounds."
-      - "It is fine to open with a self-introduction, what you want to watch today, a role-claim policy, or organizing information — topics that hold up without evidence."
+      - "It is fine to open with a short statement of resolve, what you want to watch today, a role-claim policy, or organizing information — topics that hold up without evidence."
       - 'Do not make an empty "because it is day one" suspicion. If you offer a read, keep it a light impression from disposition or role feel and admit the thin information honestly.'
       - "Do not speak about players with no visible statement as if you saw their words, reaction, or movement."
     later_day:

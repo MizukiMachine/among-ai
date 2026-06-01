@@ -4369,7 +4369,7 @@ input[type="range"] {
   color: rgba(218, 230, 236, 0.72);
 }
 
-.human-speech-composer.werewolf-greeting .human-choice-hint {
+.human-speech-composer.werewolf-alignment .human-choice-hint {
   color: rgba(218, 250, 255, 0.9);
   font-weight: 850;
 }

@@ -1758,14 +1758,14 @@ test("first-day werewolf face-off: every AI wolf greets the team and owns their 
   }
 });
 
-test("first-day werewolf face-off offers a human werewolf greeting without blocking later generation", async () => {
+test("first-day werewolf face-off offers a human werewolf alignment line without blocking later generation", async () => {
   const requests: HumanInputRequestPayload[] = [];
-  const greetingGate = createDeferred<{ speech: string }>();
+  const alignmentGate = createDeferred<{ speech: string }>();
   const humanInput: HumanInputHandler = {
     async request(input) {
       requests.push(input);
       if (input.kind === "speech_choice") {
-        return greetingGate.promise;
+        return alignmentGate.promise;
       }
       if (input.kind === "target") {
         return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの判断です。" };
@@ -1794,24 +1794,24 @@ test("first-day werewolf face-off offers a human werewolf greeting without block
   const events = await Promise.race([
     collect(game.runWerewolfFaceoffPass()),
     sleepWithAbort(250).then(() => {
-      throw new Error("The werewolf face-off waited for the optional human greeting.");
+      throw new Error("The werewolf face-off waited for the optional human alignment line.");
     })
   ]);
   const speeches = events.filter((event) => event.type === "player_speech");
   const speakerIds = new Set(speeches.map((event) => event.playerId));
-  const greetingRequest = requests.find((request) => request.kind === "speech_choice" && request.speechMode === "werewolf_greeting");
+  const alignmentRequest = requests.find((request) => request.kind === "speech_choice" && request.speechMode === "werewolf_alignment");
 
-  assert.equal(speakerIds.has(players[0].id), false, "the human greeting prompt must not hold the face-off event stream open");
+  assert.equal(speakerIds.has(players[0].id), false, "the human alignment prompt must not hold the face-off event stream open");
   assert.ok(speakerIds.has(players[1].id), "the AI ally still introduces itself so the human learns the team");
   assert.equal(speakerIds.size, 1, "only generated AI face-off lines are emitted synchronously");
-  assert.ok(greetingRequest);
-  assert.equal(greetingRequest.nonBlocking, true);
-  assert.equal(greetingRequest.options.length, 0, "the face-off prompt is free-input only");
-  assert.match(greetingRequest.task, /挨拶/);
-  assert.ok(greetingRequest.context.notes.every((line) => !line.includes("以降の推理・作戦・展開には使われません")));
+  assert.ok(alignmentRequest);
+  assert.equal(alignmentRequest.nonBlocking, true);
+  assert.equal(alignmentRequest.options.length, 0, "the face-off prompt is free-input only");
+  assert.match(alignmentRequest.task, /意思合わせ/);
+  assert.ok(alignmentRequest.context.notes.every((line) => !line.includes("以降の推理・作戦・展開には使われません")));
   assert.equal(game.wolfHistory.length, 1, "only the AI ally's generated intro is retained for later wolf context");
   assert.ok(game.wolfHistory.every((line) => !line.includes("よろしく、仲間として合わせます")));
-  greetingGate.resolve({ speech: "  よろしく、仲間として合わせます。  " });
+  alignmentGate.resolve({ speech: "  よろしく、仲間として合わせます。  " });
 });
 
 test("first-day werewolf face-off is a no-op for a lone wolf", async () => {
@@ -1974,7 +1974,7 @@ test("day-1 warm-up stays out of real discussion history", async () => {
   const firstAgent = game.agents.get(players[0].id) as IntroAgent;
   const firstSpeechInput = firstAgent.speechInputs[0];
 
-  assert.ok(warmups.length > 0, "LLM day one still emits day-zero warm-up greetings");
+  assert.ok(warmups.length > 0, "LLM day one still emits day-zero warm-up resolves");
   assert.ok(firstRegular, "regular day discussion still follows warm-up");
   assert.ok(firstSpeechInput, "the first regular speech is generated");
   assert.match(firstSpeechInput.context, /Conversation so far:\n- None yet/);

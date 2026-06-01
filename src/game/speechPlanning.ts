@@ -201,7 +201,7 @@ export const firstDayOpeningMoveKinds = [
   "early_power_role_attention",
   "organize_setup",
   "overstate_village_side",
-  "self_introduction"
+  "opening_resolve"
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
 export const firstDayWerewolfOpeningMoveKinds = [
@@ -212,12 +212,12 @@ export const firstDayWerewolfOpeningMoveKinds = [
 export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
   const japanese = isJapaneseLanguage(language);
   const definitions: Record<FirstDayOpeningMoveKind, FirstDayOpeningMove> = {
-    self_introduction: {
+    opening_resolve: {
       kind,
-      label: japanese ? "自己紹介から入る" : "Open with a self-introduction",
+      label: japanese ? "開幕の意気込みから入る" : "Open with resolve",
       instruction: japanese
-        ? "短い自己紹介から入ったうえで、今日の投票基準か最初に聞きたい質問を一つ出す。『みんなの話を聞いてから』だけで止めない。"
-        : "Open with a short self-introduction, then state one vote criterion or one question you want answered today. Do not stop at hearing people out."
+        ? "議論に入る前の短い意気込みから入り、今日の投票基準か最初に聞きたい質問を一つ出す。初対面の自己紹介や『みんなの話を聞いてから』だけで止めない。"
+        : "Open with a short statement of resolve, then state one vote criterion or one question you want answered today. Do not frame it as meeting strangers or stop at hearing people out."
     },
     organize_setup: {
       kind,
@@ -658,6 +658,10 @@ export function reviewSpeechTimeline(
 // Generic "整理したい", "話を聞く", "様子見", and "保留" are rejected even when they use
 // agenda-ish words, because those were the reported passive openings.
 function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate[]): boolean {
+  if (/(?:はじめまして|初めまして|初対面)/u.test(text)) {
+    return false;
+  }
+
   const passiveFiller =
     /(?:様子見|保留|もう少し(?:話|様子)|話を聞|話聞|一通り聞|状況(?:が|は)?(?:見え|分から|わから)|動く理由がない|何とも言えない|なんとも言えない|出方を(?:見|待)|出方(?:が|は)?見たい|今は動かない)/u.test(
       text
@@ -678,8 +682,8 @@ function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate
       "u"
     ).test(text);
   });
-  const selfIntroWithAction =
-    /(?:よろしく|はじめまして|初めまして|自己紹介|紹介|私は|僕は|自分は|と申し|呼んで|名前)/u.test(text) &&
+  const openingIdentityWithAction =
+    /(?:よろしく|自己紹介|紹介|私は|僕は|自分は|と申し|呼んで|名前)/u.test(text) &&
     (voteOrReasonPolicy || rolePolicy || setupProposal || namedEngagement || /(?:質問|投票|占い|役職|基準|候補)/u.test(text));
   const villagePressure =
     /(?:村側|人間側|村人|吊られ)/u.test(text) && /(?:投票|候補|疑|理由|様子見|保留|圧)/u.test(text);
@@ -688,7 +692,7 @@ function hasOpeningSubstanceJapanese(text: string, legalPlayers: TargetCandidate
     rolePolicy ||
     setupProposal ||
     namedEngagement ||
-    selfIntroWithAction ||
+    openingIdentityWithAction ||
     villagePressure;
 
   if (!active) {
@@ -707,7 +711,7 @@ export function reviewSpeechAgainstPlan(
   language: string
 ): SpeechPlanReview {
   // Opening turn: do not force a stance, but reject content-free "様子見"/"保留"
-  // filler so the opening carries real content (self-intro, observation focus,
+  // filler so the opening carries real content (opening resolve, observation focus,
   // reveal policy, setup organizing).
   if (plan?.opensFirstDay) {
     if (isJapaneseLanguage(language) && !hasOpeningSubstanceJapanese(speech.messages.join(" "), legalPlayers)) {

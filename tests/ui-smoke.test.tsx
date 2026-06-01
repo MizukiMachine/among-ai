@@ -967,7 +967,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submitHumanInput\(\{ targetId: humanTargetId \}\)/);
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
-  assert.match(source, /speechMode === "werewolf_greeting"/);
+  assert.match(source, /speechMode === "werewolf_alignment"/);
   assert.match(source, /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)/);
   assert.match(source, /line\.replace\(\s*\/。\+\$\/u,\s*""\s*\)/);
   assert.match(source, /renderHumanContextLines\("今回の判断材料", notes, \{ trimTrailingJapanesePeriod: true \}\)/);
@@ -983,7 +983,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /<CharacterName playerId=\{speechInputPrompt\.playerId\}>\{speakerName\}<\/CharacterName>/);
   assert.match(source, /renderHumanSpeechInputScene\(speechInputPrompt\)/);
   assert.match(source, /renderHumanInputPanel\(actionHumanInput\)/);
-  assert.match(source, /function isOptionalWerewolfGreetingInput/);
+  assert.match(source, /function isOptionalWerewolfAlignmentInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
@@ -991,7 +991,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.doesNotMatch(source, /resetImmediately/);
   assert.match(source, /if \(skipOptionalHumanInputOnStoryAdvance\(\)\) \{/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
-  assert.match(source, /request\.kind !== "speech_choice" \|\| !request\.nonBlocking \|\| request\.speechMode !== "werewolf_greeting"/);
+  assert.match(source, /request\.kind !== "speech_choice" \|\| !request\.nonBlocking \|\| request\.speechMode !== "werewolf_alignment"/);
   assert.match(source, /type:\s*"player_speech"/);
   assert.match(source, /localHumanEcho:\s*true/);
   assert.match(source, /function showLocalHumanSpeechEvent\(event: GameEvent\)/);
@@ -1016,12 +1016,12 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
-  assert.match(source, /未入力なら「よろしく」で顔合わせ発言します/);
+  assert.match(source, /未入力なら既定の意思合わせ発言で進みます/);
   assert.match(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
   assert.match(source, /"この場面では候補から選んでください"/);
   assert.match(source, /"候補から選択"/);
-  assert.match(source, /const canSubmitHumanSpeech = isWerewolfGreeting \|\| \(allowFreeText && humanSpeech\.trim\(\)\.length > 0\);/);
-  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "顔合わせで話す" : "よろしくで進む"/);
+  assert.match(source, /const canSubmitHumanSpeech = isWerewolfAlignment \|\| \(allowFreeText && humanSpeech\.trim\(\)\.length > 0\);/);
+  assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "意思合わせで話す" : "既定文で進む"/);
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting \|\| !allowFreeText\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
@@ -1042,7 +1042,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(css, /\.human-input-quick-controls\s*\{[^}]*position:\s*absolute;/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(184px,\s*30vh,\s*220px\);/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-choice-list\s*\{[^}]*max-height:\s*none;/s);
-  assert.match(css, /\.human-speech-composer\.werewolf-greeting \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
+  assert.match(css, /\.human-speech-composer\.werewolf-alignment \.human-choice-hint\s*\{[^}]*font-weight:\s*850;/s);
   assert.doesNotMatch(source, /あなたの判断が近づいています/);
   assert.doesNotMatch(source, /humanReason/);
   assert.doesNotMatch(source, /setHumanReason/);
