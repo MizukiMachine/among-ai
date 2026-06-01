@@ -2880,6 +2880,52 @@ test("werewolf attack target generation waits until private discussion finishes"
   await run.return(undefined);
 });
 
+test("human werewolf private discussion strongly biases the night attack target", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  let preferredTargetId = "";
+  let preferredTargetName = "";
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { speech: `${preferredTargetName}を襲撃したい。占い師っぽくて危険です。` };
+      }
+      if (input.kind === "target") {
+        return { targetId: preferredTargetId, reason: "人間プレイヤーの襲撃投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 1 },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "AlphaWolf", targets: ["p5"] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  preferredTargetId = players[3].id;
+  preferredTargetName = players[3].name;
+  game.agents.set(players[0].id, new HumanInputAgent(players[0].name, humanInput, "Japanese"));
+  players[0].model = "human";
+
+  const events = await collect(game.runNight());
+  const attackResult = events.find((event) => event.data?.action === "werewolf_attack_vote_result");
+  const modifiers = attackResult?.data?.modifiers as Array<{ targetId: string; count: number; reason?: string }> | undefined;
+  const totals = attackResult?.data?.totals as Array<{ targetId: string; count: number }> | undefined;
+  const secondWolf = game.agents.get(players[1].id) as ScriptedAgent;
+
+  assert.ok(requests.some((request) => request.kind === "speech_choice" && request.phase === "werewolf_discussion"));
+  assert.ok(secondWolf.speechInputs[0].context.includes(preferredTargetName), "later wolf speech should see the human's target push");
+  assert.equal(attackResult?.data?.selectedTargetId, preferredTargetId);
+  assert.ok(modifiers?.some((modifier) => modifier.targetId === preferredTargetId && modifier.count >= 5 && modifier.reason === "human_werewolf_discussion"));
+  assert.ok((totals?.find((total) => total.targetId === preferredTargetId)?.count ?? 0) > (totals?.find((total) => total.targetId === "p5")?.count ?? 0));
+});
+
 test("human player is protected from early werewolf attack targets by table size", async () => {
   const cases = [
     { playerCount: 8, protectedRound: 2, expiredRound: 3 },

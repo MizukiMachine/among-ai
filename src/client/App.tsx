@@ -3570,11 +3570,12 @@ export function App() {
     );
   }
 
-  function renderAudioMuteButton() {
+  function renderAudioMuteButton(options: { disabled?: boolean } = {}) {
     return (
       <button
         aria-pressed={audioMuted}
         className="audio-mute-button prominent"
+        disabled={options.disabled}
         onClick={toggleAudioMuted}
         title={audioMuted ? "BGMをオンにする" : "BGMをオフにする"}
         type="button"
@@ -3595,6 +3596,7 @@ export function App() {
             <Settings size={18} />
             <h2>対局設定</h2>
           </div>
+          {renderAudioMuteButton()}
         </div>
 
         <div className="setup-grid">
@@ -4416,8 +4418,8 @@ export function App() {
                   </div>
                   {renderPendingHumanInputNotice()}
                   {renderStoryProcessingHud()}
-                  <div className="story-controls" hidden={!settingsConfirmed}>
-                    <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
+                  <div className="story-controls" hidden={!settingsConfirmed} aria-hidden={!settingsConfirmed}>
+                    <button className="icon-button story-back" disabled={!settingsConfirmed || storyBackDisabled} onClick={retreatStory} type="button">
                       <ChevronLeft size={20} />
                       <span className="story-button-label">
                         <span>戻る</span>
@@ -4426,7 +4428,7 @@ export function App() {
                     </button>
                     <button
                       className={`icon-button primary story-next ${storyWaitingForStream ? "is-loading" : ""}`}
-                      disabled={storyNextDisabled}
+                      disabled={!settingsConfirmed || storyNextDisabled}
                       onClick={advanceStory}
                       aria-busy={storyWaitingForStream}
                       type="button"
@@ -4461,7 +4463,7 @@ export function App() {
                         </button>
                       </div>
                     ) : null}
-                    {renderAudioMuteButton()}
+                    {renderAudioMuteButton({ disabled: !settingsConfirmed })}
                   </div>
                 </article>
               )}

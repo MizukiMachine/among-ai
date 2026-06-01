@@ -103,8 +103,7 @@ textarea:focus-visible {
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 20;
   display: grid;
   min-height: 124px;
@@ -3427,6 +3426,20 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+.setup-card-heading .audio-mute-button.prominent {
+  min-width: 116px;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.setup-card-heading .audio-mute-button span {
+  overflow: visible;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-overflow: clip;
+}
+
 .setup-grid {
   display: grid;
   flex: 1 1 auto;
@@ -4433,7 +4446,7 @@ input[type="range"] {
 .human-target-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
 }
 
 .human-target-grid button {
@@ -4472,11 +4485,19 @@ input[type="range"] {
 
 .human-target-grid span {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   font-size: 12px;
   font-weight: 850;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.human-target-grid span .character-name {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .human-action-row {
@@ -5589,6 +5610,23 @@ input[type="range"] {
   .roster,
   .graveyard {
     grid-template-columns: 1fr;
+  }
+
+  .player-section-heading {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .player-section-heading > span {
+    flex: 1 1 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .player-section-actions {
+    flex-wrap: wrap;
   }
 
   .player-count-field {
