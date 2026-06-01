@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   App,
+  characterReadHistoryForEvents,
   clusterReads,
   dedupeReadsBySourceTarget,
   eventPhaseMetaLabel,
@@ -493,6 +494,104 @@ test("read clusters count each source-target pair once", () => {
   ]);
 });
 
+test("character read history shows visible occurred reads for the selected player", () => {
+  const snapshot: GameSnapshot = {
+    round: 2,
+    phase: "day_discussion",
+    winner: null,
+    players: [],
+    aliveCount: 0,
+    werewolfCount: 0,
+    villageCount: 0
+  };
+  const events: GameEvent[] = [
+    {
+      id: 1,
+      createdAt: "2026-05-24T00:00:00.000Z",
+      round: 1,
+      phase: "day_discussion",
+      type: "player_speech",
+      message: "シオンの読み",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        suspects: [{ targetId: "p2", targetName: "ガク", reason: "最初の疑い" }],
+        trusts: [{ targetId: "p3", targetName: "アカネ", reason: "返答が自然" }]
+      },
+      snapshot
+    },
+    {
+      id: 2,
+      createdAt: "2026-05-24T00:01:00.000Z",
+      round: 2,
+      phase: "day_discussion",
+      type: "player_speech",
+      message: "シオンの更新",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        suspects: [{ targetId: "p2", targetName: "ガク", reason: "疑いを更新" }]
+      },
+      snapshot
+    },
+    {
+      id: 3,
+      createdAt: "2026-05-24T00:02:00.000Z",
+      round: 2,
+      phase: "werewolf_discussion",
+      type: "player_speech",
+      message: "狼だけの読み",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        visibility: "werewolf",
+        trusts: [{ targetId: "p4", targetName: "マヒロ", reason: "仲間の相談" }]
+      },
+      snapshot
+    },
+    {
+      id: 4,
+      createdAt: "2026-05-24T00:03:00.000Z",
+      round: 2,
+      phase: "day_discussion",
+      type: "round_summary",
+      message: "集計",
+      data: {
+        suspects: [{ sourceId: "p1", sourceName: "シオン", targetId: "p5", targetName: "ナギサ", reason: "集計済み" }]
+      },
+      snapshot
+    }
+  ];
+
+  assert.deepEqual(characterReadHistoryForEvents(events, "p1", "village"), {
+    suspects: [
+      {
+        sourceId: "p1",
+        sourceName: "シオン",
+        targetId: "p2",
+        targetName: "ガク",
+        reason: "疑いを更新",
+        weight: undefined,
+        eventId: 2,
+        round: 2
+      }
+    ],
+    trusts: [
+      {
+        sourceId: "p1",
+        sourceName: "シオン",
+        targetId: "p3",
+        targetName: "アカネ",
+        reason: "返答が自然",
+        weight: undefined,
+        eventId: 1,
+        round: 1
+      }
+    ]
+  });
+  assert.deepEqual(characterReadHistoryForEvents(events, "p1", "omniscient").trusts.map((read) => read.targetId), ["p4", "p3"]);
+});
+
 test("vote result data is visible from either individual votes or totals", () => {
   const baseEvent: GameEvent = {
     id: 1,
@@ -664,8 +763,12 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /公開人物メモ/);
   assert.match(source, /roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   assert.match(source, /profile\.values/);
-  assert.match(source, /characterRelationEntries\(selectedCharacterId, new Set/);
-  assert.match(source, /availablePlayerIds\.has\(id\)/);
+  assert.match(source, /characterReadHistoryForEvents\(events, selectedCharacterId, spectatorMode\)/);
+  assert.match(source, /<h3>この人物の読み<\/h3>/);
+  assert.match(source, /renderCharacterReadColumn\("疑い", readHistory\.suspects, "suspect"\)/);
+  assert.match(source, /renderCharacterReadColumn\("信頼", readHistory\.trusts, "trust"\)/);
+  assert.doesNotMatch(source, /関係の傾向/);
+  assert.doesNotMatch(source, /characterRelationEntries/);
   assert.doesNotMatch(source, /profile\.speechStyle/);
   assert.doesNotMatch(source, /profile\.sampleLines\.slice\(0, 2\)/);
   assert.doesNotMatch(source, /character-profile-tagline/);
@@ -673,6 +776,8 @@ test("living roster cards open public character profile popover", () => {
   assert.doesNotMatch(source, /event\.key !== "Tab"/);
   assert.doesNotMatch(css, /\.character-profile-backdrop/);
   assert.doesNotMatch(css, /\.character-profile-dialog/);
+  assert.doesNotMatch(css, /\.character-profile-relations/);
+  assert.match(css, /\.character-read-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.character-profile-popover \.overlay-body\s*\{/);
   assert.match(css, /\.character-profile-body\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.character-profile-thumb\s*\{[^}]*width:\s*68px[^}]*height:\s*68px/s);
