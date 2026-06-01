@@ -533,7 +533,8 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     "まだ状況が見えないから、今は保留させて",
     "今の状況から動く理由がない、もう少し様子を見る",
     "様子見はしない",
-    "今日はキリエの出方に注目したいです"
+    "今日はキリエの出方に注目したいです",
+    "キリエさん、初日なので理由だけ聞かせてください"
   ]) {
     const review = reviewSpeechAgainstPlan({ messages: [filler], metadata }, plan, legalPlayers, "Japanese");
     assert.equal(review.ok, false, `expected vacuous opening to be rejected: ${filler}`);
@@ -548,7 +549,7 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     "今日は発言の具体性を投票基準にしたいです",
     "キリエさん、最初の投票基準を聞かせてください",
     "まずは配役の構成と進め方を整理しませんか",
-    "シオンさん、最初の意気込みを聞かせてください"
+    "シオンさん、占い師が名乗る条件をどう見ますか"
   ]) {
     const review = reviewSpeechAgainstPlan({ messages: [substantive], metadata }, plan, legalPlayers, "Japanese");
     assert.equal(review.ok, true, `expected substantive opening to pass: ${substantive}`);

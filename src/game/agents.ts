@@ -1,12 +1,12 @@
 import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
 import { detectDaySituations, type DaySituation } from "./daySituations";
-import { sanitizeDemoJapaneseGameText, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
+import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
   buildTargetList,
   buildBooleanSystemPrompt,
   buildSpeechReasoningSystemPrompt,
-  buildSpeechRealizationSystemPrompt,
+  buildSpeechSurfaceSystemPrompt,
   buildTargetSystemPrompt
 } from "./prompts";
 import { promptMaterials } from "./prompts/materials";
@@ -28,7 +28,8 @@ import type {
   Role,
   SpeechMetadata,
   TargetCandidate,
-  TargetDecision
+  TargetDecision,
+  TargetReasonKind
 } from "./types";
 
 const defaultLlmTimeoutMs = 120_000;
@@ -454,42 +455,6 @@ const openingFirstDayReasonsJa: Record<AgentSpeechInput["player"]["persona"], st
   ]
 };
 
-export function listJapaneseDemoCopySamples(): string[] {
-  const name = "シオン";
-  return [
-    ...Object.values(demoSpeechJa).flatMap((lines) => lines ?? []),
-    ...Object.values(demoDaySituationSpeechJa).flat(),
-    ...demoOpeningDaySituationSpeechJa,
-    ...Object.values(personaReasonsJa).flat(),
-    ...Object.values(firstDayReasonsJa).flat(),
-    ...Object.values(openingFirstDayReasonsJa).flat(),
-    "発言と投票の理由が一貫している",
-    "夜の状況に関わる薬の情報があります。",
-    "私の護衛先が夜の結果を説明できるかもしれません。",
-    `私が死ぬなら、撃つ候補は${name}です。`,
-    "私は安易に吊っていい人ではありません。",
-    "疑いを向けるための偽主張",
-    "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる",
-    "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい",
-    "初日の反応を見るための占い師主張",
-    `強い主張が必要なら、私は占い師として出ます。${name}は人狼判定です。動きが不自然です。`,
-    "今夜は議論をまとめそうな人を優先したいです。明日は全員で人間側の顔をして、残った村を疑わせましょう。",
-    `今夜は${name}で合わせたいです。議論をまとめそうな人を噛めば、明日は人間側のふりで疑い先を作りやすいです。`,
-    `今夜は${name}を襲撃候補にしたいです。発言力を持ちそうな人を先に噛んで、明日の村を崩しやすくしましょう。`,
-    "襲撃相談で優先したい人",
-    "今は選択肢を残す方が低リスクです。",
-    "ここで見送る方が後半の手を残せます。",
-    "選べる対象がいません。",
-    `${name}は公開された主張と発言から最も疑いが集まっています。`,
-    `${name}は人狼判定への返答がまだ弱く、今日の投票理由になります。`,
-    `${name}は占い主張への反応がはっきりしないため投票します。`,
-    `${name}は死体なし後に説明を急いだように見えます。`,
-    `${name}は初日の発言が少なく、理由を確認する投票です。`,
-    `${name}は昨日の投票理由と今日の発言がつながっていません。`,
-    `${name}は今日の発言から一番検証しやすい投票先です。`
-  ];
-}
-
 function clampText(text: string, fallback: string): string {
   const compact = text.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -516,19 +481,6 @@ function isSpeechJsonLeak(text: string): boolean {
   );
 }
 
-function stripDialogueLabel(message: string): string {
-  const compact = message.replace(/\s+/g, " ").trim();
-  const match = compact.match(/^(?:実際の発話|実際のセリフ|セリフ|発言)\s*[:：]\s*(.+)$/);
-  return match ? match[1].trim() : compact;
-}
-
-function isDialogueMetaMessage(message: string): boolean {
-  const compact = message.replace(/\s+/g, " ").trim();
-  return /^(?:方針|戦略|作戦|推理メモ|進行メモ|内部メモ|補助メモ|メモ|出力|スキーマ|JSON|strategy|reasoning|analysis|public speech|message|messages|suspects|trusts|claims)\s*[:：]/i.test(
-    compact
-  );
-}
-
 function normalizeSpeechLine(text: string, fallback: string, language: string): string {
   return stripJapaneseSpeechTerminalPeriod(clampText(text, fallback), language);
 }
@@ -536,8 +488,7 @@ function normalizeSpeechLine(text: string, fallback: string, language: string): 
 function normalizeSpeechMessages(messagesSource: string[], fallback: string, language: string): string[] {
   return messagesSource
     .flatMap(splitSpeechText)
-    .map(stripDialogueLabel)
-    .filter((message) => message.length > 0 && !isSpeechJsonLeak(message) && !isDialogueMetaMessage(message))
+    .filter((message) => message.length > 0 && !isSpeechJsonLeak(message))
     .slice(0, maxSpeechMessages)
     .map((message) => normalizeSpeechLine(message, fallback, language))
     .filter(Boolean);
@@ -847,8 +798,8 @@ function canonicalReadReason(kind: "suspect" | "trust", evidence: ReadEvidenceMe
     }
     if (evidence.kind === "first_day_tentative") {
       return kind === "suspect"
-        ? "初日の軽い印象として理由を確認したい"
-        : "初日の軽い印象としていったん置いている";
+        ? "最初の返答で考えを確認したい"
+        : "最初の進め方がはっきりしている";
     }
     return kind === "suspect" ? "今日の発言で確認したい点がある" : "今日の立場が比較的はっきりしている";
   }
@@ -1225,7 +1176,7 @@ function parseSpeechReasoning(
   };
 }
 
-function parseSpeechRealizationMessages(content: string, fallback: string, language: string): string[] {
+function parseDisplayedSpeechMessages(content: string, fallback: string, language: string): string[] {
   const parsed = extractJsonObject(content);
   if (!parsed) {
     if (isSpeechJsonLeak(content)) {
@@ -1277,27 +1228,179 @@ function speechReasoningFallback(reasoning: SpeechReasoningResult, input: AgentS
   return buildLlmSpeechFallback(input, language);
 }
 
-function speechRealizationUserContent(reasoning: SpeechReasoningResult, language: string): string {
-  const payload = {
-    intent: reasoning.intent,
-    metadata: reasoning.metadata
-  };
+const speechSurfaceAnglesJa = [
+  "結論から短く言う",
+  "理由から入って最後に判断を置く",
+  "相手に呼びかけてから自分の見方を言う",
+  "投票への影響を添えて言う",
+  "保留幅を少し残してから判断を置く",
+  "前の話と比べる形で言う"
+];
+
+const speechSurfaceAnglesEn = [
+  "lead with the conclusion",
+  "start from the reason and end with the read",
+  "address the target before giving the read",
+  "tie the read to the vote",
+  "leave a small amount of uncertainty before the judgment",
+  "frame it as a comparison with the previous discussion"
+];
+
+function speechSurfaceAngles(language: string, hasPublicHistory: boolean): string[] {
+  const angles = isJapaneseLanguage(language) ? speechSurfaceAnglesJa : speechSurfaceAnglesEn;
+  if (hasPublicHistory) {
+    return angles;
+  }
+  return angles.filter((angle) => !/前の話|previous discussion/i.test(angle));
+}
+
+function stableTextIndex(parts: string[], modulo: number): number {
+  const text = parts.join("|");
+  let hash = 0;
+  for (const char of text) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return modulo > 0 ? hash % modulo : 0;
+}
+
+function speechSurfaceAngle(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
+  const angles = speechSurfaceAngles(language, input.publicHistory.length > 0);
+  const target = reasoning.intent.targetName ?? reasoning.intent.targetId ?? "";
+  return angles[stableTextIndex([input.player.id, input.player.persona, input.phase, input.task, target], angles.length)] ?? angles[0];
+}
+
+function speechSurfaceTargetName(reasoning: SpeechReasoningResult, input: AgentSpeechInput): string {
+  return reasoning.intent.targetName ?? (reasoning.intent.targetId ? targetName(reasoning.intent.targetId, input.knownPlayers) : "");
+}
+
+function speechSurfaceCore(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): { judgment: string; reason?: string } {
+  const japanese = isJapaneseLanguage(language);
+  const target = speechSurfaceTargetName(reasoning, input);
+  const reason = reasoning.intent.reason || reasoning.intent.claimAssessment || undefined;
+  const act = reasoning.intent.act ?? "";
+
+  if (japanese) {
+    if (target && /trust|信頼|信用/i.test(act)) {
+      return { judgment: `${target}を信頼寄りで見る`, reason };
+    }
+    if (target && /suspect|vote|疑|投票/i.test(act)) {
+      return { judgment: `${target}を疑い寄りで見る`, reason };
+    }
+    if (target && /private_plan/i.test(act)) {
+      return { judgment: `${target}を今夜の候補として提案する`, reason };
+    }
+    if (target && /claim|主張|hold|保留/i.test(act)) {
+      return { judgment: `${target}について今は保留する`, reason };
+    }
+    return { judgment: speechReasoningFallback(reasoning, input, language) };
+  }
+
+  if (target && /trust/i.test(act)) {
+    return { judgment: `trust-lean ${target}`, reason };
+  }
+  if (target && /suspect|vote/i.test(act)) {
+    return { judgment: `suspicion-lean ${target}`, reason };
+  }
+  if (target && /private_plan/i.test(act)) {
+    return { judgment: `propose ${target} as tonight's target`, reason };
+  }
+  if (target && /claim|hold/i.test(act)) {
+    return { judgment: `hold judgment on ${target}`, reason };
+  }
+  return { judgment: speechReasoningFallback(reasoning, input, language) };
+}
+
+function speechSurfaceClaimNotes(reasoning: SpeechReasoningResult, language: string): string[] {
+  const japanese = isJapaneseLanguage(language);
+  return reasoning.metadata.claims.flatMap((claim) => {
+    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+    const lines: string[] = [];
+    if (claim.role) {
+      lines.push(japanese ? `${roleLabel(claim.role, language)}の主張に触れる` : `mention the ${claim.role} claim`);
+    }
+    if (result) {
+      lines.push(
+        japanese
+          ? `${result.targetName ?? result.targetId}への${campLabel(result.camp, language)}判定に触れる`
+          : `mention the ${result.camp} result on ${result.targetName ?? result.targetId}`
+      );
+    }
+    if (claim.note) {
+      lines.push(claim.note);
+    }
+    return lines;
+  });
+}
+
+function speechSurfaceUserContent(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
+  const core = speechSurfaceCore(reasoning, input, language);
+  const angle = speechSurfaceAngle(reasoning, input, language);
+  const claimNotes = speechSurfaceClaimNotes(reasoning, language).slice(0, 2);
+  const recent = input.publicHistory.slice(-2);
+
   if (isJapaneseLanguage(language)) {
     return [
-      "構造化された発話意図:",
-      JSON.stringify(payload),
+      "発言メモ:",
+      `- 発言者: ${input.player.name}`,
+      `- 言い方の変化: ${angle}`,
+      `- 伝える判断: ${core.judgment}`,
+      ...(core.reason ? [`- 理由: ${core.reason}`] : []),
+      ...claimNotes.map((note) => `- 触れてよい公開情報: ${note}`),
+      ...(recent.length > 0 ? ["- 直前の発言と同じ言い回しに寄せず、違う切り出しにする"] : []),
       "",
-      "作業:",
-      "上の intent と metadata だけを、画面に表示する自然な短いセリフにしてください。新しい推理や対象は足しません。"
+      "上のメモから、この人が今言う自然な短い発言を書いてください。"
     ].join("\n");
   }
+
   return [
-    "Structured speech intent:",
-    JSON.stringify(payload),
+    "Speech notes:",
+    `- Speaker: ${input.player.name}`,
+    `- Wording variation: ${angle}`,
+    `- Judgment to express: ${core.judgment}`,
+    ...(core.reason ? [`- Reason: ${core.reason}`] : []),
+    ...claimNotes.map((note) => `- Public fact you may mention: ${note}`),
+    ...(recent.length > 0 ? ["- Use a different opening from the immediately previous public lines."] : []),
     "",
-    "Task:",
-    "Render only the supplied intent and metadata as short displayed dialogue. Do not add new reasoning or targets."
+    "Write the short natural line this player says now."
   ].join("\n");
+}
+
+function textMentionsPlayerName(text: string, name: string, language: string): boolean {
+  if (!name) {
+    return false;
+  }
+  if (isJapaneseLanguage(language)) {
+    return text.includes(name);
+  }
+  return new RegExp(`\\b${escapeRegExp(name)}\\b`, "i").test(text);
+}
+
+function surfaceAllowedNames(notes: string, input: AgentSpeechInput, language: string): Set<string> {
+  const allowed = new Set<string>([input.player.name]);
+  for (const player of input.knownPlayers) {
+    if (textMentionsPlayerName(notes, player.name, language)) {
+      allowed.add(player.name);
+    }
+  }
+  return allowed;
+}
+
+function surfaceMessagesStayWithinNotes(messages: string[], notes: string, reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): boolean {
+  if (messages.length === 0) {
+    return false;
+  }
+  const text = messages.join(" ");
+  const allowed = surfaceAllowedNames(notes, input, language);
+  for (const player of input.knownPlayers) {
+    if (!allowed.has(player.name) && textMentionsPlayerName(text, player.name, language)) {
+      return false;
+    }
+  }
+  const target = speechSurfaceTargetName(reasoning, input);
+  if (target && !textMentionsPlayerName(text, target, language)) {
+    return false;
+  }
+  return true;
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -1322,14 +1425,6 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw abortError();
   }
-}
-
-function isAbortLikeError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const message = error.message.toLowerCase();
-  return error.name === "AbortError" || message.includes("aborted") || message.includes("cancelled");
 }
 
 function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: number): Anthropic {
@@ -1564,10 +1659,11 @@ function parseTargetSelection(
     return { valid: false };
   }
 
-  const reason = clampReason(parsed.reason, "No reason provided.");
+  const reason = typeof parsed.reason === "string" ? clampReason(parsed.reason, "Selected by target id.") : "Selected by target id.";
+  const reasonKind = normalizeTargetReasonKind(parsed.reasonKind ?? parsed.kind ?? parsed.evidenceKind);
   const targetId = parsed.targetId;
   if (targetId === null || targetId === "null" || targetId === "") {
-    return allowSkip ? { valid: true, decision: { targetId: null, reason } } : { valid: false };
+    return allowSkip ? { valid: true, decision: { targetId: null, reason, reasonKind: reasonKind ?? "skip_preserve" } } : { valid: false };
   }
 
   if (typeof targetId !== "string") {
@@ -1575,7 +1671,7 @@ function parseTargetSelection(
   }
 
   const ids = new Set(candidates.map((candidate) => candidate.id));
-  return ids.has(targetId) ? { valid: true, decision: { targetId, reason } } : { valid: false };
+  return ids.has(targetId) ? { valid: true, decision: { targetId, reason, reasonKind } } : { valid: false };
 }
 
 function parseBooleanDecision(content: string): { valid: true; decision: boolean } | { valid: false } {
@@ -1587,41 +1683,138 @@ function targetName(targetId: string, candidates: TargetCandidate[]): string {
   return candidates.find((candidate) => candidate.id === targetId)?.name ?? targetId;
 }
 
-function stripTargetReasonLabel(reason: string): string {
-  const compact = reason.replace(/\s+/g, " ").trim();
-  const match = compact.match(/^(?:理由|投票理由|表示理由|実際の理由|reason)\s*[:：]\s*(.+)$/i);
-  return match ? match[1].trim() : compact;
+const targetReasonKinds = new Set<TargetReasonKind>([
+  "public_suspicion",
+  "claim_reaction",
+  "vote_reason",
+  "stance_change",
+  "weak_reason",
+  "coordination_threat",
+  "role_threat",
+  "protect_value",
+  "check_value",
+  "risk_control",
+  "skip_preserve",
+  "legal_fallback"
+]);
+
+function normalizeTargetReasonKind(value: unknown): TargetReasonKind | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return targetReasonKinds.has(normalized as TargetReasonKind) ? (normalized as TargetReasonKind) : undefined;
 }
 
-function isTargetReasonMeta(reason: string): boolean {
-  const compact = reason.replace(/\s+/g, " ").trim();
-  return /^(?:方針|戦略|作戦|内部メモ|補助メモ|推理メモ|出力|スキーマ|JSON|strategy|reasoning|analysis|target|targetId|reason)\s*[:：]/i.test(
-    compact
-  );
+function fallbackTargetReasonKind(decision: TargetDecision, phase: AgentTargetInput["phase"], action: string): TargetReasonKind {
+  if (!decision.targetId) {
+    return "skip_preserve";
+  }
+  const text = `${phase} ${action}`.toLowerCase();
+  if (text.includes("seer") || text.includes("占い")) {
+    return "check_value";
+  }
+  if (text.includes("guard") || text.includes("護衛")) {
+    return "protect_value";
+  }
+  if (text.includes("poison") || text.includes("毒")) {
+    return "risk_control";
+  }
+  if (text.includes("kill") || text.includes("attack") || text.includes("襲撃")) {
+    return "coordination_threat";
+  }
+  return phase === "voting" ? "public_suspicion" : "legal_fallback";
 }
 
-function fallbackTargetReason(decision: TargetDecision, candidates: TargetCandidate[], language: string, phase: AgentTargetInput["phase"]): string {
+function fallbackTargetReason(
+  decision: TargetDecision,
+  candidates: TargetCandidate[],
+  language: string,
+  phase: AgentTargetInput["phase"],
+  action: string
+): string {
   const target = decision.targetId ? candidates.find((candidate) => candidate.id === decision.targetId) : null;
+  const kind = decision.reasonKind ?? fallbackTargetReasonKind(decision, phase, action);
   if (isJapaneseLanguage(language)) {
     if (!target) {
-      return "今回は対象を選びません。";
+      return kind === "skip_preserve" ? "今は選ばず、後半の選択肢を残します。" : "今回は対象を選びません。";
+    }
+    if (kind === "claim_reaction") {
+      return `${target.name}は役職主張への反応がはっきりしないためです。`;
+    }
+    if (kind === "vote_reason") {
+      return `${target.name}は投票理由をもう一度確認したいためです。`;
+    }
+    if (kind === "stance_change") {
+      return `${target.name}は発言の変化が気になるためです。`;
+    }
+    if (kind === "weak_reason") {
+      return `${target.name}は理由の薄さが残るためです。`;
+    }
+    if (kind === "coordination_threat") {
+      return `${target.name}は議論をまとめる力があり、残すと人間側がまとまりやすいためです。`;
+    }
+    if (kind === "role_threat") {
+      return `${target.name}は役職情報につながる可能性が高いためです。`;
+    }
+    if (kind === "protect_value") {
+      return `${target.name}を守る価値が今の状況で高いためです。`;
+    }
+    if (kind === "check_value") {
+      return `${target.name}の立場を早めに確かめる価値があるためです。`;
+    }
+    if (kind === "risk_control") {
+      return `${target.name}を残すリスクが今の状況で大きいためです。`;
     }
     return phase === "voting"
-      ? `${target.name}は今日の発言から一番疑わしいためです。`
+      ? `${target.name}は今日の発言で一番疑いが残るためです。`
       : `${target.name}を選ぶのが今の状況で一番よいと判断しました。`;
   }
   if (!target) {
-    return "Skipping is the best available choice.";
+    return kind === "skip_preserve" ? "Skipping preserves the option for later." : "Skipping is the best available choice.";
+  }
+  if (kind === "claim_reaction") {
+    return `${target.name}'s reaction to the role claim is still unclear.`;
+  }
+  if (kind === "vote_reason") {
+    return `${target.name}'s vote reason needs another check.`;
+  }
+  if (kind === "stance_change") {
+    return `${target.name}'s public stance changed in a way that needs pressure.`;
+  }
+  if (kind === "weak_reason") {
+    return `${target.name}'s reason is still too thin.`;
+  }
+  if (kind === "coordination_threat") {
+    return `${target.name} is likely to coordinate the village if left alive.`;
+  }
+  if (kind === "role_threat") {
+    return `${target.name} is the strongest threat to expose role information.`;
+  }
+  if (kind === "protect_value") {
+    return `${target.name} is the highest-value protection target right now.`;
+  }
+  if (kind === "check_value") {
+    return `${target.name}'s alignment is worth checking early.`;
+  }
+  if (kind === "risk_control") {
+    return `${target.name} is the largest risk to leave unchecked.`;
   }
   return phase === "voting" ? `${target.name} is the most suspicious public vote.` : `${target.name} is the best available target.`;
 }
 
-function normalizeTargetDecision(decision: TargetDecision, candidates: TargetCandidate[], language: string, phase: AgentTargetInput["phase"]): TargetDecision {
-  const fallback = fallbackTargetReason(decision, candidates, language, phase);
-  const reason = stripTargetReasonLabel(clampReason(decision.reason, fallback));
+function normalizeTargetDecision(
+  decision: TargetDecision,
+  candidates: TargetCandidate[],
+  language: string,
+  phase: AgentTargetInput["phase"],
+  action: string
+): TargetDecision {
+  const reasonKind = decision.reasonKind ?? fallbackTargetReasonKind(decision, phase, action);
   return {
     ...decision,
-    reason: reason.length > 0 && !isSpeechJsonLeak(reason) && !isTargetReasonMeta(reason) ? reason : fallback
+    reasonKind,
+    reason: fallbackTargetReason({ ...decision, reasonKind }, candidates, language, phase, action)
   };
 }
 
@@ -1664,7 +1857,7 @@ function normalizeLlmSummary(content: string): string | null {
 }
 
 function naturalizeDemoText(text: string, language: string): string {
-  return stripJapaneseSpeechTerminalPeriod(sanitizeDemoJapaneseGameText(clampText(text, text), language), language);
+  return stripJapaneseSpeechTerminalPeriod(clampText(text, text), language);
 }
 
 function buildDemoSpeechMessages(parts: string[], language: string): string[] {
@@ -1677,7 +1870,7 @@ function buildDemoSpeechMessages(parts: string[], language: string): string[] {
 }
 
 function naturalizeDemoReason(text: string, language: string): string {
-  return sanitizeDemoJapaneseGameText(clampReason(text, text), language);
+  return clampReason(text, text);
 }
 
 function punctuateJapaneseSentence(text: string): string {
@@ -2018,7 +2211,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     metadata.suspects.push({
       targetId: openingTarget.id,
       targetName: openingTarget.name,
-      reason: japanese ? "初日の軽い確認として理由を聞きたい" : "light first-day pressure to test their reason",
+      reason: japanese ? "最初の返答で考えを確認したい" : "light first-day pressure to test their reason",
       weight: input.player.persona === "aggressive" ? 0.48 : 0.36
     });
   }
@@ -2152,7 +2345,7 @@ function buildIntroSystemPrompt(language: string, persona: Persona): string {
       "あなたは人狼ゲームのプレイヤーです。議論が始まる前の、ごく軽い自己紹介と挨拶をします。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       "ルール: 1〜2文の短さ。役職・陣営・占い等には触れない。誰かへの疑い・信頼・投票の話もまだしない。挨拶と人柄だけ。",
-      "重要: 『普段は〜』のような決まり文句や、毎回同じ書き出しは禁止。切り出し方は一人ひとり変え、自分の言葉で自然に。",
+      "重要: 毎回同じ書き出しに寄せず、切り出し方は一人ひとり変え、自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
@@ -2160,7 +2353,7 @@ function buildIntroSystemPrompt(language: string, persona: Persona): string {
     "You are a player in a hidden-role werewolf game, giving a very light self-introduction and greeting before the discussion begins.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     "Rules: 1-2 short sentences. Do NOT mention roles, camps, or seer results. Do NOT state suspicion, trust, or votes yet. Greeting and personality only.",
-    "Important: no stock opener like \"I usually...\"; vary how you open and use your own natural voice.",
+    "Important: vary how you open and use your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
 }
@@ -2180,7 +2373,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり名乗ってください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
       "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
-      "重要: 『普段は〜』のような決まり文句や、毎回同じ書き出しは禁止。切り出し方は自分の言葉で自然に。",
+      "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
@@ -2189,7 +2382,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
     "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
-    "Important: no stock opener like \"I usually...\"; open in your own natural voice.",
+    "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
 }
@@ -2216,7 +2409,7 @@ export class DemoAgent implements Agent {
     const persona_ = personaLabel(input.player.persona, this.language);
     const name = input.player.name;
     // Vary the opener per player (stable by id, no RNG) so the table does not read as
-    // identical templated lines, and never lead with a stock "普段は" phrase.
+    // identical templated lines.
     const variants = isJapaneseLanguage(this.language)
       ? [
           `${name}です、よろしく。${persona_}なタイプだけど仲良くやろう。`,
@@ -2454,9 +2647,7 @@ class LlmAgent implements Agent {
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     const legalPlayers = input.legalPlayers ?? input.knownPlayers;
     // The opening turn's plan does not require a forward move; pass that through so
-    // the system prompts suppress their stance-forcing guidance too (the context
-    // alone is not enough — the forcing also lives in the reasoning/realization
-    // system prompts).
+    // the reasoning system prompt suppresses its stance-forcing guidance too.
     const requiresForwardMove = input.speechPlan?.requiresForwardMove ?? true;
     const opensFirstDay = Boolean(input.speechPlan?.opensFirstDay);
     const reasoningSystem = buildSpeechReasoningSystemPrompt({
@@ -2481,7 +2672,7 @@ class LlmAgent implements Agent {
     );
     const reasoning = parseSpeechReasoning(reasoningContent, legalPlayers, this.language, input.knownPlayers);
     const fallback = speechReasoningFallback(reasoning, input, this.language);
-    const realizationSystem = buildSpeechRealizationSystemPrompt({
+    const surfaceSystem = buildSpeechSurfaceSystemPrompt({
       player: input.player,
       phase: input.phase,
       language: this.language,
@@ -2489,22 +2680,23 @@ class LlmAgent implements Agent {
       requiresForwardMove,
       opensFirstDay
     });
-    let realizationContent: string;
+    const surfaceNotes = speechSurfaceUserContent(reasoning, input, this.language);
+    let surfaceContent: string;
     try {
-      realizationContent = await this.complete(
-        realizationSystem,
+      surfaceContent = await this.complete(
+        surfaceSystem,
         [
           {
             role: "user",
-            content: speechRealizationUserContent(reasoning, this.language)
+            content: surfaceNotes
           }
         ],
         Math.min(this.maxTokens, defaultLlmMaxTokens),
         input.abortSignal,
-        "speech.realization"
+        "speech.surface"
       );
     } catch (error) {
-      if (input.abortSignal?.aborted || isAbortLikeError(error)) {
+      if (input.abortSignal?.aborted) {
         throw error;
       }
       return {
@@ -2512,10 +2704,11 @@ class LlmAgent implements Agent {
         metadata: reasoning.metadata
       };
     }
-    const messages = parseSpeechRealizationMessages(realizationContent, fallback, this.language);
+    const messages = parseDisplayedSpeechMessages(surfaceContent, fallback, this.language);
+    const safeMessages = surfaceMessagesStayWithinNotes(messages, surfaceNotes, reasoning, input, this.language) ? messages : [];
 
     return {
-      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      messages: safeMessages.length > 0 ? safeMessages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: reasoning.metadata
     };
   }
@@ -2531,7 +2724,7 @@ class LlmAgent implements Agent {
       input.abortSignal,
       "speech.intro"
     );
-    const messages = parseSpeechRealizationMessages(content, fallback, this.language);
+    const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
     return {
       messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: { suspects: [], trusts: [], claims: [] }
@@ -2548,7 +2741,7 @@ class LlmAgent implements Agent {
       input.abortSignal,
       "speech.intro"
     );
-    const messages = parseSpeechRealizationMessages(content, fallback, this.language);
+    const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
     return {
       messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: { suspects: [], trusts: [], claims: [] }
@@ -2584,7 +2777,7 @@ class LlmAgent implements Agent {
       const content = await this.complete(system, messages, targetDecisionMaxTokens, input.abortSignal, "decision.target");
       const selection = parseTargetSelection(content, input.candidates, input.allowSkip);
       if (selection.valid) {
-        return normalizeTargetDecision(selection.decision, input.candidates, this.language, input.phase);
+        return normalizeTargetDecision(selection.decision, input.candidates, this.language, input.phase, input.action);
       }
 
       messages.push({
@@ -2599,14 +2792,16 @@ class LlmAgent implements Agent {
               "厳密な JSON だけでやり直してください。",
               `選べる対象 ID: ${input.candidates.map((candidate) => candidate.id).join(", ")}。`,
               input.allowSkip
-                ? '選ばない場合だけ {"targetId":null,"reason":"短い理由"} を使えます。'
-                : "必ず一覧にある対象 ID を一つ選んでください。"
+                ? '選ばない場合だけ {"targetId":null,"reasonKind":"skip_preserve"} を使えます。'
+                : "必ず一覧にある対象 ID と reasonKind を返してください。"
             ].join("\n")
           : [
               "Your previous response was not valid target-selection JSON or selected an illegal target.",
               "Retry with strict JSON only.",
               `Legal target ids: ${input.candidates.map((candidate) => candidate.id).join(", ")}.`,
-              input.allowSkip ? 'Use {"targetId":null,"reason":"short reason"} only if skipping.' : "You must choose one listed target id."
+              input.allowSkip
+                ? 'Use {"targetId":null,"reasonKind":"skip_preserve"} only if skipping.'
+                : "You must choose one listed target id and reasonKind."
             ].join("\n")
       });
     }

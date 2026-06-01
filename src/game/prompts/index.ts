@@ -5,8 +5,7 @@ export {
   buildPromptContext,
   buildPublicSpeechPrompt,
   buildSpeechReasoningSystemPrompt,
-  buildSpeechRealizationSystemPrompt,
-  buildSpeechSystemPrompt,
+  buildSpeechSurfaceSystemPrompt,
   buildTargetList,
   buildTargetSystemPrompt,
   getPersonaStrategy,
@@ -14,7 +13,6 @@ export {
 } from "./builder";
 export {
   booleanJsonSchemaInstruction as booleanInstruction,
-  speechJsonSchemaInstruction as speechInstruction,
   targetJsonSchemaInstruction as targetInstruction
 } from "./schemas";
 export type {

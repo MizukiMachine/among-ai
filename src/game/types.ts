@@ -124,9 +124,24 @@ export interface AgentSpeech {
   metadata: SpeechMetadata;
 }
 
+export type TargetReasonKind =
+  | "public_suspicion"
+  | "claim_reaction"
+  | "vote_reason"
+  | "stance_change"
+  | "weak_reason"
+  | "coordination_threat"
+  | "role_threat"
+  | "protect_value"
+  | "check_value"
+  | "risk_control"
+  | "skip_preserve"
+  | "legal_fallback";
+
 export interface TargetDecision {
   targetId: string | null;
   reason: string;
+  reasonKind?: TargetReasonKind;
 }
 
 export interface CharacterProfile {

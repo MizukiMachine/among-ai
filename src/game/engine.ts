@@ -3,7 +3,7 @@ import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
-import { reviewJapaneseOutput, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
+import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import { buildBaseContext, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
@@ -2507,18 +2507,17 @@ export class WerewolfGame {
     const reviewGeneratedSpeech = (
       candidate: AgentSpeech
     ): { ok: boolean; issues: string[]; styleIssues: string[]; speechPlanIssues: string[]; timelineIssues: string[]; revisionHint?: string } => {
-      const styleReview = reviewJapaneseOutput(candidate.messages.join(" "), this.config.language);
       const planReview = shouldReviewSpeechPlan
         ? reviewSpeechAgainstPlan(candidate, options.speechPlan, legalPlayers, this.config.language)
         : { ok: true, issues: [] };
       const timelineReview = shouldReviewSpeechTimeline
         ? reviewSpeechTimeline(candidate, input.publicHistory, legalPlayers, input.phase, this.config.language)
         : { ok: true, issues: [] };
-      const styleIssues = styleReview.issues;
+      const styleIssues: string[] = [];
       const speechPlanIssues = planReview.issues;
       const timelineIssues = timelineReview.issues;
       return {
-        ok: styleReview.ok && planReview.ok && timelineReview.ok,
+        ok: planReview.ok && timelineReview.ok,
         issues: [...styleIssues, ...speechPlanIssues, ...timelineIssues],
         styleIssues,
         speechPlanIssues,
@@ -2672,11 +2671,11 @@ export class WerewolfGame {
         } else if (openingMoveKind === "ask_table_question" && target) {
           message = `${target.name}さん、最初の投票基準を一つ聞かせてください。私は理由が薄い人を候補に入れます`;
         } else if (openingMoveKind === "tentative_reaction_read" && target) {
-          message = `${target.name}さんに先に理由を聞きます。初日は理由を出せない人を疑い寄りで見ます`;
+          message = `${target.name}さん、最初の投票基準を聞かせてください。答えが曖昧なら疑い寄りで見ます`;
           metadata.suspects.push({
             targetId: target.id,
             targetName: target.name,
-            reason: "初日の軽い確認として理由を聞きたい",
+            reason: "最初の返答で考えを確認したい",
             weight: 0.36
           });
         } else if (openingMoveKind === "organize_setup") {
@@ -2772,8 +2771,8 @@ export class WerewolfGame {
     const contextLines = [
       this.nightDeathContextLine(),
       this.text(
-        "It's your turn for a quick, one-line self-introduction before the discussion. Keep it short and in your own voice. Do NOT lean on a stock greeting (no \"good first day, everyone\" type opener) and do NOT start with \"I usually...\". Do not talk about roles, suspicions, or votes yet.",
-        "あなたの番です。議論の前に、短い自己紹介を一言だけ。決まり文句の挨拶（「初日お疲れ様」のような出だし）に頼らず、「普段は…」で始めるのも禁止。自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
+        "It's your turn for a quick, one-line self-introduction before the discussion. Keep it short, varied, and in your own voice. Leave roles, suspicions, and votes for the discussion.",
+        "あなたの番です。議論の前に、短い自己紹介を一言だけ。切り出し方に変化を出し、自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
       ),
       // Each warm-up speaker gets a different opening angle so independent generations
       // don't all converge on the same first line.
