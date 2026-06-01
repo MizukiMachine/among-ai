@@ -1528,7 +1528,7 @@ test("speech sanitization drops claim metadata not supported by displayed text",
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Werewolf" }]);
   const sanitizer = game as unknown as {
-    sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech;
+    sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): AgentSpeech;
   };
   const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
 
@@ -1541,9 +1541,24 @@ test("speech sanitization drops claim metadata not supported by displayed text",
         claims: [{ type: "role_claim", role: "Seer" }]
       }
     },
-    legalPlayers
+    legalPlayers,
+    players[0]
   );
   assert.deepEqual(policyTalk.metadata.claims, []);
+
+  const reportedOtherPlayerClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`${players[1].name}さんが占い師を主張しましたが、初日で結果が出ていない以上、今はまだ保留ですね`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [{ type: "role_claim", role: "Seer" }]
+      }
+    },
+    legalPlayers,
+    players[0]
+  );
+  assert.deepEqual(reportedOtherPlayerClaim.metadata.claims, []);
 
   const visibleClaim = sanitizer.sanitizeSpeechForPhase(
     {
@@ -1560,9 +1575,30 @@ test("speech sanitization drops claim metadata not supported by displayed text",
         ]
       }
     },
-    legalPlayers
+    legalPlayers,
+    players[0]
   );
   assert.equal(visibleClaim.metadata.claims.length, 1);
+
+  const implicitOwnClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`ここで占い師を名乗ります。${players[1].name}は人間側判定です`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: { targetId: players[1].id, targetName: players[1].name, camp: "village", round: 1 }
+          }
+        ]
+      }
+    },
+    legalPlayers,
+    players[0]
+  );
+  assert.equal(implicitOwnClaim.metadata.claims.length, 1);
 });
 
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {

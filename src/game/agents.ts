@@ -1,6 +1,6 @@
 import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
-import { detectDaySituations, textHasRoleClaimEvidence, type DaySituation } from "./daySituations";
+import { claimedRoleBySpeakerFromText, detectDaySituations, type DaySituation } from "./daySituations";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
   buildTargetList,
@@ -531,59 +531,12 @@ function sentenceHasTrust(sentence: string, language: string): boolean {
   return /\b(?:trust|trusted|clear|village|town|reliable|believe|white|safe|consistent)\b/iu.test(sentence);
 }
 
-function claimedRoleFromSpeech(text: string): Role | undefined {
-  const rolePatterns: Array<{ role: Role; patterns: RegExp[] }> = [
-    {
-      role: "Seer",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:the )?Seer|Seer claim(?:ed|s)?|claim(?:ed|ing)? (?:to be )?(?:the )?Seer)\b/iu,
-        /占い(?:師)?CO|占い師を主張|占い師として|占い師を名乗|(?:私|僕|俺|自分|こちら)(?:は|が)?占い師(?:です|だ|として)/u
-      ]
-    },
-    {
-      role: "Witch",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:the )?Witch|claim(?:ed|ing)? (?:to be )?(?:the )?Witch)\b/iu,
-        /魔女(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?魔女(?:です|だ|として)/u
-      ]
-    },
-    {
-      role: "Guard",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:the )?Guard|claim(?:ed|ing)? (?:to be )?(?:the )?Guard)\b/iu,
-        /(?:騎士|狩人)(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?(?:騎士|狩人)(?:です|だ|として)/u
-      ]
-    },
-    {
-      role: "Hunter",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:the )?Hunter|claim(?:ed|ing)? (?:to be )?(?:the )?Hunter)\b/iu,
-        /ハンター(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?ハンター(?:です|だ|として)/u
-      ]
-    },
-    {
-      role: "Raven",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:the )?Raven|claim(?:ed|ing)? (?:to be )?(?:the )?Raven)\b/iu,
-        /鴉(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?鴉(?:です|だ|として)/u
-      ]
-    },
-    {
-      role: "Villager",
-      patterns: [
-        /\b(?:I(?: am|'m) (?:a )?(?:Villager|villager)|I(?: am|'m) (?:on )?(?:the )?(?:village|town) side)\b/iu,
-        /(?:私|僕|俺|自分|こちら)(?:は|が)?(?:人間側|村側|村人)(?:です|だ|として|を主張)|(?:人間側|村側|村人)(?:を主張|として動く|として村を守る)/u
-      ]
-    }
-  ];
-  return rolePatterns.find(({ patterns }) => patterns.some((pattern) => pattern.test(text)))?.role;
-}
-
 function inferSpeechMetadata(messages: string[], input: AgentSpeechInput, language: string): SpeechMetadata {
   const metadata = emptySpeechMetadata();
   const text = messages.join(" ");
   const sentences = messages.flatMap(splitSpeechText);
   const targets = (input.legalPlayers ?? input.knownPlayers).filter((target) => target.id !== input.player.id);
+  const otherPlayerNames = targets.map((target) => target.name);
   const seenSuspects = new Set<string>();
   const seenTrusts = new Set<string>();
 
@@ -612,16 +565,11 @@ function inferSpeechMetadata(messages: string[], input: AgentSpeechInput, langua
     }
   }
 
-  const claimedRole = claimedRoleFromSpeech(text);
+  const claimedRole = claimedRoleBySpeakerFromText(text, language, input.player.name, otherPlayerNames);
   if (claimedRole) {
     metadata.claims.push({
       type: "role_claim",
       role: claimedRole,
-      note: metadataReason(text)
-    });
-  } else if (textHasRoleClaimEvidence(text)) {
-    metadata.claims.push({
-      type: "generic",
       note: metadataReason(text)
     });
   }
