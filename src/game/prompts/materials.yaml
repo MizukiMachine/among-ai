@@ -512,26 +512,6 @@ roundSummary:
   sourcePolicy: Use only the structured public round data and the deterministic summary as source material.
 
 outputFormats:
-  speechReasoningJson:
-    instruction: >-
-      Return strict JSON only, with no markdown. This is the reasoning step, not
-      the displayed dialogue. Shape:
-      {"intent":{"act":"suspect|trust|hold|vote_candidate|claim_judgment|claim|defense|private_plan","targetId":"player_id_or_null","stance":"short stance"},"suspects":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"speech_timing|stance_change|weak_reason|vote|claim_timing|claim_reaction|seer_result|night_result|participation|consistency|first_day_tentative|other","sourceId":"player_id_or_null","claimantId":"player_id_or_null","resultTargetId":"player_id_or_null","resultCamp":"village_or_werewolf","round":1}}],"trusts":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"consistency","sourceId":"player_id_or_null"}}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1}}]}
-      Do not include messages, dialogue, stage directions, or prose. Use all
-      supplied public metadata and visible facts as reasoning material. Only use
-      listed living read target ids for suspects and trusts. Dead players may be
-      included in claim-result metadata only as historical results. Prefer
-      structured evidence over free-form reasons; evidence is the source of truth
-      for later dialogue rendering.
-    japaneseInstruction: >-
-      厳密な JSON だけを返してください。これは推理段階であり、画面に出るセリフではありません。形:
-      {"intent":{"act":"suspect|trust|hold|vote_candidate|claim_judgment|claim|defense|private_plan","targetId":"player_id_or_null","stance":"短い立場"},"suspects":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"speech_timing|stance_change|weak_reason|vote|claim_timing|claim_reaction|seer_result|night_result|participation|consistency|first_day_tentative|other","sourceId":"player_id_or_null","claimantId":"player_id_or_null","resultTargetId":"player_id_or_null","resultCamp":"village_or_werewolf","round":1}}],"trusts":[{"targetId":"player_id","weight":0.0,"evidence":{"kind":"consistency","sourceId":"player_id_or_null"}}],"claims":[{"type":"role_claim","role":"Seer","result":{"targetId":"player_id","camp":"werewolf","round":1}}]}
-      messages、セリフ、口調、演出、説明文は入れません。公開メタデータと見えている事実を推理材料として使います。
-      suspects と trusts は、下に示された生存者 ID だけを使います。死亡者は過去の死亡、前日の投票、
-      過去の占い結果として claims の補足にだけ入れます。自由文の理由より evidence を優先し、
-      コード側の発言生成は evidence を事実の出典として使います。claims は今回の画面に出す発言で
-      実際に役職CO、役職主張、占い結果、薬情報を明示する場合だけ入れます。占い師が名乗る条件や
-      役職露出の方針相談は claims に入れません。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:
@@ -566,30 +546,6 @@ languageStyles:
       - "投票まわりは「投票する」「吊る」「投票先」と言う。"
       - "人狼の夜会話では「襲撃する」「噛む」を使う。"
       - "状況説明は「状況」「今の流れ」「今日の話」を中心にする。"
-    publicSpeech:
-      systemPreamble:
-        - "あなたは短い昼議論の中で発言する人狼ゲームの参加者です。"
-        - "下の情報は、セリフを作るための材料です。画面に出るのは JSON の messages に入れた文だけです。"
-      boundary:
-        - "公開の昼発言として、全員に聞こえてよい内容だけを話す。"
-        - "自分だけが知る役職情報は、名乗ると決めた時以外は伏せる。"
-        - "死亡者は返答も投票もできないため、過去の材料としてだけ触れる。"
-        - "誰かの発言、反応、矛盾、タイミング、発言内容の薄さを材料にする時は、見えている会話やタスク情報にあるものだけ使う。"
-        - "公開されていないメモ、仲間だけの相談、夜の対象は公開発言の材料にしない。"
-        - "役職を名乗る時や結果を出す時は、ゲーム内の発言として自然な理由と順番で話す。"
-        - "キャラクター設定や発言例は口調の材料であり、この試合で実際に起きた発言や行動として引用しない。"
-      phaseGuidance:
-        - "昼議論は短い発言を数回交わす形式です。"
-        - "自分に疑いが向いているなら、先に短く答えてから自分の読みを更新する。"
-        - "既に同じ疑い・信頼が続いている時は、同じ言い方を重ねず、別候補、役職主張への判断、投票方針へ話を進める。"
-        - "今の疑い先、信頼先、投票候補は生存者に向ける。"
-        - "長い考えは短い文に分ける。"
-      # Stance-forcing guidance, rendered only when the speech plan requires a
-      # forward move (NOT on the round-one opening turn, where there is no public
-      # material yet to ground a read).
-      phaseGuidanceForwardMove:
-        - "質問や様子見で会話を回すより、自分の読み、投票候補、役職主張への判断を出す。"
-        - "公開情報が少ない時は、無理な疑いを作らず、発言として見えた理由や役職主張への扱い方に絞る。"
     targetDecision:
       systemPreamble:
         - "あなたは人狼ゲームの対象選択を行います。"

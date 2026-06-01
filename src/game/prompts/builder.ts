@@ -21,7 +21,6 @@ import { getRolePromptProfile } from "./roles";
 import {
   booleanJsonSchemaInstruction,
   outputFormatReminder,
-  speechReasoningJsonSchemaInstruction,
   targetJsonSchemaInstruction,
   type BuildPromptContextOptions,
   type BuildSystemPromptOptions,
@@ -239,29 +238,183 @@ function legalTargetLineForLanguage(players: TargetCandidate[] | undefined, lang
   return `選べる対象ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
 }
 
-function legalReadTargetLine(players: TargetCandidate[] | undefined): string {
-  if (!players || players.length === 0) {
-    return "Legal living read target ids for suspects/trusts: none. Keep suspects and trusts empty.";
-  }
-  return `Legal living read target ids for suspects/trusts: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}.`;
-}
-
-function legalReadTargetLineForLanguage(players: TargetCandidate[] | undefined, language: string): string {
-  if (!isJapaneseLanguage(language)) {
-    return legalReadTargetLine(players);
-  }
-  if (!players || players.length === 0) {
-    return "suspects/trusts に使える生存者ID: なし。suspects と trusts は空にしてください。";
-  }
-  return `suspects/trusts に使える生存者ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
-}
-
 export function getRoleStrategy(role: Role): string {
   return bulletList(getRolePromptProfile(role).roleStrategy);
 }
 
 export function getPersonaStrategy(persona: Persona): string {
   return bulletList(personaStrategies[persona]);
+}
+
+function simplePersonaLines(player: Player, language: string): string[] {
+  if (player.characterProfile) {
+    const profile = player.characterProfile;
+    if (isJapaneseLanguage(language)) {
+      return [
+        `- 話し方: ${profile.speechStyle}`,
+        `- 大事にすること: ${profile.values}`,
+        `- 切り出しの雰囲気: ${profile.tagline}`
+      ];
+    }
+    return [
+      `- Speaking style: ${profile.speechStyle}`,
+      `- Values: ${profile.values}`,
+      `- Opening feel: ${profile.tagline}`
+    ];
+  }
+
+  if (isJapaneseLanguage(language)) {
+    return [
+      `- 表向きの性格: ${personaHeading(player.persona, language)}`,
+      ...personaDetails[player.persona].speechStyle.map((line) => `- ${line}`),
+      ...personaDetails[player.persona].principles.map((line) => `- ${line}`)
+    ];
+  }
+
+  return [
+    `- Public persona: ${player.persona}`,
+    ...personaDetails[player.persona].speechStyle.map((line) => `- ${line}`),
+    ...personaDetails[player.persona].principles.map((line) => `- ${line}`)
+  ];
+}
+
+function simplePublicSpeechRules(phase: Phase, role: Role, language: string): string[] {
+  const werewolfRole = isWerewolfRole(role);
+  if (isJapaneseLanguage(language)) {
+    const visibilityRule =
+      phase === "werewolf_discussion"
+        ? "ここは人狼陣営だけの会話です。仲間には正体を隠さなくてよい。"
+        : werewolfRole
+          ? "公開の場では、人狼であること、仲間、夜の相談は漏らさない。人間側として自然に話す。"
+          : "公開の場では、役職を明かすか伏せるかを状況で判断する。";
+    return [
+      "これまでの会話を踏まえて、自然に次の発言をする。",
+      visibilityRule,
+      "見えていない発言、反応、矛盾、役職主張を事実として作らない。",
+      "出力は画面に出すあなたの発言だけ。説明やJSONは不要。",
+      "短い1文、必要な時だけ2文にする。"
+    ];
+  }
+
+  const visibilityRule =
+    phase === "werewolf_discussion"
+      ? "This is werewolf-team private talk; you do not need to hide your identity from allies."
+      : werewolfRole
+        ? "In public, do not reveal that you are a werewolf, your allies, or wolf-only discussion. Sound like a natural villager."
+        : "In public, decide from the situation whether to claim, hide, or withhold your role information.";
+  return [
+    "Use the conversation so far and say the next natural line.",
+    visibilityRule,
+    "Do not invent unseen statements, reactions, contradictions, or role claims.",
+    "Output only your spoken line. No explanation or JSON.",
+    "Use one short sentence, or two only when useful."
+  ];
+}
+
+function isPublicSpeechControlLine(line: string): boolean {
+  const trimmed = line.trim();
+  return (
+    /^Discussion pass \d+ of \d+\./i.test(trimmed) ||
+    /^Follow-up pass for selected speakers/i.test(trimmed) ||
+    /^(?:First|Second) pass:/i.test(trimmed) ||
+    /^Final follow-up:/i.test(trimmed) ||
+    /^First-day opening mode:/i.test(trimmed) ||
+    /^Recent public reads already used by other players:/i.test(trimmed) ||
+    /^Avoid repeated table angles:/i.test(trimmed) ||
+    /^- (?:Do not merely repeat|If you agree|If several players)/i.test(trimmed) ||
+    /^昼議論 \d+巡目 \/ \d+巡。/u.test(trimmed) ||
+    /^2巡後に必要な人だけが行う追加発言です。/u.test(trimmed) ||
+    /^(?:1|2)巡目:/u.test(trimmed) ||
+    /^追加発言:/u.test(trimmed) ||
+    /^初日特別モード:/u.test(trimmed) ||
+    /^他プレイヤーが直近で既に出した読み:/u.test(trimmed) ||
+    /^発言の重複を避ける:/u.test(trimmed) ||
+    /^- (?:同じ対象|同意する時|既に複数人)/u.test(trimmed)
+  );
+}
+
+function publicSpeechSituationLines(extra: string[]): string[] {
+  return recentLines(
+    extra.filter((line) => line.trim().length > 0 && !isPublicSpeechControlLine(line)),
+    8
+  );
+}
+
+function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): string {
+  const {
+    player,
+    phase,
+    round,
+    alivePlayers,
+    deadPlayers,
+    publicHistory,
+    privateHistory,
+    language = defaultLanguage,
+    secret,
+    extra = []
+  } = options;
+  const japanese = isJapaneseLanguage(language);
+  const recentPublicHistory = publicHistory.length > 0 ? recentLines(publicHistory, 24) : [japanese ? "- まだありません。" : "- None yet."];
+  const visibleSituation = publicSpeechSituationLines(extra);
+  const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : [japanese ? "- なし。" : "- None."];
+
+  if (japanese) {
+    return [
+      `あなたは${player.name}です。`,
+      "",
+      "人物設定:",
+      ...simplePersonaLines(player, language),
+      "",
+      "役職:",
+      `- ${roleLabel(player.role, language)}`,
+      ...roleVisiblePrivateInfo(player.role, secret, language),
+      "",
+      "現在の状況:",
+      `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+      `- 生存者: ${formatPlayers(alivePlayers)}。`,
+      deadPlayers.length > 0
+        ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+        : "- 死亡者: なし。",
+      ...visibleSituation,
+      "",
+      "これまでの会話:",
+      ...recentPublicHistory,
+      "",
+      "自分の記憶:",
+      ...privateMemory,
+      "",
+      "発言ルール:",
+      ...simplePublicSpeechRules(phase, player.role, language).map((line) => `- ${line}`)
+    ].join("\n");
+  }
+
+  return [
+    `You are ${player.name}.`,
+    "",
+    "Character:",
+    ...simplePersonaLines(player, language),
+    "",
+    "Role:",
+    `- ${roleLabel(player.role, language)}`,
+    ...roleVisiblePrivateInfo(player.role, secret, language),
+    "",
+    "Current situation:",
+    `- ${phaseHeading(phase, language)}, round ${round}.`,
+    `- Alive players: ${formatPlayers(alivePlayers)}.`,
+    deadPlayers.length > 0
+      ? `- Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
+      : "- Dead players: none.",
+    ...visibleSituation,
+    "",
+    "Conversation so far:",
+    ...recentPublicHistory,
+    "",
+    "Your memory:",
+    ...privateMemory,
+    "",
+    "Speech rules:",
+    ...simplePublicSpeechRules(phase, player.role, language).map((line) => `- ${line}`)
+  ].join("\n");
 }
 
 export function buildPromptContext(options: BuildPromptContextOptions): string {
@@ -281,14 +434,9 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const mode = options.mode ?? promptModeFromGamePhase(phase);
   const profile = getRolePromptProfile(player.role);
   const japanese = isJapaneseLanguage(language);
-  const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
-  if (japanese && mode === "public_speech") {
-    return buildJapanesePublicSpeechContext({
-      ...options,
-      promptPhase,
-      mode
-    });
+  if (mode === "public_speech") {
+    return buildSimplePublicSpeechContext(options);
   }
   if (japanese && mode === "internal_decision" && promptPhase === "voting") {
     return buildJapaneseVotingDecisionContext({
@@ -304,7 +452,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     japanese
       ? `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`
       : `Current phase: ${phase}. Round: ${round}.`,
-    `Prompt mode: ${mode === "public_speech" ? "public speech" : "internal decision"}.`,
+    "Prompt mode: internal decision.",
     "",
     "Information boundary:",
     bulletList(commonBoundaryLines(mode)),
@@ -337,12 +485,6 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     deadPlayers.length > 0
       ? `Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
       : "Dead players: none.",
-    ...(mode === "public_speech"
-      ? [
-          `Current public read targets: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}.`,
-          "Dead players are past evidence only, not current suspicion, trust, vote, or elimination targets."
-        ]
-      : []),
     "",
     "Role-visible private information:",
     ...roleVisiblePrivateInfo(player.role, secret, language),
@@ -355,18 +497,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     lines.push("", "Your private memory:", ...recentLines(privateHistory, 12));
   }
 
-  if (mode === "public_speech" && publicHistory.length === 0) {
-    lines.push(
-      "",
-      "Visible public discussion so far:",
-      "- No prior public statements are included in your visible context.",
-      firstDayOpeningMove
-        ? firstDayOpeningMove.kind === "tentative_reaction_read"
-          ? "- First-day opening mode is active: use only the assigned tentative posture/reaction spark, and do not cite prior public statements as visible facts."
-          : "- First-day opening mode is active: use only the assigned spark, and do not cite prior public statements that are not visible."
-        : "- Do not describe any specific player's earlier statement, reaction, contradiction, speaking volume, or vagueness as observed evidence yet."
-    );
-  } else if (publicHistory.length > 0) {
+  if (publicHistory.length > 0) {
     lines.push(
       "",
       "Recent public discussion:",
@@ -378,113 +509,6 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
 
   if (extra.length > 0) {
     lines.push("", "Task-specific visible context:", ...extra);
-  }
-
-  return lines.join("\n");
-}
-
-function buildJapanesePublicSpeechContext(options: BuildPromptContextOptions): string {
-  const {
-    player,
-    phase,
-    round,
-    alivePlayers,
-    deadPlayers,
-    publicHistory,
-    privateHistory,
-    language = defaultLanguage,
-    secret,
-    extra = []
-  } = options;
-  const profile = getRolePromptProfile(player.role);
-  const firstDayOpeningMove = options.speechPlan?.firstDayOpeningMove;
-  // When the plan does not require a forward move (especially the round-one opening
-  // turn) the empty-history prompt must not force a suspicion/vote; it permits a
-  // non-conclusory opening instead.
-  const requiresForwardMove = options.speechPlan?.requiresForwardMove ?? true;
-  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
-  const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
-  const lines = [
-    `あなたは${player.name}です。`,
-    `役職: ${roleLabel(player.role, language)}。`,
-    `表向きの性格: ${personaHeading(player.persona, language)}。`,
-    `現在: ${phaseHeading(phase, language)}、第${round}ラウンド。`,
-    "",
-    "昼の発言の前提:",
-    bulletList(publicSpeech.boundary),
-    "",
-    "役職ごとの発言方針:",
-    bulletList(profile.publicSpeechGuidanceJa),
-    "",
-    "昼議論で意識すること:",
-    bulletList(publicSpeech.phaseGuidance),
-    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
-    ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
-    ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
-    "",
-    "人物の話し方:",
-    ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
-    "",
-    "人物として大事にすること:",
-    ...personaDetails[player.persona].principles.map((s) => `- ${s}`),
-    ...(player.characterProfile
-      ? [
-          "",
-          "キャラクターの声:",
-          ...characterVoiceSection(player.characterProfile).split("\n")
-        ]
-      : []),
-    "",
-    `生存者: ${formatPlayers(alivePlayers)}。`,
-    deadPlayers.length > 0
-      ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
-      : "死亡者: なし。",
-    `今、疑い・信頼・投票前の読みを向けられる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
-    "死亡者は過去の材料としてだけ扱い、今の疑い先、信頼先、投票先にはしません。",
-    "",
-    "自分だけが見える役職情報:",
-    ...roleVisiblePrivateInfo(player.role, secret, language)
-  ];
-
-  if (privateHistory.length > 0) {
-    lines.push("", "自分の記憶:", ...recentLines(privateHistory, 12));
-  }
-
-  if (publicHistory.length === 0) {
-    lines.push(
-      "",
-      "見えている昼の発言:",
-      "- まだ、この昼の発言はありません。",
-      firstDayOpeningMove
-        ? firstDayOpeningMove.kind === "tentative_reaction_read"
-          ? "- 初日特別モードが有効です。割り当てられた名指し質問だけを火種にし、見えていない発言内容や反応は引用しない。"
-          : "- 初日特別モードが有効です。割り当てられた方針だけを火種にし、見えていない発言は引用しない。"
-        : "- 見えていない会話内容や反応を、既に見た根拠として扱わない。",
-      firstDayOpeningMove?.kind === "tentative_reaction_read"
-        ? "- 「誰かの言う通り」「誰かの発言」「誰かの反応」のように、既に発言や反応があった事実として話さない。"
-        : "- 「誰かの言う通り」「誰かの発言」「誰かの反応」「誰かの動き」のように、既に起きた事実として話さない。",
-      ...(requiresForwardMove
-        ? [
-            "- 名前を出す場合は、人物傾向や役職印象を根拠に、暫定の疑い・信頼・投票候補のどれかまで言う。保留する時は理由と次に確認したい点も添える。",
-            "- 今後の観察だけで終えず、画面に出るセリフ内で自分の判断まで言う。"
-          ]
-        : [
-            "- まだ公開情報がないので、見えていない反応を根拠にしない。代わりに、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出す。",
-            "- 「様子見」「保留」「みんなの話を聞く」で終えない。名前を出す場合は、投票基準や役職方針など相手が今答えられる質問にし、根拠がない断定はしない。"
-          ])
-    );
-  } else {
-    lines.push(
-      "",
-      "直近の昼の発言:",
-      "- 最後の1〜2発言に、賛成・反対・補足・自分への疑いへの返答のどれかで自然につなげてから、自分の判断を言う。",
-      "- 見えている発言だけを根拠にし、見えていない反応・矛盾・役職主張・発言量は作らない。",
-      ...recentLines(publicHistory, 18)
-    );
-  }
-
-  if (extra.length > 0) {
-    lines.push("", "今回のタスクで見えている情報:", ...extra);
   }
 
   return lines.join("\n");
@@ -637,146 +661,35 @@ function japaneseTargetSystemPrompt(options: BuildSystemPromptOptions, outputIns
   return lines.join("\n");
 }
 
-function surfaceCharacterVoiceLines(options: BuildSystemPromptOptions): string[] {
+export function buildSimpleSpeechSystemPrompt(options: BuildSystemPromptOptions): string {
+  const japanese = isJapaneseLanguage(options.language);
+  const roleName = roleLabel(options.player.role, options.language);
+  const personaName = personaHeading(options.player.persona, options.language);
   const profile = options.player.characterProfile;
-  if (!profile) {
-    return [];
-  }
-  if (isJapaneseLanguage(options.language)) {
+  if (japanese) {
     return [
+      "あなたは人狼ゲームの参加者です。",
+      `あなたは${options.player.name}です。`,
+      `人物設定: ${profile ? `${profile.speechStyle}。${profile.values}` : personaName}。`,
+      `役職: ${roleName}。`,
       "",
-      "人物の口調:",
-      `- 話し方: ${profile.speechStyle}`,
-      `- 大事にすること: ${profile.values}`,
-      `- 切り出しの雰囲気: ${profile.tagline}`
-    ];
-  }
-  return [
-    "",
-    "Character voice:",
-    `- Speaking style: ${profile.speechStyle}`,
-    `- Values: ${profile.values}`,
-    `- Opening feel: ${profile.tagline}`
-  ];
-}
-
-function japaneseSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
-  const publicSpeech = promptMaterials.languageStyles.japanese.publicSpeech;
-  const profile = getRolePromptProfile(options.player.role);
-  const requiresForwardMove = options.requiresForwardMove ?? true;
-  const opensFirstDay = options.opensFirstDay ?? false;
-  const lines = [
-    "あなたは人狼ゲームの公開発話前に、発言に使う構造化判断だけを決めます。",
-    `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
-    "返答言語: 日本語。",
-    "",
-    "推理に使える境界:",
-    bulletList(publicSpeech.boundary),
-    "",
-    "役職ごとの発言方針:",
-    bulletList(profile.publicSpeechGuidanceJa),
-    "",
-    "昼議論の進め方:",
-    bulletList(publicSpeech.phaseGuidance),
-    ...(requiresForwardMove ? [bulletList(publicSpeech.phaseGuidanceForwardMove)] : []),
-    ...(requiresForwardMove
-      ? [
-          bulletList([
-            "直近の昼発言がある場合は、最後の1〜2発言への賛成、反対、補足、自分への疑いへの返答のどれかを判断に入れる。",
-            "質問や新しい話題だけで終えず、自分の疑い・信頼・保留・投票候補・役職主張への判断を一つ決める。"
-          ])
-        ]
-      : []),
-    ...(opensFirstDay
-      ? [
-          "",
-          "初日1巡目の追加ルール:",
-          bulletList([
-            "まだ強い断定はしないが、intent を hold だけにしない。",
-            "投票基準、占い師が名乗る条件、役職露出の方針、配役整理、答えやすい名指し質問のどれかで議論を動かす。",
-            "見えていない発言・反応・矛盾は根拠にしない。序盤の読みを置く場合は first_day_tentative として扱う。"
-          ])
-        ]
-      : []),
-    "",
-    promptMaterials.outputFormats.speechReasoningJson.japaneseInstruction,
-    promptMaterials.outputFormats.japaneseReminder,
-    "",
-    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
-  ];
-
-  return lines.join("\n");
-}
-
-export function buildSpeechReasoningSystemPrompt(options: BuildSystemPromptOptions): string {
-  if (isJapaneseLanguage(options.language)) {
-    return japaneseSpeechReasoningSystemPrompt(options);
-  }
-
-  const promptPhase = promptPhaseFromGamePhase(options.phase);
-  const profile = getRolePromptProfile(options.player.role);
-  const styleGuide = japaneseStyleGuide(options.language);
-  const lines = [
-    "You are preparing the reasoning metadata for a hidden-role werewolf public statement.",
-    `You are ${options.player.name}; role=${options.player.role}; persona=${options.player.persona}.`,
-    `Respond in ${options.language}.`,
-    "",
-    "Information boundary:",
-    bulletList(commonBoundaryLines("public_speech")),
-    "",
-    "Role strategy:",
-    bulletList(profile.roleStrategy),
-    "",
-    "Phase guidance:",
-    ...phaseInstructions(profile, promptPhase),
-    ...(options.requiresForwardMove !== false
-      ? [
-          "",
-          "Conversation response rule:",
-          bulletList([
-            "If recent public statements are present, base the next judgment on agreement, disagreement, a supplement, or an answer to pressure from the last one or two visible lines.",
-            "Do not end with only a question or a new topic; state one suspicion, trust, hold, vote candidate, or claim judgment."
-          ])
-        ]
-      : []),
-    ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
-    "",
-    speechReasoningJsonSchemaInstruction,
-    outputFormatReminder,
-    "",
-    legalReadTargetLineForLanguage(options.legalPlayers, options.language)
-  ];
-
-  return lines.join("\n");
-}
-
-export function buildSpeechSurfaceSystemPrompt(options: BuildSystemPromptOptions): string {
-  if (isJapaneseLanguage(options.language)) {
-    const styleGuide = japaneseStyleGuide(options.language);
-    return [
-      "あなたは人狼ゲームの参加者が今口に出す発言文だけを書きます。",
-      `名前: ${options.player.name}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
-      "返答言語: 日本語。",
-      "",
-      "入力には、公開してよい内容だけを普通の日本語に直したメモが渡されます。",
-      "対象、理由、判断は保ち、人物の性格に合わせて言い出し方を変えてください。",
-      "メモにない人物名、役職結果、出来事、理由、対象は足しません。",
-      "出力は画面に出す発言文だけです。短い1文、必要な時だけ2文にしてください。",
-      ...surfaceCharacterVoiceLines(options),
-      ...(styleGuide.length > 0 ? ["", ...styleGuide] : [])
+      "これまでの会話と自分の役職を踏まえて、自然な次の発言をしてください。",
+      "役職を明かす、隠す、嘘をつく、曖昧にする判断は状況に合わせます。",
+      "出力は画面に出す発言だけ。説明、箇条書き、JSONは不要です。",
+      "短い1文、必要な時だけ2文にしてください。"
     ].join("\n");
   }
 
   return [
-    "You write only the line this hidden-role werewolf player says now.",
-    `You are ${options.player.name}; persona=${options.player.persona}.`,
-    `Respond in ${options.language}.`,
+    "You are a player in a hidden-role werewolf game.",
+    `You are ${options.player.name}.`,
+    `Character: ${profile ? `${profile.speechStyle}. ${profile.values}` : personaName}.`,
+    `Role: ${roleName}.`,
     "",
-    "The input notes are already rewritten into public-safe facts.",
-    "Keep the target, reason, and judgment, but vary the wording to match the persona.",
-    "Do not add names, role results, events, reasons, or targets that are not in the notes.",
-    "Output only the displayed spoken line. Use one short sentence, or two only when useful.",
-    ...surfaceCharacterVoiceLines(options)
+    "Use the conversation so far and your role to say the next natural line.",
+    "Decide from the situation whether to claim, hide, lie, or stay ambiguous about role information.",
+    "Output only the spoken line. No explanation, bullets, or JSON.",
+    "Use one short sentence, or two only when useful."
   ].join("\n");
 }
 

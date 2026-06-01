@@ -1,12 +1,11 @@
 import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
-import { detectDaySituations, type DaySituation } from "./daySituations";
+import { detectDaySituations, textHasRoleClaimEvidence, type DaySituation } from "./daySituations";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
   buildTargetList,
   buildBooleanSystemPrompt,
-  buildSpeechReasoningSystemPrompt,
-  buildSpeechSurfaceSystemPrompt,
+  buildSimpleSpeechSystemPrompt,
   buildTargetSystemPrompt
 } from "./prompts";
 import { promptMaterials } from "./prompts/materials";
@@ -18,13 +17,8 @@ import type {
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
-  Camp,
-  ClaimMetadata,
   FirstDayOpeningMove,
   Persona,
-  PlayerReadMetadata,
-  ReadEvidenceKind,
-  ReadEvidenceMetadata,
   Role,
   SpeechMetadata,
   TargetCandidate,
@@ -485,13 +479,154 @@ function normalizeSpeechLine(text: string, fallback: string, language: string): 
   return stripJapaneseSpeechTerminalPeriod(clampText(text, fallback), language);
 }
 
+function stripSpeechMessageLabel(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const speechLabel = trimmed.match(/^(?:実際の発話|発話|発言|セリフ|台詞|speech|spoken line|message|line)\s*[:：]\s*(.+)$/iu);
+  if (speechLabel?.[1]) {
+    return speechLabel[1].trim();
+  }
+  if (/^(?:方針|思考|理由|分析|狙い|作戦|計画|plan|strategy|reasoning|analysis|rationale)\s*[:：]/iu.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
 function normalizeSpeechMessages(messagesSource: string[], fallback: string, language: string): string[] {
   return messagesSource
+    .map(stripSpeechMessageLabel)
+    .filter((message): message is string => Boolean(message))
     .flatMap(splitSpeechText)
     .filter((message) => message.length > 0 && !isSpeechJsonLeak(message))
     .slice(0, maxSpeechMessages)
     .map((message) => normalizeSpeechLine(message, fallback, language))
     .filter(Boolean);
+}
+
+function metadataReason(text: string): string {
+  const compact = text.replace(/\s+/g, " ").replace(/[。！？.!?]+$/u, "").trim();
+  return compact.length > 64 ? `${compact.slice(0, 61)}...` : compact;
+}
+
+function sentenceMentionsTarget(sentence: string, target: TargetCandidate): boolean {
+  const lower = sentence.toLowerCase();
+  return lower.includes(target.name.toLowerCase()) || lower.includes(target.id.toLowerCase());
+}
+
+function sentenceHasSuspicion(sentence: string, language: string): boolean {
+  if (isJapaneseLanguage(language)) {
+    return /疑|怪し|引っかか|気になる|違和感|不自然|投票候補|吊り候補|黒|人狼|狼|薄い|弱い|圧|警戒|便乗/u.test(sentence);
+  }
+  return /\b(?:suspect|suspicious|pressure|pressured|vote candidate|vote pool|wolfy|werewolf|doubt|concern|concerned|shaky|thin|weak|push|scum)\b/iu.test(
+    sentence
+  );
+}
+
+function sentenceHasTrust(sentence: string, language: string): boolean {
+  if (isJapaneseLanguage(language)) {
+    return /信頼|信用|白|人間側|村側|村っぽ|信じ|一貫|頼り|安心/u.test(sentence);
+  }
+  return /\b(?:trust|trusted|clear|village|town|reliable|believe|white|safe|consistent)\b/iu.test(sentence);
+}
+
+function claimedRoleFromSpeech(text: string): Role | undefined {
+  const rolePatterns: Array<{ role: Role; patterns: RegExp[] }> = [
+    {
+      role: "Seer",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:the )?Seer|Seer claim(?:ed|s)?|claim(?:ed|ing)? (?:to be )?(?:the )?Seer)\b/iu,
+        /占い(?:師)?CO|占い師を主張|占い師として|占い師を名乗|(?:私|僕|俺|自分|こちら)(?:は|が)?占い師(?:です|だ|として)/u
+      ]
+    },
+    {
+      role: "Witch",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:the )?Witch|claim(?:ed|ing)? (?:to be )?(?:the )?Witch)\b/iu,
+        /魔女(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?魔女(?:です|だ|として)/u
+      ]
+    },
+    {
+      role: "Guard",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:the )?Guard|claim(?:ed|ing)? (?:to be )?(?:the )?Guard)\b/iu,
+        /(?:騎士|狩人)(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?(?:騎士|狩人)(?:です|だ|として)/u
+      ]
+    },
+    {
+      role: "Hunter",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:the )?Hunter|claim(?:ed|ing)? (?:to be )?(?:the )?Hunter)\b/iu,
+        /ハンター(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?ハンター(?:です|だ|として)/u
+      ]
+    },
+    {
+      role: "Raven",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:the )?Raven|claim(?:ed|ing)? (?:to be )?(?:the )?Raven)\b/iu,
+        /鴉(?:CO|を主張|として|を名乗)|(?:私|僕|俺|自分|こちら)(?:は|が)?鴉(?:です|だ|として)/u
+      ]
+    },
+    {
+      role: "Villager",
+      patterns: [
+        /\b(?:I(?: am|'m) (?:a )?(?:Villager|villager)|I(?: am|'m) (?:on )?(?:the )?(?:village|town) side)\b/iu,
+        /(?:私|僕|俺|自分|こちら)(?:は|が)?(?:人間側|村側|村人)(?:です|だ|として|を主張)|(?:人間側|村側|村人)(?:を主張|として動く|として村を守る)/u
+      ]
+    }
+  ];
+  return rolePatterns.find(({ patterns }) => patterns.some((pattern) => pattern.test(text)))?.role;
+}
+
+function inferSpeechMetadata(messages: string[], input: AgentSpeechInput, language: string): SpeechMetadata {
+  const metadata = emptySpeechMetadata();
+  const text = messages.join(" ");
+  const sentences = messages.flatMap(splitSpeechText);
+  const targets = (input.legalPlayers ?? input.knownPlayers).filter((target) => target.id !== input.player.id);
+  const seenSuspects = new Set<string>();
+  const seenTrusts = new Set<string>();
+
+  for (const sentence of sentences) {
+    for (const target of targets) {
+      if (!sentenceMentionsTarget(sentence, target)) {
+        continue;
+      }
+      if (!seenSuspects.has(target.id) && sentenceHasSuspicion(sentence, language)) {
+        seenSuspects.add(target.id);
+        metadata.suspects.push({
+          targetId: target.id,
+          targetName: target.name,
+          reason: metadataReason(sentence),
+          weight: 0.55
+        });
+      } else if (!seenTrusts.has(target.id) && sentenceHasTrust(sentence, language)) {
+        seenTrusts.add(target.id);
+        metadata.trusts.push({
+          targetId: target.id,
+          targetName: target.name,
+          reason: metadataReason(sentence),
+          weight: 0.5
+        });
+      }
+    }
+  }
+
+  const claimedRole = claimedRoleFromSpeech(text);
+  if (claimedRole) {
+    metadata.claims.push({
+      type: "role_claim",
+      role: claimedRole,
+      note: metadataReason(text)
+    });
+  } else if (textHasRoleClaimEvidence(text)) {
+    metadata.claims.push({
+      type: "generic",
+      note: metadataReason(text)
+    });
+  }
+
+  return metadata;
 }
 
 function readJsonStringLiteral(text: string, startIndex: number): { value: string; endIndex: number } | null {
@@ -624,10 +759,6 @@ function tryParseJson(text: string): Record<string, unknown> | null {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function emptySpeechMetadata(): SpeechMetadata {
   return {
     suspects: [],
@@ -636,1019 +767,22 @@ function emptySpeechMetadata(): SpeechMetadata {
   };
 }
 
-function candidateById(candidates: TargetCandidate[]): Map<string, TargetCandidate> {
-  return new Map(candidates.map((candidate) => [candidate.id, candidate]));
-}
-
-function isRole(value: unknown): value is Role {
-  return (
-    value === "Werewolf" ||
-    value === "AlphaWolf" ||
-    value === "WolfBeauty" ||
-    value === "Seer" ||
-    value === "Witch" ||
-    value === "Guard" ||
-    value === "Hunter" ||
-    value === "Raven" ||
-    value === "Idiot" ||
-    value === "Elder" ||
-    value === "Lover" ||
-    value === "Jester" ||
-    value === "Villager"
-  );
-}
-
-function isCamp(value: unknown): value is Camp {
-  return value === "werewolf" || value === "village";
-}
-
-function normalizeWeight(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return Math.max(0, Math.min(1, value));
-}
-
-const readEvidenceKindAliases: Record<string, ReadEvidenceKind> = {
-  speech_timing: "speech_timing",
-  timing: "speech_timing",
-  stance_change: "stance_change",
-  changed_stance: "stance_change",
-  weak_reason: "weak_reason",
-  thin_reason: "weak_reason",
-  vote: "vote",
-  voting: "vote",
-  claim_timing: "claim_timing",
-  claim_reaction: "claim_reaction",
-  seer_result: "seer_result",
-  white_result: "seer_result",
-  black_result: "seer_result",
-  night_result: "night_result",
-  participation: "participation",
-  consistency: "consistency",
-  first_day_tentative: "first_day_tentative",
-  other: "other"
-};
-
-function normalizeReadEvidenceKind(value: unknown): ReadEvidenceKind | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  return readEvidenceKindAliases[value.trim().toLowerCase().replace(/[\s-]+/g, "_")];
-}
-
-function candidateRef(
-  raw: Record<string, unknown>,
-  idKey: string,
-  nameKey: string,
-  candidates: TargetCandidate[]
-): { id?: string; name?: string } {
-  const byId = candidateById(candidates);
-  const idValue = raw[idKey];
-  if (typeof idValue === "string" && byId.has(idValue)) {
-    const candidate = byId.get(idValue);
-    return { id: idValue, name: candidate?.name };
-  }
-
-  const nameValue = raw[nameKey];
-  if (typeof nameValue === "string") {
-    const candidate = candidates.find((item) => item.name === nameValue.trim());
-    if (candidate) {
-      return { id: candidate.id, name: candidate.name };
-    }
-  }
-
-  return {};
-}
-
-function normalizeReadEvidence(value: unknown, candidates: TargetCandidate[]): ReadEvidenceMetadata | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const kind = normalizeReadEvidenceKind(value.kind ?? value.type);
-  if (!kind) {
-    return undefined;
-  }
-  const source = candidateRef(value, "sourceId", "sourceName", candidates);
-  const claimant = candidateRef(value, "claimantId", "claimantName", candidates);
-  const resultTarget = candidateRef(value, "resultTargetId", "resultTargetName", candidates);
-  const resultCamp = isCamp(value.resultCamp) ? value.resultCamp : isCamp(value.camp) ? value.camp : undefined;
-  const round = typeof value.round === "number" && Number.isFinite(value.round) ? Math.max(1, Math.floor(value.round)) : undefined;
-  return {
-    kind,
-    sourceId: source.id,
-    sourceName: source.name,
-    claimantId: claimant.id,
-    claimantName: claimant.name,
-    resultTargetId: resultTarget.id,
-    resultTargetName: resultTarget.name,
-    resultCamp,
-    round
-  };
-}
-
-function chooseReasonVariant(variants: string[], seedParts: string[]): string {
-  return variants[stableTextIndex(seedParts, variants.length)] ?? variants[0] ?? "";
-}
-
-function readReasonSeed(kind: "suspect" | "trust", targetId: string, evidence: ReadEvidenceMetadata | undefined): string[] {
-  return [
-    kind,
-    targetId,
-    evidence?.kind ?? "none",
-    evidence?.sourceId ?? "",
-    evidence?.claimantId ?? "",
-    evidence?.resultTargetId ?? "",
-    evidence?.resultCamp ?? "",
-    evidence?.round ? String(evidence.round) : ""
-  ];
-}
-
-function japaneseGenericReadReasons(kind: "suspect" | "trust"): string[] {
-  return kind === "suspect"
-    ? [
-        "今日の発言で確認したい点がある",
-        "今の立場をもう少し聞きたい",
-        "判断材料を増やすために一度圧をかけたい",
-        "投票前に理由をはっきりさせたい",
-        "曖昧なまま残すと票が流れそう",
-        "最初に置くならここを確認したい",
-        "議論の軸として返答を見たい",
-        "まだ白く置く理由が足りない",
-        "考え方を一段深く聞きたい",
-        "今日の見方を言葉にしてもらいたい",
-        "他の候補と比べるために反応を取りたい",
-        "ここを放置すると投票理由がぼやける"
-      ]
-    : [
-        "今日の立場が比較的はっきりしている",
-        "考えの出し方が見えやすい",
-        "今のところ判断の軸が読みやすい",
-        "発言から投票方針が追いやすい",
-        "議論への入り方に無理が少ない",
-        "一旦村側に寄せて扱いやすい",
-        "考えを隠している感じが薄い",
-        "他の候補より見方を説明しやすい",
-        "現時点では疑いを急がなくてよい",
-        "返答の方向が比較的整理されている",
-        "投票理由を後で検証しやすい",
-        "議論の進め方に筋がある"
-      ];
-}
-
-function englishGenericReadReasons(kind: "suspect" | "trust"): string[] {
-  return kind === "suspect"
-    ? [
-        "public stance needs pressure",
-        "their position needs one more clear answer",
-        "the table should test that read before voting",
-        "their vote reason needs to be pinned down",
-        "leaving that slot vague would muddy the vote",
-        "that is the read I most want clarified today",
-        "their reasoning needs another step",
-        "there is not enough there to call them clear yet",
-        "their view should be put into words before the vote",
-        "that slot is the best pressure point right now",
-        "their answer will help separate the vote options",
-        "the case around them still needs structure"
-      ]
-    : [
-        "public stance is comparatively clear",
-        "their reasoning is easy to track",
-        "their vote direction is visible enough for now",
-        "their table position has a clear shape",
-        "their entry into the discussion looks low-risk",
-        "I can follow their stated priorities",
-        "they are not hiding the core of their read",
-        "their stance is easier to revisit tomorrow",
-        "I do not need to rush suspicion there yet",
-        "their response is comparatively organized",
-        "their vote reason will be testable later",
-        "their discussion path has a coherent line"
-      ];
-}
-
-function japaneseReadReasonVariants(kind: "suspect" | "trust", evidence: ReadEvidenceMetadata, language: string): string[] {
-  if (evidence.kind === "seer_result") {
-    const claimant = evidence.claimantName ?? evidence.sourceName;
-    const resultTarget = evidence.resultTargetName;
-    const camp = evidence.resultCamp ? campLabel(evidence.resultCamp, language) : undefined;
-    if (claimant && resultTarget && camp) {
-      return kind === "suspect"
-        ? [
-            `${claimant}が${resultTarget}を${camp}だと言った後の反応`,
-            `${claimant}の${resultTarget}への${camp}判定を受けた返答`,
-            `${claimant}の判定に対する立場の出し方`,
-            `${resultTarget}への${camp}判定をどう扱うかが曖昧`,
-            `${claimant}の結果まわりで態度を見たい`,
-            `${resultTarget}判定への反応が投票理由に直結する`,
-            `${claimant}の結果と今日の反応を並べて確認したい`,
-            `${camp}判定が出た後の距離の取り方`
-          ]
-        : [
-            `${claimant}の${resultTarget}への${camp}判定と反応が大きく崩れていない`,
-            `${claimant}の結果への返し方が落ち着いている`,
-            `${resultTarget}への${camp}判定を急に利用しすぎていない`,
-            `${claimant}の判定まわりで立場が追いやすい`,
-            `${camp}判定後の発言が比較的整理されている`,
-            `${claimant}の結果を材料として扱う姿勢が自然`,
-            `${resultTarget}判定への向き合い方に無理が少ない`,
-            `${claimant}の結果と今日の発言が大きくずれていない`
-          ];
-    }
-    if (resultTarget && camp) {
-      return kind === "suspect"
-        ? [
-            `${resultTarget}への${camp}判定への反応`,
-            `${camp}判定が出た後の立場の出し方`,
-            `${resultTarget}判定を受けた返答の弱さ`,
-            `${resultTarget}への結果をどう見るかが曖昧`,
-            `${camp}判定後の距離感を確認したい`
-          ]
-        : [
-            `${resultTarget}への${camp}判定を落ち着いて扱っている`,
-            `${camp}判定後の発言が整理されている`,
-            `${resultTarget}判定への反応に無理が少ない`,
-            `${camp}判定を急に利用しすぎていない`,
-            `${resultTarget}への結果と態度が大きくずれていない`
-          ];
-    }
-    return kind === "suspect"
-      ? [
-          "占い結果への反応",
-          "占い結果を受けた立場の出し方",
-          "判定後の距離感",
-          "結果をどう扱うかの曖昧さ",
-          "占い結果まわりの返答"
-        ]
-      : [
-          "占い結果への反応が落ち着いている",
-          "判定後の立場が整理されている",
-          "結果の扱い方に無理が少ない",
-          "占い結果を急に利用しすぎていない",
-          "結果まわりの発言が追いやすい"
-        ];
-  }
-
-  const byKind: Record<ReadEvidenceKind, { suspect: string[]; trust: string[] }> = {
-    seer_result: {
-      suspect: ["占い結果への反応"],
-      trust: ["占い結果への反応が落ち着いている"]
-    },
-    speech_timing: {
-      suspect: [
-        "出るタイミングが少し遅い",
-        "話題が固まってから乗ったように見える",
-        "先に様子を見てから立場を出したように見える",
-        "重要な話題への反応が一拍遅れている",
-        "流れが見えてから安全な位置に入ったように見える",
-        "最初の判断を避けてから発言している",
-        "発言順と内容の噛み合いを確認したい",
-        "押されてから出した意見に見える",
-        "早く言えたはずの立場が後ろに回っている",
-        "場の空気を見てから合わせた可能性がある"
-      ],
-      trust: [
-        "早めに立場を出している",
-        "流れが固まる前に考えを置いている",
-        "判断を後出しにしていない",
-        "話題が動く前から基準を示している",
-        "反応の遅さで逃げていない",
-        "最初の段階で見方を明かしている",
-        "発言順と内容に無理が少ない",
-        "押される前に意見を出している",
-        "場に合わせた後出しには見えにくい",
-        "早い段階の発言として検証しやすい"
-      ]
-    },
-    stance_change: {
-      suspect: [
-        "立場の変わり方を確認したい",
-        "読み替えの理由がまだ見えにくい",
-        "前の見方から急に寄せたように見える",
-        "疑い先を変えた理由が薄く見える",
-        "流れに合わせて結論を動かしたように見える",
-        "考えを変えた過程をもう一度聞きたい",
-        "昨日の見方と今日の結論に段差がある",
-        "意見変更のタイミングが都合よく見える",
-        "読みの移動が票の流れに寄りすぎている",
-        "変えた理由を説明できるか見たい",
-        "結論だけが動いて根拠が追いにくい",
-        "発言の向きが急に変わっている"
-      ],
-      trust: [
-        "見方を変えた理由が説明されている",
-        "立場の更新に筋がある",
-        "前の発言から今日の結論まで追いやすい",
-        "読み替えが新しい材料に結びついている",
-        "意見変更の理由が票だけに寄っていない",
-        "変えた部分と残した部分が分かる",
-        "昨日からの考え方が整理されている",
-        "更新した読みを言葉にできている",
-        "新情報を受けた自然な見直しに見える",
-        "結論の移動に説明がついている",
-        "前の立場をなかったことにしていない",
-        "読みの変化が検証しやすい"
-      ]
-    },
-    weak_reason: {
-      suspect: [
-        "根拠が結論に届いていない",
-        "投票理由の芯がまだ見えない",
-        "結論だけが先に出ていて過程を追いにくい",
-        "質問への返答が短くて判断しづらい",
-        "便乗か自分の考えかを分けたい",
-        "疑いの置き方が広すぎる",
-        "誰をどう見ているかが絞れていない",
-        "説明が一段足りない",
-        "投票先にするには理由をもう少し聞きたい",
-        "根拠の具体例がまだ足りない",
-        "言い切りの強さに比べて材料が少ない",
-        "質問に対して結論だけ返している",
-        "疑いを置く順番が見えにくい",
-        "他人の見方に乗っただけか確認したい",
-        "どの発言を重く見たのかが曖昧",
-        "投票に使うなら理由を補ってほしい",
-        "疑いの根っこをまだ出していない",
-        "判断の基準がまだ共有されていない",
-        "説明を避けて安全な言葉に寄せている",
-        "材料と結論の間に飛びがある"
-      ],
-      trust: [
-        "理由の出し方が具体的",
-        "根拠から結論まで追いやすい",
-        "投票理由として後で見返しやすい",
-        "質問への答えに自分の基準が入っている",
-        "疑い先を絞った理由が分かる",
-        "結論だけでなく過程も出している",
-        "どの点を重く見たかが明確",
-        "他人の意見に乗るだけで終わっていない",
-        "票に使える説明になっている",
-        "判断基準を隠していない",
-        "理由と対象がずれていない",
-        "疑いの根拠を短く出せている",
-        "比較したうえで立場を置いている",
-        "返答の中身が検証しやすい",
-        "発言から考えの順番が見える",
-        "根拠を一つに絞れている",
-        "投票前に見返せる理由になっている",
-        "立場の説明に余計な濁しが少ない"
-      ]
-    },
-    vote: {
-      suspect: [
-        "投票理由をもう一度聞きたい",
-        "票の向きと発言が少しずれて見える",
-        "その投票で誰が得をしたかを確認したい",
-        "前日の疑い先と投票先の差が気になる",
-        "票を集めやすい所へ寄せたように見える",
-        "投票の根拠が今日の発言とつながりにくい",
-        "終盤の票移動として理由を確認したい",
-        "孤立した票なら意図を聞きたい",
-        "投票先を選んだ順番が見えにくい",
-        "票の置き方が安全側に寄っている"
-      ],
-      trust: [
-        "投票理由が発言と合っている",
-        "票の置き方に説明がある",
-        "前日の疑い先と投票先がつながっている",
-        "投票の根拠を後から検証しやすい",
-        "票を集めやすい所へ安易に流れていない",
-        "投票先を選んだ順番が追いやすい",
-        "票の向きが今日の発言と矛盾しにくい",
-        "投票理由を隠さず出している",
-        "終盤の票として不自然さが少ない",
-        "票の置き方に責任を持っている"
-      ]
-    },
-    claim_timing: {
-      suspect: [
-        "役職を名乗ったタイミングを確認したい",
-        "名乗りが票の流れに合わせて出たように見える",
-        "出る理由が今なのかを聞きたい",
-        "結果より先にタイミングが引っかかる",
-        "吊られそうになってからの名乗りに見える",
-        "対抗の有無を見る前に信用しづらい",
-        "名乗り方が少し都合よく見える",
-        "出た順番と結果の重さを比べたい",
-        "COの理由がまだ整理されていない",
-        "名乗る条件を満たしていたか確認したい"
-      ],
-      trust: [
-        "名乗ったタイミングに説明がある",
-        "出る理由と結果の重さが合っている",
-        "COの順番が不自然には見えにくい",
-        "吊り逃れだけには見えにくい",
-        "対抗確認まで含めて見方を置ける",
-        "名乗る条件が発言と合っている",
-        "結果を出すタイミングとして理解できる",
-        "出方と今日の議題がつながっている",
-        "名乗り方に過剰な作り込みが少ない",
-        "CO後の説明が比較的追いやすい"
-      ]
-    },
-    claim_reaction: {
-      suspect: [
-        "役職主張への反応がはっきりしない",
-        "主張を急に利用しすぎている",
-        "名乗りへの距離感が曖昧",
-        "真偽を決める理由がまだ足りない",
-        "役職主張を避けて別の話に逃げたように見える",
-        "対抗や結果への触れ方が浅い",
-        "主張への評価を濁している",
-        "COをどう投票に使うかが見えない",
-        "名乗りに対する警戒が急に強すぎる",
-        "役職主張への反応が流れ任せに見える"
-      ],
-      trust: [
-        "役職主張への反応が落ち着いている",
-        "名乗りをすぐ決め打ちしていない",
-        "結果とタイミングを分けて見ている",
-        "対抗の有無まで含めて考えている",
-        "COへの距離感が自然",
-        "役職主張を投票理由に使いすぎていない",
-        "真偽を急がず確認点を出している",
-        "主張への評価が短く整理されている",
-        "名乗りを材料として慎重に扱っている",
-        "CO後の反応に大きなブレがない"
-      ]
-    },
-    night_result: {
-      suspect: [
-        "夜の結果への反応を確認したい",
-        "死亡結果を自分に都合よく使っているように見える",
-        "死体なしの説明を急ぎすぎている",
-        "誰が得をしたかへの触れ方が浅い",
-        "夜結果から投票先へのつなぎ方が強引に見える",
-        "死亡者を材料にした結論が早すぎる",
-        "複数の可能性を切るのが早い",
-        "夜結果への第一声が安全側に見える",
-        "昨夜の結果と前日の票のつながりを確認したい",
-        "死因候補を絞る根拠が足りない"
-      ],
-      trust: [
-        "夜の結果への反応が落ち着いている",
-        "死体なしの可能性を分けて考えている",
-        "死亡結果を急に利用しすぎていない",
-        "夜結果と投票理由を分けて見ている",
-        "誰が得をしたかを短く整理している",
-        "昨夜の結果から断定に飛んでいない",
-        "死因候補を広く見たうえで立場を置いている",
-        "夜結果への触れ方に無理が少ない",
-        "死亡者を現在の疑い先にしていない",
-        "夜結果と今日の発言を分けて扱えている"
-      ]
-    },
-    participation: {
-      suspect: [
-        "議論への入り方を確認したい",
-        "参加はしているが立場が見えにくい",
-        "発言量に比べて判断が出ていない",
-        "質問は多いが自分の結論が少ない",
-        "場を整理するだけで投票先が見えない",
-        "会話には入るが責任のある読みが薄い",
-        "発言の量より中身を見たい",
-        "答えやすい所だけ拾っているように見える",
-        "議論の中心を避けている可能性がある",
-        "踏み込む場面で一歩引いている"
-      ],
-      trust: [
-        "議論への入り方が見えている",
-        "参加しながら自分の立場も出している",
-        "質問と結論のバランスが取れている",
-        "場を整理しつつ投票基準も出している",
-        "発言量と判断の中身が合っている",
-        "答えるべき話題から逃げていない",
-        "議論の中心に自然に入っている",
-        "確認点を短く出せている",
-        "自分の読みを隠さず置いている",
-        "会話への参加が投票理由につながっている"
-      ]
-    },
-    consistency: {
-      suspect: [
-        "さっきの立場と今の結論が噛み合いにくい",
-        "疑い先と投票方針の間にずれがある",
-        "同じ材料から別の結論に飛んでいるように見える",
-        "主張の軸が途中で入れ替わっている",
-        "発言ごとの重視点がそろっていない",
-        "前に置いた基準と今の判断が合いにくい",
-        "説明の順番をもう一度確認したい",
-        "立場の線が途中で途切れて見える",
-        "今日の理由と前の読みがつながりにくい",
-        "判断基準が場面ごとに変わっている",
-        "発言の筋道に引っかかる部分がある",
-        "結論だけが残って理由の線が薄い"
-      ],
-      trust: [
-        "発言の筋道が追いやすい",
-        "疑い先と投票方針がそろっている",
-        "置いた基準と今日の判断が合っている",
-        "話の軸が途中で大きくぶれていない",
-        "同じ材料を同じ見方で扱えている",
-        "前の読みから今日の結論まで見える",
-        "説明の順番が自然",
-        "発言ごとの重視点がそろっている",
-        "投票理由と疑い先が近い",
-        "判断基準が場面ごとに変わっていない",
-        "今日の立場を後で検証しやすい",
-        "結論に至る線が切れていない"
-      ]
-    },
-    first_day_tentative: {
-      suspect: [
-        "最初の返答で考えを確認したい",
-        "初日の基準をどう出すか見たい",
-        "返答が曖昧なら投票候補に入れたい",
-        "最初の質問への向き合い方を見たい",
-        "序盤の立場を一つ聞いておきたい",
-        "材料が少ない分、基準の出し方を見たい",
-        "初日の火種として返答を取りたい",
-        "役職方針への姿勢を確認したい",
-        "投票理由を出せるか先に見たい",
-        "最初に逃げ道を作るかどうか見たい"
-      ],
-      trust: [
-        "最初の進め方がはっきりしている",
-        "初日の基準を先に出せている",
-        "材料が少ない中でも議題を作れている",
-        "投票理由の残し方を示している",
-        "役職方針への触れ方が整理されている",
-        "序盤の立場が見えやすい",
-        "質問だけでなく自分の基準も置いている",
-        "初日の会話を動かす内容になっている",
-        "返答しやすい形で話題を出している",
-        "様子見だけで終わっていない"
-      ]
-    },
-    other: {
-      suspect: japaneseGenericReadReasons("suspect"),
-      trust: japaneseGenericReadReasons("trust")
-    }
-  };
-
-  return byKind[evidence.kind][kind];
-}
-
-function englishReadReasonVariants(kind: "suspect" | "trust", evidence: ReadEvidenceMetadata): string[] {
-  if (evidence.kind === "seer_result") {
-    const claimant = evidence.claimantName ?? evidence.sourceName;
-    const resultTarget = evidence.resultTargetName;
-    const camp = evidence.resultCamp;
-    if (claimant && resultTarget && camp) {
-      return kind === "suspect"
-        ? [
-            `${claimant}'s ${camp} result on ${resultTarget} and the reaction to it`,
-            `the response after ${claimant}'s ${camp} result on ${resultTarget}`,
-            `how they handled ${claimant}'s check on ${resultTarget}`,
-            `the distance they kept from the ${camp} result on ${resultTarget}`,
-            `their stance after ${claimant}'s result became visible`,
-            `whether the ${resultTarget} result is being used too easily`
-          ]
-        : [
-            `a steady response to ${claimant}'s ${camp} result on ${resultTarget}`,
-            `a measured way of handling ${claimant}'s check on ${resultTarget}`,
-            `not overusing the ${camp} result on ${resultTarget}`,
-            `a traceable stance after ${claimant}'s result`,
-            `their reaction to the ${resultTarget} result stays organized`,
-            `the check result and their stance do not pull apart`
-          ];
-    }
-    return kind === "suspect"
-      ? ["reaction to the Seer result", "how they handled the check result", "their stance after the result", "unclear distance from the result"]
-      : ["steady reaction to the Seer result", "measured handling of the check result", "organized stance after the result", "not overusing the result"];
-  }
-
-  const byKind: Record<ReadEvidenceKind, { suspect: string[]; trust: string[] }> = {
-    seer_result: {
-      suspect: ["reaction to the Seer result"],
-      trust: ["steady reaction to the Seer result"]
-    },
-    speech_timing: {
-      suspect: ["late timing", "waiting for the table before taking a stance", "a delayed reaction to the key point", "a safe-looking entry", "pressure only after the flow was clear", "their timing needs testing"],
-      trust: ["early stance timing", "speaking before the table settled", "not waiting for a safe lane", "clear timing on the first read", "a stance before pressure arrived", "timing that is easy to revisit"]
-    },
-    stance_change: {
-      suspect: ["changed public stance", "the reason for the read change is unclear", "the shift follows the vote flow too neatly", "the changed position needs another answer", "the old read and new conclusion do not line up", "their read moved faster than the evidence", "the timing of the shift is too convenient", "the change looks more tactical than explained"],
-      trust: ["consistent public stance", "the changed read is explained", "the update follows new information", "the old position and new conclusion connect", "the shift is easy to verify later", "they did not erase their earlier read", "the change has a clear reason", "their read update is organized"]
-    },
-    weak_reason: {
-      suspect: ["the reason does not reach the conclusion", "the vote case needs a clearer core", "the answer gives a conclusion without the steps", "the concrete example is still missing", "it may be follow-along rather than their own read", "the suspicion is too broad to vote on yet", "their criteria are not shared", "the explanation avoids the hard part", "the target and reason need to be tied together", "the case skips a step"],
-      trust: ["the reason is specific", "the evidence and conclusion connect", "the vote reason will be testable later", "the answer includes their own criteria", "the target and reason line up", "the explanation includes the important step", "the read is not just follow-along", "the case is narrow enough to revisit", "their reasoning path is visible", "they gave a usable vote reason"]
-    },
-    vote: {
-      suspect: ["vote reason needs pressure", "the vote and stated read do not quite match", "the vote helped the easiest wagon", "the vote target needs a fresh explanation", "the timing of the vote move needs checking", "their isolated vote should be explained", "the vote looks safer than the stated suspicion", "the vote path is hard to track"],
-      trust: ["vote reason matches the stated read", "the vote has a public reason", "the vote target follows their suspicion", "the vote can be checked tomorrow", "the vote does not look like easy wagoning", "their vote path is easy to track", "the vote and current stance connect", "the vote reason was not hidden"]
-    },
-    claim_timing: {
-      suspect: ["timing of the role claim", "the claim timing needs checking", "the claim arrived with the vote pressure", "the reason to claim now is unclear", "the claim may be too convenient", "the result and timing need to be compared", "the claim conditions need testing", "the order of the claim matters"],
-      trust: ["the claim timing has an explanation", "the claim timing fits the result", "the claim does not look purely defensive", "the claim order is understandable", "the claim conditions are consistent", "the timing is not overbuilt", "the claim links to today's agenda", "the result explains why they came out"]
-    },
-    claim_reaction: {
-      suspect: ["unclear reaction to the role claim", "they are using the claim too quickly", "their distance from the claim is vague", "the claim judgment lacks a reason", "they avoided the claim and moved elsewhere", "their counterclaim check is shallow", "their use of the claim in the vote is unclear", "the reaction follows the flow too closely"],
-      trust: ["steady reaction to the role claim", "they did not instantly hard-clear the claim", "they separated timing from result", "they considered counterclaims", "their distance from the claim is natural", "they are not overusing the claim as a vote reason", "the claim judgment is concise and testable", "their reaction did not swing wildly"]
-    },
-    night_result: {
-      suspect: ["reaction to the night result needs pressure", "they are using the death too conveniently", "they rushed the no-death explanation", "the benefit from the night result needs checking", "the night result is being tied to a vote too forcefully", "they cut off possible causes too early", "their first reaction to the night looks too safe", "the death result and prior vote need comparison"],
-      trust: ["steady reaction to the night result", "they kept multiple night explanations open", "they did not overuse the death result", "they separated the night result from the vote reason", "they did not turn the dead player into a current target", "their night-result read is measured", "the benefit question is stated clearly", "their reaction is easy to revisit tomorrow"]
-    },
-    participation: {
-      suspect: ["participation and stance need pressure", "they are active without a clear read", "questions are replacing conclusions", "they organize the table without a vote direction", "their amount of speech is not matching substance", "they may be avoiding the central issue", "they answer only the easy parts", "their participation needs a firmer stance"],
-      trust: ["participation and stance are visible", "they are active and still give a read", "their questions lead to a conclusion", "they organize the table with vote criteria", "their speech has usable substance", "they are not dodging the central issue", "their checks are concise", "their participation supports a vote reason"]
-    },
-    consistency: {
-      suspect: ["statements do not connect", "the current conclusion does not fit the earlier stance", "their suspicion and vote direction split apart", "the standard changes between cases", "the line of reasoning breaks in the middle", "their priorities shift by situation", "the explanation order needs checking", "the case loses its thread"],
-      trust: ["statements connect consistently", "the suspicion and vote direction line up", "their standard is stable across cases", "the reasoning line is easy to follow", "the current conclusion follows the earlier stance", "their priorities stay stable", "the explanation order is natural", "the case keeps its thread"]
-    },
-    first_day_tentative: {
-      suspect: ["a light first-day pressure point", "a first answer worth testing", "their opening standard needs to be heard", "a tentative check on how they handle criteria", "a light pressure read before votes settle", "their first-day posture should be clarified", "their role-policy answer needs testing", "a day-one question that can shape the vote"],
-      trust: ["a clear first-day opening standard", "a useful opening agenda", "their day-one posture is visible", "they moved the table without inventing evidence", "their opening vote criteria are usable", "their role-policy framing is organized", "they asked a question with their own standard", "their opening gives the table something to answer"]
-    },
-    other: {
-      suspect: englishGenericReadReasons("suspect"),
-      trust: englishGenericReadReasons("trust")
-    }
-  };
-
-  return byKind[evidence.kind][kind];
-}
-
-function canonicalReadReason(
-  kind: "suspect" | "trust",
-  evidence: ReadEvidenceMetadata | undefined,
-  language: string,
-  targetId = ""
-): string {
+function simpleSpeechFallbackLine(input: AgentSpeechInput, language: string): string {
   const japanese = isJapaneseLanguage(language);
-  const seedParts = readReasonSeed(kind, targetId, evidence);
-  if (!evidence) {
-    return chooseReasonVariant(japanese ? japaneseGenericReadReasons(kind) : englishGenericReadReasons(kind), seedParts);
+  if (input.phase === "werewolf_discussion" && input.player.camp === "werewolf") {
+    return japanese ? "昼は自然に人間側らしく話します" : "I will sound natural on the village side during the day.";
   }
-  return chooseReasonVariant(
-    japanese ? japaneseReadReasonVariants(kind, evidence, language) : englishReadReasonVariants(kind, evidence),
-    seedParts
-  );
+  if (input.phase === "voting") {
+    return japanese ? "今日の発言を見て投票先を決めます" : "I will vote from what was said today.";
+  }
+  return japanese ? "今は見えている発言から考えます" : "I am reading from what is visible.";
 }
 
-function normalizeRead(
-  value: unknown,
-  readCandidates: TargetCandidate[],
-  evidenceCandidates: TargetCandidate[],
-  language: string,
-  kind: "suspect" | "trust"
-): PlayerReadMetadata | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const byId = candidateById(readCandidates);
-  const raw = value as Record<string, unknown>;
-  const targetId = typeof raw.targetId === "string" ? raw.targetId : "";
-  const target = byId.get(targetId);
-  if (!target) {
-    return null;
-  }
-  const evidence = normalizeReadEvidence(raw.evidence, evidenceCandidates);
-
+export function buildSimpleFallbackSpeech(input: AgentSpeechInput, language: string = defaultLanguage): AgentSpeech {
+  const line = simpleSpeechFallbackLine(input, language);
   return {
-    targetId,
-    targetName: target.name,
-    reason: canonicalReadReason(kind, evidence, language, targetId),
-    weight: normalizeWeight(raw.weight),
-    evidence
-  };
-}
-
-function normalizeClaimResult(
-  value: unknown,
-  candidates: TargetCandidate[]
-): ClaimMetadata["result"] | undefined {
-  if (typeof value === "string") {
-    return undefined;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const byId = candidateById(candidates);
-  const raw = value as Record<string, unknown>;
-  const targetId = typeof raw.targetId === "string" ? raw.targetId : "";
-  const target = byId.get(targetId);
-  const camp = isCamp(raw.camp) ? raw.camp : undefined;
-  if (!target || !camp) {
-    return undefined;
-  }
-
-  const round = typeof raw.round === "number" && Number.isFinite(raw.round) ? Math.max(1, Math.floor(raw.round)) : undefined;
-  return {
-    targetId,
-    targetName: target.name,
-    camp,
-    round
-  };
-}
-
-function canonicalClaimNote(input: {
-  type: ClaimMetadata["type"];
-  role?: Role;
-  targetName?: string;
-  camp?: Camp;
-  result?: ClaimMetadata["result"];
-  language: string;
-}): string | undefined {
-  const japanese = isJapaneseLanguage(input.language);
-  if (input.result && typeof input.result === "object") {
-    return undefined;
-  }
-  if (input.role) {
-    return japanese ? `${roleLabel(input.role, input.language)}を名乗った` : `claimed ${input.role}`;
-  }
-  if (input.targetName && input.camp) {
-    return japanese ? `${input.targetName}を${campLabel(input.camp, input.language)}側として扱った` : `treated ${input.targetName} as ${input.camp}`;
-  }
-  if (input.type === "seer_result") {
-    return japanese ? "占い結果に関する主張" : "claim about a Seer result";
-  }
-  if (input.type === "witch_info") {
-    return japanese ? "夜の薬に関する主張" : "claim about night potion information";
-  }
-  return undefined;
-}
-
-function normalizeClaim(value: unknown, candidates: TargetCandidate[], language: string): ClaimMetadata | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const byId = candidateById(candidates);
-  const raw = value as Record<string, unknown>;
-  const type =
-    raw.type === "role_claim" || raw.type === "seer_result" || raw.type === "witch_info" || raw.type === "generic"
-      ? raw.type
-      : "generic";
-  const role = isRole(raw.role) ? raw.role : undefined;
-  const targetId = typeof raw.targetId === "string" && byId.has(raw.targetId) ? raw.targetId : undefined;
-  const target = targetId ? byId.get(targetId) : undefined;
-  const camp = isCamp(raw.camp) ? raw.camp : undefined;
-  const result = normalizeClaimResult(raw.result, candidates);
-  const note = canonicalClaimNote({ type, role, targetName: target?.name, camp, result, language });
-
-  if (!role && !targetId && !camp && !result && !note) {
-    return null;
-  }
-
-  return {
-    type,
-    role,
-    targetId,
-    targetName: target?.name,
-    camp,
-    result,
-    note
-  };
-}
-
-function normalizeSpeechMetadata(
-  parsed: Record<string, unknown>,
-  readCandidates: TargetCandidate[],
-  language: string,
-  claimCandidates = readCandidates
-): SpeechMetadata {
-  const suspects = Array.isArray(parsed.suspects)
-    ? parsed.suspects
-        .map((item) => normalizeRead(item, readCandidates, claimCandidates, language, "suspect"))
-        .filter((item): item is PlayerReadMetadata => Boolean(item))
-    : [];
-  const trusts = Array.isArray(parsed.trusts)
-    ? parsed.trusts
-        .map((item) => normalizeRead(item, readCandidates, claimCandidates, language, "trust"))
-        .filter((item): item is PlayerReadMetadata => Boolean(item))
-    : [];
-  const claims = Array.isArray(parsed.claims)
-    ? parsed.claims.map((item) => normalizeClaim(item, claimCandidates, language)).filter((item): item is ClaimMetadata => Boolean(item))
-    : [];
-
-  return {
-    suspects: suspects.slice(0, 3),
-    trusts: trusts.slice(0, 3),
-    claims: claims.slice(0, 3)
-  };
-}
-
-interface SpeechIntentMetadata {
-  act?: string;
-  targetId?: string;
-  targetName?: string;
-  stance?: string;
-  reason?: string;
-  claimAssessment?: string;
-}
-
-interface SpeechReasoningResult {
-  intent: SpeechIntentMetadata;
-  metadata: SpeechMetadata;
-}
-
-const speechIntentActs = new Set([
-  "suspect",
-  "trust",
-  "hold",
-  "vote_candidate",
-  "claim_judgment",
-  "claim",
-  "defense",
-  "private_plan"
-]);
-
-function canonicalClaimAssessment(language: string, seedParts: string[]): string {
-  if (isJapaneseLanguage(language)) {
-    return chooseReasonVariant(
-      [
-        "役職主張は結果の順番を見て判断する",
-        "名乗りの理由とタイミングを比べて見る",
-        "対抗の有無まで見てから結論を置く",
-        "結果と今日の発言が合うかを確認する",
-        "主張だけでは決めず、投票理由とのつながりを見る",
-        "COの出方と夜結果の整合を見たい",
-        "今は真偽より確認点を一つ残す",
-        "主張の中身を明日の検証材料にする",
-        "結果の重さと出た理由を分けて見る",
-        "役職主張を急いで決め打たない"
-      ],
-      seedParts
-    );
-  }
-
-  return chooseReasonVariant(
-    [
-      "judge the claim by result order and timing",
-      "compare the claim reason with its timing",
-      "wait for counterclaim risk before locking it",
-      "check whether the result fits today's speech",
-      "connect the claim to vote reasons before trusting it",
-      "test the claim against the night result",
-      "leave one concrete check point before deciding",
-      "make the claim testable tomorrow",
-      "separate result weight from the reason to reveal",
-      "avoid hard-clearing the role claim too quickly"
-    ],
-    seedParts
-  );
-}
-
-function normalizeSpeechIntentAct(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return speechIntentActs.has(normalized) ? normalized : undefined;
-}
-
-function normalizeSpeechIntent(
-  value: unknown,
-  metadata: SpeechMetadata,
-  candidates: TargetCandidate[],
-  language: string
-): SpeechIntentMetadata {
-  const byId = candidateById(candidates);
-  const raw = isRecord(value) ? value : {};
-  const targetIdValue = raw.targetId;
-  const targetId = typeof targetIdValue === "string" && byId.has(targetIdValue) ? targetIdValue : undefined;
-  const target = targetId ? byId.get(targetId) : undefined;
-  const read =
-    targetId && metadata.suspects.some((item) => item.targetId === targetId)
-      ? metadata.suspects.find((item) => item.targetId === targetId)
-      : targetId && metadata.trusts.some((item) => item.targetId === targetId)
-        ? metadata.trusts.find((item) => item.targetId === targetId)
-        : undefined;
-  const act =
-    normalizeSpeechIntentAct(raw.act) ??
-    (read && metadata.suspects.some((item) => item.targetId === read.targetId)
-      ? "suspect"
-      : read
-        ? "trust"
-        : undefined);
-  const stance =
-    act === "suspect" || act === "vote_candidate"
-      ? "suspicion"
-      : act === "trust"
-        ? "trust"
-        : act === "claim_judgment" || act === "claim"
-          ? "claim"
-          : act === "hold"
-            ? "hold"
-            : undefined;
-  const reason = read?.reason;
-  const claimAssessment =
-    act === "claim_judgment" || act === "claim"
-      ? canonicalClaimAssessment(language, ["claim", targetId ?? "", raw.stance && typeof raw.stance === "string" ? raw.stance : ""])
-      : undefined;
-
-  if (!target && (act === "suspect" || act === "vote_candidate") && metadata.suspects[0]) {
-    const suspect = metadata.suspects[0];
-    return {
-      act: "suspect",
-      targetId: suspect.targetId,
-      targetName: suspect.targetName,
-      stance: "suspicion",
-      reason: suspect.reason
-    };
-  }
-
-  if (!target && act === "trust" && metadata.trusts[0]) {
-    const trust = metadata.trusts[0];
-    return {
-      act: "trust",
-      targetId: trust.targetId,
-      targetName: trust.targetName,
-      stance: "trust",
-      reason: trust.reason
-    };
-  }
-
-  if (!target && (act === "claim_judgment" || act === "claim") && metadata.claims[0]) {
-    const claim = metadata.claims[0];
-    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
-    return {
-      act: claim.role ? "claim_judgment" : "claim",
-      targetId: claim.targetId ?? result?.targetId,
-      targetName: claim.targetName ?? result?.targetName,
-      stance: claim.role ? `${claim.role} claim` : "claim",
-      reason: claim.note,
-      claimAssessment
-    };
-  }
-
-  if (act || stance || reason || claimAssessment || target) {
-    return {
-      act,
-      targetId,
-      targetName: target?.name,
-      stance,
-      reason,
-      claimAssessment
-    };
-  }
-
-  const suspect = metadata.suspects[0];
-  if (suspect) {
-    return {
-      act: "suspect",
-      targetId: suspect.targetId,
-      targetName: suspect.targetName,
-      stance: "suspicion",
-      reason: suspect.reason
-    };
-  }
-
-  const trust = metadata.trusts[0];
-  if (trust) {
-    return {
-      act: "trust",
-      targetId: trust.targetId,
-      targetName: trust.targetName,
-      stance: "trust",
-      reason: trust.reason
-    };
-  }
-
-  const claim = metadata.claims[0];
-  if (claim) {
-    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
-    return {
-      act: claim.role ? "claim_judgment" : "claim",
-      targetId: claim.targetId ?? result?.targetId,
-      targetName: claim.targetName ?? result?.targetName,
-      stance: claim.role ? `${claim.role} claim` : "claim",
-      reason: claim.note
-    };
-  }
-
-  return {
-    act: "hold",
-    stance: "hold"
-  };
-}
-
-function parseSpeechReasoning(
-  content: string,
-  readCandidates: TargetCandidate[],
-  language: string,
-  claimCandidates = readCandidates
-): SpeechReasoningResult {
-  const parsed = extractJsonObject(content);
-  if (!parsed) {
-    return {
-      intent: { act: "hold", stance: "hold" },
-      metadata: emptySpeechMetadata()
-    };
-  }
-
-  const metadata = normalizeSpeechMetadata(parsed, readCandidates, language, claimCandidates);
-  const intentSource = isRecord(parsed.intent) ? parsed.intent : isRecord(parsed.speechIntent) ? parsed.speechIntent : parsed;
-  return {
-    intent: normalizeSpeechIntent(intentSource, metadata, readCandidates, language),
-    metadata
+    messages: [normalizeSpeechLine(line, line, language)],
+    metadata: emptySpeechMetadata()
   };
 }
 
@@ -1670,392 +804,6 @@ function parseDisplayedSpeechMessages(content: string, fallback: string, languag
         ? [parsed.speech]
         : [];
   return normalizeSpeechMessages(messagesSource, fallback, language);
-}
-
-function speechFallbackLine(
-  target: string,
-  act: string,
-  reason: string,
-  input: AgentSpeechInput,
-  language: string
-): string | null {
-  if (!target) {
-    return null;
-  }
-  const seedParts = [input.player.id, input.player.persona, input.phase, input.task, target, act, reason];
-  if (isJapaneseLanguage(language)) {
-    const reasonLead = reason ? `${reason}という点で、` : "";
-    if (/trust|信頼|信用/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}は${reasonLead}信頼寄りで見ます`,
-          `${reasonLead}${target}は今日は信用寄りに置きます`,
-          `${target}は${reasonLead}今すぐ疑う位置ではありません`,
-          `${reasonLead}${target}の立場は一旦信じやすいです`,
-          `${target}は${reasonLead}投票先から少し外します`,
-          `${reasonLead}${target}は村側寄りに見ます`,
-          `${target}は${reasonLead}今のところ信用できます`,
-          `${reasonLead}${target}への疑いは優先しません`
-        ],
-        seedParts
-      );
-    }
-    if (/suspect|vote|疑|投票/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}は${reasonLead}疑い寄りで見ます`,
-          `${reasonLead}${target}を投票候補に入れます`,
-          `${target}には${reasonLead}一度圧をかけたいです`,
-          `${reasonLead}${target}の返答を今日の判断材料にします`,
-          `${target}は${reasonLead}理由を確認する位置です`,
-          `${reasonLead}${target}には疑いを置きます`,
-          `${target}は${reasonLead}投票前にもう一段聞きたいです`,
-          `${reasonLead}${target}を今の比較対象にします`
-        ],
-        seedParts
-      );
-    }
-    if (/claim|主張|hold|保留/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}については${reasonLead}判断を保留にします`,
-          `${reasonLead}${target}は結論を急がず見ます`,
-          `${target}は${reasonLead}信用を保留します`,
-          `${reasonLead}${target}は確認点を残して置きます`,
-          `${target}は${reasonLead}決め打たずに扱います`,
-          `${reasonLead}${target}は次の返答まで保留寄りです`,
-          `${target}は${reasonLead}今は材料をそろえたいです`,
-          `${reasonLead}${target}の主張は条件を見て判断します`
-        ],
-        seedParts
-      );
-    }
-    return null;
-  }
-
-  if (/trust/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `${target} is my trust lean${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}I am keeping ${target} out of my vote pool for now.`,
-        `${target} is easier to trust right now${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}; ` : ""}${target} is not my priority suspicion.`,
-        `${target} is a village lean for me${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}I can follow ${target}'s side for now.`
-      ],
-      seedParts
-    );
-  }
-  if (/suspect|vote/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `${target} is my suspicion lean${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}${target} is in my vote pool.`,
-        `${target} needs pressure${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}; ` : ""}I want ${target}'s answer before the vote.`,
-        `${target} is the read I want tested${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}I am putting suspicion on ${target}.`
-      ],
-      seedParts
-    );
-  }
-  if (/claim|hold/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `I am holding on ${target}${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}I am not locking ${target} in yet.`,
-        `${target} stays unresolved for me${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}; ` : ""}I want one more check before trusting ${target}.`,
-        `${target}'s claim needs to stay testable${reason ? ` because ${reason}` : ""}.`,
-        `${reason ? `${reason}, so ` : ""}I will judge ${target} by the next answer.`
-      ],
-      seedParts
-    );
-  }
-  return null;
-}
-
-function speechReasoningFallback(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
-  const target = reasoning.intent.targetName ?? (reasoning.intent.targetId ? targetName(reasoning.intent.targetId, input.knownPlayers) : "");
-  const reason = reasoning.intent.reason || reasoning.intent.claimAssessment || reasoning.intent.stance || "";
-  const act = reasoning.intent.act ?? "";
-
-  const fallbackLine = speechFallbackLine(target, act, reason, input, language);
-  if (fallbackLine) {
-    return fallbackLine;
-  }
-  return buildLlmSpeechFallback(input, language);
-}
-
-const speechSurfaceAnglesJa = [
-  "結論から短く言う",
-  "理由から入って最後に判断を置く",
-  "相手に呼びかけてから自分の見方を言う",
-  "投票への影響を添えて言う",
-  "保留幅を少し残してから判断を置く",
-  "前の話と比べる形で言う"
-];
-
-const speechSurfaceAnglesEn = [
-  "lead with the conclusion",
-  "start from the reason and end with the read",
-  "address the target before giving the read",
-  "tie the read to the vote",
-  "leave a small amount of uncertainty before the judgment",
-  "frame it as a comparison with the previous discussion"
-];
-
-function speechSurfaceAngles(language: string, hasPublicHistory: boolean): string[] {
-  const angles = isJapaneseLanguage(language) ? speechSurfaceAnglesJa : speechSurfaceAnglesEn;
-  if (hasPublicHistory) {
-    return angles;
-  }
-  return angles.filter((angle) => !/前の話|previous discussion/i.test(angle));
-}
-
-function stableTextIndex(parts: string[], modulo: number): number {
-  const text = parts.join("|");
-  let hash = 0;
-  for (const char of text) {
-    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  }
-  return modulo > 0 ? hash % modulo : 0;
-}
-
-function speechSurfaceAngle(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
-  const angles = speechSurfaceAngles(language, input.publicHistory.length > 0);
-  const target = reasoning.intent.targetName ?? reasoning.intent.targetId ?? "";
-  return angles[stableTextIndex([input.player.id, input.player.persona, input.phase, input.task, target], angles.length)] ?? angles[0];
-}
-
-function speechSurfaceTargetName(reasoning: SpeechReasoningResult, input: AgentSpeechInput): string {
-  return reasoning.intent.targetName ?? (reasoning.intent.targetId ? targetName(reasoning.intent.targetId, input.knownPlayers) : "");
-}
-
-function speechSurfaceJudgment(
-  target: string,
-  act: string,
-  input: AgentSpeechInput,
-  language: string
-): string {
-  const seedParts = [input.player.id, input.player.persona, input.phase, input.task, target, act];
-  if (isJapaneseLanguage(language)) {
-    if (/trust|信頼|信用/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}を信頼寄りで見る`,
-          `${target}を信用寄りに置く`,
-          `${target}を投票先から少し外す`,
-          `${target}を村側寄りに扱う`,
-          `${target}への疑いは優先しない`,
-          `${target}の立場を一旦信じる`
-        ],
-        seedParts
-      );
-    }
-    if (/suspect|vote|疑|投票/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}を疑い寄りで見る`,
-          `${target}を投票候補に入れる`,
-          `${target}に一度圧をかける`,
-          `${target}の理由を確認する`,
-          `${target}に疑いを置く`,
-          `${target}を今日の比較対象にする`
-        ],
-        seedParts
-      );
-    }
-    if (/private_plan/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}を今夜の候補として提案する`,
-          `${target}を夜の対象候補に入れる`,
-          `${target}を今夜の相談軸にする`
-        ],
-        seedParts
-      );
-    }
-    if (/claim|主張|hold|保留/i.test(act)) {
-      return chooseReasonVariant(
-        [
-          `${target}について判断を保留にする`,
-          `${target}は結論を急がず見る`,
-          `${target}の信用は条件付きで置く`,
-          `${target}は確認点を残して扱う`,
-          `${target}は決め打たずに見る`,
-          `${target}の主張は次の材料で判断する`
-        ],
-        seedParts
-      );
-    }
-    return speechReasoningFallback({ intent: { act }, metadata: emptySpeechMetadata() }, input, language);
-  }
-
-  if (/trust/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `trust-lean ${target}`,
-        `keep ${target} out of the vote pool`,
-        `treat ${target} as a village lean`,
-        `lower suspicion on ${target}`,
-        `follow ${target}'s stance for now`,
-        `make ${target} a lower-priority vote`
-      ],
-      seedParts
-    );
-  }
-  if (/suspect|vote/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `suspicion-lean ${target}`,
-        `put ${target} in the vote pool`,
-        `pressure ${target} for one more answer`,
-        `test ${target}'s reason before voting`,
-        `place suspicion on ${target}`,
-        `compare today's vote around ${target}`
-      ],
-      seedParts
-    );
-  }
-  if (/private_plan/i.test(act)) {
-    return chooseReasonVariant(
-      [`propose ${target} as tonight's target`, `put ${target} in the night-target pool`, `center tonight's plan on ${target}`],
-      seedParts
-    );
-  }
-  if (/claim|hold/i.test(act)) {
-    return chooseReasonVariant(
-      [
-        `hold judgment on ${target}`,
-        `keep ${target} unresolved for now`,
-        `judge ${target} by the next check`,
-        `avoid locking ${target} in yet`,
-        `keep ${target}'s claim testable`,
-        `wait for one more answer on ${target}`
-      ],
-      seedParts
-    );
-  }
-  return speechReasoningFallback({ intent: { act }, metadata: emptySpeechMetadata() }, input, language);
-}
-
-function speechSurfaceCore(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): { judgment: string; reason?: string } {
-  const japanese = isJapaneseLanguage(language);
-  const target = speechSurfaceTargetName(reasoning, input);
-  const reason = reasoning.intent.reason || reasoning.intent.claimAssessment || undefined;
-  const act = reasoning.intent.act ?? "";
-
-  if (japanese) {
-    if (target) {
-      return { judgment: speechSurfaceJudgment(target, act, input, language), reason };
-    }
-    return { judgment: speechReasoningFallback(reasoning, input, language) };
-  }
-
-  if (target) {
-    return { judgment: speechSurfaceJudgment(target, act, input, language), reason };
-  }
-  return { judgment: speechReasoningFallback(reasoning, input, language) };
-}
-
-function speechSurfaceClaimNotes(reasoning: SpeechReasoningResult, language: string): string[] {
-  const japanese = isJapaneseLanguage(language);
-  return reasoning.metadata.claims.flatMap((claim) => {
-    const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
-    const lines: string[] = [];
-    if (claim.role) {
-      lines.push(japanese ? `${roleLabel(claim.role, language)}の主張に触れる` : `mention the ${claim.role} claim`);
-    }
-    if (result) {
-      lines.push(
-        japanese
-          ? `${result.targetName ?? result.targetId}への${campLabel(result.camp, language)}判定に触れる`
-          : `mention the ${result.camp} result on ${result.targetName ?? result.targetId}`
-      );
-    }
-    if (claim.note) {
-      lines.push(claim.note);
-    }
-    return lines;
-  });
-}
-
-function speechSurfaceUserContent(reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): string {
-  const core = speechSurfaceCore(reasoning, input, language);
-  const angle = speechSurfaceAngle(reasoning, input, language);
-  const claimNotes = speechSurfaceClaimNotes(reasoning, language).slice(0, 2);
-  const recent = input.publicHistory.slice(-2);
-
-  if (isJapaneseLanguage(language)) {
-    return [
-      "発言メモ:",
-      `- 発言者: ${input.player.name}`,
-      `- 言い方の変化: ${angle}`,
-      `- 伝える判断: ${core.judgment}`,
-      ...(core.reason ? [`- 理由: ${core.reason}`] : []),
-      ...claimNotes.map((note) => `- 触れてよい材料: ${note}`),
-      ...(recent.length > 0
-        ? ["- 直前の発言への返答として自然に聞こえる切り出しにする。ただし上の判断・理由にない人物名や事実は足さない"]
-        : []),
-      "",
-      "上のメモから、この人が今言う自然な短い発言を書いてください。"
-    ].join("\n");
-  }
-
-  return [
-    "Speech notes:",
-    `- Speaker: ${input.player.name}`,
-    `- Wording variation: ${angle}`,
-    `- Judgment to express: ${core.judgment}`,
-    ...(core.reason ? [`- Reason: ${core.reason}`] : []),
-    ...claimNotes.map((note) => `- Public fact you may mention: ${note}`),
-    ...(recent.length > 0
-      ? [
-          "- Make the line sound like a natural response to the immediately previous public statements, without adding names or facts outside the judgment and reason above."
-        ]
-      : []),
-    "",
-    "Write the short natural line this player says now."
-  ].join("\n");
-}
-
-function textMentionsPlayerName(text: string, name: string, language: string): boolean {
-  if (!name) {
-    return false;
-  }
-  if (isJapaneseLanguage(language)) {
-    return text.includes(name);
-  }
-  return new RegExp(`\\b${escapeRegExp(name)}\\b`, "i").test(text);
-}
-
-function surfaceAllowedNames(notes: string, input: AgentSpeechInput, language: string): Set<string> {
-  const allowed = new Set<string>([input.player.name]);
-  for (const player of input.knownPlayers) {
-    if (textMentionsPlayerName(notes, player.name, language)) {
-      allowed.add(player.name);
-    }
-  }
-  return allowed;
-}
-
-function surfaceMessagesStayWithinNotes(messages: string[], notes: string, reasoning: SpeechReasoningResult, input: AgentSpeechInput, language: string): boolean {
-  if (messages.length === 0) {
-    return false;
-  }
-  const text = messages.join(" ");
-  const allowed = surfaceAllowedNames(notes, input, language);
-  for (const player of input.knownPlayers) {
-    if (!allowed.has(player.name) && textMentionsPlayerName(text, player.name, language)) {
-      return false;
-    }
-  }
-  const target = speechSurfaceTargetName(reasoning, input);
-  if (target && !textMentionsPlayerName(text, target, language)) {
-    return false;
-  }
-  return true;
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -2690,14 +1438,6 @@ function demoSpeechReasonPool(input: AgentSpeechInput, situations: DaySituation[
   return (isJapaneseLanguage(language) ? personaReasonsJa : personaReasonsEn)[input.player.persona];
 }
 
-function buildLlmSpeechFallback(input: AgentSpeechInput, language: string): string {
-  if (input.phase === "day_discussion" && input.publicHistory.length === 0) {
-    return sample(isJapaneseLanguage(language) ? demoOpeningDaySituationSpeechJa : demoOpeningDaySituationSpeechEn);
-  }
-
-  return sample(demoSpeechForRole(isJapaneseLanguage(language) ? demoSpeechJa : demoSpeechEn, input.player.role));
-}
-
 function buildDemoVotingReason(input: AgentTargetInput, target: TargetCandidate, language: string): string | null {
   if (input.phase !== "voting") {
     return null;
@@ -3300,20 +2040,16 @@ class LlmAgent implements Agent {
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
     const legalPlayers = input.legalPlayers ?? input.knownPlayers;
-    // The opening turn's plan does not require a forward move; pass that through so
-    // the reasoning system prompt suppresses its stance-forcing guidance too.
-    const requiresForwardMove = input.speechPlan?.requiresForwardMove ?? true;
-    const opensFirstDay = Boolean(input.speechPlan?.opensFirstDay);
-    const reasoningSystem = buildSpeechReasoningSystemPrompt({
+    const system = buildSimpleSpeechSystemPrompt({
       player: input.player,
       phase: input.phase,
       language: this.language,
-      legalPlayers,
-      requiresForwardMove,
-      opensFirstDay
+      legalPlayers
     });
-    const reasoningContent = await this.complete(
-      reasoningSystem,
+    const fallbackSpeech = buildSimpleFallbackSpeech(input, this.language);
+    const fallback = fallbackSpeech.messages[0] ?? simpleSpeechFallbackLine(input, this.language);
+    const content = await this.complete(
+      system,
       [
         {
           role: "user",
@@ -3322,48 +2058,13 @@ class LlmAgent implements Agent {
       ],
       this.maxTokens,
       input.abortSignal,
-      "speech.reasoning"
+      "speech"
     );
-    const reasoning = parseSpeechReasoning(reasoningContent, legalPlayers, this.language, input.knownPlayers);
-    const fallback = speechReasoningFallback(reasoning, input, this.language);
-    const surfaceSystem = buildSpeechSurfaceSystemPrompt({
-      player: input.player,
-      phase: input.phase,
-      language: this.language,
-      legalPlayers,
-      requiresForwardMove,
-      opensFirstDay
-    });
-    const surfaceNotes = speechSurfaceUserContent(reasoning, input, this.language);
-    let surfaceContent: string;
-    try {
-      surfaceContent = await this.complete(
-        surfaceSystem,
-        [
-          {
-            role: "user",
-            content: surfaceNotes
-          }
-        ],
-        Math.min(this.maxTokens, defaultLlmMaxTokens),
-        input.abortSignal,
-        "speech.surface"
-      );
-    } catch (error) {
-      if (input.abortSignal?.aborted) {
-        throw error;
-      }
-      return {
-        messages: [normalizeSpeechLine(fallback, fallback, this.language)],
-        metadata: reasoning.metadata
-      };
-    }
-    const messages = parseDisplayedSpeechMessages(surfaceContent, fallback, this.language);
-    const safeMessages = surfaceMessagesStayWithinNotes(messages, surfaceNotes, reasoning, input, this.language) ? messages : [];
+    const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
 
     return {
-      messages: safeMessages.length > 0 ? safeMessages : [normalizeSpeechLine(fallback, fallback, this.language)],
-      metadata: reasoning.metadata
+      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      metadata: inferSpeechMetadata(messages.length > 0 ? messages : [fallback], input, this.language)
     };
   }
 
