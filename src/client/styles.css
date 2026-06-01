@@ -967,13 +967,19 @@ textarea:focus-visible {
     inset 0 0 0 1px rgba(103, 216, 223, 0.18);
 }
 
-/* The face-off reveal: when an allied wolf names their role in the main panel, focus their
-   roster card and flip the role chip from 不明 to the unveiled role. Applied for one event only,
-   so the keyframes run once as the reveal lands. */
+/* Role reveals focus the roster card and flip the chip from hidden to the unveiled role.
+   Applied for one event only, so the keyframes run once as the reveal lands. */
 .player-card.revealing-role {
   position: relative;
   z-index: 2;
   border-color: rgba(255, 179, 173, 0.85);
+  animation: role-reveal-focus 2.4s ease-out;
+}
+
+.dead-player.revealing-role {
+  position: relative;
+  z-index: 2;
+  border-color: rgba(255, 210, 115, 0.78);
   animation: role-reveal-focus 2.4s ease-out;
 }
 
@@ -1001,7 +1007,8 @@ textarea:focus-visible {
   }
 }
 
-.role-chip.role-reveal {
+.role-chip.role-reveal,
+.dead-role-chip.role-reveal {
   animation: role-chip-reveal 1.8s 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
@@ -1095,7 +1102,9 @@ textarea:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .player-card.revealing-role,
-  .role-chip.role-reveal {
+  .dead-player.revealing-role,
+  .role-chip.role-reveal,
+  .dead-role-chip.role-reveal {
     animation: none;
   }
   /* Keep the modal dim, just without the fade/pulse motion. */
@@ -2299,6 +2308,21 @@ input[type="range"] {
   padding: 54px 24px 32px 64px;
 }
 
+.story-hero.neutral-victory .chapel-backdrop::after {
+  background:
+    linear-gradient(90deg, rgba(8, 4, 12, 0.56), rgba(21, 14, 28, 0.24) 42%, rgba(7, 18, 22, 0.08) 72%, rgba(3, 7, 11, 0.22)),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.36), transparent 48%, rgba(255, 215, 128, 0.12));
+}
+
+.story-hero.neutral-victory .hero-character {
+  filter: brightness(1.04) saturate(1.1) contrast(1.08) drop-shadow(0 0 30px rgba(255, 199, 87, 0.28)) drop-shadow(0 24px 42px rgba(0, 0, 0, 0.56));
+}
+
+.story-hero.neutral-victory .event-meta span {
+  border-color: rgba(255, 210, 115, 0.58);
+  background: rgba(95, 56, 10, 0.62);
+}
+
 .story-hero.round_summary .story-copy {
   width: min(92%, 980px);
   max-height: calc(100% - 188px);
@@ -2502,6 +2526,18 @@ input[type="range"] {
 .detail-chip.role-info {
   border-color: rgba(255, 184, 77, 0.64);
   background: rgba(128, 74, 0, 0.34);
+}
+
+.detail-chip.role-reveal-info {
+  gap: 7px;
+  border-color: rgba(255, 210, 115, 0.72);
+  background: rgba(137, 84, 12, 0.42);
+  box-shadow: 0 0 18px rgba(255, 191, 64, 0.16);
+}
+
+.detail-chip.role-reveal-info svg {
+  flex: 0 0 auto;
+  color: #ffe29a;
 }
 
 .detail-chip.guard {

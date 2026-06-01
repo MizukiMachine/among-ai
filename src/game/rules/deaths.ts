@@ -115,7 +115,8 @@ export function createDeathResolutionEffects(
           camp: condition.camp,
           reason: condition.reason,
           winnerIds: [player.id],
-          sourceId: player.id
+          sourceId: player.id,
+          sourceRole: player.role
         }
       ]
     });

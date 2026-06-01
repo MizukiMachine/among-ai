@@ -241,6 +241,9 @@ export function sfxIdForGameEvent(event: GameEvent): AudioSfxId | null {
   if (event.type === "private_info" && action === "guard_success") {
     return "guard_success";
   }
+  if (event.type === "system" && action === "neutral_victory_claim") {
+    return "death_reveal";
+  }
   if (event.type === "death") {
     if (cause === "no_death") {
       return "guard_success";

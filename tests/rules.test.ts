@@ -283,7 +283,8 @@ test("death resolution effects can create neutral victory claims from vote death
           camp: "neutral",
           reason: "neutral_role_condition",
           winnerIds: ["p1"],
-          sourceId: "p1"
+          sourceId: "p1",
+          sourceRole: "Jester"
         }
       ]
     }

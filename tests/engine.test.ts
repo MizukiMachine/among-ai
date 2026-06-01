@@ -450,9 +450,21 @@ class FailOnceSpeechAgent implements Agent {
 
 type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
-  checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
+  checkVictory(): {
+    camp: Camp;
+    winnerCamp: CampId;
+    winnerIds: string[];
+    winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
+    reason: string;
+  } | null;
   emitRoundSummary(): Promise<GameEvent>;
-  finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
+  finishGame(result: {
+    camp: Camp;
+    winnerCamp?: CampId;
+    winnerIds?: string[];
+    winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
+    reason: string;
+  }): GameEvent;
   players: Player[];
   publicHistory: string[];
   wolfHistory: string[];
@@ -3698,17 +3710,30 @@ test("Jester vote death ends as neutral winner while keeping winner fallback com
 
   const events = await collect(game.runVoting());
   const result = game.checkVictory();
+  const victoryClaim = events.find((event) => event.type === "system" && event.data?.action === "neutral_victory_claim");
 
   assert.equal(players[3].alive, false);
-  assert.ok(events.some((event) => event.type === "system" && event.data?.action === "neutral_victory_claim"));
+  assert.ok(victoryClaim);
+  assert.match(victoryClaim.message, /Jester/);
+  assert.equal(victoryClaim.data?.sourceRole, "Jester");
+  assert.equal(victoryClaim.data?.revealedRole, "Jester");
+  assert.equal(victoryClaim.data?.revealedRoleLabel, "Jester");
+  assert.deepEqual(victoryClaim.data?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
+  const villageClaim = redactEventForVillage(victoryClaim);
+  assert.equal(villageClaim.data.revealedRole, "Jester");
+  assert.equal(villageClaim.data.sourceRole, "Jester");
   assert.equal(result?.winnerCamp, "neutral");
   assert.equal(result?.camp, "village");
   assert.deepEqual(result?.winnerIds, ["p4"]);
+  assert.deepEqual(result?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
+  assert.match(result?.reason ?? "", /Jester/);
 
   const ended = game.finishGame(result!);
+  assert.match(ended.message, /Jester/);
   assert.equal(ended.data?.winner, "village");
   assert.equal(ended.data?.winnerCamp, "neutral");
   assert.deepEqual(ended.data?.winnerIds, ["p4"]);
+  assert.deepEqual(ended.data?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
   assert.equal(ended.snapshot.winner, "village");
   assert.equal(ended.snapshot.winnerCamp, "neutral");
   assert.deepEqual(ended.snapshot.winnerIds, ["p4"]);

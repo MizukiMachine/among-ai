@@ -378,7 +378,7 @@ test("setup character thumbnails preload and portrait images warm in the backgro
 test("full portrait images stay limited to active speaker and mention cues", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 4);
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 5);
   assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
   assert.match(source, /getCharacterPortrait\(speechInputPrompt\.playerId\)/);
@@ -634,10 +634,13 @@ test("player roster distinguishes persona and hidden role labels", () => {
   assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
   // Player mode trusts the server-redacted snapshot, but a non-Hidden role is only shown once it
   // has been "revealed" in the story: the viewer's own role plus, for a werewolf, each ally after
-  // they name themselves at the face-off (see revealedRoleIds). The gate is the `revealed` arg.
+  // they name themselves at the face-off (see revealedRoleIds). Public victory-condition role
+  // reveals override the redacted snapshot because the role has become story-visible information.
   assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden" && revealed\);/);
   assert.match(source, /const revealed = revealedRoleIds\.has\(player\.id\);/);
-  assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, revealed\);/);
+  assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
+  assert.match(source, /const roleLabel = publicRole \? displayRoleLabel\(publicRole, language\) : roleDisplay\(player, spectatorMode, language, revealed\);/);
+  assert.match(source, /const visibleRoleLabel = player[\s\S]*publicRole[\s\S]*displayRoleLabel\(publicRole, language\)[\s\S]*roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   // The face-off self-naming speech is what flips an ally from 不明 to their role.
   assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
   assert.match(source, /event\.type === "player_speech" && event\.phase === "werewolf_discussion"/);
@@ -869,6 +872,49 @@ test("village spectator history redacts secret event messages and speakers", () 
   assert.equal(eventMessageForSpectator(event, "omniscient"), "シオンとガクだけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
   assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p8", "p9"]);
+});
+
+test("neutral victory role reveal is public and animated", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const event: GameEvent = {
+    id: 2,
+    createdAt: "2026-05-18T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "system",
+    message: "シオンは道化師であることが明らかになり、投票処刑で中立勝利条件を満たしました",
+    data: {
+      action: "neutral_victory_claim",
+      sourceId: "p8",
+      sourceName: "シオン",
+      revealedRole: "Jester",
+      revealedRoleLabel: "道化師"
+    },
+    snapshot: {
+      round: 1,
+      phase: "voting",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(stageLightMoodForEvent(event), "claim");
+  assert.deepEqual(mentionedCharactersForEvent(event, false, "village").map((mention) => mention.id), ["p8"]);
+  assert.match(source, /function neutralVictoryRoleReveal\(event: GameEvent\): \{ playerId: string; role: Role \} \| undefined/);
+  assert.match(source, /const publicRoleReveals = useMemo\(\(\) => \{/);
+  assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
+  assert.match(source, /\.dead-player\[data-player-id="\$\{id\}"\]/);
+  assert.match(source, /className=\{`dead-role-chip \$\{roleClassName\(deadRole\)\} \$\{revealing \? "role-reveal" : ""\}`\}/);
+  assert.match(source, /detail-chip role-reveal-info/);
+  assert.match(source, /eventAction\(event\) === "neutral_victory_claim"/);
+  assert.match(css, /\.story-hero\.neutral-victory \.hero-character\s*\{/);
+  assert.match(css, /\.dead-player\.revealing-role\s*\{/);
+  assert.match(css, /\.dead-role-chip\.role-reveal\s*\{/);
+  assert.match(css, /\.detail-chip\.role-reveal-info\s*\{/);
 });
 
 test("guided UI tour spotlights the main controls at match start", () => {

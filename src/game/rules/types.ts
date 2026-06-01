@@ -129,4 +129,5 @@ export interface RuleVictoryClaim {
   reason: VictoryReason;
   winnerIds: string[];
   sourceId?: string;
+  sourceRole?: Role;
 }

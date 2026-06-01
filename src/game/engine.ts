@@ -141,6 +141,20 @@ interface DayDiscussionSpeechPrefetch {
   promise: Promise<{ player: Player; speech: AgentSpeech }>;
 }
 
+interface VictoryRoleRevealSummary {
+  playerId: string;
+  playerName: string;
+  role: Role;
+}
+
+interface VictoryResult {
+  camp: Camp;
+  winnerCamp?: CampId;
+  winnerIds?: string[];
+  winnerRoles?: VictoryRoleRevealSummary[];
+  reason: string;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2330,18 +2344,27 @@ export class WerewolfGame {
           );
         }
         if (effect.kind === "neutral_victory_claim") {
+          const winnerIds = effect.victoryClaims.flatMap((claim) => claim.winnerIds);
+          const winnerRoles = this.victoryRoleSummaries(winnerIds);
+          const sourceRole = effect.victoryClaims.find((claim) => claim.sourceId === player.id)?.sourceRole ?? player.role;
+          const sourceRoleLabel = this.roleText(sourceRole);
           yield this.emit(
             "system",
             this.text(
-              `${player.name}'s vote elimination fulfilled their neutral win condition.`,
-              `${player.name}は投票処刑で中立勝利条件を満たしました。`
+              `${player.name} was revealed as the ${sourceRoleLabel} and fulfilled their neutral win condition by vote elimination.`,
+              `${player.name}は${sourceRoleLabel}であることが明らかになり、投票処刑で中立勝利条件を満たしました。`
             ),
             {
               action: "neutral_victory_claim",
               winnerCamp: "neutral",
-              winnerIds: effect.victoryClaims.flatMap((claim) => claim.winnerIds),
+              winnerIds,
+              winnerRoles,
               sourceId: player.id,
-              sourceName: player.name
+              sourceName: player.name,
+              sourceRole,
+              sourceRoleLabel,
+              revealedRole: sourceRole,
+              revealedRoleLabel: sourceRoleLabel
             }
           );
         }
@@ -2420,7 +2443,22 @@ export class WerewolfGame {
     yield* this.resolveDeaths([{ playerId: target.id, cause, sourceId: hunter.id }], blockedTargetIds, chainDepth + 1);
   }
 
-  private checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null {
+  private victoryRoleSummaries(playerIds: string[]): VictoryRoleRevealSummary[] {
+    return [...new Set(playerIds)].map((playerId) => {
+      const player = this.requirePlayer(playerId);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        role: player.role
+      };
+    });
+  }
+
+  private formatVictoryRoleSummary(winnerRoles: VictoryRoleRevealSummary[]): string {
+    return winnerRoles.map((winner) => `${winner.playerName} (${this.roleText(winner.role)})`).join(", ");
+  }
+
+  private checkVictory(): VictoryResult | null {
     const loverResult = checkLoverVictory(this.players, this.ruleState);
     if (loverResult) {
       return {
@@ -2433,11 +2471,17 @@ export class WerewolfGame {
 
     const neutralResult = checkNeutralVictory(this.players, this.ruleState);
     if (neutralResult) {
+      const winnerRoles = this.victoryRoleSummaries(neutralResult.winnerIds);
+      const winnerRoleText = this.formatVictoryRoleSummary(winnerRoles);
       return {
         camp: neutralResult.fallbackCamp,
         winnerCamp: neutralResult.camp,
         winnerIds: neutralResult.winnerIds,
-        reason: this.text("A neutral role fulfilled its victory condition.", "中立役職が勝利条件を満たしました。")
+        winnerRoles,
+        reason: this.text(
+          `${winnerRoleText} fulfilled a neutral victory condition.`,
+          `${winnerRoleText}が中立勝利条件を満たしました。`
+        )
       };
     }
 
@@ -2464,7 +2508,7 @@ export class WerewolfGame {
     };
   }
 
-  private finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent {
+  private finishGame(result: VictoryResult): GameEvent {
     this.winner = result.camp;
     this.winnerCamp = result.winnerCamp ?? result.camp;
     this.winnerIds = result.winnerIds ?? this.alivePlayers().filter((player) => player.camp === result.camp).map((player) => player.id);
@@ -2473,6 +2517,7 @@ export class WerewolfGame {
       winner: result.camp,
       winnerCamp: this.winnerCamp,
       winnerIds: this.winnerIds,
+      ...(result.winnerRoles ? { winnerRoles: result.winnerRoles } : {}),
       reason: result.reason
     });
   }
