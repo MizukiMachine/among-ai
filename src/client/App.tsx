@@ -51,6 +51,7 @@ import {
   normalizePlayerCount as normalizeSupportedPlayerCount
 } from "../game/rules/presets";
 import type {
+  CampId,
   ClaimMetadata,
   DebugScenario,
   GameEvent,
@@ -1268,6 +1269,81 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
     return null;
   }
   return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${campLabel(winner, language)}`;
+}
+
+function campIdFromValue(value: string | null | undefined): CampId | null {
+  if (value === "werewolf" || value === "village" || value === "neutral" || value === "lover") {
+    return value;
+  }
+  return null;
+}
+
+function playerObjectiveCamp(player: PlayerSnapshot): CampId | null {
+  if (player.role === "Jester") {
+    return "neutral";
+  }
+  if (player.role === "Lover") {
+    return "lover";
+  }
+  return campIdFromValue(player.camp);
+}
+
+function requiresPersonalWinnerId(camp: CampId): boolean {
+  return camp === "neutral" || camp === "lover";
+}
+
+export interface PersonalVictoryOutcome {
+  status: "won" | "lost";
+  playerCamp: CampId;
+  winnerCamp: CampId;
+  title: string;
+  message: string;
+  detail: string;
+}
+
+export function personalVictoryOutcomeForSnapshot(
+  snapshot: GameSnapshot | null | undefined,
+  playerId: string | null | undefined,
+  language = defaultLanguage
+): PersonalVictoryOutcome | null {
+  const winnerCamp = campIdFromValue(snapshot?.winnerCamp ?? snapshot?.winner ?? null);
+  const player = playerId ? snapshot?.players.find((candidate) => candidate.id === playerId) : undefined;
+  const playerCamp = player ? playerObjectiveCamp(player) : null;
+  if (!winnerCamp || !playerCamp || !player) {
+    return null;
+  }
+
+  const winnerIds = new Set(snapshot?.winnerIds ?? []);
+  const fulfilled =
+    winnerCamp === playerCamp &&
+    (!requiresPersonalWinnerId(playerCamp) || winnerIds.has(player.id));
+  const playerCampLabel = campLabel(playerCamp, language);
+  const winnerCampLabel = campLabel(winnerCamp, language);
+  const japanese = isJapaneseLanguage(language);
+
+  if (!fulfilled) {
+    return {
+      status: "lost",
+      playerCamp,
+      winnerCamp,
+      title: japanese ? "勝利条件未達成" : "Win condition missed",
+      message: japanese ? "あなたは勝利条件を満たせませんでした。" : "You did not meet your win condition.",
+      detail: japanese
+        ? `勝利陣営は${winnerCampLabel}、あなたの陣営は${playerCampLabel}です。`
+        : `Winner: ${winnerCampLabel}. Your camp: ${playerCampLabel}.`
+    };
+  }
+
+  return {
+    status: "won",
+    playerCamp,
+    winnerCamp,
+    title: japanese ? "勝利条件達成" : "Win condition met",
+    message: japanese ? "あなたは勝利条件を満たしました。" : "You met your win condition.",
+    detail: japanese
+      ? `あなたの陣営は${winnerCampLabel}として勝利しました。`
+      : `Your camp won as ${winnerCampLabel}.`
+  };
 }
 
 export function App() {
@@ -2903,6 +2979,9 @@ export function App() {
   }
 
   function renderStoryBody(event: GameEvent, hidden: boolean) {
+    if (event.type === "game_ended") {
+      return renderGameEndOutcome(event, hidden);
+    }
     if (event.type === "round_summary") {
       return renderRoundSummary(event, hidden);
     }
@@ -2914,6 +2993,54 @@ export function App() {
         text={eventMessageForSpectator(event, spectatorMode)}
         onComplete={() => setTypedCompleteEventId(event.id)}
       />
+    );
+  }
+
+  function renderGameEndOutcome(event: GameEvent, hidden: boolean) {
+    const winnerCamp =
+      campIdFromValue(dataString(event, "winnerCamp")) ??
+      campIdFromValue(event.snapshot.winnerCamp ?? event.snapshot.winner ?? null);
+    const outcome = personalVictoryOutcomeForSnapshot(event.snapshot, humanEnabled ? humanPlayerId : null, language);
+    const resultClass = outcome?.status ?? "spectator";
+    const title =
+      outcome?.title ??
+      (winnerCamp
+        ? `${campLabel(winnerCamp, language)}${isJapaneseLanguage(language) ? "の勝利" : " wins"}`
+        : isJapaneseLanguage(language)
+          ? "対局終了"
+          : "Game ended");
+    const message = outcome?.message ?? eventMessageForSpectator(event, spectatorMode);
+    const detail = outcome?.detail;
+
+    return (
+      <section className={`game-end-result ${resultClass}`} role="status" aria-live="polite">
+        <div className="game-end-alert" aria-hidden="true">
+          {outcome?.status === "won" ? <Shield size={30} /> : outcome?.status === "lost" ? <Skull size={32} /> : <Sparkles size={30} />}
+        </div>
+        <div className="game-end-copy-block">
+          <span className="game-end-kicker">対局終了</span>
+          <h2>{title}</h2>
+          <p className="game-end-main">{message}</p>
+          {detail ? <p className="game-end-detail">{detail}</p> : null}
+        </div>
+        {winnerCamp || outcome ? (
+          <div className="game-end-camps" aria-label="勝敗内訳">
+            {winnerCamp ? (
+              <span>
+                <small>勝利陣営</small>
+                <strong>{campLabel(winnerCamp, language)}</strong>
+              </span>
+            ) : null}
+            {outcome ? (
+              <span>
+                <small>あなたの陣営</small>
+                <strong>{campLabel(outcome.playerCamp, language)}</strong>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {!hidden ? <p className="game-end-reason">{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p> : null}
+      </section>
     );
   }
 
@@ -3897,11 +4024,22 @@ export function App() {
                   const tone = currentEvent ? eventTone(currentEvent) : "";
                   const isSpeech = currentEvent?.type === "player_speech";
                   const roleReveal = currentEvent ? neutralVictoryRoleReveal(currentEvent) : undefined;
+                  const gameEndOutcome =
+                    currentEvent?.type === "game_ended"
+                      ? personalVictoryOutcomeForSnapshot(currentEvent.snapshot, humanEnabled ? humanPlayerId : null, language)
+                      : null;
                   const currentRevealedRole =
                     currentEvent && !hidden
                       ? roleFromEventData(currentEvent, "revealedRole") ?? roleFromEventData(currentEvent, "sourceRole")
                       : undefined;
-                  const lightTone = currentEvent ? currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length) : currentStageLightTone ?? "cyan";
+                  const lightTone =
+                    gameEndOutcome?.status === "lost"
+                      ? "crimson"
+                      : gameEndOutcome?.status === "won"
+                        ? "emerald"
+                      : currentEvent
+                        ? currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length)
+                        : currentStageLightTone ?? "cyan";
                   const storyPhase = speechInputPrompt?.phase ?? currentEvent?.phase ?? "setup";
                   const storyEventType = speechInputPrompt ? "player_speech" : currentEvent?.type;
                   const storyLightKey = speechInputPrompt ? `${currentEvent?.id ?? "input"}-${speechInputPrompt.id}` : currentEvent?.id;
@@ -3924,7 +4062,7 @@ export function App() {
                     <article
                       className={`scene-card story-hero ${currentEvent?.type ?? "human_input"} ${tone} ${
                         hidden ? "secret-redacted" : ""
-                      } ${speechInputPrompt ? "human-input-hero" : ""}`}
+                      } ${speechInputPrompt ? "human-input-hero" : ""} ${gameEndOutcome ? `personal-${gameEndOutcome.status}` : ""}`}
                     >
                       {renderStageBackdrop(storyPhase, storyEventType, hidden, lightTone, storyLightKey)}
                       {heroCharacterImage && !hidden && (isSpeech || speechInputPrompt || roleReveal) ? (
@@ -3960,7 +4098,7 @@ export function App() {
                           {speechInputPrompt ? null : renderSpeakerUnreadStatus()}
                         </div>
                         {speechInputPrompt ? renderHumanSpeechInputScene(speechInputPrompt) : currentEvent ? renderStoryBody(currentEvent, hidden) : null}
-                        {!speechInputPrompt && currentEvent ? renderEventDetails(currentEvent, hidden) : null}
+                        {!speechInputPrompt && currentEvent && currentEvent.type !== "game_ended" ? renderEventDetails(currentEvent, hidden) : null}
                         {!speechInputPrompt && currentEvent ? renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id) : null}
                       </div>
                       {renderHumanInputPanel(actionHumanInput)}
