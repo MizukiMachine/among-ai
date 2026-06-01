@@ -32,14 +32,37 @@ export function textHasSeerClaimEvidence(text: string): boolean {
     /\b(?:I(?: am|'m) (?:the )?Seer|claims? (?:to be )?(?:the )?Seer|claiming (?:to be )?(?:the )?Seer|Seer claim(?:ed|s)?)\b/i.test(
       text
     ) ||
-    /占い(?:師)?CO|占い師を主張|占い師として出(?:ます|る|た|ました|ている|ています)|(?:私|僕|俺|自分|こちら)(?:は|が)?占い師(?:です|だ|として)|(?:^|[\s:：])占い師(?:です|だ)(?:$|[\s。！？!、,])|占いです(?:$|[\s。！？!、,])|占い師を名乗(?:ります|りました|った|っている|っています|る人|る者)|占い(?:師)?主張/.test(
+    /占い(?:師)?CO|占い師を主張|占い師として出(?:ます|る|た|ました|ている|ています)|(?:私|僕|俺|自分|こちら)(?:は|が)?占い師(?:です|だ|として)|(?:^|[\s:：])占い師(?:です|だ)(?:$|[\s。！？!、,])|占いです(?:$|[\s。！？!、,])|占い師を名乗(?:ります|りました|った|っている|っています)|占い(?:師)?主張/.test(
       text
     )
   );
 }
 
+export function textHasRoleClaimEvidence(text: string): boolean {
+  const japaneseRoleClaim =
+    /主張:\s*[^。\n]*が(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師|人間|村人|人間側|村側)を主張|(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師)(?:CO|を主張|として出(?:ます|る|た|ました|ている|ています)|を名乗(?:ります|りました|った|っている|っています))|(?:私|僕|俺|自分|こちら)(?:は|が)?(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師)(?:です|だ|として|を名乗)/;
+  const japaneseCampClaim =
+    /(?:私|僕|俺|自分|こちら)(?:は|が)?(?:人間側|村側|村人)(?:です|だ|として|を名乗|を主張)|(?:人間側|村側|村人)(?:を主張|として動く|として村を守る)/;
+  return (
+    textHasSeerClaimEvidence(text) ||
+    /\b(?:I(?: am|'m) (?:the )?(?:Witch|Guard|Hunter|Raven|Idiot|Elder|Lover|Jester|Villager)|claims? (?:to be )?(?:the )?(?:Witch|Guard|Hunter|Raven|Idiot|Elder|Lover|Jester|Villager)|role claim(?:ed|s)?)\b/i.test(
+      text
+    ) ||
+    japaneseRoleClaim.test(text) ||
+    japaneseCampClaim.test(text)
+  );
+}
+
 export function textHasBlackResultEvidence(text: string): boolean {
   return /checked as werewolf|checked werewolf|reads as werewolf/i.test(text) || /人狼判定/.test(text);
+}
+
+export function textHasCampResultEvidence(text: string): boolean {
+  return (
+    textHasBlackResultEvidence(text) ||
+    /checked as village|checked village|reads as village|white result|black result|wolf result|village result/i.test(text) ||
+    /(?:人間側|人間|村側|村人|白|黒|狼|人狼)判定/.test(text)
+  );
 }
 
 function taskSpecificContext(text: string | undefined): string {

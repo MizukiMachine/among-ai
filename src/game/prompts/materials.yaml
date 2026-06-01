@@ -529,7 +529,9 @@ outputFormats:
       messages、セリフ、口調、演出、説明文は入れません。公開メタデータと見えている事実を推理材料として使います。
       suspects と trusts は、下に示された生存者 ID だけを使います。死亡者は過去の死亡、前日の投票、
       過去の占い結果として claims の補足にだけ入れます。自由文の理由より evidence を優先し、
-      コード側の発言生成は evidence を事実の出典として使います。
+      コード側の発言生成は evidence を事実の出典として使います。claims は今回の画面に出す発言で
+      実際に役職CO、役職主張、占い結果、薬情報を明示する場合だけ入れます。占い師が名乗る条件や
+      役職露出の方針相談は claims に入れません。
   targetJson:
     instruction: >-
       Return strict JSON only, with no markdown:

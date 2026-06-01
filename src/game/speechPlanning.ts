@@ -1,5 +1,5 @@
 import { isJapaneseLanguage } from "./i18n";
-import { textHasSeerClaimEvidence } from "./daySituations";
+import { textHasCampResultEvidence, textHasRoleClaimEvidence, textHasSeerClaimEvidence } from "./daySituations";
 import type { DeathRecord } from "./rules/types";
 import type {
   AgentSpeech,
@@ -715,7 +715,19 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
 }
 
 function referencesExistingSeerClaimJapanese(text: string): boolean {
-  return /(?:占い(?:師)?(?:を)?(?:名乗った|名乗っている|名乗っています|COが出|COは出|COがあ|COはあ|主張が出|主張は出|主張があ|主張はあ|として出た|として出ている)|占い(?:師)?主張(?:が|は)?(?:出|あ)|占い師を名乗る人)/u.test(
+  return /(?:占い(?:師)?(?:を)?(?:名乗った|名乗っている|名乗っています|COが出|COは出|COがあ|COはあ|主張が出|主張は出|主張があ|主張はあ|として出た|として出ている)|占い(?:師)?主張(?:が|は)?(?:出|あ))/u.test(
+    text
+  );
+}
+
+function referencesExistingRoleClaimJapanese(text: string): boolean {
+  return /(?:役職|能力者|占い師|魔女|騎士|狩人|ハンター|人間|人間側|村側)(?:を)?(?:名乗った|名乗っている|名乗っています|COが出|COは出|COがあ|COはあ|主張が出|主張は出|主張があ|主張はあ|として出た|として出ている)|(?:役職主張|人間を名乗る主張|人間側を名乗る主張|村側を名乗る主張)(?:が|は)?(?:出|あ|見え|公開情報|確認|見極め)|(?:役職|占い師|魔女|騎士|狩人|ハンター)?(?:を)?名乗ったタイミング|(?:CO|主張)タイミング/u.test(
+    text
+  );
+}
+
+function referencesExistingRoleResultJapanese(text: string): boolean {
+  return /(?:人間側|人間|村側|村人|白|黒|狼|人狼)判定(?:され|をもら|が出|を出され|扱い|として見)|(?:判定されて|判定をもらって|白をもらって|黒を出されて|人狼判定を出されて)/u.test(
     text
   );
 }
@@ -752,6 +764,7 @@ export function reviewSpeechTimeline(
         `${name}の(?:指摘|整理)(?:に同意|の通り|通り|を受けて|から|に一つ|に乗)`,
         `${name}(?:に同意|に乗った|に乗る)`,
         `${name}の発言(?!が出たら)(?:が|は|も|だけ|から|で|を)[^。！？!?]{0,20}(?:少な|薄|曖昧|弱|強|気になる|不自然|怪し|見え|変わ|ずれ|乗|便乗|ごまか|そら)`,
+        `${name}の(?:議論への)?入り方(?:が|は|も|だけ|から|で)?[^。！？!?]{0,20}(?:少な|薄|曖昧|弱|強|気になる|不自然|怪し|見え|変わ|ずれ|乗|便乗|ごまか|そら)`,
         `${name}の返答(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}の(?:今の|さっきの|先ほどの)反応(?:が|は|も|だけ|から|で)[^。！？!?]{0,20}(?:早|遅|弱|強|防御|曖昧|気になる|不自然|怪し|見え|変わ|ずれ|ごまか|そら)`,
         `${name}の(?:今の|さっきの|先ほどの)?動き(?:が|は|も|だけ|から|で)?[^。！？!?]{0,20}(?:気になる|不自然|怪し|見え|変わ|ずれ|便乗|ごまか|そら)`,
@@ -784,6 +797,24 @@ export function reviewSpeechTimeline(
     return {
       ok: false,
       issues: ["speech invents a visible Seer claim"],
+      revisionHint: labels(language).unseenClaimRevisionHint
+    };
+  }
+
+  const inventsRoleClaim = !publicHistory.some((line) => textHasRoleClaimEvidence(line)) && referencesExistingRoleClaimJapanese(text);
+  if (inventsRoleClaim) {
+    return {
+      ok: false,
+      issues: ["speech invents a visible role claim"],
+      revisionHint: labels(language).unseenClaimRevisionHint
+    };
+  }
+
+  const inventsRoleResult = !publicHistory.some((line) => textHasCampResultEvidence(line)) && referencesExistingRoleResultJapanese(text);
+  if (inventsRoleResult) {
+    return {
+      ok: false,
+      issues: ["speech invents a visible role result"],
       revisionHint: labels(language).unseenClaimRevisionHint
     };
   }

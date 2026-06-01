@@ -1526,6 +1526,47 @@ test("guarded speech fallback does not accuse the first legal target without vis
   assert.deepEqual(noTargetSpeech.metadata.suspects, []);
 });
 
+test("speech sanitization drops claim metadata not supported by displayed text", () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Werewolf" }]);
+  const sanitizer = game as unknown as {
+    sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech;
+  };
+  const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
+
+  const policyTalk = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: ["皆さん、まず占い師を名乗る条件を決めましょう"],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [{ type: "role_claim", role: "Seer" }]
+      }
+    },
+    legalPlayers
+  );
+  assert.deepEqual(policyTalk.metadata.claims, []);
+
+  const visibleClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`私は占い師です。${players[1].name}は人間側判定です`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: { targetId: players[1].id, targetName: players[1].name, camp: "village", round: 1 }
+          }
+        ]
+      }
+    },
+    legalPlayers
+  );
+  assert.equal(visibleClaim.metadata.claims.length, 1);
+});
+
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
   const players = setTable(game, [

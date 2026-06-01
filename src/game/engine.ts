@@ -1,6 +1,7 @@
 import { setMaxListeners } from "node:events";
 import { createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
+import { textHasCampResultEvidence, textHasRoleClaimEvidence, textHasSeerClaimEvidence } from "./daySituations";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
@@ -136,6 +137,49 @@ interface DayDiscussionSpeechPrefetch {
   openingSpeakerId: string;
   openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>;
   promise: Promise<{ player: Player; speech: AgentSpeech }>;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function textMentionsClaimTarget(text: string, claim: ClaimMetadata): boolean {
+  const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+  const names = [claim.targetName, claim.targetId, result?.targetName, result?.targetId].filter(
+    (value): value is string => Boolean(value)
+  );
+  return names.some((name) => text.includes(name));
+}
+
+function textHasSpecificRoleClaim(text: string, role: Role, language: string): boolean {
+  if (role === "Seer") {
+    return textHasSeerClaimEvidence(text);
+  }
+  const roleText = roleLabel(role, language);
+  if (isJapaneseLanguage(language)) {
+    const escapedRole = escapeRegExp(roleText);
+    return new RegExp(
+      [
+        `(?:私|僕|俺|自分|こちら)(?:は|が)?[^。！？!?]{0,16}${escapedRole}(?:です|だ|として|を名乗|CO)`,
+        `${escapedRole}(?:CO|を主張|として出(?:ます|る|た|ました|ている|ています)|を名乗(?:ります|りました|った|っている|っています))`
+      ].join("|"),
+      "u"
+    ).test(text);
+  }
+  const escapedRole = escapeRegExp(role);
+  return new RegExp(`\\b(?:I(?: am|'m) (?:the )?${escapedRole}|claim(?:ed|s)? (?:to be )?(?:the )?${escapedRole})\\b`, "i").test(
+    text
+  );
+}
+
+function claimMetadataVisibleInSpeech(claim: ClaimMetadata, speechText: string, language: string): boolean {
+  const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+  const hasRoleClaim = claim.role ? textHasSpecificRoleClaim(speechText, claim.role, language) : textHasRoleClaimEvidence(speechText);
+  const hasResult = Boolean(result ?? claim.camp) && textHasCampResultEvidence(speechText) && textMentionsClaimTarget(speechText, claim);
+  const hasWitchInfo =
+    claim.type === "witch_info" && /(?:魔女|薬|救済|毒|witch|potion|saved|poisoned)/i.test(speechText);
+
+  return hasRoleClaim || hasResult || hasWitchInfo;
 }
 
 function speechEventData(
@@ -3042,12 +3086,14 @@ export class WerewolfGame {
 
   private sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech {
     const legalIds = new Set(legalPlayers.map((candidate) => candidate.id));
+    const speechText = speech.messages.join(" ");
     return {
       ...speech,
       metadata: {
         ...speech.metadata,
         suspects: speech.metadata.suspects.filter((read) => legalIds.has(read.targetId)),
-        trusts: speech.metadata.trusts.filter((read) => legalIds.has(read.targetId))
+        trusts: speech.metadata.trusts.filter((read) => legalIds.has(read.targetId)),
+        claims: speech.metadata.claims.filter((claim) => claimMetadataVisibleInSpeech(claim, speechText, this.config.language))
       }
     };
   }
