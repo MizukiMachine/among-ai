@@ -2210,7 +2210,10 @@ export function App() {
 
     source.addEventListener("human_input", (message) => {
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
-      const revealAfterEventId = queuedRef.current.at(-1)?.id ?? eventsRef.current.at(-1)?.id ?? null;
+      const revealAfterEventId =
+        typeof request.revealAfterEventId === "number"
+          ? request.revealAfterEventId
+          : (queuedRef.current.at(-1)?.id ?? eventsRef.current.at(-1)?.id ?? null);
       setGenerationProgress(null);
       hideProcessingHudNow();
       setPendingHumanInput(request);

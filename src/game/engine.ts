@@ -727,7 +727,15 @@ export class WerewolfGame {
   private firstDayOpeningSpeechPrefetch: DayDiscussionSpeechPrefetch | null = null;
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
-    this.humanInput = options.humanInput;
+    this.humanInput = options.humanInput
+      ? {
+          request: (input) =>
+            options.humanInput!.request({
+              ...input,
+              revealAfterEventId: input.revealAfterEventId ?? (this.eventId > 0 ? this.eventId : null)
+            })
+        }
+      : undefined;
     this.abortSignal = options.abortSignal;
     if (this.abortSignal) {
       setMaxListeners(abortSignalMaxListeners, this.abortSignal);
@@ -783,7 +791,7 @@ export class WerewolfGame {
         ? createMatchRoles(
             this.config.playerCount,
             this.config.humanPlayerId ?? null,
-            Boolean(options.humanInput),
+            Boolean(this.humanInput),
             this.config.humanCampPreference
           )
         : createScenarioRoles(activeDebugScenario, this.config.playerCount);
@@ -797,12 +805,12 @@ export class WerewolfGame {
       const playerId = `p${index + 1}`;
       const profile = getCharacterProfile(playerId);
       const name = profile?.nameJa ?? characterNames[index] ?? `P${index + 1}`;
-      const isHumanSlot = playerId === this.config.humanPlayerId && Boolean(options.humanInput);
+      const isHumanSlot = playerId === this.config.humanPlayerId && Boolean(this.humanInput);
       const autonomousAgent =
         activeDebugScenario === "none" ? createAgent(name) : this.createScenarioAgent(name, activeDebugScenario, index);
       const agent =
-        isHumanSlot && options.humanInput
-          ? new HumanInputAgent(name, options.humanInput, this.config.language)
+        isHumanSlot && this.humanInput
+          ? new HumanInputAgent(name, this.humanInput, this.config.language)
           : autonomousAgent;
       if (isHumanSlot) {
         // Shadow agent that drafts the human player's candidate speeches for the choice menu.

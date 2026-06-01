@@ -936,7 +936,9 @@ test("human input waits behind unread story events with a visible notice", () =>
     /const deferredNonBlockingHumanInput =\s*nonBlockingHumanInput &&\s*hasSeenHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, events\) &&\s*isCurrentHumanInputRevealAnchor\(pendingHumanInputRevealAfterEventId, currentEvent\)\s*\?\s*nonBlockingHumanInput\s*:\s*null;/s
   );
   assert.match(source, /const visibleHumanInput = readyHumanInput \?\? deferredNonBlockingHumanInput;/);
-  assert.match(source, /const revealAfterEventId = queuedRef\.current\.at\(-1\)\?\.id \?\? eventsRef\.current\.at\(-1\)\?\.id \?\? null;/);
+  assert.match(source, /typeof request\.revealAfterEventId === "number"/);
+  assert.match(source, /request\.revealAfterEventId/);
+  assert.match(source, /queuedRef\.current\.at\(-1\)\?\.id \?\? eventsRef\.current\.at\(-1\)\?\.id \?\? null/);
   assert.match(source, /setPendingHumanInputRevealAfterEventId\(revealAfterEventId\);/);
   assert.match(source, /setHumanInputAnchorAcknowledged\(revealAfterEventId === null\);/);
   assert.match(source, /const humanInputNoticeLeadCount = 2;/);
