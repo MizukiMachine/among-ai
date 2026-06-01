@@ -109,6 +109,7 @@ test("game events map to the intended sound effect ids", () => {
   assert.equal(sfxIdForGameEvent(event("vote_result")), "vote_result");
   assert.equal(sfxIdForGameEvent(event("round_summary")), "speech");
   assert.equal(sfxIdForGameEvent(event("system")), "speech");
+  assert.equal(sfxIdForGameEvent(event("system", { action: "neutral_victory_claim" })), "death_reveal");
   assert.equal(sfxIdForGameEvent(event("private_info", { action: "guard_success" })), "guard_success");
   assert.equal(sfxIdForGameEvent(event("death", { cause: "no_death" })), "guard_success");
   assert.equal(sfxIdForGameEvent(event("death", { cause: "hunter" })), "speech");

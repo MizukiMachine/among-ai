@@ -1,7 +1,11 @@
 import { setMaxListeners } from "node:events";
 import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
-import { textHasCampResultEvidence, textHasRoleClaimEvidence, textHasSeerClaimEvidence } from "./daySituations";
+import {
+  textHasCampResultEvidence,
+  textHasSpeakerAnyRoleClaimEvidence,
+  textHasSpeakerRoleClaimEvidence
+} from "./daySituations";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
@@ -137,6 +141,20 @@ interface DayDiscussionSpeechPrefetch {
   promise: Promise<{ player: Player; speech: AgentSpeech }>;
 }
 
+interface VictoryRoleRevealSummary {
+  playerId: string;
+  playerName: string;
+  role: Role;
+}
+
+interface VictoryResult {
+  camp: Camp;
+  winnerCamp?: CampId;
+  winnerIds?: string[];
+  winnerRoles?: VictoryRoleRevealSummary[];
+  reason: string;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -149,31 +167,48 @@ function textMentionsClaimTarget(text: string, claim: ClaimMetadata): boolean {
   return names.some((name) => text.includes(name));
 }
 
-function textHasSpecificRoleClaim(text: string, role: Role, language: string): boolean {
-  if (role === "Seer") {
-    return textHasSeerClaimEvidence(text);
-  }
-  const roleText = roleLabel(role, language);
-  if (isJapaneseLanguage(language)) {
-    const escapedRole = escapeRegExp(roleText);
-    return new RegExp(
-      [
-        `(?:私|僕|俺|自分|こちら)(?:は|が)?[^。！？!?]{0,16}${escapedRole}(?:です|だ|として|を名乗|CO)`,
-        `${escapedRole}(?:CO|を主張|として出(?:ます|る|た|ました|ている|ています)|を名乗(?:ります|りました|った|っている|っています))`
-      ].join("|"),
-      "u"
-    ).test(text);
-  }
-  const escapedRole = escapeRegExp(role);
-  return new RegExp(`\\b(?:I(?: am|'m) (?:the )?${escapedRole}|claim(?:ed|s)? (?:to be )?(?:the )?${escapedRole})\\b`, "i").test(
-    text
-  );
+function otherClaimantNames(claim: ClaimMetadata, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): string[] {
+  const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+  const exemptNames = new Set([speaker?.name, claim.targetName, result?.targetName].filter((name): name is string => Boolean(name)));
+  return legalPlayers.map((player) => player.name).filter((name) => !exemptNames.has(name));
 }
 
-function claimMetadataVisibleInSpeech(claim: ClaimMetadata, speechText: string, language: string): boolean {
+function resultAttributedToOtherClaimant(claim: ClaimMetadata, speechText: string, otherPlayerNames: string[]): boolean {
+  if (otherPlayerNames.length === 0) {
+    return false;
+  }
   const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
-  const hasRoleClaim = claim.role ? textHasSpecificRoleClaim(speechText, claim.role, language) : textHasRoleClaimEvidence(speechText);
-  const hasResult = Boolean(result ?? claim.camp) && textHasCampResultEvidence(speechText) && textMentionsClaimTarget(speechText, claim);
+  const targetNames = [claim.targetName, result?.targetName].filter((name): name is string => Boolean(name));
+  const targetPattern = targetNames.length > 0 ? `(?:${targetNames.map(escapeRegExp).join("|")})` : "";
+  const resultCue = targetPattern
+    ? `${targetPattern}[^。！？!?\\n]{0,24}(?:人間側|人間|村側|村人|白|黒|狼|人狼)判定`
+    : "(?:人間側|人間|村側|村人|白|黒|狼|人狼)判定";
+  return otherPlayerNames.some((name) => {
+    const escapedName = escapeRegExp(name);
+    return new RegExp(
+      `${escapedName}(?:さん|君|ちゃん)?\\s*(?:が|は|も)[^。！？!?\\n]{0,40}(?:${resultCue}|結果|占い|主張|言(?:った|いました|っている|っています))`,
+      "u"
+    ).test(speechText);
+  });
+}
+
+function claimMetadataVisibleInSpeech(
+  claim: ClaimMetadata,
+  speechText: string,
+  language: string,
+  legalPlayers: TargetCandidate[],
+  speaker?: TargetCandidate
+): boolean {
+  const result = typeof claim.result === "object" && claim.result !== null ? claim.result : undefined;
+  const otherNames = otherClaimantNames(claim, legalPlayers, speaker);
+  const hasRoleClaim = claim.role
+    ? textHasSpeakerRoleClaimEvidence(speechText, claim.role, language, speaker?.name, otherNames)
+    : textHasSpeakerAnyRoleClaimEvidence(speechText, language, speaker?.name, otherNames);
+  const hasResult =
+    Boolean(result ?? claim.camp) &&
+    textHasCampResultEvidence(speechText) &&
+    textMentionsClaimTarget(speechText, claim) &&
+    !resultAttributedToOtherClaimant(claim, speechText, otherNames);
   const hasWitchInfo =
     claim.type === "witch_info" && /(?:魔女|薬|救済|毒|witch|potion|saved|poisoned)/i.test(speechText);
 
@@ -2309,18 +2344,27 @@ export class WerewolfGame {
           );
         }
         if (effect.kind === "neutral_victory_claim") {
+          const winnerIds = effect.victoryClaims.flatMap((claim) => claim.winnerIds);
+          const winnerRoles = this.victoryRoleSummaries(winnerIds);
+          const sourceRole = effect.victoryClaims.find((claim) => claim.sourceId === player.id)?.sourceRole ?? player.role;
+          const sourceRoleLabel = this.roleText(sourceRole);
           yield this.emit(
             "system",
             this.text(
-              `${player.name}'s vote elimination fulfilled their neutral win condition.`,
-              `${player.name}は投票処刑で中立勝利条件を満たしました。`
+              `${player.name} was revealed as the ${sourceRoleLabel} and fulfilled their neutral win condition by vote elimination.`,
+              `${player.name}は${sourceRoleLabel}であることが明らかになり、投票処刑で中立勝利条件を満たしました。`
             ),
             {
               action: "neutral_victory_claim",
               winnerCamp: "neutral",
-              winnerIds: effect.victoryClaims.flatMap((claim) => claim.winnerIds),
+              winnerIds,
+              winnerRoles,
               sourceId: player.id,
-              sourceName: player.name
+              sourceName: player.name,
+              sourceRole,
+              sourceRoleLabel,
+              revealedRole: sourceRole,
+              revealedRoleLabel: sourceRoleLabel
             }
           );
         }
@@ -2399,7 +2443,22 @@ export class WerewolfGame {
     yield* this.resolveDeaths([{ playerId: target.id, cause, sourceId: hunter.id }], blockedTargetIds, chainDepth + 1);
   }
 
-  private checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null {
+  private victoryRoleSummaries(playerIds: string[]): VictoryRoleRevealSummary[] {
+    return [...new Set(playerIds)].map((playerId) => {
+      const player = this.requirePlayer(playerId);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        role: player.role
+      };
+    });
+  }
+
+  private formatVictoryRoleSummary(winnerRoles: VictoryRoleRevealSummary[]): string {
+    return winnerRoles.map((winner) => `${winner.playerName} (${this.roleText(winner.role)})`).join(", ");
+  }
+
+  private checkVictory(): VictoryResult | null {
     const loverResult = checkLoverVictory(this.players, this.ruleState);
     if (loverResult) {
       return {
@@ -2412,11 +2471,17 @@ export class WerewolfGame {
 
     const neutralResult = checkNeutralVictory(this.players, this.ruleState);
     if (neutralResult) {
+      const winnerRoles = this.victoryRoleSummaries(neutralResult.winnerIds);
+      const winnerRoleText = this.formatVictoryRoleSummary(winnerRoles);
       return {
         camp: neutralResult.fallbackCamp,
         winnerCamp: neutralResult.camp,
         winnerIds: neutralResult.winnerIds,
-        reason: this.text("A neutral role fulfilled its victory condition.", "中立役職が勝利条件を満たしました。")
+        winnerRoles,
+        reason: this.text(
+          `${winnerRoleText} fulfilled a neutral victory condition.`,
+          `${winnerRoleText}が中立勝利条件を満たしました。`
+        )
       };
     }
 
@@ -2443,7 +2508,7 @@ export class WerewolfGame {
     };
   }
 
-  private finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent {
+  private finishGame(result: VictoryResult): GameEvent {
     this.winner = result.camp;
     this.winnerCamp = result.winnerCamp ?? result.camp;
     this.winnerIds = result.winnerIds ?? this.alivePlayers().filter((player) => player.camp === result.camp).map((player) => player.id);
@@ -2452,6 +2517,7 @@ export class WerewolfGame {
       winner: result.camp,
       winnerCamp: this.winnerCamp,
       winnerIds: this.winnerIds,
+      ...(result.winnerRoles ? { winnerRoles: result.winnerRoles } : {}),
       reason: result.reason
     });
   }
@@ -2547,7 +2613,7 @@ export class WerewolfGame {
     emitSpeechAttemptDiagnostic({ kind: "speech_started" });
     try {
       attempts += 1;
-      const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers);
+      const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers, player);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
       }
@@ -2576,7 +2642,7 @@ export class WerewolfGame {
       if (!shouldFallbackFromLlmError(agent, error)) {
         throw error;
       }
-      return this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers);
+      return this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers, player);
     } finally {
       requestAbort.cleanup();
     }
@@ -2629,7 +2695,7 @@ export class WerewolfGame {
     };
     try {
       const generate = agent.improviseIntro ? agent.improviseIntro.bind(agent) : agent.speak.bind(agent);
-      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers);
+      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers, player);
       if (requestAbort.signal?.aborted) {
         throw new Error("Intro request cancelled.");
       }
@@ -2641,7 +2707,7 @@ export class WerewolfGame {
       if (!speculative) {
         console.warn(`[intro] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
       }
-      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseIntro!(input), legalPlayers);
+      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseIntro!(input), legalPlayers, player);
     } finally {
       requestAbort.cleanup();
     }
@@ -2683,7 +2749,7 @@ export class WerewolfGame {
         : agent.improviseIntro
           ? agent.improviseIntro.bind(agent)
           : agent.speak.bind(agent);
-      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers);
+      const speech = this.sanitizeSpeechForPhase(await generate(input), legalPlayers, player);
       if (requestAbort.signal?.aborted) {
         throw new Error("Werewolf face-off request cancelled.");
       }
@@ -2695,7 +2761,7 @@ export class WerewolfGame {
       if (!speculative) {
         console.warn(`[faceoff] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
       }
-      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseWerewolfIntro!(input), legalPlayers);
+      return this.sanitizeSpeechForPhase(await fallbackAgent.improviseWerewolfIntro!(input), legalPlayers, player);
     } finally {
       requestAbort.cleanup();
     }
@@ -2769,7 +2835,7 @@ export class WerewolfGame {
     const handler = this.humanInput;
     const lockFreeText = shouldLockHumanWerewolfOpeningToChoices(input);
     if (!shadow || !handler) {
-      return this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers);
+      return this.sanitizeSpeechForPhase(defaultHumanHoldSpeech(this.config.language), legalPlayers, player);
     }
 
     let candidates: AgentSpeech[];
@@ -2794,7 +2860,7 @@ export class WerewolfGame {
         }); offering a single fallback option.`
       );
       candidates = [
-        this.sanitizeSpeechForPhase(this.simpleSpeechFallback(input, legalPlayers, input.speechPlan), legalPlayers)
+        this.sanitizeSpeechForPhase(this.simpleSpeechFallback(input, legalPlayers, input.speechPlan), legalPlayers, player)
       ];
     }
 
@@ -2820,7 +2886,7 @@ export class WerewolfGame {
     const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
     const customSpeech = lockFreeText ? null : humanFreeTextSpeech(response.speech, this.config.language);
     if (customSpeech) {
-      return this.sanitizeSpeechForPhase(customSpeech, legalPlayers);
+      return this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player);
     }
 
     return candidates[chosenIndex] ?? candidates[0];
@@ -2877,7 +2943,7 @@ export class WerewolfGame {
     return this.alivePlayers().filter((candidate) => candidate.id !== player.id);
   }
 
-  private sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech {
+  private sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): AgentSpeech {
     const legalIds = new Set(legalPlayers.map((candidate) => candidate.id));
     const speechText = speech.messages.join(" ");
     return {
@@ -2886,7 +2952,9 @@ export class WerewolfGame {
         ...speech.metadata,
         suspects: speech.metadata.suspects.filter((read) => legalIds.has(read.targetId)),
         trusts: speech.metadata.trusts.filter((read) => legalIds.has(read.targetId)),
-        claims: speech.metadata.claims.filter((claim) => claimMetadataVisibleInSpeech(claim, speechText, this.config.language))
+        claims: speech.metadata.claims.filter((claim) =>
+          claimMetadataVisibleInSpeech(claim, speechText, this.config.language, legalPlayers, speaker)
+        )
       }
     };
   }

@@ -450,9 +450,21 @@ class FailOnceSpeechAgent implements Agent {
 
 type TestableGame = WerewolfGame & {
   agents: Map<string, Agent>;
-  checkVictory(): { camp: Camp; winnerCamp: CampId; winnerIds: string[]; reason: string } | null;
+  checkVictory(): {
+    camp: Camp;
+    winnerCamp: CampId;
+    winnerIds: string[];
+    winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
+    reason: string;
+  } | null;
   emitRoundSummary(): Promise<GameEvent>;
-  finishGame(result: { camp: Camp; winnerCamp?: CampId; winnerIds?: string[]; reason: string }): GameEvent;
+  finishGame(result: {
+    camp: Camp;
+    winnerCamp?: CampId;
+    winnerIds?: string[];
+    winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
+    reason: string;
+  }): GameEvent;
   players: Player[];
   publicHistory: string[];
   wolfHistory: string[];
@@ -1528,7 +1540,7 @@ test("speech sanitization drops claim metadata not supported by displayed text",
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Werewolf" }]);
   const sanitizer = game as unknown as {
-    sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[]): AgentSpeech;
+    sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): AgentSpeech;
   };
   const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
 
@@ -1541,9 +1553,24 @@ test("speech sanitization drops claim metadata not supported by displayed text",
         claims: [{ type: "role_claim", role: "Seer" }]
       }
     },
-    legalPlayers
+    legalPlayers,
+    players[0]
   );
   assert.deepEqual(policyTalk.metadata.claims, []);
+
+  const reportedOtherPlayerClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`${players[1].name}さんが占い師を主張しましたが、初日で結果が出ていない以上、今はまだ保留ですね`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [{ type: "role_claim", role: "Seer" }]
+      }
+    },
+    legalPlayers,
+    players[0]
+  );
+  assert.deepEqual(reportedOtherPlayerClaim.metadata.claims, []);
 
   const visibleClaim = sanitizer.sanitizeSpeechForPhase(
     {
@@ -1560,9 +1587,30 @@ test("speech sanitization drops claim metadata not supported by displayed text",
         ]
       }
     },
-    legalPlayers
+    legalPlayers,
+    players[0]
   );
   assert.equal(visibleClaim.metadata.claims.length, 1);
+
+  const implicitOwnClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`ここで占い師を名乗ります。${players[1].name}は人間側判定です`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: { targetId: players[1].id, targetName: players[1].name, camp: "village", round: 1 }
+          }
+        ]
+      }
+    },
+    legalPlayers,
+    players[0]
+  );
+  assert.equal(implicitOwnClaim.metadata.claims.length, 1);
 });
 
 test("day discussion race publishes the fastest AI and rebuilds the next race from that speech", async () => {
@@ -3662,17 +3710,30 @@ test("Jester vote death ends as neutral winner while keeping winner fallback com
 
   const events = await collect(game.runVoting());
   const result = game.checkVictory();
+  const victoryClaim = events.find((event) => event.type === "system" && event.data?.action === "neutral_victory_claim");
 
   assert.equal(players[3].alive, false);
-  assert.ok(events.some((event) => event.type === "system" && event.data?.action === "neutral_victory_claim"));
+  assert.ok(victoryClaim);
+  assert.match(victoryClaim.message, /Jester/);
+  assert.equal(victoryClaim.data?.sourceRole, "Jester");
+  assert.equal(victoryClaim.data?.revealedRole, "Jester");
+  assert.equal(victoryClaim.data?.revealedRoleLabel, "Jester");
+  assert.deepEqual(victoryClaim.data?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
+  const villageClaim = redactEventForVillage(victoryClaim);
+  assert.equal(villageClaim.data.revealedRole, "Jester");
+  assert.equal(villageClaim.data.sourceRole, "Jester");
   assert.equal(result?.winnerCamp, "neutral");
   assert.equal(result?.camp, "village");
   assert.deepEqual(result?.winnerIds, ["p4"]);
+  assert.deepEqual(result?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
+  assert.match(result?.reason ?? "", /Jester/);
 
   const ended = game.finishGame(result!);
+  assert.match(ended.message, /Jester/);
   assert.equal(ended.data?.winner, "village");
   assert.equal(ended.data?.winnerCamp, "neutral");
   assert.deepEqual(ended.data?.winnerIds, ["p4"]);
+  assert.deepEqual(ended.data?.winnerRoles, [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]);
   assert.equal(ended.snapshot.winner, "village");
   assert.equal(ended.snapshot.winnerCamp, "neutral");
   assert.deepEqual(ended.snapshot.winnerIds, ["p4"]);

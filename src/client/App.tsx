@@ -18,6 +18,7 @@ import {
   Send,
   Settings,
   Shield,
+  Sparkles,
   Skull,
   Square,
   UserRound,
@@ -50,6 +51,7 @@ import {
   normalizePlayerCount as normalizeSupportedPlayerCount
 } from "../game/rules/presets";
 import type {
+  CampId,
   ClaimMetadata,
   DebugScenario,
   GameEvent,
@@ -483,6 +485,20 @@ function roleClassName(role: string | undefined): string {
   return roleClass[role as Role] ?? "role-hidden";
 }
 
+function roleFromEventData(event: GameEvent | undefined, key: string): Role | undefined {
+  const role = dataString(event, key);
+  return role in roleClass ? (role as Role) : undefined;
+}
+
+function neutralVictoryRoleReveal(event: GameEvent): { playerId: string; role: Role } | undefined {
+  if (eventAction(event) !== "neutral_victory_claim") {
+    return undefined;
+  }
+  const playerId = dataString(event, "sourceId");
+  const role = roleFromEventData(event, "revealedRole") ?? roleFromEventData(event, "sourceRole");
+  return playerId && role ? { playerId, role } : undefined;
+}
+
 function personaClassName(persona: PlayerSnapshot["persona"] | string | undefined): string {
   const map: Record<string, string> = {
     cautious: "persona-cautious",
@@ -618,6 +634,9 @@ export function streamErrorMessageFromData(data: string | undefined): string {
 }
 
 function eventTone(event: GameEvent): string {
+  if (eventAction(event) === "neutral_victory_claim") {
+    return "neutral-victory";
+  }
   if (eventCause(event) === "hunter") {
     return "hunter-shot";
   }
@@ -680,6 +699,9 @@ export function stageLightMoodForEvent(event: GameEvent | undefined, hidden = fa
   }
   if (hidden || event.type === "private_info" || event.type === "night_action") {
     return "night";
+  }
+  if (eventAction(event) === "neutral_victory_claim") {
+    return "claim";
   }
   if (event.type === "round_summary" || event.type === "game_ended") {
     return "summary";
@@ -934,6 +956,8 @@ function visibleDetailMentionSourceText(event: GameEvent, mode: SpectatorMode, l
   const sourceText = [
     eventMessageForSpectator(event, mode),
     event.targetName,
+    dataString(event, "sourceName"),
+    dataString(event, "revealedRoleLabel"),
     dataString(event, "hunterName"),
     dataString(event, "protectedTargetName"),
     visibleEventReason(event)
@@ -1247,6 +1271,81 @@ export function winnerLabelForRoster(winner: string | null | undefined, language
   return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${campLabel(winner, language)}`;
 }
 
+function campIdFromValue(value: string | null | undefined): CampId | null {
+  if (value === "werewolf" || value === "village" || value === "neutral" || value === "lover") {
+    return value;
+  }
+  return null;
+}
+
+function playerObjectiveCamp(player: PlayerSnapshot): CampId | null {
+  if (player.role === "Jester") {
+    return "neutral";
+  }
+  if (player.role === "Lover") {
+    return "lover";
+  }
+  return campIdFromValue(player.camp);
+}
+
+function requiresPersonalWinnerId(camp: CampId): boolean {
+  return camp === "neutral" || camp === "lover";
+}
+
+export interface PersonalVictoryOutcome {
+  status: "won" | "lost";
+  playerCamp: CampId;
+  winnerCamp: CampId;
+  title: string;
+  message: string;
+  detail: string;
+}
+
+export function personalVictoryOutcomeForSnapshot(
+  snapshot: GameSnapshot | null | undefined,
+  playerId: string | null | undefined,
+  language = defaultLanguage
+): PersonalVictoryOutcome | null {
+  const winnerCamp = campIdFromValue(snapshot?.winnerCamp ?? snapshot?.winner ?? null);
+  const player = playerId ? snapshot?.players.find((candidate) => candidate.id === playerId) : undefined;
+  const playerCamp = player ? playerObjectiveCamp(player) : null;
+  if (!winnerCamp || !playerCamp || !player) {
+    return null;
+  }
+
+  const winnerIds = new Set(snapshot?.winnerIds ?? []);
+  const fulfilled =
+    winnerCamp === playerCamp &&
+    (!requiresPersonalWinnerId(playerCamp) || winnerIds.has(player.id));
+  const playerCampLabel = campLabel(playerCamp, language);
+  const winnerCampLabel = campLabel(winnerCamp, language);
+  const japanese = isJapaneseLanguage(language);
+
+  if (!fulfilled) {
+    return {
+      status: "lost",
+      playerCamp,
+      winnerCamp,
+      title: japanese ? "勝利条件未達成" : "Win condition missed",
+      message: japanese ? "あなたは勝利条件を満たせませんでした。" : "You did not meet your win condition.",
+      detail: japanese
+        ? `勝利陣営は${winnerCampLabel}、あなたの陣営は${playerCampLabel}です。`
+        : `Winner: ${winnerCampLabel}. Your camp: ${playerCampLabel}.`
+    };
+  }
+
+  return {
+    status: "won",
+    playerCamp,
+    winnerCamp,
+    title: japanese ? "勝利条件達成" : "Win condition met",
+    message: japanese ? "あなたは勝利条件を満たしました。" : "You met your win condition.",
+    detail: japanese
+      ? `あなたの陣営は${winnerCampLabel}として勝利しました。`
+      : `Your camp won as ${winnerCampLabel}.`
+  };
+}
+
 export function App() {
   const [playerCount, setPlayerCount] = useState(initialPlayerCount);
   const [debugScenario, setDebugScenario] = useState<DebugScenario>(initialDebugScenario);
@@ -1336,6 +1435,16 @@ export function App() {
   );
   const warnings = useMemo(() => events.filter((event) => event.type === "warning"), [events]);
   const currentEvent = events.at(-1);
+  const publicRoleReveals = useMemo(() => {
+    const reveals = new Map<string, Role>();
+    for (const event of events) {
+      const reveal = neutralVictoryRoleReveal(event);
+      if (reveal) {
+        reveals.set(reveal.playerId, reveal.role);
+      }
+    }
+    return reveals;
+  }, [events]);
   // A werewolf viewer's redacted snapshot carries allied wolves' real roles from the very first
   // event, but in the story we only learn each ally once they introduce themselves at the
   // face-off. Accumulate the ids whose self-naming werewolf-discussion speech we have played past
@@ -1351,6 +1460,10 @@ export function App() {
       if (speakerId) {
         revealed.add(speakerId);
       }
+      const roleReveal = neutralVictoryRoleReveal(event);
+      if (roleReveal) {
+        revealed.add(roleReveal.playerId);
+      }
     }
     return revealed;
   }, [events, humanPlayerId]);
@@ -1358,10 +1471,14 @@ export function App() {
   // their roster card. Only the first face-off line per wolf pulses, and only in the human "player"
   // view where the reveal is actually news (omniscient already shows every role).
   const revealingRoleId = useMemo(() => {
+    const last = events.at(-1);
+    const roleReveal = last ? neutralVictoryRoleReveal(last) : undefined;
+    if (roleReveal) {
+      return roleReveal.playerId;
+    }
     if (spectatorMode !== "player") {
       return undefined;
     }
-    const last = events.at(-1);
     const speakerId = last ? faceoffSpeakerId(last) : undefined;
     if (!speakerId || speakerId === humanPlayerId) {
       return undefined;
@@ -1560,11 +1677,11 @@ export function App() {
     };
   }, [tourStepIndex, tourSteps]);
 
-  // When an ally is unveiled at the face-off, raise a modal spotlight over their roster card:
+  // When a role is unveiled in the story, raise a modal spotlight over their roster card:
   // scroll it into view, dim everything else, and hold for REVEAL_SPOTLIGHT_MS before clearing.
   // The card stays revealed afterwards; only the dramatic overlay is transient.
   //
-  // Gate on the face-off speech being *fully* typed out (`typedCompleteEventId`), so the dramatic
+  // Gate on the reveal message being *fully* typed out (`typedCompleteEventId`), so the dramatic
   // beat lands after the message has finished its typewriter sweep — not the instant the speech
   // event arrives. The id match keeps it tied to this exact speech, so it fires once and is not
   // re-triggered by a stale "complete" carried over from the previous (longer) line.
@@ -1583,7 +1700,8 @@ export function App() {
     }
     const id = revealingRoleId;
     let dismissed = false;
-    const findCard = () => rosterListRef.current?.querySelector<HTMLElement>(`.player-card[data-player-id="${id}"]`) ?? null;
+    const findCard = () =>
+      rosterListRef.current?.querySelector<HTMLElement>(`.player-card[data-player-id="${id}"], .dead-player[data-player-id="${id}"]`) ?? null;
     const measure = () => {
       if (dismissed) {
         return; // never resurrect the overlay once the hold has elapsed or been skipped
@@ -2656,6 +2774,9 @@ export function App() {
     const totals = hidden ? [] : dataArray<VoteTotal>(event, "totals");
     const reason = visibleEventReason(event, hidden);
     const targetRole = !hidden && spectatorMode === "omniscient" ? dataString(event, "targetRole") : "";
+    const revealedRole = !hidden ? roleFromEventData(event, "revealedRole") ?? roleFromEventData(event, "sourceRole") : undefined;
+    const revealedRoleLabel = revealedRole ? dataString(event, "revealedRoleLabel") || displayRoleLabel(revealedRole, language) : "";
+    const revealedRolePlayer = !hidden ? dataString(event, "sourceName") : "";
     const action = eventAction(event);
     const hunterName = !hidden ? dataString(event, "hunterName") : "";
     const protectedTarget = !hidden ? dataString(event, "protectedTargetName") : "";
@@ -2666,6 +2787,7 @@ export function App() {
         trusts.length > 0 ||
         Boolean(reason) ||
         Boolean(targetRole) ||
+        Boolean(revealedRole) ||
         Boolean(hunterName) ||
         Boolean(protectedTarget) ||
         totals.length > 0);
@@ -2677,6 +2799,12 @@ export function App() {
     return (
       <div className="event-details">
         {targetRole ? <span className="detail-chip role-info">役職: {displayRoleLabel(targetRole, language)}</span> : null}
+        {revealedRole ? (
+          <span className="detail-chip role-reveal-info">
+            <Sparkles size={17} />
+            {revealedRolePlayer ? renderTextWithCharacterNames(revealedRolePlayer, `role-reveal-${event.id}`) : "対象"}: {revealedRoleLabel}
+          </span>
+        ) : null}
         {hunterName ? (
           <span className="detail-chip hunter">
             発砲: {renderTextWithCharacterNames(hunterName, `hunter-${event.id}`)} {"->"}{" "}
@@ -2851,6 +2979,9 @@ export function App() {
   }
 
   function renderStoryBody(event: GameEvent, hidden: boolean) {
+    if (event.type === "game_ended") {
+      return renderGameEndOutcome(event, hidden);
+    }
     if (event.type === "round_summary") {
       return renderRoundSummary(event, hidden);
     }
@@ -2862,6 +2993,54 @@ export function App() {
         text={eventMessageForSpectator(event, spectatorMode)}
         onComplete={() => setTypedCompleteEventId(event.id)}
       />
+    );
+  }
+
+  function renderGameEndOutcome(event: GameEvent, hidden: boolean) {
+    const winnerCamp =
+      campIdFromValue(dataString(event, "winnerCamp")) ??
+      campIdFromValue(event.snapshot.winnerCamp ?? event.snapshot.winner ?? null);
+    const outcome = personalVictoryOutcomeForSnapshot(event.snapshot, humanEnabled ? humanPlayerId : null, language);
+    const resultClass = outcome?.status ?? "spectator";
+    const title =
+      outcome?.title ??
+      (winnerCamp
+        ? `${campLabel(winnerCamp, language)}${isJapaneseLanguage(language) ? "の勝利" : " wins"}`
+        : isJapaneseLanguage(language)
+          ? "対局終了"
+          : "Game ended");
+    const message = outcome?.message ?? eventMessageForSpectator(event, spectatorMode);
+    const detail = outcome?.detail;
+
+    return (
+      <section className={`game-end-result ${resultClass}`} role="status" aria-live="polite">
+        <div className="game-end-alert" aria-hidden="true">
+          {outcome?.status === "won" ? <Shield size={30} /> : outcome?.status === "lost" ? <Skull size={32} /> : <Sparkles size={30} />}
+        </div>
+        <div className="game-end-copy-block">
+          <span className="game-end-kicker">対局終了</span>
+          <h2>{title}</h2>
+          <p className="game-end-main">{message}</p>
+          {detail ? <p className="game-end-detail">{detail}</p> : null}
+        </div>
+        {winnerCamp || outcome ? (
+          <div className="game-end-camps" aria-label="勝敗内訳">
+            {winnerCamp ? (
+              <span>
+                <small>勝利陣営</small>
+                <strong>{campLabel(winnerCamp, language)}</strong>
+              </span>
+            ) : null}
+            {outcome ? (
+              <span>
+                <small>あなたの陣営</small>
+                <strong>{campLabel(outcome.playerCamp, language)}</strong>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {!hidden ? <p className="game-end-reason">{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p> : null}
+      </section>
     );
   }
 
@@ -3448,9 +3627,14 @@ export function App() {
     const player = selectedCharacterPlayer;
     const humanPlayer = isHumanPlayer(selectedCharacterId);
     const thumbnail = getCharacterImage(selectedCharacterId);
+    const publicRole = player ? publicRoleReveals.get(player.id) : undefined;
     const profileRevealed = player ? revealedRoleIds.has(player.id) : false;
-    const visibleRoleLabel = player ? roleDisplay(player, spectatorMode, language, profileRevealed) : displayRoleLabel("Hidden", language);
-    const visibleRoleClass = player ? roleChipClass(player, spectatorMode, profileRevealed) : "role-hidden";
+    const visibleRoleLabel = player
+      ? publicRole
+        ? displayRoleLabel(publicRole, language)
+        : roleDisplay(player, spectatorMode, language, profileRevealed)
+      : displayRoleLabel("Hidden", language);
+    const visibleRoleClass = publicRole ? roleClassName(publicRole) : player ? roleChipClass(player, spectatorMode, profileRevealed) : "role-hidden";
     const relationEntries = characterRelationEntries(selectedCharacterId, new Set(snapshot?.players.map((candidate) => candidate.id) ?? []));
 
     return (
@@ -3713,8 +3897,14 @@ export function App() {
                   const humanPlayer = isHumanPlayer(player.id);
                   const revealed = revealedRoleIds.has(player.id);
                   const revealing = revealingRoleId === player.id;
-                  const roleLabel = roleDisplay(player, spectatorMode, language, revealed);
-                  const compactRoleLabel = rosterRoleDisplay(player, spectatorMode, language, revealed);
+                  const publicRole = publicRoleReveals.get(player.id);
+                  const roleLabel = publicRole ? displayRoleLabel(publicRole, language) : roleDisplay(player, spectatorMode, language, revealed);
+                  const compactRoleLabel = publicRole
+                    ? isJapaneseLanguage(language) && publicRole === "AlphaWolf"
+                      ? "α人狼"
+                      : displayRoleLabel(publicRole, language)
+                    : rosterRoleDisplay(player, spectatorMode, language, revealed);
+                  const roleClass = publicRole ? roleClassName(publicRole) : roleChipClass(player, spectatorMode, revealed);
                   return (
                     <button
                       aria-label={`${player.name}の公開プロフィールを表示`}
@@ -3746,7 +3936,7 @@ export function App() {
                           <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                           <span className={`persona-pill ${personaClassName(player.persona)}`}>{personaLabel(player.persona, language)}</span>
                         </div>
-                        <span aria-label={roleLabel} className={`role-chip ${roleChipClass(player, spectatorMode, revealed)} ${revealing ? "role-reveal" : ""}`} title={roleLabel}>
+                        <span aria-label={roleLabel} className={`role-chip ${roleClass} ${revealing ? "role-reveal" : ""}`} title={roleLabel}>
                           {compactRoleLabel}
                         </span>
                       </div>
@@ -3771,10 +3961,16 @@ export function App() {
                     // A wolf ally we already learned at the face-off stays known after death, so a
                     // revealed id keeps its real role (the player-view snapshot preserves allies'
                     // roles); everyone else stays hidden unless we are watching omniscient.
-                    const deadRole = spectatorMode === "omniscient" || revealedRoleIds.has(player.id) ? player.role : "Hidden";
+                    const publicRole = publicRoleReveals.get(player.id);
+                    const revealing = revealingRoleId === player.id;
+                    const deadRole = publicRole ?? (spectatorMode === "omniscient" || revealedRoleIds.has(player.id) ? player.role : "Hidden");
                     const deadRoleLabel = displayRoleLabel(deadRole, language);
                     return (
-                      <div className={`dead-player ${humanPlayer ? "human-player" : ""}`} key={player.id}>
+                      <div
+                        className={`dead-player ${humanPlayer ? "human-player" : ""} ${revealing ? "revealing-role" : ""}`}
+                        data-player-id={player.id}
+                        key={player.id}
+                      >
                         {getCharacterImage(player.id) ? (
                           <CharacterImage
                             alt={player.name}
@@ -3796,7 +3992,7 @@ export function App() {
                             <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                             {humanPlayer ? renderHumanPlayerBadge() : null}
                           </div>
-                          <span className={`dead-role-chip ${roleClassName(deadRole)}`}>{deadRoleLabel}</span>
+                          <span className={`dead-role-chip ${roleClassName(deadRole)} ${revealing ? "role-reveal" : ""}`}>{deadRoleLabel}</span>
                         </div>
                       </div>
                     );
@@ -3827,13 +4023,33 @@ export function App() {
                   const hidden = speechInputPrompt ? false : currentEvent ? isEventRedactedForSpectator(currentEvent, spectatorMode) : false;
                   const tone = currentEvent ? eventTone(currentEvent) : "";
                   const isSpeech = currentEvent?.type === "player_speech";
-                  const lightTone = currentEvent ? currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length) : currentStageLightTone ?? "cyan";
+                  const roleReveal = currentEvent ? neutralVictoryRoleReveal(currentEvent) : undefined;
+                  const gameEndOutcome =
+                    currentEvent?.type === "game_ended"
+                      ? personalVictoryOutcomeForSnapshot(currentEvent.snapshot, humanEnabled ? humanPlayerId : null, language)
+                      : null;
+                  const currentRevealedRole =
+                    currentEvent && !hidden
+                      ? roleFromEventData(currentEvent, "revealedRole") ?? roleFromEventData(currentEvent, "sourceRole")
+                      : undefined;
+                  const lightTone =
+                    gameEndOutcome?.status === "lost"
+                      ? "crimson"
+                      : gameEndOutcome?.status === "won"
+                        ? "emerald"
+                      : currentEvent
+                        ? currentStageLightTone ?? stageLightToneForEvent(currentEvent, hidden, events.length)
+                        : currentStageLightTone ?? "cyan";
                   const storyPhase = speechInputPrompt?.phase ?? currentEvent?.phase ?? "setup";
                   const storyEventType = speechInputPrompt ? "player_speech" : currentEvent?.type;
                   const storyLightKey = speechInputPrompt ? `${currentEvent?.id ?? "input"}-${speechInputPrompt.id}` : currentEvent?.id;
                   const mentionedCharacters =
                     currentEvent && !speechInputPrompt ? mentionedCharactersForEvent(currentEvent, hidden, spectatorMode, language) : [];
-                  const heroCharacterImage = speechInputPrompt ? getCharacterPortrait(speechInputPrompt.playerId) : activeSpeakerImage;
+                  const heroCharacterImage = speechInputPrompt
+                    ? getCharacterPortrait(speechInputPrompt.playerId)
+                    : roleReveal
+                      ? getCharacterPortrait(roleReveal.playerId)
+                      : activeSpeakerImage;
                   const speakerName =
                     speechInputPrompt
                       ? speechInputPrompt.playerName
@@ -3846,10 +4062,10 @@ export function App() {
                     <article
                       className={`scene-card story-hero ${currentEvent?.type ?? "human_input"} ${tone} ${
                         hidden ? "secret-redacted" : ""
-                      } ${speechInputPrompt ? "human-input-hero" : ""}`}
+                      } ${speechInputPrompt ? "human-input-hero" : ""} ${gameEndOutcome ? `personal-${gameEndOutcome.status}` : ""}`}
                     >
                       {renderStageBackdrop(storyPhase, storyEventType, hidden, lightTone, storyLightKey)}
-                      {heroCharacterImage && !hidden && (isSpeech || speechInputPrompt) ? (
+                      {heroCharacterImage && !hidden && (isSpeech || speechInputPrompt || roleReveal) ? (
                         <CharacterImage
                           alt={speakerName}
                           className={`hero-character ${speechInputPrompt ? "human-input-character" : ""}`}
@@ -3865,6 +4081,8 @@ export function App() {
                             <span className={roleClassName(speechInputPrompt.role)}>{displayRoleLabel(speechInputPrompt.role, language)}</span>
                           ) : currentEvent?.role && spectatorMode === "omniscient" && !hidden ? (
                             <span className={roleClassName(currentEvent.role)}>{displayRoleLabel(currentEvent.role, language)}</span>
+                          ) : currentRevealedRole ? (
+                            <span className={roleClassName(currentRevealedRole)}>{displayRoleLabel(currentRevealedRole, language)}</span>
                           ) : null}
                         </div>
                         <div className="speaker-line">
@@ -3880,7 +4098,7 @@ export function App() {
                           {speechInputPrompt ? null : renderSpeakerUnreadStatus()}
                         </div>
                         {speechInputPrompt ? renderHumanSpeechInputScene(speechInputPrompt) : currentEvent ? renderStoryBody(currentEvent, hidden) : null}
-                        {!speechInputPrompt && currentEvent ? renderEventDetails(currentEvent, hidden) : null}
+                        {!speechInputPrompt && currentEvent && currentEvent.type !== "game_ended" ? renderEventDetails(currentEvent, hidden) : null}
                         {!speechInputPrompt && currentEvent ? renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id) : null}
                       </div>
                       {renderHumanInputPanel(actionHumanInput)}

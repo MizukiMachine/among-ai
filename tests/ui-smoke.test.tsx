@@ -16,6 +16,7 @@ import {
   isCurrentHumanInputRevealAnchor,
   mentionedCharactersForEvent,
   mentionedCharactersForText,
+  personalVictoryOutcomeForSnapshot,
   stageLightMoodForEvent,
   stageLightToneForEvent,
   storyRunControlState,
@@ -24,7 +25,7 @@ import {
   winnerLabelForRoster
 } from "../src/client/App";
 import { roleLabel as displayRoleLabel } from "../src/game/i18n";
-import type { GameEvent } from "../src/game/types";
+import type { GameEvent, GameSnapshot } from "../src/game/types";
 
 test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -99,6 +100,87 @@ test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster(null, "Japanese"), null);
   assert.equal(winnerLabelForRoster("village", "Japanese"), "勝者: 人間側");
   assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
+});
+
+test("personal game-end outcome calls out unmet win conditions", () => {
+  const snapshot: GameSnapshot = {
+    round: 3,
+    phase: "ended",
+    winner: "village",
+    winnerCamp: "village",
+    winnerIds: ["p2"],
+    players: [
+      {
+        id: "p1",
+        name: "シオン",
+        role: "Werewolf",
+        camp: "werewolf",
+        persona: "cautious",
+        alive: false,
+        model: "human",
+        memoryCount: 0
+      },
+      {
+        id: "p2",
+        name: "ガク",
+        role: "Villager",
+        camp: "village",
+        persona: "logical",
+        alive: true,
+        model: "scripted",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 1,
+    werewolfCount: 0,
+    villageCount: 1
+  };
+
+  const outcome = personalVictoryOutcomeForSnapshot(snapshot, "p1", "Japanese");
+
+  assert.equal(outcome?.status, "lost");
+  assert.equal(outcome?.title, "勝利条件未達成");
+  assert.equal(outcome?.message, "あなたは勝利条件を満たせませんでした。");
+  assert.match(outcome?.detail ?? "", /勝利陣営は人間側、あなたの陣営は狼陣営です。/);
+
+  const winOutcome = personalVictoryOutcomeForSnapshot(
+    {
+      ...snapshot,
+      winner: "werewolf",
+      winnerCamp: "werewolf",
+      winnerIds: ["p1"],
+      werewolfCount: 1,
+      villageCount: 0,
+      players: snapshot.players.map((player) =>
+        player.id === "p1" ? { ...player, alive: true } : { ...player, alive: false }
+      )
+    },
+    "p1",
+    "Japanese"
+  );
+
+  assert.equal(winOutcome?.status, "won");
+  assert.equal(winOutcome?.title, "勝利条件達成");
+  assert.equal(winOutcome?.message, "あなたは勝利条件を満たしました。");
+});
+
+test("game-end screen has a personal loss presentation", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /event\.type === "game_ended"/);
+  assert.match(source, /renderGameEndOutcome\(event, hidden\)/);
+  assert.match(source, /あなたは勝利条件を満たせませんでした。/);
+  assert.match(source, /className=\{`game-end-result \$\{resultClass\}`\}/);
+  assert.match(source, /personal-\$\{gameEndOutcome\.status\}/);
+  assert.match(css, /\.story-hero\.game_ended\.personal-lost \.chapel-backdrop::after\s*\{/);
+  assert.match(css, /\.story-hero\.game_ended\.personal-won \.chapel-backdrop::after\s*\{/);
+  assert.match(css, /\.game-end-result\.lost\s*\{/);
+  assert.match(css, /\.game-end-result\.won\s*\{/);
+  assert.match(css, /@keyframes game-end-alert-pulse/);
+  assert.match(css, /@keyframes game-end-victory-mark/);
+  assert.match(css, /@keyframes game-end-victory-glow/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.game-end-result/s);
 });
 
 test("dialogue keeps character names as ordinary text", () => {
@@ -305,7 +387,7 @@ test("stage backdrop exposes animated mood lighting layers", () => {
   assert.match(source, /stageLightToneForEvent\(event, isEventRedactedForSpectator\(event, spectatorMode\), index \+ 1, previousTone\)/);
   assert.match(
     source,
-    /const lightTone = currentEvent \? currentStageLightTone \?\? stageLightToneForEvent\(currentEvent, hidden, events\.length\) : currentStageLightTone \?\? "cyan";/
+    /gameEndOutcome\?\.status === "lost"[\s\S]*\? "crimson"[\s\S]*gameEndOutcome\?\.status === "won"[\s\S]*\? "emerald"[\s\S]*currentStageLightTone \?\? stageLightToneForEvent\(currentEvent, hidden, events\.length\)[\s\S]*currentStageLightTone \?\? "cyan";/
   );
   assert.match(backdrop, /data-light-tone=\{lightTone\}/);
   assert.match(backdrop, /className="stage-light-wash"/);
@@ -326,7 +408,7 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(source, /className="mentioned-character-strip"/);
   assert.match(source, /mentioned-character-more/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
-  assert.match(source, /!speechInputPrompt && currentEvent \? renderEventDetails\(currentEvent, hidden\) : null/);
+  assert.match(source, /!speechInputPrompt && currentEvent && currentEvent\.type !== "game_ended" \? renderEventDetails\(currentEvent, hidden\) : null/);
   assert.match(source, /!speechInputPrompt && currentEvent \? renderMentionedCharacterStrip\(mentionedCharacters, currentEvent\.id\) : null/);
   assert.doesNotMatch(source, /function renderHeroCast/);
   assert.doesNotMatch(source, /className=\{`hero-cast/);
@@ -378,7 +460,7 @@ test("setup character thumbnails preload and portrait images warm in the backgro
 test("full portrait images stay limited to active speaker and mention cues", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 4);
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 5);
   assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
   assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
   assert.match(source, /getCharacterPortrait\(speechInputPrompt\.playerId\)/);
@@ -634,10 +716,13 @@ test("player roster distinguishes persona and hidden role labels", () => {
   assert.equal(displayRoleLabel("Hidden", "Japanese"), "不明");
   // Player mode trusts the server-redacted snapshot, but a non-Hidden role is only shown once it
   // has been "revealed" in the story: the viewer's own role plus, for a werewolf, each ally after
-  // they name themselves at the face-off (see revealedRoleIds). The gate is the `revealed` arg.
+  // they name themselves at the face-off (see revealedRoleIds). Public victory-condition role
+  // reveals override the redacted snapshot because the role has become story-visible information.
   assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden" && revealed\);/);
   assert.match(source, /const revealed = revealedRoleIds\.has\(player\.id\);/);
-  assert.match(source, /const roleLabel = roleDisplay\(player, spectatorMode, language, revealed\);/);
+  assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
+  assert.match(source, /const roleLabel = publicRole \? displayRoleLabel\(publicRole, language\) : roleDisplay\(player, spectatorMode, language, revealed\);/);
+  assert.match(source, /const visibleRoleLabel = player[\s\S]*publicRole[\s\S]*displayRoleLabel\(publicRole, language\)[\s\S]*roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   // The face-off self-naming speech is what flips an ally from 不明 to their role.
   assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
   assert.match(source, /event\.type === "player_speech" && event\.phase === "werewolf_discussion"/);
@@ -869,6 +954,49 @@ test("village spectator history redacts secret event messages and speakers", () 
   assert.equal(eventMessageForSpectator(event, "omniscient"), "シオンとガクだけに見える相談内容");
   assert.equal(eventSpeakerForSpectator(event, "omniscient", "Japanese"), "シオン");
   assert.deepEqual(mentionedCharactersForEvent(event, false, "omniscient").map((mention) => mention.id), ["p8", "p9"]);
+});
+
+test("neutral victory role reveal is public and animated", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+  const event: GameEvent = {
+    id: 2,
+    createdAt: "2026-05-18T00:00:00.000Z",
+    round: 1,
+    phase: "voting",
+    type: "system",
+    message: "シオンは道化師であることが明らかになり、投票処刑で中立勝利条件を満たしました",
+    data: {
+      action: "neutral_victory_claim",
+      sourceId: "p8",
+      sourceName: "シオン",
+      revealedRole: "Jester",
+      revealedRoleLabel: "道化師"
+    },
+    snapshot: {
+      round: 1,
+      phase: "voting",
+      winner: null,
+      players: [],
+      aliveCount: 0,
+      werewolfCount: 0,
+      villageCount: 0
+    }
+  };
+
+  assert.equal(stageLightMoodForEvent(event), "claim");
+  assert.deepEqual(mentionedCharactersForEvent(event, false, "village").map((mention) => mention.id), ["p8"]);
+  assert.match(source, /function neutralVictoryRoleReveal\(event: GameEvent\): \{ playerId: string; role: Role \} \| undefined/);
+  assert.match(source, /const publicRoleReveals = useMemo\(\(\) => \{/);
+  assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
+  assert.match(source, /\.dead-player\[data-player-id="\$\{id\}"\]/);
+  assert.match(source, /className=\{`dead-role-chip \$\{roleClassName\(deadRole\)\} \$\{revealing \? "role-reveal" : ""\}`\}/);
+  assert.match(source, /detail-chip role-reveal-info/);
+  assert.match(source, /eventAction\(event\) === "neutral_victory_claim"/);
+  assert.match(css, /\.story-hero\.neutral-victory \.hero-character\s*\{/);
+  assert.match(css, /\.dead-player\.revealing-role\s*\{/);
+  assert.match(css, /\.dead-role-chip\.role-reveal\s*\{/);
+  assert.match(css, /\.detail-chip\.role-reveal-info\s*\{/);
 });
 
 test("guided UI tour spotlights the main controls at match start", () => {
