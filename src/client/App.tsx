@@ -41,6 +41,7 @@ import {
 } from "./audioAssets";
 import { createGameAudioController, type GameAudioController } from "./audioController";
 import { ORIGINAL_TO_SLOT_ID, characterNames, characterProfiles } from "../game/characters";
+import { DEFAULT_WEREWOLF_GREETING_SPEECH } from "../game/humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
@@ -2604,7 +2605,7 @@ export function App() {
     if (request.kind !== "speech_choice" || !request.nonBlocking || request.speechMode !== "werewolf_greeting") {
       return null;
     }
-    const message = humanSpeechEchoMessage(payload.speech);
+    const message = humanSpeechEchoMessage(payload.speech) ?? displayMessageText(DEFAULT_WEREWOLF_GREETING_SPEECH);
     const eventSnapshot = snapshot ?? currentEvent?.snapshot;
     if (!message || !eventSnapshot) {
       return null;
@@ -2723,7 +2724,7 @@ export function App() {
     const allowFreeText = prompt.allowFreeText !== false;
     const canSubmitHumanSpeech = isWerewolfGreeting || (allowFreeText && humanSpeech.trim().length > 0);
     const speechHint = isWerewolfGreeting
-      ? "任意の顔合わせ発言です。入力しなくても進行します"
+      ? "未入力なら「よろしく」で顔合わせ発言します"
       : allowFreeText
       ? "候補から選ぶか、自由に発言を入力してください"
       : "この場面では候補から選んでください";
@@ -2733,7 +2734,7 @@ export function App() {
       ? "発言を入力"
       : "候補から選択";
     const speechAriaLabel = isWerewolfGreeting ? "人狼顔合わせ発言の入力" : "自由入力の発言";
-    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "顔合わせで話す" : "話さず進む") : "発言する";
+    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "顔合わせで話す" : "よろしくで進む") : "発言する";
 
     return (
       <section className={`human-speech-composer ${isWerewolfGreeting ? "werewolf-greeting" : ""}`} aria-label="発言入力">

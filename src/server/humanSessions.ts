@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_WEREWOLF_GREETING_SPEECH } from "../game/humanInputDefaults";
 import type { HumanInputHandler, HumanInputRequest, HumanInputRequestPayload, HumanInputResponse } from "../game/types";
 
 interface PendingHumanInput {
@@ -79,7 +80,7 @@ function normalizeResponseForRequest(request: HumanInputRequest, response: Human
     const choiceId = normalizeString(response.choiceId);
     if (!choiceId) {
       if (request.nonBlocking && request.speechMode === "werewolf_greeting" && request.options.length === 0) {
-        return {};
+        return { speech: DEFAULT_WEREWOLF_GREETING_SPEECH };
       }
       return null;
     }

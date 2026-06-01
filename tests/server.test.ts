@@ -191,7 +191,7 @@ test("human speech choice input can require a drafted choice", async () => {
   session.close();
 });
 
-test("optional werewolf greeting input accepts an empty skip", async () => {
+test("optional werewolf greeting input fills empty speech with a minimal greeting", async () => {
   let requestId = "";
   const session = new HumanInputSession((request) => {
     requestId = request.id;
@@ -211,7 +211,7 @@ test("optional werewolf greeting input accepts an empty skip", async () => {
 
   assert.ok(requestId);
   assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
-  assert.deepEqual(await greetingPromise, {});
+  assert.deepEqual(await greetingPromise, { speech: "よろしく" });
   session.close();
 });
 
