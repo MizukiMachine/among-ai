@@ -41,7 +41,7 @@ import {
 } from "./audioAssets";
 import { createGameAudioController, type GameAudioController } from "./audioController";
 import { ORIGINAL_TO_SLOT_ID, characterNames, characterProfiles } from "../game/characters";
-import { DEFAULT_WEREWOLF_GREETING_SPEECH } from "../game/humanInputDefaults";
+import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
@@ -106,12 +106,12 @@ function isBlockingHumanInput(request: HumanInputRequest | null): request is Hum
   return Boolean(request && !request.nonBlocking);
 }
 
-function isOptionalWerewolfGreetingInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+function isOptionalWerewolfAlignmentInput(request: HumanInputRequest | null): request is HumanInputRequest & {
   kind: "speech_choice";
-  speechMode: "werewolf_greeting";
+  speechMode: "werewolf_alignment";
 } {
   return Boolean(
-    request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "werewolf_greeting"
+    request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "werewolf_alignment"
   );
 }
 
@@ -2424,7 +2424,7 @@ export function App() {
   }
 
   function skipOptionalHumanInputOnStoryAdvance(): boolean {
-    if (!isOptionalWerewolfGreetingInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
+    if (!isOptionalWerewolfAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
       return false;
     }
     void submitHumanInput({ speech: "" });
@@ -2698,10 +2698,10 @@ export function App() {
   }
 
   function createLocalHumanSpeechEvent(request: HumanInputRequest, payload: HumanInputSubmitPayload): GameEvent | null {
-    if (request.kind !== "speech_choice" || !request.nonBlocking || request.speechMode !== "werewolf_greeting") {
+    if (request.kind !== "speech_choice" || !request.nonBlocking || request.speechMode !== "werewolf_alignment") {
       return null;
     }
-    const message = humanSpeechEchoMessage(payload.speech) ?? displayMessageText(DEFAULT_WEREWOLF_GREETING_SPEECH);
+    const message = humanSpeechEchoMessage(payload.speech) ?? displayMessageText(DEFAULT_WEREWOLF_ALIGNMENT_SPEECH);
     const eventSnapshot = snapshot ?? currentEvent?.snapshot;
     if (!message || !eventSnapshot) {
       return null;
@@ -2827,24 +2827,24 @@ export function App() {
       return null;
     }
 
-    const isWerewolfGreeting = prompt.speechMode === "werewolf_greeting";
+    const isWerewolfAlignment = prompt.speechMode === "werewolf_alignment";
     const allowFreeText = prompt.allowFreeText !== false;
-    const canSubmitHumanSpeech = isWerewolfGreeting || (allowFreeText && humanSpeech.trim().length > 0);
-    const speechHint = isWerewolfGreeting
-      ? "未入力なら「よろしく」で顔合わせ発言します"
+    const canSubmitHumanSpeech = isWerewolfAlignment || (allowFreeText && humanSpeech.trim().length > 0);
+    const speechHint = isWerewolfAlignment
+      ? "未入力なら既定の意思合わせ発言で進みます"
       : allowFreeText
       ? "候補から選ぶか、自由に発言を入力してください"
       : "この場面では候補から選んでください";
-    const speechPlaceholder = isWerewolfGreeting
+    const speechPlaceholder = isWerewolfAlignment
       ? "例: 昼は人間側の顔で信用を取りに行く"
       : allowFreeText
       ? "発言を入力"
       : "候補から選択";
-    const speechAriaLabel = isWerewolfGreeting ? "人狼顔合わせ発言の入力" : "自由入力の発言";
-    const speechSubmitLabel = isWerewolfGreeting ? (humanSpeech.trim().length > 0 ? "顔合わせで話す" : "よろしくで進む") : "発言する";
+    const speechAriaLabel = isWerewolfAlignment ? "人狼意思合わせ発言の入力" : "自由入力の発言";
+    const speechSubmitLabel = isWerewolfAlignment ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む") : "発言する";
 
     return (
-      <section className={`human-speech-composer ${isWerewolfGreeting ? "werewolf-greeting" : ""}`} aria-label="発言入力">
+      <section className={`human-speech-composer ${isWerewolfAlignment ? "werewolf-alignment" : ""}`} aria-label="発言入力">
         <textarea
           aria-label={speechAriaLabel}
           autoFocus
@@ -2868,7 +2868,7 @@ export function App() {
             <span>{speechSubmitLabel}</span>
           </button>
         </div>
-        {!isWerewolfGreeting && prompt.options.length > 0 ? (
+        {!isWerewolfAlignment && prompt.options.length > 0 ? (
           <div className="human-choice-list human-speech-choice-list">
             {prompt.options.map((option, index) => (
               <button
@@ -3341,8 +3341,8 @@ export function App() {
     }
 
     const title =
-      pendingHumanInputNotice.kind === "speech_choice" && pendingHumanInputNotice.speechMode === "werewolf_greeting"
-        ? "あなたの挨拶が近づいています"
+      pendingHumanInputNotice.kind === "speech_choice" && pendingHumanInputNotice.speechMode === "werewolf_alignment"
+        ? "あなたの意思合わせが近づいています"
         : pendingHumanInputNotice.kind === "speech_choice"
           ? "あなたの発言が近づいています"
           : "あなたの意思決定が近づいています";

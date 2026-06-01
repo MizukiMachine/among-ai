@@ -30,7 +30,7 @@ const defaultLlmTimeoutMs = 120_000;
 const defaultLlmMaxTokens = 384;
 const targetDecisionMaxTokens = 160;
 const booleanDecisionMaxTokens = 96;
-// Day-1 warm-up self-intros are short and single-call (no reasoning stage).
+// Day-1 warm-up opening resolves are short and single-call (no reasoning stage).
 const introMaxTokens = 140;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
@@ -1445,8 +1445,8 @@ function demoFirstDayOpeningMoveSpeech(
   const targetName = target?.name ?? (japanese ? "誰か一人" : "someone");
   const targetAddress = target ? `${target.name}さん` : targetName;
   if (japanese) {
-    if (move.kind === "self_introduction") {
-      return "まず軽く自己紹介から。私は理由の薄い便乗を投票候補に入れるつもりです";
+    if (move.kind === "opening_resolve") {
+      return "まず開幕の姿勢を置きます。私は理由の薄い便乗を投票候補に入れるつもりです";
     }
     if (move.kind === "organize_setup") {
       return "先に段取りを決めたいです。占い師の名乗り条件と投票基準を今合わせませんか";
@@ -1475,8 +1475,8 @@ function demoFirstDayOpeningMoveSpeech(
     return "占い師・魔女・騎士への触れ方は早めに決めたいです。役職を明かさせすぎない条件を合わせましょう";
   }
 
-  if (move.kind === "self_introduction") {
-    return "Let me introduce myself first. I will treat thin follow-along answers as vote candidates today.";
+  if (move.kind === "opening_resolve") {
+    return "Let me set my opening stance first. I will treat thin follow-along answers as vote candidates today.";
   }
   if (move.kind === "organize_setup") {
     return "Let me organize the plan first. I want us to settle Seer-claim conditions and vote criteria now.";
@@ -1679,30 +1679,44 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   };
 }
 
-// --- Day-1 warm-up self-introduction -----------------------------------------
+// --- Day-1 warm-up opening resolve -------------------------------------------
 
 function buildIntroSystemPrompt(language: string, persona: Persona): string {
   const persona_ = personaLabel(persona, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。議論が始まる前の、ごく軽い自己紹介と挨拶をします。",
+      "あなたは人狼ゲームのプレイヤーです。議論が始まる前に、開幕の短い意気込みを一言だけ話します。",
+      "舞台設定: プレイヤー同士は初対面ではありません。同じ宇宙船内のクルーとして互いの名前や普段の雰囲気は知っています。ただし、この対局で誰がどの役職かは知りません。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
-      "ルール: 1〜2文の短さ。役職・陣営・占い等には触れない。誰かへの疑い・信頼・投票の話もまだしない。挨拶と人柄だけ。",
+      "ルール: 1〜2文の短さ。役職・陣営・占い等には触れない。誰かへの疑い・信頼・投票の話もまだしない。名前だけの自己紹介や初対面の挨拶にしない。",
+      "「はじめまして」「初めまして」は使わない。すでに知っているクルー同士として、これからの議論に向けた姿勢だけを出す。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は一人ひとり変え、自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    "You are a player in a hidden-role werewolf game, giving a very light self-introduction and greeting before the discussion begins.",
+    "You are a player in a hidden-role werewolf game, giving one short opening line of resolve before the discussion begins.",
+    "Setting: the players are not strangers. They are crew on the same spaceship and already know each other's names and usual demeanor, but they do not know the roles in this match.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
-    "Rules: 1-2 short sentences. Do NOT mention roles, camps, or seer results. Do NOT state suspicion, trust, or votes yet. Greeting and personality only.",
+    "Rules: 1-2 short sentences. Do NOT mention roles, camps, or seer results. Do NOT state suspicion, trust, or votes yet. Do not make it a first-meeting introduction.",
+    'Do not say "nice to meet you" or act as if you just met. Speak like crew who already know each other, and show only your stance for the coming discussion.',
     "Important: vary how you open and use your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
 }
 
 function defaultIntroLine(name: string, language: string): string {
-  return isJapaneseLanguage(language) ? `${name}です、よろしく。` : `I'm ${name}, nice to meet you all.`;
+  void name;
+  return isJapaneseLanguage(language)
+    ? "まずは落ち着いて、理由の残る議論にします。"
+    : "I will keep this tight and make my reasons traceable.";
+}
+
+function withoutFirstMeetingFraming(messages: string[], language: string): string[] {
+  const firstMeeting = isJapaneseLanguage(language)
+    ? /(?:はじめまして|初めまして|初対面|初めて(?:会|話))/u
+    : /\b(?:nice to meet|first time meeting|strangers?)\b/i;
+  return messages.filter((message) => !firstMeeting.test(message));
 }
 
 // System prompt for the first-day werewolf face-off: allies-only, so the player owns their
@@ -1712,19 +1726,21 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
   const roleName = roleLabel(role, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の顔合わせの場で、仲間に向けて短く名乗り、村をだます演技の意気込みを見せます。",
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、村をだます演技の意気込みを短く見せます。",
+      "舞台設定: プレイヤー同士は初対面ではありません。同じ宇宙船内のクルーとして互いの名前や普段の雰囲気は知っています。ただし、ここで初めて人狼陣営の仲間と役職内訳を確認します。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
-      `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり名乗ってください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
-      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
+      `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり確認してください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
+      "ルール: 1〜2文の短さ。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にせず、『人間側を演じる』『占い師っぽく振る舞う』『村を誘導する』など、どう騙すかを一言だけ添える。ただし襲撃先や具体的な作戦の相談はまだしない。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; introduce yourself and show your appetite for deceiving the village.",
+    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately to align; confirm your role to allies and show your appetite for deceiving the village.",
+    "Setting: the players are not strangers. They are crew on the same spaceship and already know each other's names and usual demeanor, but this is when the werewolf team confirms its members and role mix.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
-    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
+    "Rules: 1-2 short sentences. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Add one line about how you will act human-side, fake a useful role, or steer the village. Do NOT discuss attack targets or concrete plans yet.",
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
@@ -1733,7 +1749,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
 function defaultWerewolfIntroLine(name: string, role: Role | undefined, language: string): string {
   const roleName = roleLabel(role, language);
   return isJapaneseLanguage(language)
-    ? `${name}だ。俺が${roleName}、昼は人間側の顔で村を崩す`
+    ? `こちらは${name}、${roleName}だ。昼は人間側の顔で村を崩す`
     : `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`;
 }
 
@@ -1755,17 +1771,17 @@ export class DemoAgent implements Agent {
     // identical templated lines.
     const variants = isJapaneseLanguage(this.language)
       ? [
-          `${name}です、よろしく。${persona_}なタイプだけど仲良くやろう。`,
-          `どうも、${name}。${persona_}な感じで進めるね。`,
-          `${name}だよ。${persona_}なほうだと思う、よろしく。`,
-          `こんにちは、${name}。${persona_}な性格、よろしく頼むね。`
-        ]
+          `${name}です。今日は焦らず、理由が残る発言で進めます。`,
+          `${name}、いつも通り${persona_}寄りで見ます。まずは薄い便乗を流さない。`,
+          `${name}だよ。今日は様子見だけで終わらせず、基準を先に置くね。`,
+          `${name}。議論が散らないよう、最初から投票理由を残していきます。`
+      ]
       : [
-          `I'm ${name} — nice to meet you all. I lean ${persona_}, by the way.`,
-          `Hey, ${name} here. I tend to come off ${persona_}.`,
-          `${name}, good to be here — the ${persona_} sort.`,
-          `Hi all, ${name}. A bit ${persona_}, but let's get along.`
-        ];
+          `${name}. I will keep the first day grounded and leave reasons people can check.`,
+          `${name} here; I will lean ${persona_} as usual and watch for thin follow-alongs.`,
+          `${name}. I do not want us ending at wait-and-see, so I will set criteria early.`,
+          `${name}. I will keep the discussion from scattering and make vote reasons visible.`
+      ];
     const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
     const line = variants[index];
     return {
@@ -1780,11 +1796,11 @@ export class DemoAgent implements Agent {
     const roleName = roleLabel(input.player.role, this.language);
     const variants = isJapaneseLanguage(this.language)
       ? [
-          `${name}だ。俺が${roleName}、昼は人間側の顔で村を崩す`,
-          `どうも、${name}。${roleName}担当だ、${persona_}なりにうまく騙すよ`,
+          `こちらは${name}、${roleName}だ。昼は人間側の顔で村を崩す`,
+          `${name}は${roleName}担当だ。${persona_}なりに、疑われない位置から騙すよ`,
           `${name}です。${roleName}として、今日は人間っぽく信用を取りに行きます`,
-          `こんばんは、${name}。こっちが${roleName}、必要なら占い師っぽく場を揺らす`
-        ]
+          `${name}、${roleName}です。必要なら占い師っぽく場を揺らします`
+      ]
       : [
           `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`,
           `Hey, ${name} here. I'm the ${roleName}; I will sell the act ${persona_}.`,
@@ -2016,7 +2032,7 @@ class LlmAgent implements Agent {
     };
   }
 
-  // Single fast call (no reasoning stage) for the day-1 warm-up greeting.
+  // Single fast call (no reasoning stage) for the day-1 warm-up resolve.
   async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
     const system = buildIntroSystemPrompt(this.language, input.player.persona);
     const fallback = defaultIntroLine(input.player.name, this.language);
@@ -2028,8 +2044,9 @@ class LlmAgent implements Agent {
       "speech.intro"
     );
     const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
+    const cleanMessages = withoutFirstMeetingFraming(messages, this.language);
     return {
-      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      messages: cleanMessages.length > 0 ? cleanMessages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: { suspects: [], trusts: [], claims: [] }
     };
   }
@@ -2045,8 +2062,9 @@ class LlmAgent implements Agent {
       "speech.intro"
     );
     const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
+    const cleanMessages = withoutFirstMeetingFraming(messages, this.language);
     return {
-      messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
+      messages: cleanMessages.length > 0 ? cleanMessages : [normalizeSpeechLine(fallback, fallback, this.language)],
       metadata: { suspects: [], trusts: [], claims: [] }
     };
   }

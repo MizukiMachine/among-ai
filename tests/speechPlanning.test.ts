@@ -470,17 +470,17 @@ test("round-one opening turn does not force hard evidence but must actively move
   assert.equal(plan.requiresForwardMove, false);
   assert.ok(plan.intents.some((item) => item.kind === "open_first_day"));
 
-  // A self-introduction is accepted only when it adds an action for the table.
-  const selfIntro = reviewSpeechAgainstPlan(
+  // An opening resolve is accepted only when it adds an action for the table.
+  const openingResolve = reviewSpeechAgainstPlan(
     {
-      messages: ["はじめまして、今日は全員の投票基準を先に出したいです"],
+      messages: ["今日は落ち着いて、全員の投票基準を先に出したいです"],
       metadata
     },
     plan,
     legalPlayers,
     "Japanese"
   );
-  assert.equal(selfIntro.ok, true);
+  assert.equal(openingResolve.ok, true);
 
   const coPolicy = reviewSpeechAgainstPlan(
     {
@@ -533,10 +533,10 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     assert.match(review.revisionHint ?? "", /受け身|投票基準|名指し質問/);
   }
 
-  // Each intended opening topic counts as substance: active self-intro, role
+  // Each intended opening topic counts as substance: active resolve, role
   // policy, vote criteria, named pressure, setup organizing, and engagement.
   for (const substantive of [
-    "はじめまして、今日は全員の投票基準を先に出したいです",
+    "今日は落ち着いて、全員の投票基準を先に出したいです",
     "占い師が今日名乗る条件を先に決めませんか",
     "今日は発言の具体性を投票基準にしたいです",
     "キリエさん、最初の投票基準を聞かせてください",
@@ -546,6 +546,14 @@ test("opening turn requires substantive content and rejects vacuous openings", (
     const review = reviewSpeechAgainstPlan({ messages: [substantive], metadata }, plan, legalPlayers, "Japanese");
     assert.equal(review.ok, true, `expected substantive opening to pass: ${substantive}`);
   }
+
+  const firstMeetingGreeting = reviewSpeechAgainstPlan(
+    { messages: ["はじめまして、今日は全員の投票基準を先に出したいです"], metadata },
+    plan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(firstMeetingGreeting.ok, false, "first-day openings should not frame the crew as strangers");
 });
 
 test("stance forcing returns once real material exists (round one second pass)", () => {

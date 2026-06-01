@@ -2006,7 +2006,7 @@ export class WerewolfGame {
       this.firstDayOpeningSpeechPrefetch = null;
     }
 
-    // Keep the "day zero" greetings even without the old director layer. They give the
+    // Keep the "day zero" opening resolves even without the old director layer. They give the
     // player something to read while the first real public line is already being generated,
     // but they are not fed back into publicHistory/lastDiscussion and therefore cannot
     // become fake evidence.
@@ -2105,7 +2105,7 @@ export class WerewolfGame {
     return assignments;
   }
 
-  // Day-1 warm-up: a quick round of AI-only self-introductions/greetings, streamed as
+  // Day-1 warm-up: a quick round of AI-only opening resolves, streamed as
   // they finish (same speculative race as the real discussion). It is a day-zero buffer
   // for perceived LLM latency, not public discussion evidence. Humans are excluded —
   // they join from the first real pass. Every living AI player speaks once.
@@ -2113,22 +2113,22 @@ export class WerewolfGame {
   private firstDayIntroAngles(): string[] {
     return this.isJapanese()
       ? [
-          "名前を名乗ってから、ひとことだけ。",
+          "最初の姿勢をひとことだけ。",
           "短い意気込みから入る。",
           "軽いぼやきや冗談を交えて。",
           "全体への呼びかけから入る。",
           "とにかく端的に、短く。",
-          "今日の抱負をひとこと。",
+          "今日の意気込みをひとこと。",
           "気さくに、ゆるい雰囲気で。",
           "自分の関心事をひとこと添えて。"
         ]
       : [
-          "Lead with your name, then one line.",
+          "Lead with your first stance in one line.",
           "Open with a short bit of resolve.",
           "Slip in a light quip or grumble.",
           "Open by addressing the whole table.",
           "Keep it blunt and very short.",
-          "State one hope for today.",
+          "State one bit of resolve for today.",
           "Be breezy and easygoing.",
           "Add one thing you care about."
         ];
@@ -2137,7 +2137,7 @@ export class WerewolfGame {
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
-  // AI wolves use fast single-call intros. A human werewolf may enter an optional greeting, but
+  // AI wolves use fast single-call alignment lines. A human werewolf may enter an optional line, but
   // it is display-only input and intentionally does not gate or feed later generation.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
@@ -2154,7 +2154,7 @@ export class WerewolfGame {
     this.phase = "werewolf_discussion";
     yield this.emit(
       "phase_changed",
-      this.text("Before dawn, the werewolves meet face to face.", "夜明け前、人狼たちが顔を合わせます。"),
+      this.text("Before dawn, the werewolves align in private.", "夜明け前、人狼たちが意思を合わせます。"),
       { visibility: "werewolf" }
     );
 
@@ -2162,7 +2162,7 @@ export class WerewolfGame {
       aiWerewolves,
       this.prefetchConcurrency,
       async (wolf) => ({ wolf, speech: await this.safeWerewolfFaceoff(wolf, werewolves) }),
-      this.progressReporter("werewolf_discussion", this.text("Werewolf introductions", "人狼の顔合わせ"))
+      this.progressReporter("werewolf_discussion", this.text("Werewolf alignment", "人狼の意思合わせ"))
     )) {
       this.wolfHistory.push(`${wolf.name}: ${speech.messages.join(" ")}`);
       for (const [index, message] of speech.messages.entries()) {
@@ -2171,7 +2171,7 @@ export class WerewolfGame {
     }
 
     if (humanWerewolf) {
-      this.requestHumanWerewolfGreeting(humanWerewolf, werewolves);
+      this.requestHumanWerewolfAlignment(humanWerewolf, werewolves);
     }
   }
 
@@ -2190,7 +2190,7 @@ export class WerewolfGame {
           player,
           speech
         })),
-      this.progressReporter("day_speech", this.text("Greetings before the discussion", "議論前の挨拶"))
+      this.progressReporter("day_speech", this.text("Opening resolve before the discussion", "議論前の意気込み"))
     )) {
       for (const [index, message] of speech.messages.entries()) {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, undefined, { warmup: true }), player);
@@ -2666,8 +2666,8 @@ export class WerewolfGame {
     return buildSimpleFallbackSpeech(input, this.config.language);
   }
 
-  // Generates a single short day-1 warm-up self-intro for one player. It is just a
-  // greeting, so it stays separate from normal public discussion generation.
+  // Generates a single short day-1 warm-up resolve for one player. It is just an
+  // opening line, so it stays separate from normal public discussion generation.
   // Agents without improviseIntro fall back to a plain speak().
   private async safeImproviseIntro(
     player: Player,
@@ -2682,8 +2682,8 @@ export class WerewolfGame {
     const contextLines = [
       this.nightDeathContextLine(),
       this.text(
-        "It's your turn for a quick, one-line self-introduction before the discussion. Keep it short, varied, and in your own voice. Leave roles, suspicions, and votes for the discussion.",
-        "あなたの番です。議論の前に、短い自己紹介を一言だけ。切り出し方に変化を出し、自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
+        "It's your turn for a quick, one-line opening resolve before the discussion. The crew already knows each other; do not make it a first-meeting introduction. Keep it short, varied, and in your own voice. Leave roles, suspicions, and votes for the discussion.",
+        "あなたの番です。議論の前に、短い意気込みを一言だけ。クルー同士はすでに知り合いなので、初対面の自己紹介にはしない。切り出し方に変化を出し、自分らしい言い回しで短く。役職・疑い・投票の話はまだしない。"
       ),
       // Each warm-up speaker gets a different opening angle so independent generations
       // don't all converge on the same first line.
@@ -2692,7 +2692,7 @@ export class WerewolfGame {
     const input: AgentSpeechInput = {
       player,
       phase: this.phase,
-      task: this.text("Give a short self-introduction and greeting.", "短い自己紹介と挨拶をしてください。"),
+      task: this.text("Give a short opening line of resolve.", "開幕の短い意気込みを話してください。"),
       context: this.contextFor(player, contextLines),
       uiContext: contextLines,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
@@ -2721,7 +2721,7 @@ export class WerewolfGame {
     }
   }
 
-  // Generates one wolf's first-day face-off intro: allies-only, so the wolf greets the team,
+  // Generates one wolf's first-day alignment line: allies-only, so the wolf checks in with the team,
   // owns their role, and previews their public act (no attack targets/plans yet). Like safeImproviseIntro
   // this is a fast single call (no reasoning stage). Agents without improviseWerewolfIntro
   // fall back to a plain role-owning line via the fallback agent.
@@ -2740,8 +2740,8 @@ export class WerewolfGame {
       player,
       phase: this.phase,
       task: this.text(
-        "Introduce yourself to your werewolf allies and preview your public deception.",
-        "人狼陣営の仲間に自己紹介し、昼にどう騙すかを短く宣言してください。"
+        "Confirm yourself to your werewolf allies and preview your public deception.",
+        "人狼陣営の仲間に自分の役職を確認し、昼にどう騙すかを短く宣言してください。"
       ),
       context: this.contextFor(player, contextLines),
       uiContext: contextLines,
@@ -2781,21 +2781,21 @@ export class WerewolfGame {
       .join("、");
     return [
       this.text(
-        "This is a private, allies-only werewolf meeting before the first day opens.",
-        "ここは初日が始まる前、人狼陣営だけの内緒の顔合わせです。"
+        "This is a private, allies-only werewolf alignment meeting before the first day opens. The crew already knows each other; this is not a first-meeting introduction.",
+        "ここは初日が始まる前、人狼陣営だけの内緒の意思合わせです。クルー同士はすでに知り合いであり、初対面の自己紹介ではありません。"
       ),
       this.text(
         `Your werewolf allies: ${werewolves.map((wolf) => `${wolf.name} (${wolf.role})`).join(", ")}.`,
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Greet your allies, clearly own your own role, and add one short line about the public act you will perform. Do not discuss attack targets or detailed plans yet.",
-        "仲間に挨拶し、自分の役職をはっきり名乗り、昼にどんな人間側の演技をするか一言だけ添えてください。襲撃先や細かい作戦の相談はまだしません。"
+        "Check in with your allies, clearly own your own role, and add one short line about the public act you will perform. Do not discuss attack targets or detailed plans yet.",
+        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼にどんな人間側の演技をするか一言だけ添えてください。襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
   }
 
-  private requestHumanWerewolfGreeting(player: Player, werewolves: Player[]): void {
+  private requestHumanWerewolfAlignment(player: Player, werewolves: Player[]): void {
     const handler = this.humanInput;
     if (!handler) {
       return;
@@ -2805,15 +2805,15 @@ export class WerewolfGame {
     void handler
       .request({
         kind: "speech_choice",
-        speechMode: "werewolf_greeting",
+        speechMode: "werewolf_alignment",
         nonBlocking: true,
         playerId: player.id,
         playerName: player.name,
         phase: this.phase,
         role: player.role,
         task: this.text(
-          "Enter a greeting and deception line for your werewolf allies.",
-          "人狼陣営の仲間へ、挨拶と昼にどう騙すかを入力してください。"
+          "Enter an alignment and deception line for your werewolf allies.",
+          "人狼陣営の仲間へ、意思合わせと昼にどう騙すかを入力してください。"
         ),
         context: buildHumanInputContext({
           uiContext: contextLines,
@@ -2827,12 +2827,12 @@ export class WerewolfGame {
         if (this.abortSignal?.aborted || message === "Human input session was closed.") {
           return;
         }
-        console.warn(`[human-greeting] ${player.name}: ${message}; continuing without greeting.`);
+        console.warn(`[human-alignment] ${player.name}: ${message}; continuing without alignment line.`);
       });
   }
 
   // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.
-  // The player may still override with free text; unlike the face-off greeting, public speech is
+  // The player may still override with free text; unlike the werewolf alignment line, public speech is
   // published into the normal discussion history.
   private async humanChoiceSpeak(
     player: Player,

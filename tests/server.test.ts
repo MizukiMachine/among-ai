@@ -191,27 +191,27 @@ test("human speech choice input can require a drafted choice", async () => {
   session.close();
 });
 
-test("optional werewolf greeting input fills empty speech with a minimal greeting", async () => {
+test("optional werewolf alignment input fills empty speech with a minimal line", async () => {
   let requestId = "";
   const session = new HumanInputSession((request) => {
     requestId = request.id;
   });
-  const greetingPromise = session.request({
+  const alignmentPromise = session.request({
     kind: "speech_choice",
-    speechMode: "werewolf_greeting",
+    speechMode: "werewolf_alignment",
     nonBlocking: true,
     playerId: "p1",
     playerName: "シオン",
     phase: "werewolf_discussion",
     role: "Werewolf",
-    task: "挨拶してください",
+    task: "意思合わせをしてください",
     context: { notes: [], publicHistory: [], privateHistory: [] },
     options: []
   });
 
   assert.ok(requestId);
   assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
-  assert.deepEqual(await greetingPromise, { speech: "よろしく" });
+  assert.deepEqual(await alignmentPromise, { speech: "昼は人間側として合わせます" });
   session.close();
 });
 
