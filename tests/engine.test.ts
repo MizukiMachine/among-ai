@@ -104,6 +104,33 @@ class PreferTargetAgent extends ScriptedAgent {
   }
 }
 
+class ContextMentionTargetAgent extends ScriptedAgent {
+  constructor(
+    name: string,
+    private readonly mentionedTargetId: string,
+    private readonly mentionedTargetName: string,
+    fallbackTargets: Array<string | null> = []
+  ) {
+    super(name, fallbackTargets);
+  }
+
+  override async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    const mentioned = input.candidates.find((candidate) => candidate.id === this.mentionedTargetId);
+    if (mentioned && input.context.includes(this.mentionedTargetName)) {
+      return {
+        targetId: mentioned.id,
+        reason: `${this.name} followed context mention ${this.mentionedTargetName}`
+      };
+    }
+    const fallback = input.candidates.find((candidate) => candidate.id === this.mentionedTargetId) ?? input.candidates[0] ?? null;
+    return {
+      targetId: fallback?.id ?? null,
+      reason: `${this.name} fallback target`
+    };
+  }
+}
+
 // Records improviseIntro calls so tests can assert the warm-up uses the fast intro
 // path (not speak()) and covers the right speakers.
 class IntroAgent implements Agent {
@@ -3020,7 +3047,7 @@ test("werewolf attack target generation waits until private discussion finishes"
   await run.return(undefined);
 });
 
-test("human werewolf private discussion strongly biases the night attack target", async () => {
+test("human werewolf private discussion biases later wolf votes without adding virtual votes", async () => {
   const requests: HumanInputRequestPayload[] = [];
   let preferredTargetId = "";
   let preferredTargetName = "";
@@ -3051,19 +3078,102 @@ test("human werewolf private discussion strongly biases the night attack target"
   preferredTargetId = players[3].id;
   preferredTargetName = players[3].name;
   game.agents.set(players[0].id, new HumanInputAgent(players[0].name, humanInput, "Japanese"));
+  game.agents.set(players[1].id, new ContextMentionTargetAgent(players[1].name, preferredTargetId, preferredTargetName, ["p5"]));
+  game.agents.set(players[2].id, new ContextMentionTargetAgent(players[2].name, preferredTargetId, preferredTargetName, ["p5"]));
   players[0].model = "human";
 
   const events = await collect(game.runNight());
   const attackResult = events.find((event) => event.data?.action === "werewolf_attack_vote_result");
-  const modifiers = attackResult?.data?.modifiers as Array<{ targetId: string; count: number; reason?: string }> | undefined;
   const totals = attackResult?.data?.totals as Array<{ targetId: string; count: number }> | undefined;
-  const secondWolf = game.agents.get(players[1].id) as ScriptedAgent;
+  const votes = attackResult?.data?.votes as Array<{ voterId: string; targetId: string }> | undefined;
+  const secondWolf = game.agents.get(players[1].id) as ContextMentionTargetAgent;
 
   assert.ok(requests.some((request) => request.kind === "speech_choice" && request.phase === "werewolf_discussion"));
   assert.ok(secondWolf.speechInputs[0].context.includes(preferredTargetName), "later wolf speech should see the human's target push");
   assert.equal(attackResult?.data?.selectedTargetId, preferredTargetId);
-  assert.ok(modifiers?.some((modifier) => modifier.targetId === preferredTargetId && modifier.count >= 5 && modifier.reason === "human_werewolf_discussion"));
-  assert.ok((totals?.find((total) => total.targetId === preferredTargetId)?.count ?? 0) > (totals?.find((total) => total.targetId === "p5")?.count ?? 0));
+  assert.equal(attackResult?.data?.modifiers, undefined);
+  assert.equal(votes?.length, 3);
+  assert.ok(votes?.every((vote) => vote.targetId === preferredTargetId));
+  assert.deepEqual(totals, [{ targetId: preferredTargetId, targetName: preferredTargetName, count: 3 }]);
+});
+
+test("werewolf attack vote totals count only living wolf ballots, not discussion pressure", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "AlphaWolf", targets: ["p5"] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const pressureSpeech = (wolfName: string): AgentSpeech => ({
+    messages: [`${wolfName}は${players[3].name}を襲撃したい`],
+    metadata: {
+      suspects: [{ targetId: players[3].id, targetName: players[3].name, weight: 1 }],
+      trusts: [],
+      claims: []
+    }
+  });
+  game.agents.set(players[0].id, new ScriptedAgent(players[0].name, ["p4"], [], [pressureSpeech(players[0].name)]));
+  game.agents.set(players[1].id, new ScriptedAgent(players[1].name, ["p5"], [], [pressureSpeech(players[1].name)]));
+  game.agents.set(players[2].id, new ScriptedAgent(players[2].name, ["p5"], [], [pressureSpeech(players[2].name)]));
+
+  const events = await collect(game.runNight());
+  const result = events.find((event) => event.type === "system" && event.data?.action === "werewolf_attack_vote_result");
+  const totals = result?.data?.totals as Array<{ targetId: string; targetName: string; count: number }> | undefined;
+  const votes = result?.data?.votes as Array<{ voterId: string; targetId: string }> | undefined;
+
+  assert.ok(result);
+  assert.equal(result.data?.selectedTargetId, players[4].id);
+  assert.equal(votes?.length, 3);
+  assert.equal(totals?.reduce((sum, total) => sum + total.count, 0), 3);
+  assert.deepEqual(totals, [
+    { targetId: players[3].id, targetName: players[3].name, count: 1 },
+    { targetId: players[4].id, targetName: players[4].name, count: 2 }
+  ]);
+  assert.equal(result.data?.modifiers, undefined);
+  assert.doesNotMatch(result.message, /誘導も加算/);
+});
+
+test("dead human werewolf is excluded from night discussion and attack voting", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "dead player should not act" };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "dead player should not speak" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 1 },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "AlphaWolf", alive: false, targets: ["p4"] },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+  const result = events.find((event) => event.type === "system" && event.data?.action === "werewolf_attack_vote_result");
+  const votes = result?.data?.votes as Array<{ voterId: string; targetId: string }> | undefined;
+  const totals = result?.data?.totals as Array<{ targetId: string; targetName: string; count: number }> | undefined;
+
+  assert.deepEqual(requests, []);
+  assert.ok(result);
+  assert.equal(result.data?.selectedTargetId, players[4].id);
+  assert.equal(votes?.length, 2);
+  assert.ok(votes?.every((vote) => vote.voterId !== players[0].id));
+  assert.deepEqual(totals, [{ targetId: players[4].id, targetName: players[4].name, count: 2 }]);
 });
 
 test("human player is protected from early werewolf attack targets by table size", async () => {

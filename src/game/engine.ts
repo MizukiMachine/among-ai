@@ -116,7 +116,6 @@ interface PreparedTargetAction {
 interface WerewolfAttackResolution {
   target: Player | null;
   votes: VoteRecord[];
-  modifiers: VoteModifier[];
   totals: Array<{ targetId: string; count: number }>;
   candidates: string[];
   tied: boolean;
@@ -1695,14 +1694,19 @@ export class WerewolfGame {
     return parts.join(" ");
   }
 
-  private werewolfAttackDiscussionModifiers(targets: Player[]): VoteModifier[] {
+  private werewolfAttackDiscussionInfluence(targets: Player[]): VoteModifier[] {
     if (this.config.debugScenario !== "none") {
       return [];
     }
     const legalTargetIds = new Set(targets.map((player) => player.id));
-    const modifiers: VoteModifier[] = [];
+    const influence: VoteModifier[] = [];
 
     for (const record of this.lastWerewolfDiscussion) {
+      const speaker = this.players.find((player) => player.id === record.playerId);
+      if (!speaker?.alive || speaker.camp !== "werewolf") {
+        continue;
+      }
+
       const scores = new Map<string, number>();
       const addScore = (targetId: string | undefined, amount: number) => {
         if (!targetId || !legalTargetIds.has(targetId) || amount <= 0) {
@@ -1728,7 +1732,7 @@ export class WerewolfGame {
       }
 
       const humanInfluence = record.playerId === this.config.humanPlayerId;
-      modifiers.push({
+      influence.push({
         targetId: preferredTargetId,
         count: humanInfluence ? Math.max(5, Math.min(8, Math.ceil(score * 2.5))) : Math.max(1, Math.min(2, Math.ceil(score / 2))),
         sourceId: record.playerId,
@@ -1736,7 +1740,7 @@ export class WerewolfGame {
       });
     }
 
-    return modifiers;
+    return influence;
   }
 
   private werewolfAttackMentionScore(message: string, targetName: string): number {
@@ -1766,14 +1770,14 @@ export class WerewolfGame {
     return score;
   }
 
-  private werewolfAttackInfluenceContextLines(modifiers: VoteModifier[]): string[] {
+  private werewolfAttackInfluenceContextLines(influence: VoteModifier[]): string[] {
     const historyLines = this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`));
-    if (modifiers.length === 0) {
+    if (influence.length === 0) {
       return historyLines;
     }
 
     const byTarget = new Map<string, { count: number; sourceNames: string[] }>();
-    for (const modifier of modifiers) {
+    for (const modifier of influence) {
       const current = byTarget.get(modifier.targetId) ?? { count: 0, sourceNames: [] };
       current.count += modifier.count;
       if (modifier.sourceId) {
@@ -1862,20 +1866,21 @@ export class WerewolfGame {
     onProgress = this.progressReporter("werewolf_attack_vote", this.text("Werewolf attack vote", "人狼の襲撃投票"))
   ): Promise<WerewolfAttackResolution> {
     const actionPhase = this.phase;
+    const votingWerewolves = werewolves.filter((player) => player.alive && player.camp === "werewolf");
     const targets = this.werewolfAttackTargets();
-    if (werewolves.length === 0 || targets.length === 0) {
-      return { target: null, votes: [], modifiers: [], totals: [], candidates: [], tied: false, randomSelectionReason: null };
+    if (votingWerewolves.length === 0 || targets.length === 0) {
+      return { target: null, votes: [], totals: [], candidates: [], tied: false, randomSelectionReason: null };
     }
 
     const legalTargetIds = new Set(targets.map((player) => player.id));
     const votes: VoteRecord[] = [];
-    const discussionModifiers = this.werewolfAttackDiscussionModifiers(targets);
-    const influenceContextLines = this.werewolfAttackInfluenceContextLines(discussionModifiers);
+    const discussionInfluence = this.werewolfAttackDiscussionInfluence(targets);
+    const influenceContextLines = this.werewolfAttackInfluenceContextLines(discussionInfluence);
     const collectWolfVote = async (wolf: Player, raceSlots = this.prefetchConcurrency): Promise<VoteRecord | null> => {
       const contextLines = [
         this.text(
-          `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
-          `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
+          `Known living werewolves: ${votingWerewolves.map((player) => player.name).join(", ")}.`,
+          `把握している生存人狼: ${votingWerewolves.map((player) => player.name).join(", ")}。`
         ),
         ...influenceContextLines,
         this.text("Vote for the player the werewolf team should kill tonight.", "今夜、人狼チームが襲撃する相手に投票してください。")
@@ -1890,7 +1895,7 @@ export class WerewolfGame {
     };
 
     for await (const vote of orderedConcurrentDecisionMap(
-      werewolves,
+      votingWerewolves,
       this.prefetchConcurrency,
       (wolf, _index, raceSlots) => collectWolfVote(wolf, raceSlots),
       onProgress
@@ -1900,11 +1905,10 @@ export class WerewolfGame {
       }
     }
 
-    if (votes.length === 0 && discussionModifiers.length === 0) {
+    if (votes.length === 0) {
       return {
         target: sample(targets),
         votes,
-        modifiers: [],
         totals: [],
         candidates: [],
         tied: false,
@@ -1912,13 +1916,12 @@ export class WerewolfGame {
       };
     }
 
-    const counts = tallyVotes(votes, discussionModifiers);
+    const counts = tallyVotes(votes);
     const candidates = topVoted(counts);
     const tied = candidates.length > 1;
     return {
       target: this.requirePlayer(sample(candidates)),
       votes,
-      modifiers: discussionModifiers,
       totals: [...counts.entries()].map(([targetId, count]) => ({ targetId, count })),
       candidates,
       tied,
@@ -1940,23 +1943,19 @@ export class WerewolfGame {
     }
 
     const totalsText = this.formatWerewolfAttackVoteTotals(resolution.totals);
-    const influenceText =
-      resolution.modifiers.length > 0
-        ? this.text(" Private discussion influence was included.", " 人狼会議での誘導も加算されています。")
-        : "";
     if (resolution.randomSelectionReason === "tie") {
       const candidateNames = resolution.candidates
         .map((candidateId) => this.requirePlayer(candidateId).name)
         .join(this.text(", ", "、"));
       return this.text(
-        `Werewolf attack vote totals: ${totalsText}.${influenceText} The top vote was tied between ${candidateNames}, so a random victim was selected and ${targetName} will be attacked tonight.`,
-        `人狼の襲撃投票結果は${totalsText}です。${influenceText}最多票が${candidateNames}で並んだため、ランダムで襲撃先を決めた結果、${targetName}が襲撃先になりました。`
+        `Werewolf attack vote totals: ${totalsText}. The top vote was tied between ${candidateNames}, so a random victim was selected and ${targetName} will be attacked tonight.`,
+        `人狼の襲撃投票結果は${totalsText}です。最多票が${candidateNames}で並んだため、ランダムで襲撃先を決めた結果、${targetName}が襲撃先になりました。`
       );
     }
 
     return this.text(
-      `Werewolf attack vote totals: ${totalsText}.${influenceText} ${targetName} had the most votes, so they will be attacked tonight.`,
-      `人狼の襲撃投票結果は${totalsText}です。${influenceText}最多票の${targetName}を襲撃することが決定しました。`
+      `Werewolf attack vote totals: ${totalsText}. ${targetName} had the most votes, so they will be attacked tonight.`,
+      `人狼の襲撃投票結果は${totalsText}です。最多票の${targetName}を襲撃することが決定しました。`
     );
   }
 
@@ -1965,7 +1964,6 @@ export class WerewolfGame {
       visibility: "werewolf",
       action: "werewolf_attack_vote_result",
       votes: this.voteDetails(resolution.votes),
-      modifiers: this.voteModifierDetails(resolution.modifiers),
       totals: resolution.totals.map(({ targetId, count }) => ({
         targetId,
         targetName: this.requirePlayer(targetId).name,
