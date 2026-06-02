@@ -1,6 +1,6 @@
 {
   "name": "llm-hedge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Execution layer that hides LLM tail latency with hedging, speculation, prefetch, and cancellation.",
   "type": "module",
   "license": "MIT",

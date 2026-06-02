@@ -20,3 +20,5 @@ export {
 export type { CompleteWithRetryOptions } from "./client";
 export { raceCandidates, hedge } from "./race";
 export type { RaceCandidatesOptions, RaceLosersInfo, HedgeOptions } from "./race";
+export { mapConcurrentUnordered } from "./pool";
+export type { MapConcurrentUnorderedOptions, MapConcurrentUnorderedResult } from "./pool";

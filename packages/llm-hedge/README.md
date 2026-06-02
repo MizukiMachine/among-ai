@@ -127,6 +127,7 @@ const obj = parseJsonObject(modelText); // Record<string, unknown> | null
 | --- | --- |
 | `hedge(run, { slots, signal? })` | Redundant race over N copies of one call |
 | `raceCandidates(items, run, opts?)` | Speculative race over different candidates |
+| `mapConcurrentUnordered(items, run, opts)` | Bounded pool that yields every result in completion order |
 | `createLlmQueue(opts)` → `LlmQueue` | Concurrency/rate admission queue |
 | `createLlmClient({ apiKey, baseUrl, timeoutMs })` | Anthropic-compatible client |
 | `completeWithRetry(opts)` | One completion: queue + timeout gate + retries |

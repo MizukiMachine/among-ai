@@ -1,5 +1,5 @@
 import { setMaxListeners } from "node:events";
-import { hedge, mergeAbortSignals, raceCandidates } from "llm-hedge";
+import { hedge, mapConcurrentUnordered, mergeAbortSignals, raceCandidates } from "llm-hedge";
 import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import {
@@ -939,20 +939,18 @@ function createBufferedAsyncIterable<T>(onReturn?: () => void): BufferedAsyncIte
   };
 }
 
-async function* orderedConcurrentMap<T, R>(
+async function* completionOrderConcurrentMap<T, R>(
   items: T[],
   concurrency: number,
-  run: (item: T, index: number) => Promise<R>,
-  onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+  run: (item: T, index: number, signal: AbortSignal) => Promise<R>,
+  onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void,
+  signal?: AbortSignal
 ): AsyncGenerator<R> {
   if (items.length === 0) {
     return;
   }
 
   const limit = Math.max(1, Math.min(concurrency, items.length));
-  type Settled = { ok: true; value: R } | { ok: false; error: unknown };
-  const pending = new Map<number, Promise<Settled>>();
-  let nextIndex = 0;
   let started = 0;
   let completed = 0;
   let active = 0;
@@ -970,58 +968,32 @@ async function* orderedConcurrentMap<T, R>(
       // Progress observers are best-effort and must not break game generation.
     }
   };
-  const startNext = () => {
-    if (nextIndex >= items.length) {
-      return;
-    }
-    const currentIndex = nextIndex;
-    nextIndex += 1;
-    started += 1;
-    active += 1;
-    pending.set(
-      currentIndex,
-      run(items[currentIndex], currentIndex).then(
-        (value) => {
-          completed += 1;
-          active -= 1;
-          report();
-          return { ok: true, value };
-        },
-        (error: unknown) => {
-          completed += 1;
-          active -= 1;
-          report();
-          return { ok: false, error };
-        }
-      )
-    );
-  };
-
-  for (let index = 0; index < limit; index += 1) {
-    startNext();
-  }
   report();
 
-  for (let index = 0; index < items.length; index += 1) {
-    const promise = pending.get(index);
-    if (!promise) {
-      throw new Error(`Missing queued task at index ${index}`);
-    }
-    const result = await promise;
-    pending.delete(index);
-    startNext();
-    if (!result.ok) {
-      throw result.error;
-    }
-    report();
+  for await (const result of mapConcurrentUnordered(
+    items,
+    async (item, { index, signal: taskSignal }) => {
+      started += 1;
+      active += 1;
+      report();
+      try {
+        return await run(item, index, taskSignal);
+      } finally {
+        completed += 1;
+        active -= 1;
+        report();
+      }
+    },
+    { concurrency: limit, signal }
+  )) {
     yield result.value;
   }
 }
 
-async function* orderedConcurrentDecisionMap<T, R>(
+async function* completionOrderConcurrentDecisionMap<T, R>(
   items: T[],
   concurrency: number,
-  run: (item: T, index: number, raceSlots: number) => Promise<R>,
+  run: (item: T, index: number, raceSlots: number, signal: AbortSignal) => Promise<R>,
   onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
 ): AsyncGenerator<R> {
   if (items.length === 0) {
@@ -1029,7 +1001,6 @@ async function* orderedConcurrentDecisionMap<T, R>(
   }
 
   const limit = Math.max(1, concurrency);
-  type Settled = { ok: true; value: R } | { ok: false; error: unknown };
   let started = 0;
   let completed = 0;
   let activeSlots = 0;
@@ -1055,29 +1026,20 @@ async function* orderedConcurrentDecisionMap<T, R>(
     activeSlots += slotCounts.reduce((sum, count) => sum + count, 0);
     report();
 
-    const pending = chunk.map((item, chunkIndex) => {
-      const raceSlots = slotCounts[chunkIndex] ?? 1;
-      return run(item, offset + chunkIndex, raceSlots).then(
-        (value) => {
+    for await (const result of mapConcurrentUnordered(
+      chunk,
+      async (item, { index: chunkIndex, signal }) => {
+        const raceSlots = slotCounts[chunkIndex] ?? 1;
+        try {
+          return await run(item, offset + chunkIndex, raceSlots, signal);
+        } finally {
           completed += 1;
           activeSlots = Math.max(0, activeSlots - raceSlots);
           report();
-          return { ok: true, value } as Settled;
-        },
-        (error: unknown) => {
-          completed += 1;
-          activeSlots = Math.max(0, activeSlots - raceSlots);
-          report();
-          return { ok: false, error } as Settled;
         }
-      );
-    });
-
-    for (const promise of pending) {
-      const result = await promise;
-      if (!result.ok) {
-        throw result.error;
-      }
+      },
+      { concurrency: chunk.length }
+    )) {
       yield result.value;
     }
   }
@@ -1342,20 +1304,20 @@ export class WerewolfGame {
     };
   }
 
-  private async *orderedAiWithHumanBoundary<T, R>(
+  private async *completionOrderAiWithHumanBoundary<T, R>(
     items: T[],
     getPlayerId: (item: T) => string,
-    run: (item: T, index: number) => Promise<R>,
+    run: (item: T, index: number, signal: AbortSignal) => Promise<R>,
     onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
   ): AsyncGenerator<R> {
     const indexedItems = items.map((item, index) => ({ item, index }));
     const humanIndex = this.config.humanPlayerId ? indexedItems.findIndex(({ item }) => getPlayerId(item) === this.config.humanPlayerId) : -1;
 
     if (humanIndex === -1) {
-      for await (const result of orderedConcurrentMap(
+      for await (const result of completionOrderConcurrentMap(
         indexedItems,
         this.prefetchConcurrency,
-        ({ item, index }) => run(item, index),
+        ({ item, index }, _chunkIndex, signal) => run(item, index, signal),
         onProgress
       )) {
         yield result;
@@ -1364,10 +1326,10 @@ export class WerewolfGame {
     }
 
     const runChunk = (chunk: typeof indexedItems) =>
-      orderedConcurrentMap(
+      completionOrderConcurrentMap(
         chunk,
         this.prefetchConcurrency,
-        ({ item, index }) => run(item, index),
+        ({ item, index }, _chunkIndex, signal) => run(item, index, signal),
         onProgress
       );
 
@@ -1376,27 +1338,27 @@ export class WerewolfGame {
     }
 
     const humanItem = indexedItems[humanIndex];
-    yield await run(humanItem.item, humanItem.index);
+    yield await run(humanItem.item, humanItem.index, new AbortController().signal);
 
     for await (const result of runChunk(indexedItems.slice(humanIndex + 1))) {
       yield result;
     }
   }
 
-  private async *orderedAiDecisionWithHumanBoundary<T, R>(
+  private async *completionOrderAiDecisionWithHumanBoundary<T, R>(
     items: T[],
     getPlayerId: (item: T) => string,
-    run: (item: T, index: number, raceSlots: number) => Promise<R>,
+    run: (item: T, index: number, raceSlots: number, signal: AbortSignal) => Promise<R>,
     onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
   ): AsyncGenerator<R> {
     const indexedItems = items.map((item, index) => ({ item, index }));
     const humanIndex = this.config.humanPlayerId ? indexedItems.findIndex(({ item }) => getPlayerId(item) === this.config.humanPlayerId) : -1;
 
     const runChunk = (chunk: typeof indexedItems) =>
-      orderedConcurrentDecisionMap(
+      completionOrderConcurrentDecisionMap(
         chunk,
         this.prefetchConcurrency,
-        ({ item, index }, _chunkIndex, raceSlots) => run(item, index, raceSlots),
+        ({ item, index }, _chunkIndex, raceSlots, signal) => run(item, index, raceSlots, signal),
         onProgress
       );
 
@@ -1412,7 +1374,7 @@ export class WerewolfGame {
     }
 
     const humanItem = indexedItems[humanIndex];
-    yield await run(humanItem.item, humanItem.index, 1);
+    yield await run(humanItem.item, humanItem.index, 1, new AbortController().signal);
 
     for await (const result of runChunk(indexedItems.slice(humanIndex + 1))) {
       yield result;
@@ -1972,10 +1934,10 @@ export class WerewolfGame {
     yield this.emit("phase_changed", this.text("The werewolves open a private discussion.", "人狼たちが内通を始めました。"));
 
     const speakerOrder = this.werewolfDiscussionSpeakerOrder(werewolves);
-    const wolfSpeeches = this.orderedAiWithHumanBoundary(
+    const wolfSpeeches = this.completionOrderAiWithHumanBoundary(
       speakerOrder,
       (wolf) => wolf.id,
-      async (wolf) => {
+      async (wolf, _index, signal) => {
         const targets = this.werewolfAttackTargets();
         const contextLines = [
           this.text(
@@ -2004,7 +1966,8 @@ export class WerewolfGame {
             "夜の襲撃先を提案し、人狼陣営の完全勝利にどうつながるか説明してください。"
           ),
           context,
-          contextLines
+          contextLines,
+          signal
         );
         return { wolf, speech };
       },
@@ -2241,10 +2204,10 @@ export class WerewolfGame {
     }
 
     const legalTargetIds = new Set(targets.map((player) => player.id));
-    const votes: VoteRecord[] = [];
+    const votesByVoterId = new Map<string, VoteRecord>();
     const discussionInfluence = this.werewolfAttackDiscussionInfluence(targets);
     const influenceContextLines = this.werewolfAttackInfluenceContextLines(discussionInfluence);
-    const collectWolfVote = async (wolf: Player, raceSlots = this.prefetchConcurrency): Promise<VoteRecord | null> => {
+    const collectWolfVote = async (wolf: Player, raceSlots = this.prefetchConcurrency, signal?: AbortSignal): Promise<VoteRecord | null> => {
       const contextLines = [
         this.text(
           `Known living werewolves: ${votingWerewolves.map((player) => player.name).join(", ")}.`,
@@ -2255,23 +2218,27 @@ export class WerewolfGame {
       ];
       const decision = await this.withPhase(actionPhase, () => {
         const context = this.contextFor(wolf, contextLines);
-        return this.raceChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines, raceSlots);
+        return this.raceChooseTarget(wolf, this.text("Werewolf night kill vote", "人狼の夜襲撃投票"), context, targets, false, contextLines, raceSlots, signal);
       });
       return decision.targetId && legalTargetIds.has(decision.targetId)
         ? { voterId: wolf.id, targetId: decision.targetId, reason: decision.reason }
         : null;
     };
 
-    for await (const vote of orderedConcurrentDecisionMap(
+    for await (const vote of completionOrderConcurrentDecisionMap(
       votingWerewolves,
       this.prefetchConcurrency,
-      (wolf, _index, raceSlots) => collectWolfVote(wolf, raceSlots),
+      (wolf, _index, raceSlots, signal) => collectWolfVote(wolf, raceSlots, signal),
       onProgress
     )) {
       if (vote) {
-        votes.push(vote);
+        votesByVoterId.set(vote.voterId, vote);
       }
     }
+    const votes = votingWerewolves.flatMap((wolf) => {
+      const vote = votesByVoterId.get(wolf.id);
+      return vote ? [vote] : [];
+    });
 
     if (votes.length === 0) {
       return {
@@ -2928,16 +2895,17 @@ export class WerewolfGame {
       this.text("Opening resolve before the discussion", "議論前の意気込み")
     );
 
-    for await (const result of orderedConcurrentMap(
+    for await (const result of completionOrderConcurrentMap(
       aiSpeakers,
       concurrency,
-      async (player) => {
+      async (player, _index, taskSignal) => {
         const speech = await this.withPhase("day_discussion", () =>
-          this.safeImproviseIntro(player, abortSignal, false, angleByPlayerId.get(player.id))
+          this.safeImproviseIntro(player, taskSignal, false, angleByPlayerId.get(player.id))
         );
         return { player, speech };
       },
-      reportProgress
+      reportProgress,
+      abortSignal
     )) {
       yield result;
     }
@@ -3035,7 +3003,11 @@ export class WerewolfGame {
     const votes: VoteRecord[] = [];
     const livingPlayers = this.alivePlayers();
     const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
-    const collectVote = async (voter: Player, raceSlots = this.prefetchConcurrency): Promise<{ voter: Player; decision: TargetDecision } | null> => {
+    const collectVote = async (
+      voter: Player,
+      raceSlots = this.prefetchConcurrency,
+      signal?: AbortSignal
+    ): Promise<{ voter: Player; decision: TargetDecision } | null> => {
       const targets = livingPlayers.filter((player) => player.id !== voter.id && !this.isProtectedHumanVoteTarget(player));
       if (targets.length === 0) {
         return null;
@@ -3062,25 +3034,44 @@ export class WerewolfGame {
         previousVotes: this.lastVotes
       });
       const context = this.contextFor(voter, contextLines, {}, speechPlan);
-      const decision = await this.raceChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines, raceSlots);
+      const decision = await this.raceChooseTarget(
+        voter,
+        this.text("Day elimination vote", "昼の処刑投票"),
+        context,
+        targets,
+        false,
+        contextLines,
+        raceSlots,
+        signal
+      );
       return decision.targetId && legalTargetIds.has(decision.targetId) ? { voter, decision } : null;
     };
-    const voteResults = this.orderedAiDecisionWithHumanBoundary(
+    const voteResults = this.completionOrderAiDecisionWithHumanBoundary(
       voters,
       (voter) => voter.id,
-      (voter, _index, raceSlots) => collectVote(voter, raceSlots),
+      (voter, _index, raceSlots, signal) => collectVote(voter, raceSlots, signal),
       this.progressReporter("day_vote", this.text("Day elimination vote", "昼の処刑投票"))
     );
 
+    const voteResultsByVoterId = new Map<string, { voter: Player; decision: TargetDecision }>();
     for await (const result of voteResults) {
       const targetId = result?.decision.targetId;
       if (!result || !targetId) {
         continue;
       }
-      const { voter, decision } = result;
-      votes.push({ voterId: voter.id, targetId, reason: decision.reason });
+      voteResultsByVoterId.set(result.voter.id, result);
+    }
+
+    for (const voter of voters) {
+      const result = voteResultsByVoterId.get(voter.id);
+      const targetId = result?.decision.targetId;
+      if (!result || !targetId) {
+        continue;
+      }
+      const { voter: resultVoter, decision } = result;
+      votes.push({ voterId: resultVoter.id, targetId, reason: decision.reason });
       const target = this.requirePlayer(targetId);
-      voter.memories.push(
+      resultVoter.memories.push(
         this.text(
           `Round ${this.round}: voted for ${target.name}. Reason: ${decision.reason}`,
           `第${this.round}ラウンド: ${target.name}へ投票。理由: ${decision.reason}`
@@ -3088,9 +3079,9 @@ export class WerewolfGame {
       );
       yield this.emit(
         "vote_cast",
-        this.text(`${voter.name} votes for ${target.name}.`, `${voter.name}が${target.name}に投票しました。`),
+        this.text(`${resultVoter.name} votes for ${target.name}.`, `${resultVoter.name}が${target.name}に投票しました。`),
         {},
-        voter,
+        resultVoter,
         target
       );
     }
@@ -3994,19 +3985,26 @@ export class WerewolfGame {
     candidates: Player[],
     allowSkip: boolean,
     uiContext: string[] = [],
-    raceSlots = this.prefetchConcurrency
+    raceSlots = this.prefetchConcurrency,
+    abortSignal?: AbortSignal
   ): Promise<TargetDecision> {
     const decisionRaceSlots = this.normalizedDecisionRaceSlots(raceSlots);
     if (!this.shouldRaceAiDecision(player) || decisionRaceSlots <= 1) {
-      return this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext);
+      return this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext, { abortSignal });
     }
 
     return this.firstFinishedDecisionRace(
-      (options) =>
-        this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext, {
-          abortSignal: options?.signal,
-          suppressMemorySideEffects: options?.speculative
-        }),
+      async (options) => {
+        const requestAbort = mergeAbortSignals(abortSignal, options?.signal);
+        try {
+          return await this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext, {
+            abortSignal: requestAbort.signal,
+            suppressMemorySideEffects: options?.speculative
+          });
+        } finally {
+          requestAbort.cleanup();
+        }
+      },
       decisionRaceSlots
     );
   }
