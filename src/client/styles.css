@@ -3749,13 +3749,11 @@ input[type="range"] {
 
 .player-count-field > span:first-child,
 .player-count-field .field-desc,
-.player-count-field .segments,
-.player-count-note {
+.player-count-field .segments {
   grid-column: 1;
 }
 
-.setup-card .play-goal-field .play-goal-note,
-.setup-card .player-count-field .player-count-note {
+.setup-card .play-goal-field .play-goal-note {
   display: block;
   justify-self: start;
   width: fit-content;

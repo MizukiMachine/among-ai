@@ -64,7 +64,8 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
   assert.doesNotMatch(html, /insight-grid/);
-  assert.match(html, /10人以上は認知負荷が大きい/);
+  assert.match(html, /人数（多いほど難易度が高くなります）/);
+  assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
 });
 
 test("roster vote result overlay is wired next to the conversation log", () => {
@@ -1237,7 +1238,7 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /const calloutWidth = Math\.min\(420, viewportWidth - calloutMargin \* 2\);/);
 });
 
-test("returning players skip the tour for a one-time startup generation gate", () => {
+test("returning players skip the tour without a startup generation gate", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
@@ -1248,38 +1249,39 @@ test("returning players skip the tour for a one-time startup generation gate", (
   assert.match(source, /function markUiTourSeen\(\): void/);
   assert.match(source, /window\.localStorage\.setItem\(UI_TOUR_SEEN_KEY, "1"\)/);
 
-  // First match runs the tour; later matches show the wait gate.
-  assert.match(source, /if \(hasSeenUiTour\(\)\) \{\s*\n\s*startStartupWait\(\);\s*\n\s*return;\s*\n\s*\}/);
+  // First match runs the tour; later matches skip it without adding a wait gate.
+  assert.match(source, /if \(hasSeenUiTour\(\)\) \{\s*\n\s*return;\s*\n\s*\}/);
   // "Seen" is persisted only after the tour is shown and then closed (skip or finish),
   // so a mid-tour refresh keeps onboarding instead of permanently skipping it.
   assert.match(source, /tourWasActiveRef\.current = false;\s*\n\s*markUiTourSeen\(\);/);
   assert.doesNotMatch(source, /return;\s*\n\s*\}\s*\n\s*markUiTourSeen\(\);/);
-  // A single tunable knob drives every generation pause (startup gate + thinking HUD),
-  // so the 5s/6s value can be changed in one place.
-  assert.match(source, /const GENERATION_PAUSE_MS = 6000;/);
-  assert.match(source, /const PROCESSING_HUD_MIN_VISIBLE_MS = GENERATION_PAUSE_MS;/);
-  assert.match(source, /const STARTUP_WAIT_MS = GENERATION_PAUSE_MS;/);
-  // The thinking HUD stays up for that minimum once a wait begins, batching the pause
-  // instead of advancing after a single freshly-streamed event and stalling again.
-  assert.match(source, /const remaining = PROCESSING_HUD_MIN_VISIBLE_MS - \(Date\.now\(\) - shownAt\);/);
-  assert.match(source, /function startStartupWait\(\)/);
-  assert.match(source, /startupWaitTimerRef\.current = window\.setTimeout\(\(\) => \{[^}]*setStartupWaitActive\(false\);[^}]*\}, STARTUP_WAIT_MS\);/s);
 
-  // The gate reuses the ordinary "thinking" HUD instead of a dedicated modal: no
-  // bespoke startup-wait panel/backdrop is rendered or styled anymore.
+  // The old artificial startup wait is gone.
+  assert.doesNotMatch(source, /GENERATION_PAUSE_MS/);
+  assert.doesNotMatch(source, /STARTUP_WAIT_MS/);
+  assert.doesNotMatch(source, /startupWaitActive/);
+  assert.doesNotMatch(source, /startStartupWait/);
   assert.doesNotMatch(source, /function renderStartupWait\(/);
   assert.doesNotMatch(source, /className="startup-wait"/);
   assert.doesNotMatch(source, /生成中です/);
   assert.doesNotMatch(css, /\.startup-wait/);
 
-  // startupWaitActive folds into the shared processing state, so the same
-  // "AIプレイヤーが考えています" HUD is shown while the gate is active.
-  assert.match(source, /const storyProcessingActive = storyWaitingForStream \|\| processingHudVisible \|\| startupWaitActive;/);
-  assert.match(source, /if \(!processingHudVisible && !startupWaitActive\) \{\s*\n\s*return null;/);
+  // Starting a match no longer immediately opens the thinking HUD. The HUD still exists
+  // for real generation waits after the opening scene is on screen or after submitted input.
+  const startGameStart = source.indexOf("function startGame");
+  const startGameEnd = source.indexOf("const streamView", startGameStart);
+  assert.ok(startGameStart >= 0);
+  assert.ok(startGameEnd > startGameStart);
+  assert.doesNotMatch(source.slice(startGameStart, startGameEnd), /showProcessingHudNow\(\);/);
+  assert.match(source, /eventsRef\.current\.length > 0 && queuedRef\.current\.length === 0/);
+  assert.match(source, /const storyWaitingForStream =\s*!setupMode && !paused && running/s);
+  assert.match(source, /const storyProcessingActive = storyWaitingForStream \|\| waitingForSubmittedHumanInput \|\| processingHudVisible;/);
+  assert.match(source, /if \(!processingHudVisible\) \{\s*\n\s*return null;/);
   assert.match(source, /const title = "AIプレイヤーが考えています";/);
 
-  // The gate still blocks story progress (keyboard + buttons) so the story
-  // cannot advance while generation is being buffered.
-  assert.match(source, /selectedCharacterId \|\|\s*\n\s*startupWaitActive \|\|/);
-  assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(visibleHumanInput\) \|\| events\.length === 0 \|\| startupWaitActive;/);
+  // Real generation waits still keep the HUD visible briefly, but the minimum is 2s.
+  assert.match(source, /const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;/);
+  assert.match(source, /const processingHudShownAtRef = useRef<number \| null>\(null\);/);
+  assert.match(source, /const processingHudHideTimerRef = useRef<number \| null>\(null\);/);
+  assert.match(source, /const remaining = PROCESSING_HUD_MIN_VISIBLE_MS - \(Date\.now\(\) - shownAt\);/);
 });
