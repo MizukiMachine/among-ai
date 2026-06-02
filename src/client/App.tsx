@@ -478,12 +478,12 @@ const roleClass: Partial<Record<Role, string>> = {
   Seer: "role-seer",
   Witch: "role-witch",
   Guard: "role-guard",
-  Hunter: "role-hunter",
+  Hunter: "role-villager",
   Raven: "role-villager",
   Idiot: "role-villager",
   Elder: "role-villager",
   Lover: "role-villager",
-  Jester: "role-villager",
+  Jester: "role-neutral",
   Villager: "role-villager"
 };
 

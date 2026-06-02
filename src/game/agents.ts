@@ -1240,7 +1240,7 @@ function demoFirstDayOpeningMoveSpeech(
     if (move.kind === "tentative_reaction_read") {
       return `${targetAddress}に先に理由を聞きます。初日は理由を出せない人を疑い寄りで見ます`;
     }
-    return "占い師・魔女・騎士への触れ方は早めに決めたいです。役職を明かさせすぎない条件を合わせましょう";
+    return "占い師、魔女、ハンター、鴉、愚者、長老のCO方針を先に合わせたいです。騎士は出さない前提で進めましょう";
   }
 
   if (move.kind === "opening_resolve") {
@@ -1270,7 +1270,7 @@ function demoFirstDayOpeningMoveSpeech(
   if (move.kind === "tentative_reaction_read") {
     return `${targetName}, I am applying light pressure first: no reason means a suspicion lean today.`;
   }
-  return "We should set conditions for Seer, Witch, and Guard talk early without forcing them into the open.";
+  return "We should set claim conditions for Seer, Witch, Hunter, Raven, Idiot, and Elder early, with Guard staying hidden.";
 }
 
 function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech {
@@ -1340,7 +1340,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   if (input.player.role === "Seer" && seerResult) {
     const [targetId, camp] = seerResult;
     const name = targetName(targetId, input.knownPlayers);
-    const shouldClaim = camp === "werewolf" || !firstDaySoft;
+    const shouldClaim = input.phase === "day_discussion";
     if (shouldClaim) {
       metadata.claims.push({
         type: "role_claim",

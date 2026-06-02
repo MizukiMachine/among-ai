@@ -422,8 +422,8 @@ textarea:focus-visible {
   color: #a5f3fc;
 }
 
-.header-role-chip.role-hunter,
-.role-rule-popover.role-hunter-rule .role-rule-camp {
+.header-role-chip.role-neutral,
+.role-rule-popover.role-neutral-rule .role-rule-camp {
   background: rgba(154, 90, 0, 0.24);
   color: #fde68a;
 }
@@ -1500,7 +1500,7 @@ textarea:focus-visible {
   color: #a7f3fb !important;
 }
 
-.role-hunter {
+.role-neutral {
   background: rgba(154, 90, 0, 0.24) !important;
   color: #ffdd8a !important;
 }
@@ -3907,13 +3907,13 @@ input[type="range"] {
   border: 1px solid rgba(112, 226, 223, 0.58);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(9, 16, 17, 0.32), rgba(2, 7, 8, 0.52)),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(0, 0, 0, 0.22)),
-    var(--ship-control-texture),
-    #141b1d;
-  background-blend-mode: multiply, soft-light, normal, normal;
-  background-position: center, center, var(--ship-control-position), center;
-  background-size: auto, auto, var(--ship-control-size), auto;
+    linear-gradient(180deg, rgba(50, 63, 72, 0.58), rgba(12, 22, 29, 0.84)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 42%, rgba(0, 0, 0, 0.2)),
+    var(--ship-trim-texture),
+    #15222b;
+  background-blend-mode: normal, soft-light, normal, normal;
+  background-position: center, center, var(--ship-trim-position), center;
+  background-size: auto, auto, var(--ship-trim-size), auto;
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.28),
     inset 0 0 0 1px rgba(112, 226, 223, 0.22),
@@ -3935,6 +3935,12 @@ input[type="range"] {
 
 .setup-edit-button:hover {
   border-color: rgba(164, 246, 232, 0.78);
+  background:
+    linear-gradient(180deg, rgba(58, 72, 82, 0.62), rgba(15, 28, 36, 0.88)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 42%, rgba(0, 0, 0, 0.18)),
+    var(--ship-trim-texture),
+    #172833;
+  background-blend-mode: normal, soft-light, normal, normal;
   box-shadow:
     0 14px 30px rgba(0, 0, 0, 0.34),
     0 0 24px rgba(103, 216, 223, 0.18),
@@ -5211,8 +5217,8 @@ input[type="range"] {
 }
 
 .setup-edit-button {
-  background-position: center, center, var(--ship-control-position), center;
-  background-size: auto, auto, var(--ship-control-size), auto;
+  background-position: center, center, var(--ship-trim-position), center;
+  background-size: auto, auto, var(--ship-trim-size), auto;
 }
 
 .human-target-grid button,

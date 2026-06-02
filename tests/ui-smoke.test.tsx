@@ -679,6 +679,16 @@ test("mobile layout CSS keeps spectator panels in a single column", () => {
   assert.match(css, /\.vote-node\s*\{[^}]*min-width:\s*0/s);
 });
 
+test("role color classes keep hunter with village and jester distinct", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /Hunter:\s*"role-villager"/);
+  assert.match(source, /Jester:\s*"role-neutral"/);
+  assert.match(css, /\.header-role-chip\.role-neutral,\s*\.role-rule-popover\.role-neutral-rule \.role-rule-camp\s*\{/);
+  assert.match(css, /\.role-neutral\s*\{/);
+});
+
 test("story controls stay stable as history grows", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");

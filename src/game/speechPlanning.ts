@@ -244,8 +244,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "人狼の偽役職アピール" : "Werewolf seeds a fake role claim",
       instruction: japanese
-        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師など人間側役職をはっきり名乗って場を揺らす。結果を作り込みすぎず、反応を見る一言と投票基準につなげる。"
-        : "You are on the werewolf team. In this public opening, hide that identity and clearly claim a village-side role such as Seer. Keep it light and tie it to reactions or vote criteria."
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、反応を見る一言と投票基準につなげる。"
+        : "You are on the werewolf team. In this public opening, hide that identity and claim one of these village-side roles: Seer, Witch, Hunter, Raven, Idiot, or Elder. Do not use Guard as the normal claim. Keep it light and tie it to reactions or vote criteria."
     },
     state_vote_criteria: {
       kind,
@@ -279,8 +279,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "能力者への触れ方が早い" : "Touch power roles early",
       instruction: japanese
-        ? "占い師・魔女・騎士に早めに触れる。役職を明かすよう強く迫らず、名乗る条件、守り方、話題に出す範囲の方針を一つ提案する。"
-        : "Bring up Seer, Witch, or Guard early without forcing exposure, using protection or handling policy as the topic."
+        ? "占い師、魔女、ハンター、鴉、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
+        : "Bring up claim policy for Seer, Witch, Hunter, Raven, Idiot, and Elder. Treat Guard as normally never claiming, and avoid forcing role exposure."
     }
   };
   return definitions[kind];
@@ -494,7 +494,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
       return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,16}(?:村側|人間側|村人|白|吊られたくない)/u.test(text);
     }
     if (move.kind === "wolf_fake_role_claim") {
-      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,30}(?:占い師|魔女|騎士|狩人|役職|能力者|CO|名乗)/u.test(text);
+      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,30}(?:占い師|魔女|ハンター|鴉|愚者|長老)/u.test(text);
     }
     if (move.kind === "state_vote_criteria") {
       return /(?:投票基準|基準|返答|具体的|理由|便乗|態度)/u.test(text);

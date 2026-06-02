@@ -109,6 +109,27 @@ const roleBreakdownOrder: Role[] = [
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
+function humanInfluenceFollowUpPersonaScore(persona: Persona): number {
+  switch (persona) {
+    case "empathetic":
+      return 1.6;
+    case "passionate":
+      return 1.45;
+    case "opportunistic":
+      return 1.25;
+    case "cautious":
+      return 1.05;
+    case "logical":
+      return 0.95;
+    case "trickster":
+      return 0.8;
+    case "aggressive":
+      return 0.65;
+    case "stoic":
+      return 0.5;
+  }
+}
+
 interface DiscussionRecord {
   playerId: string;
   playerName: string;
@@ -130,6 +151,11 @@ interface SocialReadPressure {
   targetName: string;
   reasons: string[];
   weight: number;
+}
+
+interface HumanFollowUpInfluence {
+  responderScores: Map<string, number>;
+  humanReadTargetIds: Set<string>;
 }
 
 interface PreparedTargetAction {
@@ -173,6 +199,13 @@ interface DayDiscussionSpeechPrefetch {
   openingSpeakerId: string;
   openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>;
   promise: Promise<{ player: Player; speech: AgentSpeech }>;
+}
+
+interface DayWarmupSpeechPrefetch {
+  round: number;
+  openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>;
+  stream: BufferedAsyncIterable<{ player: Player; speech: AgentSpeech }>;
+  cancel(): void;
 }
 
 interface VictoryRoleRevealSummary {
@@ -805,6 +838,91 @@ function decisionRaceSlotCounts(itemCount: number, concurrency: number): number[
   return counts;
 }
 
+interface BufferedAsyncIterable<T> extends AsyncIterable<T> {
+  push(value: T): void;
+  close(): void;
+  fail(error: unknown): void;
+}
+
+function createBufferedAsyncIterable<T>(onReturn?: () => void): BufferedAsyncIterable<T> {
+  const values: T[] = [];
+  const waiters: Array<{
+    resolve: (result: IteratorResult<T>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  let done = false;
+  let failed = false;
+  let failure: unknown;
+
+  const flush = () => {
+    while (waiters.length > 0) {
+      const waiter = waiters.shift();
+      if (!waiter) {
+        return;
+      }
+      if (values.length > 0) {
+        waiter.resolve({ value: values.shift()!, done: false });
+        continue;
+      }
+      if (failed) {
+        waiter.reject(failure);
+        continue;
+      }
+      if (done) {
+        waiter.resolve({ value: undefined, done: true });
+        continue;
+      }
+      waiters.unshift(waiter);
+      return;
+    }
+  };
+
+  return {
+    push(value: T): void {
+      if (done || failed) {
+        return;
+      }
+      values.push(value);
+      flush();
+    },
+    close(): void {
+      if (failed) {
+        return;
+      }
+      done = true;
+      flush();
+    },
+    fail(error: unknown): void {
+      failed = true;
+      failure = error;
+      flush();
+    },
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+      return {
+        next(): Promise<IteratorResult<T>> {
+          if (values.length > 0) {
+            return Promise.resolve({ value: values.shift()!, done: false });
+          }
+          if (failed) {
+            return Promise.reject(failure);
+          }
+          if (done) {
+            return Promise.resolve({ value: undefined, done: true });
+          }
+          return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
+        },
+        return(): Promise<IteratorResult<T>> {
+          onReturn?.();
+          values.length = 0;
+          done = true;
+          flush();
+          return Promise.resolve({ value: undefined, done: true });
+        }
+      };
+    }
+  };
+}
+
 async function* orderedConcurrentMap<T, R>(
   items: T[],
   concurrency: number,
@@ -987,6 +1105,7 @@ export class WerewolfGame {
   private lastVoteModifiers: VoteModifier[] = [];
   private lastNightDeathRecords: DeathRecord[] = [];
   private firstDayOpeningSpeechPrefetch: DayDiscussionSpeechPrefetch | null = null;
+  private firstDayWarmupSpeechPrefetch: DayWarmupSpeechPrefetch | null = null;
 
   constructor(config: GameConfig, options: WerewolfGameOptions = {}) {
     this.humanInput = options.humanInput
@@ -1525,8 +1644,8 @@ export class WerewolfGame {
               "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
             )
           : this.text(
-              "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
-              "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
+              "Final follow-up: give one voting-ready read tied to the strongest suspicion, claim, or human-led pressure visible to you.",
+              "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。"
             ),
       ...(openingMove
         ? [
@@ -1568,7 +1687,10 @@ export class WerewolfGame {
     return { player, speech };
   }
 
-  private getOrStartFirstDayOpeningSpeechPrefetch(round: number): DayDiscussionSpeechPrefetch | null {
+  private getOrStartFirstDayOpeningSpeechPrefetch(
+    round: number,
+    openingMoveByPlayerId?: Map<string, FirstDayOpeningMoveKind>
+  ): DayDiscussionSpeechPrefetch | null {
     if (this.firstDayOpeningSpeechPrefetch?.round === round) {
       return this.firstDayOpeningSpeechPrefetch;
     }
@@ -1582,18 +1704,18 @@ export class WerewolfGame {
     this.phase = "day_discussion";
     try {
       const speakers = this.daySpeakerOrder();
-      const openingMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
-      const openingSpeaker = this.firstAiDayOpeningSpeaker(speakers, openingMoveByPlayerId);
+      const assignedOpeningMoves = openingMoveByPlayerId ?? this.firstDayOpeningMoveAssignments(speakers);
+      const openingSpeaker = this.firstAiDayOpeningSpeaker(speakers, assignedOpeningMoves);
       if (!openingSpeaker) {
         return null;
       }
 
-      const promise = this.generateDayDiscussionSpeech(openingSpeaker, 1, openingMoveByPlayerId);
+      const promise = this.generateDayDiscussionSpeech(openingSpeaker, 1, assignedOpeningMoves);
       promise.catch(() => undefined);
       this.firstDayOpeningSpeechPrefetch = {
         round,
         openingSpeakerId: openingSpeaker.id,
-        openingMoveByPlayerId,
+        openingMoveByPlayerId: assignedOpeningMoves,
         promise
       };
       return this.firstDayOpeningSpeechPrefetch;
@@ -1601,6 +1723,52 @@ export class WerewolfGame {
       this.round = previousRound;
       this.phase = previousPhase;
     }
+  }
+
+  private firstDayWarmupPrefetchConcurrency(): number {
+    return Math.max(1, Math.min(this.prefetchConcurrency, Math.max(1, this.prefetchConcurrency - 2)));
+  }
+
+  private getOrStartFirstDayWarmupSpeechPrefetch(round: number): DayWarmupSpeechPrefetch | null {
+    if (this.firstDayWarmupSpeechPrefetch?.round === round) {
+      return this.firstDayWarmupSpeechPrefetch;
+    }
+    if (this.firstDayWarmupSpeechPrefetch && this.firstDayWarmupSpeechPrefetch.round !== round) {
+      this.firstDayWarmupSpeechPrefetch.cancel();
+      this.firstDayWarmupSpeechPrefetch = null;
+    }
+    if (round !== 1 || this.config.provider !== "llm") {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    };
+    const stream = createBufferedAsyncIterable<{ player: Player; speech: AgentSpeech }>(cancel);
+    const speakers = this.daySpeakerOrder();
+    const openingMoveByPlayerId = this.firstDayOpeningMoveAssignments(speakers);
+    this.firstDayWarmupSpeechPrefetch = { round, openingMoveByPlayerId, stream, cancel };
+    void (async () => {
+      try {
+        for await (const result of this.generateFirstDayWarmupSpeeches(this.firstDayWarmupPrefetchConcurrency(), controller.signal)) {
+          stream.push(result);
+        }
+        stream.close();
+        if (!controller.signal.aborted && !this.abortSignal?.aborted) {
+          this.getOrStartFirstDayOpeningSpeechPrefetch(round, openingMoveByPlayerId);
+        }
+      } catch (error) {
+        if (controller.signal.aborted || this.abortSignal?.aborted) {
+          stream.close();
+        } else {
+          stream.fail(error);
+        }
+      }
+    })();
+    return this.firstDayWarmupSpeechPrefetch;
   }
 
   private firstAiDayOpeningSpeaker(
@@ -1612,7 +1780,6 @@ export class WerewolfGame {
 
   async *run(): AsyncGenerator<GameEvent> {
     this.throwIfCancelled();
-    this.getOrStartFirstDayOpeningSpeechPrefetch(1);
     yield this.emit("game_started", this.text("A new AI werewolf match has started.", "AI人狼の新しい対局を開始しました。"), {
       provider: this.config.provider,
       model: this.config.model || "demo",
@@ -2518,25 +2685,50 @@ export class WerewolfGame {
 
   private async *runDay(): AsyncGenerator<GameEvent> {
     const isOpeningLlmRound = this.round === 1 && this.config.provider === "llm";
-    const openingPrefetch = isOpeningLlmRound ? this.getOrStartFirstDayOpeningSpeechPrefetch(this.round) : null;
+    const warmupPrefetch = isOpeningLlmRound ? this.getOrStartFirstDayWarmupSpeechPrefetch(this.round) : null;
+    const cancelWarmupPrefetch = () => {
+      if (!warmupPrefetch) {
+        return;
+      }
+      if (this.firstDayWarmupSpeechPrefetch === warmupPrefetch) {
+        this.firstDayWarmupSpeechPrefetch = null;
+      }
+      warmupPrefetch.cancel();
+    };
     const speakers = this.daySpeakerOrder();
-    const firstDayOpeningMoveByPlayerId = openingPrefetch?.openingMoveByPlayerId ?? this.firstDayOpeningMoveAssignments(speakers);
+    const firstDayOpeningMoveByPlayerId = warmupPrefetch?.openingMoveByPlayerId ?? this.firstDayOpeningMoveAssignments(speakers);
 
     // Before the public day breaks, the werewolf team meets privately so a human werewolf
     // learns who their allies are. Always runs on the first day's opening, independent of
-    // agenda scheduling; a lone wolf (or an all-human wolf team) is a no-op. The first
-    // public day line has already been requested above, so this face-off now overlaps
-    // real day-discussion generation instead of delaying it.
+    // agenda scheduling; a lone wolf (or an all-human wolf team) is a no-op. While this
+    // face-off is displayed, the day-zero warm-up lines are generated first; only after
+    // those finish does the first real public day line begin prefetching.
+    let faceoffCompleted = !isOpeningLlmRound;
     if (isOpeningLlmRound) {
-      yield* this.runWerewolfFaceoffPass();
+      try {
+        yield* this.runWerewolfFaceoffPass();
+        faceoffCompleted = true;
+      } finally {
+        if (!faceoffCompleted) {
+          cancelWarmupPrefetch();
+        }
+      }
     }
 
     this.phase = "day_discussion";
     this.lastDiscussion = [];
-    yield this.emit(
-      "phase_changed",
-      this.text(`Day ${this.round} begins.`, `${this.round}日目の昼が始まりました`)
-    );
+    let dayStartConsumed = false;
+    try {
+      yield this.emit(
+        "phase_changed",
+        this.text(`Day ${this.round} begins.`, `${this.round}日目の昼が始まりました`)
+      );
+      dayStartConsumed = true;
+    } finally {
+      if (!dayStartConsumed) {
+        cancelWarmupPrefetch();
+      }
+    }
 
     const publishSpeech = (player: Player, speech: AgentSpeech, discussionPass: number, discussionPasses: number): GameEvent[] => {
       const publicSpeech = this.applyHumanSpeechInfluence(player, speech);
@@ -2561,22 +2753,24 @@ export class WerewolfGame {
       );
     };
     const openingSpeaker = this.firstAiDayOpeningSpeaker(speakers, firstDayOpeningMoveByPlayerId);
-    let prefetchedOpeningSpeech =
+    let prefetchedOpeningSpeech: Promise<{ player: Player; speech: AgentSpeech }> | null = null;
+
+    // Keep the "day zero" opening resolves even without the old director layer. They are
+    // generated first, then the first real public line begins prefetching; they are not
+    // fed back into publicHistory/lastDiscussion and therefore cannot become fake evidence.
+    if (isOpeningLlmRound) {
+      yield* this.runFirstDayWarmupPass(warmupPrefetch);
+    }
+    this.throwIfCancelled();
+
+    const openingPrefetch = isOpeningLlmRound
+      ? (this.firstDayOpeningSpeechPrefetch ??
+        this.getOrStartFirstDayOpeningSpeechPrefetch(this.round, firstDayOpeningMoveByPlayerId))
+      : null;
+    prefetchedOpeningSpeech =
       openingPrefetch && openingSpeaker?.id === openingPrefetch.openingSpeakerId ? openingPrefetch.promise : null;
     if (prefetchedOpeningSpeech) {
       this.firstDayOpeningSpeechPrefetch = null;
-    }
-
-    // Keep the "day zero" opening resolves even without the old director layer. They give the
-    // player something to read while the first real public line is already being generated,
-    // but they are not fed back into publicHistory/lastDiscussion and therefore cannot
-    // become fake evidence.
-    if (isOpeningLlmRound) {
-      if (!prefetchedOpeningSpeech && openingSpeaker) {
-        prefetchedOpeningSpeech = this.generateDayDiscussionSpeech(openingSpeaker, 1, firstDayOpeningMoveByPlayerId);
-        prefetchedOpeningSpeech.catch(() => undefined);
-      }
-      yield* this.runFirstDayWarmupPass();
     }
 
     for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
@@ -2666,8 +2860,7 @@ export class WerewolfGame {
     return assignments;
   }
 
-  // Day-1 warm-up: a quick round of AI-only opening resolves, streamed as
-  // they finish (same speculative race as the real discussion). It is a day-zero buffer
+  // Day-1 warm-up: a quick round of AI-only opening resolves. It is a day-zero buffer
   // for perceived LLM latency, not public discussion evidence. Humans are excluded —
   // they join from the first real pass. Every living AI player speaks once.
   // Distinct opening angles so independent intro generations don't all start the same way.
@@ -2693,6 +2886,39 @@ export class WerewolfGame {
           "Be breezy and easygoing.",
           "Add one thing you care about."
         ];
+  }
+
+  private async *generateFirstDayWarmupSpeeches(
+    concurrency = this.prefetchConcurrency,
+    abortSignal?: AbortSignal
+  ): AsyncGenerator<{ player: Player; speech: AgentSpeech }> {
+    const aiSpeakers = this.daySpeakerOrder().filter((player) => !this.isHumanControlledPlayer(player));
+    if (aiSpeakers.length === 0) {
+      return;
+    }
+    const angles = this.firstDayIntroAngles();
+    const angleOffset = Math.floor(Math.random() * angles.length);
+    const angleByPlayerId = new Map(aiSpeakers.map((player, index) => [player.id, angles[(angleOffset + index) % angles.length]]));
+    const reportProgress = this.progressReporterAt(
+      "day_discussion",
+      this.round,
+      "day_speech",
+      this.text("Opening resolve before the discussion", "議論前の意気込み")
+    );
+
+    for await (const result of orderedConcurrentMap(
+      aiSpeakers,
+      concurrency,
+      async (player) => {
+        const speech = await this.withPhase("day_discussion", () =>
+          this.safeImproviseIntro(player, abortSignal, false, angleByPlayerId.get(player.id))
+        );
+        return { player, speech };
+      },
+      reportProgress
+    )) {
+      yield result;
+    }
   }
 
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
@@ -2765,25 +2991,17 @@ export class WerewolfGame {
     }
   }
 
-  private async *runFirstDayWarmupPass(): AsyncGenerator<GameEvent> {
-    const aiSpeakers = this.daySpeakerOrder().filter((player) => !this.isHumanControlledPlayer(player));
-    if (aiSpeakers.length === 0) {
-      return;
+  private async *runFirstDayWarmupPass(prefetch: DayWarmupSpeechPrefetch | null = null): AsyncGenerator<GameEvent> {
+    const activePrefetch = prefetch?.round === this.round ? prefetch : null;
+    if (activePrefetch === this.firstDayWarmupSpeechPrefetch) {
+      this.firstDayWarmupSpeechPrefetch = null;
     }
-    const angles = this.firstDayIntroAngles();
-    const angleOffset = Math.floor(Math.random() * angles.length);
-    const angleByPlayerId = new Map(aiSpeakers.map((player, index) => [player.id, angles[(angleOffset + index) % angles.length]]));
-    for await (const { player, speech } of this.raceAiWithHumanLast(
-      aiSpeakers,
-      (player, options) =>
-        this.safeImproviseIntro(player, options?.signal, options?.speculative, angleByPlayerId.get(player.id)).then((speech) => ({
-          player,
-          speech
-        })),
-      this.progressReporter("day_speech", this.text("Opening resolve before the discussion", "議論前の意気込み"))
-    )) {
+    const speeches = activePrefetch?.stream ?? this.generateFirstDayWarmupSpeeches();
+    for await (const { player, speech } of speeches) {
       for (const [index, message] of speech.messages.entries()) {
-        yield this.emit("player_speech", message, speechEventData(speech, message, index, undefined, { warmup: true }), player);
+        yield this.withPhase("day_discussion", () =>
+          this.emit("player_speech", message, speechEventData(speech, message, index, undefined, { warmup: true }), player)
+        );
       }
     }
   }
@@ -4194,6 +4412,86 @@ export class WerewolfGame {
     );
   }
 
+  private humanFollowUpInfluence(speakers: Player[], speakerOrder: Map<string, number>): HumanFollowUpInfluence {
+    const responderScores = new Map<string, number>();
+    const humanReadTargetIds = new Set<string>();
+    const human = this.humanControlledPlayer();
+    if (!human || !speakerOrder.has(human.id)) {
+      return { responderScores, humanReadTargetIds };
+    }
+
+    const readWeight = (read: { weight?: number }, fallback = 0.5) =>
+      typeof read.weight === "number" && Number.isFinite(read.weight) ? Math.max(0, Math.min(1, read.weight)) : fallback;
+    const humanSuspects = new Map<string, number>();
+    const humanTrusts = new Map<string, number>();
+    const addReadWeight = (reads: Map<string, number>, targetId: string, weight: number) => {
+      if (!speakerOrder.has(targetId)) {
+        return;
+      }
+      humanReadTargetIds.add(targetId);
+      reads.set(targetId, (reads.get(targetId) ?? 0) + weight);
+    };
+
+    for (const record of this.lastDiscussion) {
+      if (record.playerId !== human.id) {
+        continue;
+      }
+      for (const read of record.metadata.suspects) {
+        addReadWeight(humanSuspects, read.targetId, readWeight(read));
+      }
+      for (const read of record.metadata.trusts) {
+        addReadWeight(humanTrusts, read.targetId, readWeight(read));
+      }
+    }
+
+    if (humanSuspects.size === 0 && humanTrusts.size === 0) {
+      return { responderScores, humanReadTargetIds };
+    }
+
+    const addResponderScore = (playerId: string, amount: number) => {
+      if (!speakerOrder.has(playerId) || playerId === human.id || amount <= 0) {
+        return;
+      }
+      responderScores.set(playerId, (responderScores.get(playerId) ?? 0) + amount);
+    };
+
+    for (const record of this.lastDiscussion) {
+      if (record.playerId === human.id || !speakerOrder.has(record.playerId)) {
+        continue;
+      }
+      const source = this.requirePlayer(record.playerId);
+      if (!source.alive || this.isHumanControlledPlayer(source)) {
+        continue;
+      }
+
+      for (const read of record.metadata.trusts) {
+        const weight = readWeight(read);
+        if (read.targetId === human.id) {
+          addResponderScore(record.playerId, 4 + weight);
+        }
+        const sharedTrustWeight = humanTrusts.get(read.targetId);
+        if (sharedTrustWeight !== undefined) {
+          addResponderScore(record.playerId, 1.5 + Math.min(weight, sharedTrustWeight));
+        }
+      }
+
+      for (const read of record.metadata.suspects) {
+        const sharedSuspectWeight = humanSuspects.get(read.targetId);
+        if (sharedSuspectWeight !== undefined) {
+          addResponderScore(record.playerId, 2 + Math.min(readWeight(read), sharedSuspectWeight));
+        }
+      }
+    }
+
+    for (const speaker of speakers) {
+      if (!this.isHumanControlledPlayer(speaker)) {
+        addResponderScore(speaker.id, humanInfluenceFollowUpPersonaScore(speaker.persona));
+      }
+    }
+
+    return { responderScores, humanReadTargetIds };
+  }
+
   private dayDiscussionFollowUpSpeakers(speakers: Player[]): Player[] {
     const speakerOrder = new Map(speakers.map((player, index) => [player.id, index]));
     const scores = new Map<string, number>();
@@ -4232,6 +4530,38 @@ export class WerewolfGame {
       .map(({ player }) => player);
     const limit = this.dayDiscussionFollowUpLimit(speakers.length);
     const selected = ranked.slice(0, limit);
+    const humanInfluence = this.humanFollowUpInfluence(speakers, speakerOrder);
+    const humanResponder = speakers
+      .map((player) => ({
+        player,
+        score: humanInfluence.responderScores.get(player.id) ?? 0,
+        order: speakerOrder.get(player.id) ?? Number.MAX_SAFE_INTEGER
+      }))
+      .filter(
+        ({ player, score }) =>
+          score > 0 && !this.isHumanControlledPlayer(player) && !selected.some((selectedPlayer) => selectedPlayer.id === player.id)
+      )
+      .sort((a, b) => {
+        const aDirectTarget = humanInfluence.humanReadTargetIds.has(a.player.id);
+        const bDirectTarget = humanInfluence.humanReadTargetIds.has(b.player.id);
+        if (aDirectTarget !== bDirectTarget) {
+          return aDirectTarget ? 1 : -1;
+        }
+        return b.score - a.score || a.order - b.order;
+      })[0]?.player;
+    if (humanResponder) {
+      if (selected.length < limit) {
+        selected.push(humanResponder);
+      } else {
+        for (let index = selected.length - 1; index >= 0; index -= 1) {
+          const replacement = selected[index];
+          if (!this.isHumanControlledPlayer(replacement) && !humanInfluence.humanReadTargetIds.has(replacement.id)) {
+            selected[index] = humanResponder;
+            break;
+          }
+        }
+      }
+    }
     const pressuredHuman = ranked.find((player) => this.isHumanControlledPlayer(player) && (scores.get(player.id) ?? 0) > 0);
     if (pressuredHuman && !selected.some((player) => player.id === pressuredHuman.id)) {
       if (selected.length >= limit) {
