@@ -1542,6 +1542,49 @@ test("speech diagnostics record single simple public speech completion", async (
   assert.equal(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id), false);
 });
 
+test("Japanese public speech retries when Chinese vocabulary appears", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  game.agents.set(
+    players[0].id,
+    new ScriptedAgent(players[0].name, [], [], [
+      {
+        messages: ["初日は发言を控えて、様子を見るべきだと思います"],
+        metadata: emptyMetadata
+      },
+      {
+        messages: ["初日は発言を控えすぎず、投票基準を先に出します"],
+        metadata: emptyMetadata
+      }
+    ])
+  );
+
+  const events = await collect(game.runDay());
+  const speechEvent = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+
+  assert.equal(speechEvent?.message, "初日は発言を控えすぎず、投票基準を先に出します");
+  assert.doesNotMatch(speechEvent?.message ?? "", /发言/);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id));
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id));
+  const completed = diagnostics.find((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id);
+  assert.ok(completed);
+  assert.equal(completed.attempts, 2);
+  assert.equal(completed.retried, true);
+});
+
 test("simple public speech does not run old timeline rejection", async () => {
   const diagnostics: SpeechGenerationDiagnostic[] = [];
   const game = new WerewolfGame(

@@ -10,7 +10,7 @@ import {
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { defaultWerewolfAlignmentSpeechForPlayer } from "./humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
-import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
+import { reviewJapaneseOutput, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import { buildBaseContext, type RoleBreakdownEntry, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
@@ -3452,6 +3452,72 @@ export class WerewolfGame {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers, player);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
+      }
+
+      const outputReview = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
+      if (!outputReview.ok) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_review_rejected",
+          attempts,
+          issues: outputReview.issues,
+          styleIssues: outputReview.issues,
+          revisionHint: this.text(
+            "Rewrite the line in natural Japanese only, with no Chinese vocabulary or simplified/traditional Chinese characters.",
+            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。"
+          )
+        });
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: ${outputReview.issues.join(", ")} — retrying once. Original: "${speech.messages
+              .join(" ")
+              .substring(0, 120)}…"`
+          );
+        }
+        this.throwIfCancelled();
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
+
+        attempts += 1;
+        const retryInput: AgentSpeechInput = {
+          ...input,
+          context: [
+            input.context,
+            "",
+            this.text(
+              "The previous generated line mixed non-Japanese wording. Keep the same game intent, but output only one short line in natural Japanese.",
+              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。"
+            )
+          ].join("\n")
+        };
+        const retrySpeech = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers, player);
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
+        const retryReview = reviewJapaneseOutput(retrySpeech.messages.join(" "), this.config.language);
+        if (retryReview.ok) {
+          emitSpeechAttemptDiagnostic({ kind: "speech_retry_accepted", attempts, issues: [], styleIssues: [] });
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
+          return retrySpeech;
+        }
+
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_retry_rejected",
+          attempts,
+          issues: retryReview.issues,
+          styleIssues: retryReview.issues
+        });
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(
+              ", "
+            )}). Using simple Japanese fallback.`
+          );
+        }
+        const fallback = this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers, player);
+        const fallbackReview = reviewJapaneseOutput(fallback.messages.join(" "), this.config.language);
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: fallbackReview.ok });
+        return fallback;
       }
 
       emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false });

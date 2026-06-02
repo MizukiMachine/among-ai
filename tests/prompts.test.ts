@@ -7,6 +7,7 @@ import {
   buildTargetSystemPrompt
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
+import { reviewJapaneseOutput } from "../src/game/japaneseStyle";
 import { buildPublicSpeechPlan, firstDayOpeningMove } from "../src/game/speechPlanning";
 import { getCharacterProfile } from "../src/game/characters";
 import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
@@ -316,6 +317,8 @@ test("Japanese public speech prompts keep only persona, role, and conversation c
 
   assert.match(system, /これまでの会話と自分の役職/);
   assert.match(system, /出力は画面に出す発言だけ/);
+  assert.match(system, /日本語だけで書く/);
+  assert.match(system, /中国語の語彙や簡体字・繁体字/);
   assert.match(context, /人物設定/);
   assert.match(context, /役職/);
   assert.match(context, /これまでの会話/);
@@ -329,6 +332,17 @@ test("Japanese public speech prompts keep only persona, role, and conversation c
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
   assert.doesNotMatch(generatedPrompt, /观望|觉得|应该|确实|因为|所以/);
   assert.doesNotMatch(context, /役職ごとの発言方針|昼の状況別話法|初日特別モード|Speech plan|No prior public statements|vagueness as observed evidence|Task-specific visible context/);
+});
+
+test("Japanese output review rejects Chinese vocabulary in displayed speech", () => {
+  assert.deepEqual(reviewJapaneseOutput("初日は発言を控えすぎず、投票基準を先に出します", "Japanese"), {
+    ok: true,
+    issues: []
+  });
+
+  const review = reviewJapaneseOutput("初日は发言を控えて、様子を見るべきだと思います", "Japanese");
+  assert.equal(review.ok, false);
+  assert.match(review.issues.join("\n"), /Chinese vocabulary/);
 });
 
 test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {

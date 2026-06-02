@@ -780,12 +780,14 @@ export function buildSimpleSpeechSystemPrompt(options: BuildSystemPromptOptions)
   const roleName = roleLabel(options.player.role, options.language);
   const personaName = personaHeading(options.player.persona, options.language);
   const profile = options.player.characterProfile;
+  const styleGuide = japaneseStyleGuide(options.language);
   if (japanese) {
     return [
       "あなたは人狼ゲームの参加者です。",
       `あなたは${options.player.name}です。`,
       `人物設定: ${profile ? `${profile.speechStyle}。${profile.values}` : personaName}。`,
       `役職: ${roleName}。`,
+      ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
       "",
       "これまでの会話と自分の役職を踏まえて、自然な次の発言をしてください。",
       "役職を明かす、隠す、嘘をつく、曖昧にする判断は状況に合わせます。",
