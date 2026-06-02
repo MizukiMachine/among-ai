@@ -71,20 +71,12 @@ import type {
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
 const CHARACTER_ASSET_ROOT = `${BASE_URL}assets/characters`;
 const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
-// Single tunable knob for how long a generation pause is held. We deliberately keep the
-// "AIプレイヤーが考えています" HUD up for one longer block instead of letting the story
-// advance the moment a single fresh event streams in — advancing one-at-a-time just
-// stalls again immediately, so batching the wait into a single stop reads far better.
-// Adjust this one value (e.g. 5000 / 6000) to tune every generation pause at once.
-const GENERATION_PAUSE_MS = 6000;
-// Minimum time the "thinking" HUD stays visible (and story progress stays gated) once a
-// generation wait begins, so several events accumulate before the player advances again.
-const PROCESSING_HUD_MIN_VISIBLE_MS = GENERATION_PAUSE_MS;
-// First match ever: the guided UI tour buys generation time. Every match after that
-// the tour would feel out of place, so returning players instead get one deliberate
-// "now generating" gate up front (banking buffer in a single visible block instead of
-// dribbling small waits later). "Seen the tour" is persisted across sessions.
-const STARTUP_WAIT_MS = GENERATION_PAUSE_MS;
+// Minimum time the thinking HUD stays visible once a real generation wait begins.
+// Startup never triggers this by itself; it only applies after play has reached a
+// generated scene or after submitted human input is waiting on a streamed response.
+const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
+// "Seen the tour" is persisted across sessions. Returning players skip the tour
+// without inserting a separate startup generation gate.
 const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";
 
 function hasSeenUiTour(): boolean {
@@ -1473,10 +1465,6 @@ export function App() {
   // a click-to-skip dismisses it exactly like the timeout does, instead of leaving live listeners
   // that could resurrect the overlay on the next scroll/resize.
   const revealDismissRef = useRef<(() => void) | null>(null);
-  // Returning-player startup gate: a brief, deliberate "generating" panel shown in
-  // place of the tour on every match after the first. null = inactive.
-  const [startupWaitActive, setStartupWaitActive] = useState(false);
-  const startupWaitTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInputs, setPendingHumanInputsState] = useState<PendingHumanInputEntry[]>([]);
   const [humanSpeech, setHumanSpeech] = useState("");
@@ -1715,29 +1703,9 @@ export function App() {
     });
   }
 
-  function clearStartupWaitTimer() {
-    if (startupWaitTimerRef.current !== null) {
-      window.clearTimeout(startupWaitTimerRef.current);
-      startupWaitTimerRef.current = null;
-    }
-  }
-
-  function startStartupWait() {
-    clearStartupWaitTimer();
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0 });
-    }
-    setStartupWaitActive(true);
-    startupWaitTimerRef.current = window.setTimeout(() => {
-      startupWaitTimerRef.current = null;
-      setStartupWaitActive(false);
-    }, STARTUP_WAIT_MS);
-  }
-
   // Once per match, as soon as the opening board is on screen (setup placeholder gone,
-  // first event revealed), bridge the background generation. First time ever: run the
-  // guided tour and remember it. Every match after: skip the tour and show one short,
-  // deliberate "generating" gate instead — banking the buffer up front.
+  // first event revealed), run the guided tour the first time ever and remember it.
+  // Returning players skip the tour without adding a startup wait.
   useEffect(() => {
     if (tourLaunchedRef.current || tourStepIndex !== null) {
       return;
@@ -1750,7 +1718,6 @@ export function App() {
     }
     tourLaunchedRef.current = true;
     if (hasSeenUiTour()) {
-      startStartupWait();
       return;
     }
     // "Seen" is persisted only once the tour has actually been shown and then closed
@@ -2176,8 +2143,6 @@ export function App() {
     setTypedCompleteEventId(null);
     setGenerationProgress(null);
     hideProcessingHudNow();
-    clearStartupWaitTimer();
-    setStartupWaitActive(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
     setGameId(null);
@@ -2238,10 +2203,7 @@ export function App() {
     setSourceDone(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
-    clearStartupWaitTimer();
-    setStartupWaitActive(false);
     setRunning(true);
-    showProcessingHudNow();
     statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
 
@@ -2274,7 +2236,7 @@ export function App() {
 
     source.addEventListener("progress", (message) => {
       const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
-      if (!pausedRef.current && queuedRef.current.length === 0) {
+      if (!pausedRef.current && eventsRef.current.length > 0 && queuedRef.current.length === 0) {
         showProcessingHudNow();
       }
       setGenerationProgress(progress);
@@ -2475,7 +2437,6 @@ export function App() {
     return () => {
       closeGameStream();
       clearProcessingHudHideTimer();
-      clearStartupWaitTimer();
       audioControllerRef.current?.dispose();
     };
   }, []);
@@ -2662,7 +2623,6 @@ export function App() {
         event.altKey ||
         event.shiftKey ||
         selectedCharacterId ||
-        startupWaitActive ||
         (event.key !== "Enter" && event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
         isEditableShortcutTarget(event.target) ||
         (event.key === "Enter" && isButtonShortcutTarget(event.target))
@@ -2699,7 +2659,6 @@ export function App() {
     running,
     selectedCharacterId,
     settingsConfirmed,
-    startupWaitActive,
     visibleHumanInput
   ]);
 
@@ -3275,13 +3234,13 @@ export function App() {
     );
   }
 
-  const storyBackDisabled = paused || Boolean(visibleHumanInput) || events.length === 0 || startupWaitActive;
+  const storyBackDisabled = paused || Boolean(visibleHumanInput) || events.length === 0;
   const setupMode = events.length === 0 && snapshot === null;
   const firstScenePending = setupMode && settingsConfirmed && running && queuedEvents.length === 0;
-  const storyWaitingForStream = !paused && running && queuedEvents.length === 0 && !visibleHumanInput && !humanInputAdvanceReady;
-  // The returning-player startup gate reuses the ordinary "thinking" HUD instead of a
-  // dedicated modal, so it folds into the same processing state as a real generation wait.
-  const storyProcessingActive = storyWaitingForStream || processingHudVisible || startupWaitActive;
+  const waitingForSubmittedHumanInput = submittedHumanInputRef.current !== null;
+  const storyWaitingForStream =
+    !setupMode && !paused && running && queuedEvents.length === 0 && !visibleHumanInput && !humanInputAdvanceReady;
+  const storyProcessingActive = storyWaitingForStream || waitingForSubmittedHumanInput || processingHudVisible;
   const storyNextDisabled =
     paused ||
     Boolean(readyHumanInput) ||
@@ -3298,7 +3257,7 @@ export function App() {
   useEffect(() => {
     clearProcessingHudHideTimer();
 
-    if (storyWaitingForStream) {
+    if (storyWaitingForStream || waitingForSubmittedHumanInput) {
       showProcessingHudNow();
       return undefined;
     }
@@ -3320,10 +3279,10 @@ export function App() {
     }, remaining);
 
     return clearProcessingHudHideTimer;
-  }, [processingHudVisible, storyWaitingForStream]);
+  }, [processingHudVisible, storyWaitingForStream, waitingForSubmittedHumanInput]);
 
   function renderStoryProcessingHud() {
-    if (!processingHudVisible && !startupWaitActive) {
+    if (!processingHudVisible) {
       return null;
     }
 
@@ -3681,7 +3640,7 @@ export function App() {
           </div>
 
           <div className="field setup-field player-count-field">
-            <span>人数</span>
+            <span>人数（多いほど難易度が高くなります）</span>
             {scenarioMinimumPlayerCount > minPlayerCount ? (
               <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
             ) : null}
@@ -3703,11 +3662,6 @@ export function App() {
                 );
               })}
             </div>
-            {humanEnabled ? (
-              <span className="player-count-note" role="note">
-                ・プレイする場合、10人以上は認知負荷が大きいため9人以下を推奨
-              </span>
-            ) : null}
           </div>
 
         </div>
