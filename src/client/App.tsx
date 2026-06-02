@@ -3033,7 +3033,7 @@ export function App() {
     return (
       <section className={`summary-read-column ${tone}`}>
         <header>
-          {tone === "suspect" ? <Crosshair size={15} /> : <Shield size={15} />}
+          {tone === "suspect" ? <Crosshair size={18} /> : <Shield size={18} />}
           <span>{title}</span>
         </header>
         {shownClusters.length > 0 ? (
@@ -3076,7 +3076,7 @@ export function App() {
     return (
       <div className="round-summary-board" aria-label={eventMessageForSpectator(event, spectatorMode)}>
         <div className="round-summary-title">
-          <span className="summary-icon"><ListChecks size={18} /></span>
+          <span className="summary-icon"><ListChecks size={22} /></span>
           <span>
             <strong>ラウンド{event.round} 集計</strong>
             <small>夜の結果・発言の読み・投票を整理</small>
@@ -3088,7 +3088,7 @@ export function App() {
             <div className="summary-status-grid">
               <section className="summary-status-block death">
                 <header>
-                  <Skull size={16} />
+                  <Skull size={19} />
                   <span>夜の結果</span>
                 </header>
                 <div className="summary-person-row">
@@ -3100,7 +3100,7 @@ export function App() {
 
               <section className="summary-status-block claim">
                 <header>
-                  <MessageCircle size={16} />
+                  <MessageCircle size={19} />
                   <span>主張</span>
                 </header>
                 <div className="summary-claim-list">
@@ -3121,7 +3121,7 @@ export function App() {
 
             <section className="summary-vote-block">
               <header>
-                <Vote size={16} />
+                <Vote size={19} />
                 <span>投票</span>
               </header>
               {totals.length > 0 ? (
@@ -3667,7 +3667,7 @@ export function App() {
 
     return (
       <button className="setup-edit-button" onClick={resetToSetup} type="button">
-        <Settings size={15} />
+        <Settings size={18} />
         <span>設定を変更</span>
       </button>
     );
