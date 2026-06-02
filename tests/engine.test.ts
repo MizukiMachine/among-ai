@@ -204,6 +204,74 @@ class BlockingIntroAgent extends IntroAgent {
   }
 }
 
+class AbortAwareBlockingIntroAgent extends IntroAgent {
+  constructor(
+    name: string,
+    private readonly onIntroStarted: (playerId: string) => void,
+    private readonly onIntroAborted: (playerId: string) => void,
+    private readonly onSpeakStarted: (playerId: string) => void
+  ) {
+    super(name);
+  }
+
+  override async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.introCalls.push(input.player.id);
+    this.onIntroStarted(input.player.id);
+    try {
+      await sleepWithAbort(10_000, input.abortSignal);
+    } catch (error) {
+      this.onIntroAborted(input.player.id);
+      throw error;
+    }
+    return { messages: [`INTRO ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+
+  override async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speakCalls.push(input.player.id);
+    this.speechInputs.push(input);
+    this.onSpeakStarted(input.player.id);
+    return { messages: [`SPEAK ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+}
+
+class BlockingFaceoffAgent extends IntroAgent {
+  constructor(
+    name: string,
+    private readonly faceoffGate: Promise<void>,
+    private readonly introGate: Promise<void>,
+    private readonly onFaceoffStarted: (playerId: string) => void,
+    private readonly onIntroStarted: (playerId: string) => void,
+    private readonly onSpeakStarted: (playerId: string) => void
+  ) {
+    super(name);
+  }
+
+  override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.werewolfIntroCalls.push(input.player.id);
+    this.speechInputs.push(input);
+    this.onFaceoffStarted(input.player.id);
+    await this.faceoffGate;
+    return {
+      messages: [`WOLF-INTRO ${input.player.name} ${input.player.role}`],
+      metadata: { suspects: [], trusts: [], claims: [] }
+    };
+  }
+
+  override async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.introCalls.push(input.player.id);
+    this.onIntroStarted(input.player.id);
+    await this.introGate;
+    return { messages: [`INTRO ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+
+  override async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.speakCalls.push(input.player.id);
+    this.speechInputs.push(input);
+    this.onSpeakStarted(input.player.id);
+    return { messages: [`SPEAK ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+}
+
 function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -2074,6 +2142,61 @@ test("first-day opening runs the werewolf face-off before dawn breaks", async ()
   assert.ok(faceoffIndex < dayBeginsIndex, "the secret werewolf meeting precedes the public day");
 });
 
+test("day-1 werewolf face-off overlaps warm-up, then starts first real day speech", async () => {
+  const faceoffGate = createDeferred<void>();
+  const introGate = createDeferred<void>();
+  const faceoffStarted = createDeferred<string>();
+  const introStarted = createDeferred<string>();
+  const speakStarted = createDeferred<string>();
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(
+      player.id,
+      new BlockingFaceoffAgent(
+        player.name,
+        faceoffGate.promise,
+        introGate.promise,
+        (playerId) => faceoffStarted.resolve(playerId),
+        (playerId) => introStarted.resolve(playerId),
+        (playerId) => speakStarted.resolve(playerId)
+      )
+    );
+  }
+
+  const iterator = game.runDay();
+  const faceoffBanner = await iterator.next();
+  assert.equal(faceoffBanner.value?.phase, "werewolf_discussion");
+  assert.equal(faceoffBanner.value?.type, "phase_changed");
+
+  const pendingFaceoffSpeech = iterator.next();
+  const faceoffPlayerId = await Promise.race([faceoffStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(faceoffPlayerId, players[0].id, "the first face-off line is now waiting on the blocked wolf");
+
+  const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(introPlayerId, "timeout", "day warm-up generation must start while the face-off line is blocked");
+  const earlySpeechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(earlySpeechPlayerId, "timeout", "the first real day speech must wait until all warm-up lines are generated");
+
+  introGate.resolve();
+  const speechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(speechPlayerId, players[0].id, "the first real day speech starts after warm-up generation finishes");
+
+  faceoffGate.resolve();
+  const faceoffSpeech = await pendingFaceoffSpeech;
+  assert.equal(faceoffSpeech.value?.type, "player_speech");
+  assert.equal(faceoffSpeech.value?.phase, "werewolf_discussion");
+  await iterator.return?.(undefined);
+});
+
 test("day-1 warm-up emits a fast self-intro for every living AI player with the warmup flag", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -2199,8 +2322,9 @@ test("day-1 warm-up stays out of real discussion history", async () => {
   assert.doesNotMatch(firstSpeechInput.context, /INTRO /, "warm-up lines must not be visible discussion evidence");
 });
 
-test("first real day speech generation starts before the first streamed game event", async () => {
+test("day-1 warm-up generation starts before the public day event and real speech waits", async () => {
   const introGate = createDeferred<void>();
+  const introStarted = createDeferred<string>();
   const speakStarted = createDeferred<string>();
   const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -2213,25 +2337,38 @@ test("first real day speech generation starts before the first streamed game eve
   for (const player of players) {
     game.agents.set(
       player.id,
-      new BlockingIntroAgent(player.name, introGate.promise, (playerId) => speakStarted.resolve(playerId))
+      new BlockingFaceoffAgent(
+        player.name,
+        Promise.resolve(),
+        introGate.promise,
+        () => undefined,
+        (playerId) => introStarted.resolve(playerId),
+        (playerId) => speakStarted.resolve(playerId)
+      )
     );
   }
 
   const iterator = game.run();
   const firstEvent = await iterator.next();
-  const startedPlayerId = await Promise.race([
-    speakStarted.promise,
-    sleepWithAbort(100).then(() => "timeout")
-  ]);
-
   assert.equal(firstEvent.value?.type, "game_started");
-  assert.equal(startedPlayerId, players[0].id, "the first real day speech starts as soon as the game stream opens");
+
+  const dayStart = await iterator.next();
+  assert.equal(dayStart.value?.type, "phase_changed");
+  assert.equal(dayStart.value?.phase, "day_discussion");
+  const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(introPlayerId, "timeout", "day warm-up generation starts before the public day event is consumed");
+  const earlySpeechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(earlySpeechPlayerId, "timeout", "the first real day speech waits for all warm-up generation");
+
   introGate.resolve();
+  const startedPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(startedPlayerId, players[0].id, "the first real day speech starts after warm-up generation finishes");
   await iterator.return?.(undefined);
 });
 
 test("first real day speech prefetch skips a p1 human and starts with an AI speaker", async () => {
   const introGate = createDeferred<void>();
+  const introStarted = createDeferred<string>();
   const speakStarted = createDeferred<string>();
   const humanInput: HumanInputHandler = {
     async request(input) {
@@ -2260,24 +2397,36 @@ test("first real day speech prefetch skips a p1 human and starts with an AI spea
   for (const player of players.slice(1)) {
     game.agents.set(
       player.id,
-      new BlockingIntroAgent(player.name, introGate.promise, (playerId) => speakStarted.resolve(playerId))
+      new BlockingFaceoffAgent(
+        player.name,
+        Promise.resolve(),
+        introGate.promise,
+        () => undefined,
+        (playerId) => introStarted.resolve(playerId),
+        (playerId) => speakStarted.resolve(playerId)
+      )
     );
   }
 
   const iterator = game.run();
   const firstEvent = await iterator.next();
-  const startedPlayerId = await Promise.race([
-    speakStarted.promise,
-    sleepWithAbort(100).then(() => "timeout")
-  ]);
-
   assert.equal(firstEvent.value?.type, "game_started");
-  assert.equal(startedPlayerId, players[1].id, "the opening day prefetch must use the first AI speaker, not the p1 human");
+
+  const dayStart = await iterator.next();
+  assert.equal(dayStart.value?.type, "phase_changed");
+  assert.equal(dayStart.value?.phase, "day_discussion");
+  const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(introPlayerId, players[1].id, "the opening warm-up starts with the first AI speaker, not the p1 human");
+  const earlySpeechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(earlySpeechPlayerId, "timeout", "the opening day prefetch must wait for warm-up generation");
+
   introGate.resolve();
+  const startedPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(startedPlayerId, players[1].id, "the opening day prefetch must use the first AI speaker, not the p1 human");
   await iterator.return?.(undefined);
 });
 
-test("day-1 warm-up overlaps the first real discussion speech generation", async () => {
+test("day-1 warm-up finishes before the first real discussion speech generation", async () => {
   const introGate = createDeferred<void>();
   const speakStarted = createDeferred<string>();
   const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
@@ -2301,16 +2450,111 @@ test("day-1 warm-up overlaps the first real discussion speech generation", async
   assert.equal(dayStart.value?.type, "phase_changed");
 
   const pendingWarmup = iterator.next();
+  const earlySpeechPlayerId = await Promise.race([
+    speakStarted.promise,
+    sleepWithAbort(100).then(() => "timeout")
+  ]);
+  assert.equal(earlySpeechPlayerId, "timeout", "the first real day speech does not start before warm-up intros finish");
+
+  introGate.resolve();
   const startedPlayerId = await Promise.race([
     speakStarted.promise,
     sleepWithAbort(100).then(() => "timeout")
   ]);
-  assert.equal(startedPlayerId, players[0].id, "the first real day speech starts before warm-up intros finish");
-
-  introGate.resolve();
+  assert.equal(startedPlayerId, players[0].id, "the first real day speech starts after warm-up intros finish");
   const warmup = await pendingWarmup;
   assert.equal(warmup.value?.data?.warmup, true);
   await iterator.return?.(undefined);
+});
+
+test("aborting during day-1 warm-up cancels intro prefetch and does not start first real day speech", async () => {
+  const abortController = new AbortController();
+  const introStarted = createDeferred<string>();
+  const introAborted = createDeferred<string>();
+  const speakStarted = createDeferred<string>();
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 },
+    { abortSignal: abortController.signal }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(
+      player.id,
+      new AbortAwareBlockingIntroAgent(
+        player.name,
+        (playerId) => introStarted.resolve(playerId),
+        (playerId) => introAborted.resolve(playerId),
+        (playerId) => speakStarted.resolve(playerId)
+      )
+    );
+  }
+
+  const iterator = game.runDay();
+  const dayStart = await iterator.next();
+  assert.equal(dayStart.value?.type, "phase_changed");
+  assert.equal(dayStart.value?.phase, "day_discussion");
+
+  const pendingWarmup = iterator.next();
+  const pendingWarmupError = pendingWarmup.catch((error: unknown) => error);
+  const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(introPlayerId, "timeout", "warm-up prefetch starts an intro request");
+
+  abortController.abort();
+  const abortedPlayerId = await Promise.race([introAborted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(abortedPlayerId, "timeout", "the in-flight warm-up intro receives the abort signal");
+  const speechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(speechPlayerId, "timeout", "the first real day speech prefetch is not started after aborting warm-up");
+
+  const error = await pendingWarmupError;
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /cancelled|aborted/i);
+  await iterator.return?.(undefined);
+});
+
+test("returning after day start cancels the background warm-up prefetch", async () => {
+  const introStarted = createDeferred<string>();
+  const introAborted = createDeferred<string>();
+  const speakStarted = createDeferred<string>();
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(
+      player.id,
+      new AbortAwareBlockingIntroAgent(
+        player.name,
+        (playerId) => introStarted.resolve(playerId),
+        (playerId) => introAborted.resolve(playerId),
+        (playerId) => speakStarted.resolve(playerId)
+      )
+    );
+  }
+
+  const iterator = game.runDay();
+  const dayStart = await iterator.next();
+  assert.equal(dayStart.value?.type, "phase_changed");
+  assert.equal(dayStart.value?.phase, "day_discussion");
+  const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(introPlayerId, "timeout", "warm-up prefetch starts before the day-start event is consumed");
+
+  await iterator.return?.(undefined);
+  const abortedPlayerId = await Promise.race([introAborted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.notEqual(abortedPlayerId, "timeout", "returning the game stream aborts the detached warm-up prefetch");
+  const speechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
+  assert.equal(speechPlayerId, "timeout", "the first real day speech prefetch is not started after returning the stream");
 });
 
 test("speech diagnostics record race loser aborts without changing race publishing", async () => {
