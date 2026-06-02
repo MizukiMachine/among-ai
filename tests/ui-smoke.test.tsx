@@ -1206,6 +1206,12 @@ test("neutral victory role reveal is public and animated", () => {
   assert.match(css, /\.dead-player\.revealing-role\s*\{/);
   assert.match(css, /\.dead-role-chip\.role-reveal\s*\{/);
   assert.match(css, /\.detail-chip\.role-reveal-info\s*\{/);
+
+  const roleRevealCss = css.slice(css.indexOf(".role-reveal-overlay"), css.indexOf(".player-card:not(:disabled):hover"));
+  assert.match(css, /\.role-reveal-overlay\s*\{[^}]*pointer-events:\s*none;/s);
+  assert.doesNotMatch(source, /role-reveal-overlay-backdrop/);
+  assert.doesNotMatch(css, /\.role-reveal-overlay-backdrop/);
+  assert.doesNotMatch(roleRevealCss, /100vmax/);
 });
 
 test("guided UI tour spotlights the main controls at match start", () => {
