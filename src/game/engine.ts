@@ -8,6 +8,7 @@ import {
   textHasSpeakerRoleClaimEvidence
 } from "./daySituations";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
+import { defaultWerewolfAlignmentSpeechForPlayer } from "./humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import { buildBaseContext, type RoleBreakdownEntry, type RoleSecretContext } from "./prompts";
@@ -2444,8 +2445,8 @@ export class WerewolfGame {
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
   // AI wolves use fast single-call alignment lines, generated sequentially so each ally can react
-  // to the face-off lines already spoken. A human werewolf may enter an optional line without
-  // blocking the opening stream.
+  // to the face-off lines already spoken. A human werewolf gets an automatic character-voice
+  // alignment line instead of an input prompt, so the opening stream never stops for this beat.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     // A lone wolf has no allies to meet, and the player already knows their own role.
@@ -2500,7 +2501,18 @@ export class WerewolfGame {
     }
 
     if (humanWerewolf) {
-      this.requestHumanWerewolfAlignment(humanWerewolf, werewolves, faceoffHistory);
+      const speech = this.defaultHumanWerewolfFaceoffSpeech(humanWerewolf);
+      const historyLine = this.formatWerewolfFaceoffHistory(humanWerewolf, speech);
+      faceoffHistory.push(historyLine);
+      this.wolfHistory.push(historyLine);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit(
+          "player_speech",
+          message,
+          speechEventData(speech, message, index, "werewolf", { automaticHumanAlignment: true }),
+          humanWerewolf
+        );
+      }
     }
   }
 
@@ -3204,44 +3216,14 @@ export class WerewolfGame {
     return lines;
   }
 
-  private requestHumanWerewolfAlignment(player: Player, werewolves: Player[], previousFaceoffHistory: string[] = []): void {
-    const handler = this.humanInput;
-    if (!handler) {
-      return;
-    }
-
-    const contextLines = this.werewolfFaceoffContextLines(
-      werewolves,
-      previousFaceoffHistory,
-      this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length)
+  private defaultHumanWerewolfFaceoffSpeech(player: Player): AgentSpeech {
+    return compactWerewolfFaceoffSpeech(
+      {
+        messages: [defaultWerewolfAlignmentSpeechForPlayer(player, this.config.language)],
+        metadata: emptySpeechMetadata()
+      },
+      this.config.language
     );
-    void handler
-      .request({
-        kind: "speech_choice",
-        speechMode: "werewolf_alignment",
-        nonBlocking: true,
-        playerId: player.id,
-        playerName: player.name,
-        phase: this.phase,
-        role: player.role,
-        task: this.text(
-          "Enter an alignment and deception line for your werewolf allies.",
-          "人狼陣営の仲間へ、意思合わせと昼にどう騙すかを入力してください。"
-        ),
-        context: buildHumanInputContext({
-          uiContext: this.uiContextWithRoleBreakdown(contextLines),
-          publicHistory: [],
-          privateHistory: this.humanVisiblePrivateHistory(player)
-        }),
-        options: []
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        if (this.abortSignal?.aborted || message === "Human input session was closed.") {
-          return;
-        }
-        console.warn(`[human-alignment] ${player.name}: ${message}; continuing without alignment line.`);
-      });
   }
 
   // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.
