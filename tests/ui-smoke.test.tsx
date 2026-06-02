@@ -945,6 +945,7 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /const primaryActionLabel = primaryActionIsGameStart \? "ゲーム開始"/);
   assert.match(source, /<span>設定を決定<\/span>/);
   assert.match(source, /ゲーム開始を押すと対局を開始します。/);
+  assert.match(source, /className="scene-placeholder setup-confirmed-summary"[\s\S]*renderSetupConfirmedActions\(\)/);
   assert.match(source, /summary: "deterministic"/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*const nextEvents = \[event\];[^}]*eventsRef\.current = nextEvents;[^}]*setEvents\(nextEvents\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
@@ -1064,6 +1065,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
+  assert.match(source, /挨拶を入力しましょう/);
   assert.match(source, /未入力なら既定の意思合わせ発言で進みます/);
   assert.match(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
   assert.match(source, /"この場面では候補から選んでください"/);
@@ -1077,6 +1079,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-choice-text\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.human-speech-prompt-title\s*\{[^}]*font-size:\s*24px;/s);
   assert.match(css, /\.story-hero\.human-input-hero \.story-copy\s*\{[^}]*width:\s*min\(70%,\s*860px\)/s);
   assert.match(css, /\.human-input-copy\s*\{[^}]*overflow-y:\s*auto;/s);
   assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(210px,\s*34vh,\s*260px\);[^}]*font-size:\s*25px;/s);

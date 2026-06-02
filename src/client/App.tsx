@@ -2260,9 +2260,12 @@ export function App() {
       }
       const submittedHumanInput = submittedHumanInputRef.current;
       if (submittedHumanInput && isSubmittedHumanSpeechEvent(submittedHumanInput, event)) {
-        const nextEvents = [...eventsRef.current, event];
         submittedHumanInputRef.current = null;
         completeHumanInputRequest(submittedHumanInput);
+        if (replaceTrailingLocalHumanSpeechEvent(event)) {
+          return;
+        }
+        const nextEvents = [...eventsRef.current, event];
         eventsRef.current = nextEvents;
         setEvents(nextEvents);
         setSnapshot(event.snapshot);
@@ -2667,8 +2670,29 @@ export function App() {
     if (!compact) {
       return null;
     }
-    const clipped = compact.length > 240 ? `${compact.slice(0, 237)}...` : compact;
+    const maxLength = isJapaneseLanguage(language) ? 72 : 150;
+    const clipped = compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
     return displayMessageText(clipped) || null;
+  }
+
+  function replaceTrailingLocalHumanSpeechEvent(event: GameEvent): boolean {
+    const previousEvents = eventsRef.current;
+    const localEcho = previousEvents.at(-1);
+    if (
+      localEcho?.type !== "player_speech" ||
+      localEcho.data?.localHumanEcho !== true ||
+      localEcho.playerId !== event.playerId ||
+      localEcho.phase !== event.phase
+    ) {
+      return false;
+    }
+
+    const nextEvents = [...previousEvents.slice(0, -1), event];
+    eventsRef.current = nextEvents;
+    setEvents(nextEvents);
+    setSnapshot(event.snapshot);
+    setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
+    return true;
   }
 
   function createLocalHumanSpeechEvent(request: HumanInputRequest, payload: HumanInputSubmitPayload): GameEvent | null {
@@ -2741,6 +2765,7 @@ export function App() {
 
       if (localHumanSpeechEvent) {
         completeHumanInputRequest(request);
+        submittedHumanInputRef.current = request;
         showLocalHumanSpeechEvent(localHumanSpeechEvent);
       } else if (holdSubmittedScene) {
         if (submittedHumanInputRef.current === request) {
@@ -2814,11 +2839,13 @@ export function App() {
       : allowFreeText
       ? "発言を入力"
       : "候補から選択";
+    const speechPromptTitle = isWerewolfAlignment ? "挨拶を入力しましょう" : null;
     const speechAriaLabel = isWerewolfAlignment ? "人狼意思合わせ発言の入力" : "自由入力の発言";
     const speechSubmitLabel = isWerewolfAlignment ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む") : "発言する";
 
     return (
       <section className={`human-speech-composer ${isWerewolfAlignment ? "werewolf-alignment" : ""}`} aria-label="発言入力">
+        {speechPromptTitle ? <p className="human-speech-prompt-title">{speechPromptTitle}</p> : null}
         <textarea
           aria-label={speechAriaLabel}
           autoFocus
@@ -4387,12 +4414,13 @@ export function App() {
                   {renderStageBackdrop("setup", undefined, undefined, "cyan", "setup")}
                   <div className={`pregame-layout ${settingsConfirmed ? "settings-confirmed" : "settings-open"}`}>
                     {settingsConfirmed ? (
-                      <div className="scene-placeholder">
+                      <div className="scene-placeholder setup-confirmed-summary">
                         <strong>{running ? "対局準備中" : "設定完了"}</strong>
                         <p>{running ? (queuedEvents.length > 0 ? "最初の場面を表示できます。" : "最初の場面を準備しています。") : "ゲーム開始を押すと対局を開始します。"}</p>
+                        {renderSetupConfirmedActions()}
                       </div>
                     ) : null}
-                    {!settingsConfirmed ? renderSetupControls() : renderSetupConfirmedActions()}
+                    {!settingsConfirmed ? renderSetupControls() : null}
                   </div>
                   {renderPendingHumanInputNotice()}
                   {renderStoryProcessingHud()}

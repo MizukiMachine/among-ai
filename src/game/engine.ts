@@ -2709,8 +2709,8 @@ export class WerewolfGame {
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
   // AI wolves use fast single-call alignment lines, generated sequentially so each ally can react
-  // to the face-off lines already spoken. A human werewolf gets an automatic character-voice
-  // alignment line instead of an input prompt, so the opening stream never stops for this beat.
+  // to the face-off lines already spoken. A human werewolf speaks last through the lightweight
+  // werewolf-alignment input, so the player can answer in their own words after seeing the team.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
     // A lone wolf has no allies to meet, and the player already knows their own role.
@@ -2765,17 +2765,12 @@ export class WerewolfGame {
     }
 
     if (humanWerewolf) {
-      const speech = this.defaultHumanWerewolfFaceoffSpeech(humanWerewolf);
+      const speech = await this.humanWerewolfFaceoffSpeech(humanWerewolf, werewolves, faceoffHistory);
       const historyLine = this.formatWerewolfFaceoffHistory(humanWerewolf, speech);
       faceoffHistory.push(historyLine);
       this.wolfHistory.push(historyLine);
       for (const [index, message] of speech.messages.entries()) {
-        yield this.emit(
-          "player_speech",
-          message,
-          speechEventData(speech, message, index, "werewolf", { automaticHumanAlignment: true }),
-          humanWerewolf
-        );
+        yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), humanWerewolf);
       }
     }
   }
@@ -3499,8 +3494,59 @@ export class WerewolfGame {
     );
   }
 
+  private async humanWerewolfFaceoffSpeech(
+    player: Player,
+    werewolves: Player[],
+    previousFaceoffHistory: string[]
+  ): Promise<AgentSpeech> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return this.defaultHumanWerewolfFaceoffSpeech(player);
+    }
+
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const roleBrief = this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length);
+    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory, roleBrief);
+    const visibleUiContext = [
+      this.roleBreakdownUiLine(),
+      contextLines[1],
+      ...previousFaceoffHistory
+        .slice(-2)
+        .map((line) =>
+          this.text(
+            `Earlier ally face-off line from this same opening meeting: ${line}`,
+            `この顔合わせで先に出た仲間の発言: ${line}`
+          )
+        ),
+      roleBrief
+    ].filter((line) => line.length > 0);
+    const response = await handler.request({
+      kind: "speech_choice",
+      speechMode: "werewolf_alignment",
+      nonBlocking: true,
+      playerId: player.id,
+      playerName: player.name,
+      phase: this.phase,
+      role: player.role,
+      task: this.text(
+        "Speak at the end of the private werewolf face-off.",
+        "人狼陣営の顔合わせの最後に発言してください。"
+      ),
+      context: buildHumanInputContext({
+        uiContext: visibleUiContext,
+        publicHistory: this.publicHistory,
+        privateHistory: this.humanVisiblePrivateHistory(player)
+      }),
+      allowFreeText: true,
+      options: []
+    });
+
+    const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
+    return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanWerewolfFaceoffSpeech(player);
+  }
+
   // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.
-  // The player may still override with free text; unlike the werewolf alignment line, public speech is
+  // The player may still override with free text; public speech is
   // published into the normal discussion history.
   private async humanChoiceSpeak(
     player: Player,
