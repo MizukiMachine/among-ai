@@ -204,6 +204,21 @@ class BlockingIntroAgent extends IntroAgent {
   }
 }
 
+class DelayedIntroAgent extends IntroAgent {
+  constructor(
+    name: string,
+    private readonly delayMs: number
+  ) {
+    super(name);
+  }
+
+  override async improviseIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
+    this.introCalls.push(input.player.id);
+    await sleepWithAbort(this.delayMs, input.abortSignal);
+    return { messages: [`INTRO ${input.player.name}`], metadata: { suspects: [], trusts: [], claims: [] } };
+  }
+}
+
 class AbortAwareBlockingIntroAgent extends IntroAgent {
   constructor(
     name: string,
@@ -2273,6 +2288,29 @@ test("day-1 warm-up emits a fast self-intro for every living AI player with the 
   );
 });
 
+test("day-1 warm-up publishes completed intros without waiting for an earlier slow speaker", async () => {
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 2 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  game.round = 1;
+  game.agents.set(players[0].id, new DelayedIntroAgent(players[0].name, 10_000));
+  game.agents.set(players[1].id, new DelayedIntroAgent(players[1].name, 1));
+  game.agents.set(players[2].id, new DelayedIntroAgent(players[2].name, 1));
+  game.agents.set(players[3].id, new DelayedIntroAgent(players[3].name, 1));
+
+  const iterator = game.runFirstDayWarmupPass();
+  const firstWarmup = await Promise.race([iterator.next(), sleepWithAbort(100).then(() => "timeout" as const)]);
+
+  assert.notEqual(firstWarmup, "timeout", "a later completed warm-up should be yielded while the first speaker is still blocked");
+  assert.equal(firstWarmup.value?.type, "player_speech");
+  assert.equal(firstWarmup.value?.playerId, players[1].id);
+  await iterator.return?.(undefined);
+});
+
 test("day-1 warm-up excludes the human player", async () => {
   const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3", prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -4047,6 +4085,30 @@ test("LLM voting decisions share the five-request budget across voters", async (
   assert.deepEqual(
     players.slice(0, 5).map((player) => (game.agents.get(player.id) as CountingTargetRaceAgent).targetInputs.length),
     [1, 1, 1, 1, 1]
+  );
+});
+
+test("day vote casts keep voter order even when decisions finish out of order", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager", alive: false }
+  ]);
+  const delays = [50, 1, 1, 1, 1];
+  for (const [index, player] of players.slice(0, 5).entries()) {
+    game.agents.set(player.id, new DelayedNightActionAgent(player.name, 0, delays[index] ?? 1));
+  }
+
+  const events = await collect(game.runVoting());
+  const voteCastPlayerIds = events.filter((event) => event.type === "vote_cast").map((event) => event.playerId);
+
+  assert.deepEqual(
+    voteCastPlayerIds,
+    players.slice(0, 5).map((player) => player.id)
   );
 });
 
