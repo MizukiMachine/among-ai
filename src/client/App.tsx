@@ -2785,60 +2785,19 @@ export function App() {
     }
   }
 
-  function renderHumanContextLines(title: string, lines: string[], options: { trimTrailingJapanesePeriod?: boolean } = {}) {
-    if (lines.length === 0) {
-      return null;
-    }
-    return (
-      <div className="human-context-section">
-        <span>{title}</span>
-        <ul>
-          {lines.map((line, index) => {
-            const displayLine = options.trimTrailingJapanesePeriod ? line.replace(/。+$/u, "") : line;
-            return <li key={`${title}-${index}`}>{renderTextWithCharacterNames(displayLine, `${title}-${index}`)}</li>;
-          })}
-        </ul>
-      </div>
-    );
-  }
-
-  function renderHumanContext(prompt: HumanInputRequest) {
-    const { notes, privateHistory, publicHistory } = prompt.context;
-    const hasContext = notes.length > 0 || privateHistory.length > 0 || publicHistory.length > 0;
-    if (!hasContext) {
-      return null;
-    }
-
-    return (
-      <details className="human-context">
-        <summary>状況</summary>
-        <div className="human-context-body">
-          {renderHumanContextLines("今回の判断材料", notes, { trimTrailingJapanesePeriod: true })}
-          {renderHumanContextLines("自分だけの情報", privateHistory)}
-          {renderHumanContextLines("公開ログ", publicHistory)}
-        </div>
-      </details>
-    );
-  }
-
   function renderHumanSpeechInputScene(prompt: HumanSpeechInputRequest | null) {
     if (!prompt) {
       return null;
     }
 
     const isWerewolfAlignment = prompt.speechMode === "werewolf_alignment";
-    const allowFreeText = prompt.allowFreeText !== false;
-    const canSubmitHumanSpeech = isWerewolfAlignment || (allowFreeText && humanSpeech.trim().length > 0);
+    const canSubmitHumanSpeech = isWerewolfAlignment || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfAlignment
       ? "未入力なら既定の意思合わせ発言で進みます"
-      : allowFreeText
-      ? "候補から選ぶか、自由に発言を入力してください"
-      : "この場面では候補から選んでください";
+      : "候補から選ぶか、自由に発言を入力してください";
     const speechPlaceholder = isWerewolfAlignment
       ? "例: 昼は人間側の顔で信用を取りに行く"
-      : allowFreeText
-      ? "発言を入力"
-      : "候補から選択";
+      : "発言を入力";
     const speechPromptTitle = isWerewolfAlignment ? "挨拶を入力しましょう" : null;
     const speechAriaLabel = isWerewolfAlignment ? "人狼意思合わせ発言の入力" : "自由入力の発言";
     const speechSubmitLabel = isWerewolfAlignment ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む") : "発言する";
@@ -2849,7 +2808,7 @@ export function App() {
         <textarea
           aria-label={speechAriaLabel}
           autoFocus
-          disabled={humanSubmitting || !allowFreeText}
+          disabled={humanSubmitting}
           maxLength={240}
           onChange={(event) => setHumanSpeech(event.target.value)}
           placeholder={speechPlaceholder}
@@ -2912,8 +2871,6 @@ export function App() {
           </div>
           <small>{role}</small>
         </div>
-
-        {renderHumanContext(prompt)}
 
         {prompt.kind === "target" ? (
           <div className="human-target-form">
@@ -3076,7 +3033,7 @@ export function App() {
     return (
       <section className={`summary-read-column ${tone}`}>
         <header>
-          {tone === "suspect" ? <Crosshair size={15} /> : <Shield size={15} />}
+          {tone === "suspect" ? <Crosshair size={18} /> : <Shield size={18} />}
           <span>{title}</span>
         </header>
         {shownClusters.length > 0 ? (
@@ -3119,7 +3076,7 @@ export function App() {
     return (
       <div className="round-summary-board" aria-label={eventMessageForSpectator(event, spectatorMode)}>
         <div className="round-summary-title">
-          <span className="summary-icon"><ListChecks size={18} /></span>
+          <span className="summary-icon"><ListChecks size={22} /></span>
           <span>
             <strong>ラウンド{event.round} 集計</strong>
             <small>夜の結果・発言の読み・投票を整理</small>
@@ -3131,7 +3088,7 @@ export function App() {
             <div className="summary-status-grid">
               <section className="summary-status-block death">
                 <header>
-                  <Skull size={16} />
+                  <Skull size={19} />
                   <span>夜の結果</span>
                 </header>
                 <div className="summary-person-row">
@@ -3143,7 +3100,7 @@ export function App() {
 
               <section className="summary-status-block claim">
                 <header>
-                  <MessageCircle size={16} />
+                  <MessageCircle size={19} />
                   <span>主張</span>
                 </header>
                 <div className="summary-claim-list">
@@ -3164,7 +3121,7 @@ export function App() {
 
             <section className="summary-vote-block">
               <header>
-                <Vote size={16} />
+                <Vote size={19} />
                 <span>投票</span>
               </header>
               {totals.length > 0 ? (
@@ -3710,7 +3667,7 @@ export function App() {
 
     return (
       <button className="setup-edit-button" onClick={resetToSetup} type="button">
-        <Settings size={15} />
+        <Settings size={18} />
         <span>設定を変更</span>
       </button>
     );

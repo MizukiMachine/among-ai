@@ -166,7 +166,7 @@ test("human speech choice input accepts either a drafted choice or free text", a
   session.close();
 });
 
-test("human speech choice input can require a drafted choice", async () => {
+test("human speech choice input accepts free text even with legacy allowFreeText false", async () => {
   let requestId = "";
   const session = new HumanInputSession((request) => {
     requestId = request.id;
@@ -185,9 +185,8 @@ test("human speech choice input can require a drafted choice", async () => {
 
   const choicePromise = session.request(request);
   assert.ok(requestId);
-  assert.deepEqual(session.submit(requestId, { speech: "  自由入力です  " }), { ok: false, error: "invalid_input" });
-  assert.deepEqual(session.submit(requestId, { choiceId: "0" }), { ok: true });
-  assert.deepEqual(await choicePromise, { choiceId: "0" });
+  assert.deepEqual(session.submit(requestId, { speech: "  自由入力です  " }), { ok: true });
+  assert.deepEqual(await choicePromise, { speech: "自由入力です" });
   session.close();
 });
 
