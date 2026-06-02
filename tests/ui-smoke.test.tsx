@@ -428,6 +428,22 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.doesNotMatch(css, /\.hero-cast\s*\{/);
 });
 
+test("speech event details hide suspicion and trust chips in the story panel", () => {
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const showReadChips = event\.type !== "player_speech";/);
+  assert.match(
+    source,
+    /const suspects = hidden \|\| !showReadChips \? \[\] : dataArray<PlayerReadMetadata>\(event, "suspects"\);/
+  );
+  assert.match(
+    source,
+    /const trusts = hidden \|\| !showReadChips \? \[\] : dataArray<PlayerReadMetadata>\(event, "trusts"\);/
+  );
+  assert.match(source, /suspects\.map\(\(read, index\) =>/);
+  assert.match(source, /trusts\.map\(\(read, index\) =>/);
+});
+
 test("setup character thumbnails preload and portrait images warm in the background", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../index.html", import.meta.url), "utf8");

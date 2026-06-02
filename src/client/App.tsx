@@ -2999,8 +2999,9 @@ export function App() {
 
   function renderEventDetails(event: GameEvent, hidden: boolean) {
     const claims = hidden ? [] : dataArray<ClaimMetadata>(event, "claims");
-    const suspects = hidden ? [] : dataArray<PlayerReadMetadata>(event, "suspects");
-    const trusts = hidden ? [] : dataArray<PlayerReadMetadata>(event, "trusts");
+    const showReadChips = event.type !== "player_speech";
+    const suspects = hidden || !showReadChips ? [] : dataArray<PlayerReadMetadata>(event, "suspects");
+    const trusts = hidden || !showReadChips ? [] : dataArray<PlayerReadMetadata>(event, "trusts");
     const totals = hidden ? [] : dataArray<VoteTotal>(event, "totals");
     const reason = visibleEventReason(event, hidden);
     const targetRole = !hidden && spectatorMode === "omniscient" ? dataString(event, "targetRole") : "";
