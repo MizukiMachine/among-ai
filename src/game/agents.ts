@@ -1500,7 +1500,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることを伝えてください。ただし後続発言では「俺も人狼だ」「人間のフリで潜伏する」のような名乗り直し型を繰り返さず、短く織り込んでください。`,
       "入力にある「あなたの枠」を最優先してください。最初の発言者は顔合わせの火付け役、2番手は支援または対比、3番手以降は疑い作りや票の調整など、同じ宣言を重ねず別の役割を足します。",
       "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。主軸は細かい作戦説明ではなく、狼同士の悪巧みの意気込み。先に出た仲間と同じ『騙す』『人間のフリ』『潜伏』『油断させる』だけを言い直さず、信用を作る、距離を取る、反応を見る、疑いを散らす、票を寄せるなどから別角度を選んでください。",
-      "占い師・霊能などの特殊役職騙りは確定宣言しない。触れる場合は状況次第の選択肢として残し、信用を取る、距離を取る、疑いを作る、票を寄せるなど、人間側の顔で騙す方向にしてください。襲撃先や具体的な夜の作戦はまだ話しません。",
+      "占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言しない。触れる場合は村側と同じ条件の状況次第の選択肢として残し、信用を取る、距離を取る、疑いを作る、票を寄せるなど、人間側の顔で騙す方向にしてください。騎士は通常の騙り対象にしません。襲撃先や具体的な夜の作戦はまだ話しません。",
       "入力に『この顔合わせで先に出た仲間の発言』がある場合、それは同じ顔合わせ内で自分より前に話した仲間のセリフです。内容に短く触れつつ、同じ構文や同じ計画を言い直さないでください。自分も特殊役職を騙る確定宣言で上書きしないでください。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
@@ -1513,7 +1513,7 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
     `Your role is "${roleName}". To your allies only, make clear that you are the ${roleName}. For later speakers, do not repeat an "I'm also a werewolf; I will pass as human" template; weave the role check in briefly.`,
     "Prioritize the slot brief in the input. The opener lights the rally, the second speaker supports or contrasts it, and later speakers add suspicion or vote work. Do not stack the same declaration three times.",
     "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Make it a wolf-to-wolf vow to deceive, not a dry strategy report. If an earlier ally already used fooling them, passing as human, staying hidden, or lowering their guard, choose a different angle such as building trust, keeping distance, baiting reactions, spreading doubt, or nudging votes.",
-    "Do not commit to a Seer/Medium/etc. fake claim; if mentioned, keep it situational while choosing a social job such as gaining trust, keeping distance, seeding suspicion, or nudging votes. Do NOT discuss attack targets or concrete night plans yet.",
+    "Do not commit to a Seer/Witch/Hunter/Raven/Idiot/Elder fake claim; if mentioned, keep it situational under the same conditions as village claims while choosing a social job such as gaining trust, keeping distance, seeding suspicion, or nudging votes. Guard is not a normal fake-claim target. Do NOT discuss attack targets or concrete night plans yet.",
     'If the input includes "Earlier ally face-off line" entries, they are only allies who spoke before you in this same opening face-off. Acknowledge the content briefly, then add a different job or angle instead of restating the same wording. Do not overwrite it with a firm special-role fake claim.',
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
@@ -1689,15 +1689,15 @@ export async function summarizeRoundWithLlm(input: {
     summaryStyleInstruction(input.language),
     promptMaterials.roundSummary.brevityInstruction,
     promptMaterials.roundSummary.sourcePolicy,
-    `Respond in ${input.language}.`
+    "返答言語: 日本語。"
   ].join("\n");
   const messages: MessageParam[] = [
     {
       role: "user",
       content: [
-        `Round: ${input.round}`,
-        `Deterministic summary: ${input.deterministicMessage}`,
-        "Structured public round data:",
+        `ラウンド: ${input.round}`,
+        `決定的要約: ${input.deterministicMessage}`,
+        "構造化された公開ラウンドデータ:",
         JSON.stringify(input.data)
       ].join("\n")
     }
@@ -1747,7 +1747,7 @@ class LlmAgent implements Agent {
       [
         {
           role: "user",
-          content: [input.context, "", `Task: ${input.task}`].join("\n")
+          content: [input.context, "", `今回の発言タスク: ${input.task}`].join("\n")
         }
       ],
       this.maxTokens,
@@ -1820,7 +1820,7 @@ class LlmAgent implements Agent {
         role: "user",
         content: japanese
           ? [input.context, "", `行動: ${input.action}`, "選べる対象:", buildTargetList(input.candidates)].join("\n")
-          : [input.context, "", `Action: ${input.action}`, "Legal targets:", buildTargetList(input.candidates)].join("\n")
+          : [input.context, "", `行動: ${input.action}`, "選べる対象:", buildTargetList(input.candidates)].join("\n")
       }
     ];
 
@@ -1847,12 +1847,12 @@ class LlmAgent implements Agent {
                 : "必ず一覧にある対象 ID と reasonKind を返してください。"
             ].join("\n")
           : [
-              "Your previous response was not valid target-selection JSON or selected an illegal target.",
-              "Retry with strict JSON only.",
-              `Legal target ids: ${input.candidates.map((candidate) => candidate.id).join(", ")}.`,
+              "直前の返答は、対象選択の JSON として不正か、一覧にない対象 ID を選んでいました。",
+              "厳密な JSON だけでやり直してください。",
+              `選べる対象 ID: ${input.candidates.map((candidate) => candidate.id).join(", ")}。`,
               input.allowSkip
-                ? 'Use {"targetId":null,"reasonKind":"skip_preserve"} only if skipping.'
-                : "You must choose one listed target id and reasonKind."
+                ? '選ばない場合だけ {"targetId":null,"reasonKind":"skip_preserve"} を使えます。'
+                : "必ず一覧にある対象 ID と reasonKind を返してください。"
             ].join("\n")
       });
     }
@@ -1875,7 +1875,7 @@ class LlmAgent implements Agent {
     const messages: MessageParam[] = [
       {
         role: "user",
-        content: [input.context, "", `Question: ${input.question}`].join("\n")
+        content: [input.context, "", `判断する質問: ${input.question}`].join("\n")
       }
     ];
 
@@ -1893,9 +1893,9 @@ class LlmAgent implements Agent {
       messages.push({
         role: "user",
         content: [
-          "Your previous response was not valid boolean-decision JSON.",
-          "Retry with strict JSON only.",
-          'Use exactly this shape: {"decision":true,"reason":"short reason"} or {"decision":false,"reason":"short reason"}.'
+          "直前の返答は boolean 判断 JSON として不正でした。",
+          "厳密な JSON だけでやり直してください。",
+          '形は {"decision":true,"reason":"short reason"} または {"decision":false,"reason":"short reason"} だけです。'
         ].join("\n")
       });
     }

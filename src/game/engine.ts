@@ -530,13 +530,13 @@ function containsWerewolfFaceoffSpecialRolePlan(value: string, language: string)
   }
   if (isJapaneseLanguage(language)) {
     return (
-      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|共有)/u.test(compact) &&
+      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|愚者|長老|共有)/u.test(compact) &&
       /(騙|ふり|振る舞|っぽく|名乗|CO|カミングアウト|結果|白|黒|対抗)/iu.test(compact)
     );
   }
   const lower = compact.toLowerCase();
   return (
-    /\b(seer|medium|guard|knight|hunter|witch|raven|oracle)\b/u.test(lower) &&
+    /\b(seer|medium|guard|knight|hunter|witch|raven|idiot|elder|oracle)\b/u.test(lower) &&
     /\b(fake|claim|pretend|pose|act|result|counterclaim|co)\b/u.test(lower)
   );
 }
@@ -3652,12 +3652,12 @@ export class WerewolfGame {
     const task =
       previousFaceoffHistory.length > 0
         ? this.text(
-            "Briefly make your role clear, answer any earlier ally line from this same opening face-off, and add a different wolf-to-wolf angle instead of repeating the opener: back the lie, keep distance, bait reactions, seed doubt, or nudge votes. If a Seer-style fake claim is mentioned, keep it as a situational option instead of a commitment.",
-            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い騙りに触れる場合は、確定ではなく状況次第の選択肢として残してください。"
+            "Briefly make your role clear, answer any earlier ally line from this same opening face-off, and add a different wolf-to-wolf angle instead of repeating the opener: back the lie, keep distance, bait reactions, seed doubt, or nudge votes. If a Seer/Witch/Hunter/Raven/Idiot/Elder fake claim is mentioned, keep it as a situational option under the same conditions as village claims.",
+            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は、村側と同じ条件の状況次第の選択肢として残してください。"
           )
         : this.text(
-            'Open the private werewolf face-off by confirming your role and setting one clear deceptive angle for the team, such as staying hidden, winning trust, or making them lower their guard. Keep any Seer-style fake claim only as a situational option.',
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い騙りは確定宣言ではなく、状況次第の選択肢に留めてください。"
+            'Open the private werewolf face-off by confirming your role and setting one clear deceptive angle for the team, such as staying hidden, winning trust, or making them lower their guard. Keep any Seer/Witch/Hunter/Raven/Idiot/Elder fake claim only as a situational option under the same conditions as village claims.',
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言ではなく、村側と同じ条件の状況次第の選択肢に留めてください。"
           );
     const input: AgentSpeechInput = {
       player,
@@ -3715,14 +3715,14 @@ export class WerewolfGame {
   private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
     if (previousSpeakerCount === 0) {
       return this.text(
-        "Your slot: opener. Own your role and set only one deceptive team angle: stay hidden, win trust, or make them lower their guard. Avoid a broad template that packs every wolf tactic into one line. A Seer-style fake claim may remain only a situational option.",
-        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い騙りは状況次第の選択肢に留めてください。"
+        "Your slot: opener. Own your role and set only one deceptive team angle: stay hidden, win trust, or make them lower their guard. Avoid a broad template that packs every wolf tactic into one line. Seer/Witch/Hunter/Raven/Idiot/Elder fake claims may remain only situational under the same conditions as village claims.",
+        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い師・魔女・ハンター・鴉・愚者・長老の騙りは村側と同じ条件の状況次第の選択肢に留めてください。"
       );
     }
     if (previousSpeakerCount === 1) {
       return this.text(
-        "Your slot: support or contrast. A teammate has already started the deceptive rally. Do not repeat their wording or another full role-introduction template; make your role clear briefly, then say how you will back the lie, keep distance, or bait reactions. Keep special-role fake claims situational.",
-        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは状況次第に留めてください。"
+        "Your slot: support or contrast. A teammate has already started the deceptive rally. Do not repeat their wording or another full role-introduction template; make your role clear briefly, then say how you will back the lie, keep distance, or bait reactions. Keep special-role fake claims situational under the same conditions as village claims.",
+        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは村側と同じ条件の状況次第に留めてください。"
       );
     }
     return this.text(
@@ -3749,8 +3749,8 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, make your role clear, and speak like wolves psyching each other up to deceive the village. The opener may set the main deceptive angle; later speakers should not repeat the same role-introduction or plan, and should instead add cover, distance, reaction bait, suspicion, or vote work. If you mention Seer/Medium/etc. fake claims here, phrase them as situational options, and do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職が伝わるようにし、狼同士で村を騙す気持ちを高める口調で話してください。最初の発言者は欺き方の主軸を置き、後続は同じ名乗りや同じ作戦を繰り返さず、カバー・距離取り・反応釣り・疑い作り・票調整などを足します。ここで占い師・霊能などの特殊役職騙りに触れる場合は状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
+        "Check in with your allies, make your role clear, and speak like wolves psyching each other up to deceive the village. The opener may set the main deceptive angle; later speakers should not repeat the same role-introduction or plan, and should instead add cover, distance, reaction bait, suspicion, or vote work. If you mention Seer/Witch/Hunter/Raven/Idiot/Elder fake claims here, phrase them as situational options under the same conditions as village claims, and do not discuss attack targets or detailed plans yet.",
+        "仲間と意思を合わせ、自分の役職が伝わるようにし、狼同士で村を騙す気持ちを高める口調で話してください。最初の発言者は欺き方の主軸を置き、後続は同じ名乗りや同じ作戦を繰り返さず、カバー・距離取り・反応釣り・疑い作り・票調整などを足します。ここで占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は村側と同じ条件の状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
     if (roleBrief) {

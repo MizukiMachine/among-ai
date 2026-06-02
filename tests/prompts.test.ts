@@ -71,6 +71,14 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   }
   assert.match(promptMaterials.roles.Seer.publicSpeechGuidanceJa.join("\n"), /占い師|判定/);
   assert.match(promptMaterials.roles.Guard.publicSpeechGuidanceJa.join("\n"), /通常絶対に名乗らない/);
+  assert.match(
+    promptMaterials.roles.Werewolf.publicSpeechGuidanceJa.join("\n"),
+    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+  );
+  assert.match(
+    promptMaterials.roles.Jester.publicSpeechGuidanceJa.join("\n"),
+    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+  );
 });
 
 test("Japanese public speech context lists concrete claim roles and excludes Guard", () => {
@@ -93,6 +101,24 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   assert.match(seerContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
   assert.match(seerContext, /騎士は通常絶対に名乗らない/);
   assert.doesNotMatch(seerContext, /占い師など|役職など/);
+
+  const werewolfContext = buildPromptContext({
+    ...baseInput,
+    player: player("Werewolf")
+  });
+  assert.match(werewolfContext, /人狼側の役職騙り方針/);
+  assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(werewolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(werewolfContext, /騎士は通常の騙り対象にしない/);
+
+  const jesterContext = buildPromptContext({
+    ...baseInput,
+    player: player("Jester")
+  });
+  assert.match(jesterContext, /道化師の役職騙り方針/);
+  assert.match(jesterContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(jesterContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(jesterContext, /単独勝利条件は終盤まで隠す/);
 
   const guardContext = buildPromptContext({
     ...baseInput,
@@ -428,6 +454,8 @@ test("first-day public speech context stays simple even when a speech plan exist
     })
   });
   assert.match(wolfContext, /公開の場では、人狼であること、仲間、夜の相談は漏らさない/);
+  assert.match(wolfContext, /人狼側の役職騙り方針/);
+  assert.match(wolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
   assert.doesNotMatch(wolfContext, /三分の二以上|初日特別モード|偽役職アピール/);
 
   assert.doesNotMatch(context, /暫定読み/);

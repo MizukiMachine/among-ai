@@ -320,12 +320,28 @@ function simplePersonaLines(player: Player, language: string): string[] {
 
 function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   const japanese = isJapaneseLanguage(language);
+  const werewolfRole = isWerewolfRole(role);
+  const jesterRole = role === "Jester";
   if (japanese) {
-    const common = [
-      "役職CO方針: 占い師、魔女、ハンター、鴉、愚者、長老は、公開情報が投票・対抗・自分への疑いを動かす時は短く名乗ってよい。",
-      "騎士は通常絶対に名乗らない。護衛先も伏せる。",
-      "恋人は相方を通常伏せる。村人は役職を騙らない。道化師は単独勝利条件を終盤まで隠す。"
-    ];
+    const claimRoles = "占い師、魔女、ハンター、鴉、愚者、長老";
+    const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時";
+    const common = werewolfRole
+      ? [
+          `人狼側の役職騙り方針: ${claimRoles}は、${claimCondition}だけ短く騙ってよい。`,
+          "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
+          "仲間、夜の相談、襲撃情報は漏らさない。騙る時も村側と同じ条件で、票・対抗・自分への疑いを動かす理由に結びつける。"
+        ]
+      : jesterRole
+        ? [
+            `道化師の役職騙り方針: ${claimRoles}は、${claimCondition}だけ短く騙ってよい。`,
+            "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
+            "単独勝利条件は終盤まで隠す。騙る時も村側と同じ条件で、票・対抗・自分への疑いを動かす理由に結びつける。"
+          ]
+        : [
+            `役職CO方針: ${claimRoles}は、${claimCondition}だけ短く名乗ってよい。`,
+            "騎士は通常絶対に名乗らない。護衛先も伏せる。",
+            "恋人は相方を通常伏せる。村人は役職を騙らない。道化師は単独勝利条件を終盤まで隠す。"
+          ];
     if (role === "Seer") {
       return [
         "あなたは占い師です。結果が1件でも議論の判断材料になるなら早めに名乗り、対象と判定を短く出す。",
@@ -353,11 +369,25 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     return common;
   }
 
-  const common = [
-    "Role-claim policy: Seer, Witch, Hunter, Raven, Idiot, and Elder may claim briefly when it changes votes, counterclaims, or pressure on themselves.",
-    "Guard normally must not claim. Keep protection targets hidden.",
-    "Lover normally keeps the partner hidden. Villager must not fake a power role. Jester hides the neutral win condition until the endgame."
-  ];
+  const claimRoles = "Seer, Witch, Hunter, Raven, Idiot, and Elder";
+  const claimCondition = "when public information changes votes, counterclaims, or pressure on yourself";
+  const common = werewolfRole
+    ? [
+        `Werewolf fake-claim policy: ${claimRoles} may be faked briefly only ${claimCondition}.`,
+        "Guard is not a normal fake-claim target. Do not fabricate protection targets.",
+        "Never expose allies, wolf-only discussion, or attack information. When you fake a role, use the same conditions as village claims."
+      ]
+    : jesterRole
+      ? [
+          `Jester fake-claim policy: ${claimRoles} may be faked briefly only ${claimCondition}.`,
+          "Guard is not a normal fake-claim target. Do not fabricate protection targets.",
+          "Hide the neutral win condition until the endgame. When you fake a role, use the same conditions as village claims."
+        ]
+      : [
+          `Role-claim policy: ${claimRoles} may claim briefly only ${claimCondition}.`,
+          "Guard normally must not claim. Keep protection targets hidden.",
+          "Lover normally keeps the partner hidden. Villager must not fake a power role. Jester hides the neutral win condition until the endgame."
+        ];
   if (role === "Seer") {
     return ["You are the Seer. If even one result would help the table judge today, lean toward claiming early with target and result.", ...common];
   }
@@ -394,7 +424,7 @@ function simplePublicSpeechRules(phase: Phase, role: Role, language: string): st
     return [
       "これまでの会話を踏まえて、自然に次の発言をする。",
       visibilityRule,
-      ...(phase === "werewolf_discussion" || werewolfRole ? [] : simplePublicClaimPolicyLines(role, language)),
+      ...(phase === "werewolf_discussion" ? [] : simplePublicClaimPolicyLines(role, language)),
       "見えていない発言、反応、矛盾、役職主張を事実として作らない。",
       "出力は画面に出すあなたの発言だけ。説明やJSONは不要。",
       "短い1文、必要な時だけ2文にする。"
@@ -410,7 +440,7 @@ function simplePublicSpeechRules(phase: Phase, role: Role, language: string): st
   return [
     "Use the conversation so far and say the next natural line.",
     visibilityRule,
-    ...(phase === "werewolf_discussion" || werewolfRole ? [] : simplePublicClaimPolicyLines(role, language)),
+    ...(phase === "werewolf_discussion" ? [] : simplePublicClaimPolicyLines(role, language)),
     "Do not invent unseen statements, reactions, contradictions, or role claims.",
     "Output only your spoken line. No explanation or JSON.",
     "Use one short sentence, or two only when useful."
@@ -479,7 +509,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
       ...roleBreakdownLines(roleBreakdown, language),
-      `- 生存者: ${formatPlayers(alivePlayers)}。`,
+      `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
       deadPlayers.length > 0
         ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
         : "- 死亡者: なし。",
@@ -509,7 +539,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "Current situation:",
     `- ${phaseHeading(phase, language)}, round ${round}.`,
     ...roleBreakdownLines(roleBreakdown, language),
-    `- Alive players: ${formatPlayers(alivePlayers)}.`,
+    `- Alive players: ${formatPlayers(alivePlayers, language)}.`,
     deadPlayers.length > 0
       ? `- Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
       : "- Dead players: none.",
@@ -562,64 +592,72 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     japanese
       ? `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`
       : `Current phase: ${phase}. Round: ${round}.`,
-    "Prompt mode: internal decision.",
+    japanese ? "プロンプト用途: 内部判断。" : "Prompt mode: internal decision.",
     "",
-    "Information boundary:",
+    japanese ? "情報境界:" : "Information boundary:",
     bulletList(commonBoundaryLines(mode)),
     "",
-    "Role strategy:",
+    japanese ? "役職方針:" : "Role strategy:",
     getRoleStrategy(player.role),
     "",
-    "Phase-specific guidance:",
+    japanese ? "フェーズ別方針:" : "Phase-specific guidance:",
     ...phaseInstructions(profile, promptPhase),
     ...(situationGuidance.length > 0 ? ["", ...situationGuidance] : []),
     ...(options.speechPlan ? ["", ...renderPublicSpeechPlan(options.speechPlan, language)] : []),
     "",
-    "Persona style:",
+    japanese ? "人物の動き方:" : "Persona style:",
     getPersonaStrategy(player.persona),
     "",
-    "Persona character:",
+    japanese ? "人物の話し方:" : "Persona character:",
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
     "",
-    "Persona values:",
+    japanese ? "人物の価値観:" : "Persona values:",
     ...personaDetails[player.persona].principles.map((s) => `- ${s}`),
     ...(player.characterProfile
       ? [
           "",
-          "Character voice:",
+          japanese ? "キャラクターの声:" : "Character voice:",
           ...characterVoiceSection(player.characterProfile).split("\n")
         ]
       : []),
     "",
     ...roleBreakdownLines(roleBreakdown, language),
-    `Alive players: ${formatPlayers(alivePlayers)}.`,
+    japanese ? `生存者: ${formatPlayers(alivePlayers, language)}。` : `Alive players: ${formatPlayers(alivePlayers, language)}.`,
     deadPlayers.length > 0
-      ? `Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
-      : "Dead players: none.",
+      ? japanese
+        ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+        : `Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
+      : japanese
+        ? "死亡者: なし。"
+        : "Dead players: none.",
     "",
-    "Role-visible private information:",
+    japanese ? "自分だけが見える役職情報:" : "Role-visible private information:",
     ...roleVisiblePrivateInfo(player.role, secret, language),
     "",
-    "Information you should use internally:",
+    japanese ? "内部判断で使う情報:" : "Information you should use internally:",
     bulletList(profile.internalInformation)
   ];
 
   if (privateHistory.length > 0) {
-    lines.push("", "Your private memory:", ...recentLines(privateHistory, 12));
+    lines.push("", japanese ? "自分の記憶:" : "Your private memory:", ...recentLines(privateHistory, 12));
   }
 
   if (publicHistory.length > 0) {
     lines.push(
       "",
-      "Recent public discussion:",
-      "- Connect to the last one or two visible public statements with agreement, disagreement, a supplement, or an answer to pressure before stating your own read.",
-      "- Use only visible statements as evidence; do not invent reactions, contradictions, claims, or speaking volume.",
+      japanese ? "直近の公開議論:" : "Recent public discussion:",
+      japanese
+        ? "- 自分の読みを述べる前に、直前の1〜2発言への賛成、反対、補足、自分への疑いへの返答のどれかで自然につなげる。"
+        : "- Connect to the last one or two visible public statements with agreement, disagreement, a supplement, or an answer to pressure before stating your own read.",
+      japanese
+        ? "- 見えている発言だけを証拠にする。反応、矛盾、名乗り、発言量を作らない。"
+        : "- Use only visible statements as evidence; do not invent reactions, contradictions, claims, or speaking volume.",
       ...recentLines(publicHistory, 18)
     );
   }
 
   if (extra.length > 0) {
-    lines.push("", "Task-specific visible context:", ...extra);
+    lines.push("", japanese ? "今回見えている追加情報:" : "Task-specific visible context:", ...extra);
   }
 
   return lines.join("\n");
@@ -663,11 +701,11 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
     "",
     ...roleBreakdownLines(roleBreakdown, language),
-    `生存者: ${formatPlayers(alivePlayers)}。`,
+    `生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
       ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
       : "死亡者: なし。",
-    `投票できる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id))}。`,
+    `投票できる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id), language)}。`,
     "",
     "自分だけが見える役職情報:",
     ...roleVisiblePrivateInfo(player.role, secret, language)
@@ -718,8 +756,36 @@ export function buildBaseContext(options: {
 function baseSystemPrompt(options: BuildSystemPromptOptions, mode: PromptMode, outputInstruction: string): string {
   const promptPhase = promptPhaseFromGamePhase(options.phase);
   const profile = getRolePromptProfile(options.player.role);
-  const legal = legalPlayerLine(options.legalPlayers);
+  const japanese = isJapaneseLanguage(options.language);
+  const legal = legalTargetLineForLanguage(options.legalPlayers, options.language);
   const styleGuide = japaneseStyleGuide(options.language);
+  if (japanese) {
+    const lines = [
+      "あなたは人狼ゲームの参加者です。",
+      `名前: ${options.player.name}。役職: ${roleLabel(options.player.role, options.language)}。表向きの性格: ${personaHeading(options.player.persona, options.language)}。`,
+      "返答言語: 日本語。",
+      "",
+      "情報境界:",
+      bulletList(commonBoundaryLines(mode)),
+      "",
+      "役職方針:",
+      bulletList(profile.roleStrategy),
+      "",
+      "フェーズ別方針:",
+      ...phaseInstructions(profile, promptPhase),
+      ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
+      "",
+      outputInstruction,
+      promptMaterials.outputFormats.japaneseReminder
+    ];
+
+    if (legal) {
+      lines.push("", legal);
+    }
+
+    return lines.join("\n");
+  }
+
   const lines = [
     "You are playing a hidden-role werewolf game.",
     `You are ${options.player.name}; role=${options.player.role}; persona=${options.player.persona}.`,

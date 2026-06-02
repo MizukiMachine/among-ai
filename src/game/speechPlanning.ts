@@ -244,8 +244,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "人狼の偽役職アピール" : "Werewolf seeds a fake role claim",
       instruction: japanese
-        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、反応を見る一言と投票基準につなげる。"
-        : "You are on the werewolf team. In this public opening, hide that identity and claim one of these village-side roles: Seer, Witch, Hunter, Raven, Idiot, or Elder. Do not use Guard as the normal claim. Keep it light and tie it to reactions or vote criteria."
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを村側と同じ条件で名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
+        : "You are on the werewolf team. In this public opening, hide that identity and claim one of these village-side roles under the same conditions as village claims: Seer, Witch, Hunter, Raven, Idiot, or Elder. Do not use Guard as the normal claim. Keep it light and tie it to votes, counterclaims, or pressure on yourself."
     },
     state_vote_criteria: {
       kind,
@@ -515,7 +515,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
     return /\b(I|I'm|I am|my)\b.{0,40}\b(village|villager|town|not a wolf|should not be eliminated)\b/i.test(text);
   }
   if (move.kind === "wolf_fake_role_claim") {
-    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Guard|Hunter|role|claim)\b/i.test(text);
+    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Hunter|Raven|Idiot|Elder|role|claim)\b/i.test(text);
   }
   if (move.kind === "state_vote_criteria") {
     return /\b(vote criteria|criteria|concrete answers|speaking volume|take a position|stiffness)\b/i.test(text);

@@ -348,6 +348,16 @@ test("first-day opening moves can satisfy special opening review rules", () => {
     "Japanese"
   );
   assert.equal(wolfFakeRole.ok, true);
+  const wolfFakeIdiot = reviewSpeechAgainstPlan(
+    {
+      messages: ["私は愚者です。無駄吊りを避けるため、今日は投票理由が薄い人から候補に入れます"],
+      metadata
+    },
+    wolfFakeRolePlan,
+    legalPlayers,
+    "Japanese"
+  );
+  assert.equal(wolfFakeIdiot.ok, true);
 
   for (const message of [
     "ミナトさんの反応が少し硬く見えるので、初日は暫定材料として返答を見たいです。",
