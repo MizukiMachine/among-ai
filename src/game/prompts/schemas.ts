@@ -17,8 +17,13 @@ export interface WitchPrivateState {
   attackedTarget?: TargetCandidate | null;
 }
 
+export interface RoleBreakdownEntry {
+  role: Role;
+  count: number;
+}
+
 export interface RoleSecretContext {
-  werewolfAllies?: Array<TargetCandidate & { alive?: boolean }>;
+  werewolfAllies?: Array<TargetCandidate & { alive?: boolean; role?: Role }>;
   loverPartner?: TargetCandidate & { alive?: boolean };
   seerResults?: SeerPrivateResult[];
   witch?: WitchPrivateState;
@@ -42,6 +47,7 @@ export interface BuildPromptContextOptions {
   promptPhase?: PromptPhase;
   mode?: PromptMode;
   round: number;
+  roleBreakdown?: RoleBreakdownEntry[];
   alivePlayers: TargetCandidate[];
   deadPlayers: Array<TargetCandidate & { role?: Role }>;
   publicHistory: string[];

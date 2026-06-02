@@ -9,7 +9,7 @@ import {
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
-import { buildBaseContext, type RoleSecretContext } from "./prompts";
+import { buildBaseContext, type RoleBreakdownEntry, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
   firstDayOpeningMove,
@@ -88,6 +88,22 @@ const maxFollowUpDayDiscussionSpeakers = 6;
 const defaultAiPrefetchConcurrency = 5;
 const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
+
+const roleBreakdownOrder: Role[] = [
+  "Werewolf",
+  "AlphaWolf",
+  "WolfBeauty",
+  "Seer",
+  "Witch",
+  "Guard",
+  "Hunter",
+  "Raven",
+  "Idiot",
+  "Elder",
+  "Lover",
+  "Jester",
+  "Villager"
+];
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
@@ -2952,6 +2968,21 @@ export class WerewolfGame {
     return roleNotes.length > 0 ? [...player.memories, ...roleNotes] : player.memories;
   }
 
+  private roleBreakdownUiLine(): string {
+    const breakdown = this.roleBreakdown();
+    const summary = breakdown
+      .map((entry) => {
+        const label = roleLabel(entry.role, this.config.language);
+        return this.isJapanese() ? `${label}${entry.count}人` : entry.count === 1 ? label : `${label} x${entry.count}`;
+      })
+      .join(this.isJapanese() ? "、" : ", ");
+    return this.text(`Role setup: ${summary}.`, `配役表: ${summary}。`);
+  }
+
+  private uiContextWithRoleBreakdown(uiContext: string[] = []): string[] {
+    return [...uiContext, this.roleBreakdownUiLine()];
+  }
+
   private async safeSpeak(
     player: Player,
     task: string,
@@ -2970,6 +3001,7 @@ export class WerewolfGame {
     const agent = options.agentOverride ?? this.agents.get(player.id) ?? fallbackAgent;
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const visibleUiContext = agent.model === "human" ? this.uiContextWithRoleBreakdown(uiContext) : uiContext;
     const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
     const requestAbortSignal = requestAbort.signal;
     const input = {
@@ -2977,7 +3009,7 @@ export class WerewolfGame {
       phase: this.phase,
       task,
       context,
-      uiContext,
+      uiContext: visibleUiContext,
       knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
       legalPlayers,
       speechPlan: options.speechPlan,
@@ -3278,7 +3310,7 @@ export class WerewolfGame {
           "人狼陣営の仲間へ、意思合わせと昼にどう騙すかを入力してください。"
         ),
         context: buildHumanInputContext({
-          uiContext: contextLines,
+          uiContext: this.uiContextWithRoleBreakdown(contextLines),
           publicHistory: [],
           privateHistory: this.humanVisiblePrivateHistory(player)
         }),
@@ -3467,6 +3499,7 @@ export class WerewolfGame {
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const targetCandidates: TargetCandidate[] = candidates.map(({ id, name }) => ({ id, name }));
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const visibleUiContext = agent.model === "human" ? this.uiContextWithRoleBreakdown(uiContext) : uiContext;
     const requestAbort = mergeAbortSignals(this.abortSignal, options.abortSignal);
     const requestAbortSignal = requestAbort.signal;
     const input = {
@@ -3474,7 +3507,7 @@ export class WerewolfGame {
       phase: this.phase,
       action,
       context,
-      uiContext,
+      uiContext: visibleUiContext,
       candidates: targetCandidates,
       allowSkip,
       publicHistory: this.publicHistory,
@@ -3538,6 +3571,7 @@ export class WerewolfGame {
     this.throwIfCancelled();
     const agent = this.agents.get(player.id) ?? fallbackAgent;
     const privateHistory = agent.model === "human" ? this.humanVisiblePrivateHistory(player) : player.memories;
+    const visibleUiContext = agent.model === "human" ? this.uiContextWithRoleBreakdown(uiContext) : uiContext;
     const requestAbort = mergeAbortSignals(this.abortSignal, options.abortSignal);
     const requestAbortSignal = requestAbort.signal;
     const input = {
@@ -3545,7 +3579,7 @@ export class WerewolfGame {
       phase: this.phase,
       question,
       context,
-      uiContext,
+      uiContext: visibleUiContext,
       publicHistory: this.publicHistory,
       privateHistory,
       abortSignal: requestAbortSignal
@@ -3861,6 +3895,7 @@ export class WerewolfGame {
       player,
       phase: this.phase,
       round: this.round,
+      roleBreakdown: this.roleBreakdown(),
       alivePlayers: this.alivePlayers().map(({ id, name }) => ({ id, name })),
       deadPlayers: this.players
         .filter((candidate) => !candidate.alive)
@@ -3880,7 +3915,7 @@ export class WerewolfGame {
     if (player.camp === "werewolf") {
       base.werewolfAllies = this.players
         .filter((candidate) => candidate.camp === "werewolf")
-        .map(({ id, name, alive }) => ({ id, name, alive }));
+        .map(({ id, name, role, alive }) => ({ id, name, role, alive }));
     }
 
     if (player.role === "Seer") {
@@ -3921,6 +3956,16 @@ export class WerewolfGame {
       ...override,
       witch
     };
+  }
+
+  private roleBreakdown(): RoleBreakdownEntry[] {
+    const counts = new Map<Role, number>();
+    for (const player of this.players) {
+      counts.set(player.role, (counts.get(player.role) ?? 0) + 1);
+    }
+    return roleBreakdownOrder
+      .map((role) => ({ role, count: counts.get(role) ?? 0 }))
+      .filter((entry) => entry.count > 0);
   }
 
   private daySpeakerOrder(): Player[] {

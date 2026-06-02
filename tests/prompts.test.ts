@@ -83,8 +83,16 @@ function contextFor(role: Role) {
     publicHistory: ["Byron: I want a timeline before voting."],
     privateHistory: ["Round 1: voted for Curie."],
     language: "English",
+    roleBreakdown: [
+      { role: "Werewolf", count: 2 },
+      { role: "AlphaWolf", count: 1 },
+      { role: "Seer", count: 1 },
+      { role: "Witch", count: 1 },
+      { role: "Jester", count: 1 },
+      { role: "Villager", count: 3 }
+    ],
     secret: {
-      werewolfAllies: [{ id: "secret-wolf", name: "SecretWolf" }],
+      werewolfAllies: [{ id: "secret-wolf", name: "SecretWolf", role: "AlphaWolf" }],
       loverPartner: { id: "secret-lover", name: "SecretLover", alive: true },
       seerResults: [{ targetId: "secret-check", targetName: "SecretCheck", camp: "werewolf", round: 1 }],
       witch: {
@@ -102,6 +110,7 @@ test("public speech context is a simple character-role-conversation prompt", () 
 
     assert.match(context, /Character:/);
     assert.match(context, /Role:/);
+    assert.match(context, /Role setup:/);
     assert.match(context, /Conversation so far:/);
     assert.match(context, /Speech rules:/);
     assert.doesNotMatch(context, /Role strategy:|Public discussion guidance:|Public speech boundary:|Speech plan:/);
@@ -112,6 +121,7 @@ test("public speech context is a simple character-role-conversation prompt", () 
 test("prompt builder only exposes secrets visible to each role", () => {
   const werewolf = contextFor("Werewolf");
   assert.match(werewolf, /SecretWolf/);
+  assert.match(werewolf, /SecretWolf \(secret-wolf\): AlphaWolf/);
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
@@ -151,6 +161,57 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(villager, /Save potion remaining/);
 });
 
+test("role breakdown is public counts only while werewolf ally roles stay secret", () => {
+  const villagerContext = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    round: 1,
+    roleBreakdown: [
+      { role: "Werewolf", count: 2 },
+      { role: "AlphaWolf", count: 1 },
+      { role: "WolfBeauty", count: 1 },
+      { role: "Seer", count: 1 },
+      { role: "Witch", count: 1 },
+      { role: "Jester", count: 1 },
+      { role: "Villager", count: 8 }
+    ],
+    alivePlayers: [
+      { id: "p1", name: "Ada" },
+      { id: "p13", name: "Sena" }
+    ],
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    secret: {
+      werewolfAllies: [{ id: "p13", name: "Sena", role: "AlphaWolf" }]
+    }
+  });
+
+  assert.match(villagerContext, /この村の役職内訳:/);
+  assert.match(villagerContext, /道化師1人/);
+  assert.match(villagerContext, /α人狼1人/);
+  assert.match(villagerContext, /誰がどの役職かは.*分かりません/);
+  assert.doesNotMatch(villagerContext, /Sena \(p13\): α人狼/);
+
+  const wolfContext = buildPromptContext({
+    player: player("Werewolf"),
+    phase: "day_discussion",
+    round: 1,
+    roleBreakdown: [{ role: "AlphaWolf", count: 1 }],
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    secret: {
+      werewolfAllies: [{ id: "p13", name: "Sena", role: "AlphaWolf", alive: true }]
+    }
+  });
+
+  assert.match(wolfContext, /Sena \(p13\): α人狼 生存/);
+});
+
 test("werewolf private discussion uses private wolf guidance without public speech instructions", () => {
   const context = buildPromptContext({
     player: player("Werewolf"),
@@ -163,14 +224,14 @@ test("werewolf private discussion uses private wolf guidance without public spee
     language: "English",
     secret: {
       werewolfAllies: [
-        { id: "p1", name: "Ada", alive: true },
-        { id: "p4", name: "Darwin", alive: false }
+        { id: "p1", name: "Ada", role: "Werewolf", alive: true },
+        { id: "p4", name: "Darwin", role: "AlphaWolf", alive: false }
       ]
     }
   });
 
   assert.match(context, /Werewolf-only private discussion guidance/);
-  assert.match(context, /Darwin \(p4\) dead/);
+  assert.match(context, /Darwin \(p4\): AlphaWolf dead/);
   assert.doesNotMatch(context, /Public discussion guidance/);
   assert.doesNotMatch(context, /Public speech boundary/);
 });
