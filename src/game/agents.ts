@@ -1494,23 +1494,25 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
   const roleName = roleLabel(role, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、村をだますためのチーム内の役割分担を短く見せます。",
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、「あいつら絶対騙してやる」「人間のフリして潜伏するぜ」のような欺く意気込みを短く話します。",
       "舞台設定: プレイヤー同士は初対面ではありません。同じ宇宙船内のクルーとして互いの名前や普段の雰囲気は知っています。ただし、ここで初めて人狼陣営の仲間と役職内訳を確認します。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
       `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり確認してください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
-      "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。顔合わせでは占い師・霊能などの特殊役職騙りを確定宣言せず、触れる場合は状況次第の選択肢として残し、信用補強・距離取り・疑い作り・票の寄せ役など別の社会的な役回りも選ぶ。ただし襲撃先や具体的な作戦の相談はまだしない。",
-      "入力に『顔合わせでの発言』がある場合は、それを直前の会話として受け、仲間の方針への反応や別角度の補完を自然に足してください。自分も特殊役職を騙る確定宣言で上書きしないでください。標的誘導は、役職COだけに寄せず発言量・距離感・票の流れで行う前提にしてください。",
+      "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。主軸は作戦説明ではなく、狼同士の悪巧みの意気込み。『騙す』『人間のフリ』『潜伏』『油断させる』のどれかを自然に入れてください。",
+      "占い師・霊能などの特殊役職騙りは確定宣言しない。触れる場合は状況次第の選択肢として残し、信用を取る、距離を取る、疑いを作る、票を寄せるなど、人間側の顔で騙す方向にしてください。襲撃先や具体的な夜の作戦はまだ話しません。",
+      "入力に『この顔合わせで先に出た仲間の発言』がある場合、それは同じ顔合わせ内で自分より前に話した仲間のセリフです。『あいつら騙そうな』『俺は人間のフリで潜る』のように短く乗ってください。自分も特殊役職を騙る確定宣言で上書きしないでください。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately to align; confirm your role to allies and show the team's division of public-facing jobs.",
+    'You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; confirm your role to allies and give a short deceptive rally like "we are going to fool them" or "I will pass as human and stay hidden."',
     "Setting: the players are not strangers. They are crew on the same spaceship and already know each other's names and usual demeanor, but this is when the werewolf team confirms its members and role mix.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
     `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
-    "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. In this face-off, do not commit to a Seer/Medium/etc. fake claim; if mentioned, keep it as a situational option while choosing a social job such as backing, keeping distance, seeding suspicion, or nudging votes. Do NOT discuss attack targets or concrete plans yet.",
-    'If the input includes "Face-off so far" lines, treat them as the live conversation and naturally respond with a different complementary angle. Do not overwrite it with a firm special-role fake claim. Target steering should not rely only on role CO; use talk, distance, and votes.',
+    "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Make it a wolf-to-wolf vow to deceive, not a dry strategy report. Naturally include fooling them, passing as human, staying hidden, or making them lower their guard.",
+    "Do not commit to a Seer/Medium/etc. fake claim; if mentioned, keep it situational while choosing a social job such as gaining trust, keeping distance, seeding suspicion, or nudging votes. Do NOT discuss attack targets or concrete night plans yet.",
+    'If the input includes "Earlier ally face-off line" entries, they are only allies who spoke before you in this same opening face-off. Answer with a short ally-facing rally such as "let us fool them" or "I will pass as human." Do not overwrite it with a firm special-role fake claim.',
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");
@@ -1519,8 +1521,8 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
 function defaultWerewolfIntroLine(name: string, role: Role | undefined, language: string): string {
   const roleName = roleLabel(role, language);
   return isJapaneseLanguage(language)
-    ? `こちらは${name}、${roleName}だ。昼は人間側の顔で村を崩す`
-    : `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`;
+    ? `俺は${name}、${roleName}だ。人間のフリで潜って、あいつら絶対騙してやる`
+    : `I'm ${name}, the ${roleName}; I will pass as human and fool them.`;
 }
 
 export class DemoAgent implements Agent {
@@ -1566,16 +1568,16 @@ export class DemoAgent implements Agent {
     const roleName = roleLabel(input.player.role, this.language);
     const variants = isJapaneseLanguage(this.language)
       ? [
-          `こちらは${name}、${roleName}だ。昼は人間側の顔で村を崩す`,
+          `俺は${name}、${roleName}だ。人間のフリで潜って、あいつら絶対騙してやる`,
           `${name}は${roleName}担当だ。${persona_}なりに、疑われない位置から騙すよ`,
-          `${name}です。${roleName}として、今日は人間っぽく信用を取りに行きます`,
-          `${name}、${roleName}です。必要なら占い師っぽく場を揺らします`
+          `${name}です。${roleName}として人間っぽく信用を取り、村を騙します`,
+          `${name}、${roleName}です。あいつらを油断させて、最後まで人間側で通します`
       ]
       : [
-          `I'm ${name}, the ${roleName}; I will wear a village face and crack them open.`,
-          `Hey, ${name} here. I'm the ${roleName}; I will sell the act ${persona_}.`,
-          `${name}, the ${roleName}. I will build trust first, then turn it on them.`,
-          `Evening, ${name}, the ${roleName}; if needed, I can shake the table with a fake claim.`
+          `I'm ${name}, the ${roleName}; I will pass as human and fool them.`,
+          `Hey, ${name} here. I'm the ${roleName}; I will sell the act and stay hidden.`,
+          `${name}, the ${roleName}. I will build trust first, then trick them with it.`,
+          `Evening, ${name}, the ${roleName}; let us make them lower their guard.`
         ];
     const index = [...input.player.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % variants.length;
     const line = variants[index];
