@@ -1161,14 +1161,33 @@ function effectivePlayerCountForScenario(count: number, scenario: DebugScenario)
   return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
 }
 
-function getRoleDistributionItems(count: number): Array<[Role, number]> {
+const headerRoleOrder = [
+  "Werewolf",
+  "AlphaWolf",
+  "WolfBeauty",
+  "Seer",
+  "Witch",
+  "Guard",
+  "Hunter",
+  "Raven",
+  "Idiot",
+  "Elder",
+  "Lover",
+  "Villager",
+  "Jester"
+] as const satisfies readonly Role[];
+
+export function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const counts = new Map<Role, number>();
   for (const role of createRoles(normalizedCount)) {
     counts.set(role, (counts.get(role) ?? 0) + 1);
   }
 
-  return [...counts.entries()];
+  return headerRoleOrder.flatMap((role) => {
+    const roleCount = counts.get(role);
+    return roleCount === undefined ? [] : [[role, roleCount]];
+  });
 }
 
 function runModeClass(count: number): string {
