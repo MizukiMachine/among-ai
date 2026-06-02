@@ -170,14 +170,17 @@ test("standard victory checker keeps current village and werewolf win rules", ()
   );
 });
 
-test("lover victory checker reports lover camp without changing standard camp fallback", () => {
-  const players = [rulePlayer("p1", "Lover"), rulePlayer("p2", "Lover"), rulePlayer("p3", "Werewolf", false)];
+test("lover victory checker reports lover camp when both linked lovers are alive", () => {
+  const players = [rulePlayer("p1", "Lover"), rulePlayer("p2", "Lover"), rulePlayer("p3", "Werewolf"), rulePlayer("p4", "Villager")];
   const state = createInitialRuleState(players);
   const result = checkLoverVictory(players, state);
 
   assert.equal(result?.camp, "lover");
   assert.equal(result?.fallbackCamp, "village");
   assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+
+  players[1].alive = false;
+  assert.equal(checkLoverVictory(players, state), null);
 });
 
 test("role registry exposes death triggers without engine conditionals", () => {

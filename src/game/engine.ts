@@ -1825,13 +1825,18 @@ export class WerewolfGame {
     }
 
     const adjudicated = adjudicateStandardVictory(this.players);
-    yield this.finishGame({
-      camp: adjudicated,
-      reason: this.text(
-        `Round limit reached after ${this.config.maxRounds} rounds.`,
-        `${this.config.maxRounds}ラウンドの上限に到達しました。`
-      )
-    });
+    const loverResult = checkLoverVictory(this.players, this.ruleState);
+    yield this.finishGame(
+      loverResult
+        ? this.loverVictoryResult(loverResult)
+        : {
+            camp: adjudicated,
+            reason: this.text(
+              `Round limit reached after ${this.config.maxRounds} rounds.`,
+              `${this.config.maxRounds}ラウンドの上限に到達しました。`
+            )
+          }
+    );
   }
 
   private async *runNight(): AsyncGenerator<GameEvent> {
@@ -3278,18 +3283,30 @@ export class WerewolfGame {
     return winnerRoles.map((winner) => `${winner.playerName} (${this.roleText(winner.role)})`).join(", ");
   }
 
+  private loverVictoryResult(loverResult: ReturnType<typeof checkLoverVictory>): VictoryResult {
+    if (!loverResult) {
+      throw new Error("lover victory result is required");
+    }
+    return {
+      camp: loverResult.fallbackCamp,
+      winnerCamp: loverResult.camp,
+      winnerIds: loverResult.winnerIds,
+      reason: this.text("Both lovers are alive at game end.", "ゲーム終了時点で恋人2人とも生存しています。")
+    };
+  }
+
   private checkVictory(): VictoryResult | null {
-    const loverResult = checkLoverVictory(this.players, this.ruleState);
-    if (loverResult) {
-      return {
-        camp: loverResult.fallbackCamp,
-        winnerCamp: loverResult.camp,
-        winnerIds: loverResult.winnerIds,
-        reason: this.text("Only the lovers remain alive.", "恋人だけが生存しています。")
-      };
+    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    const result = checkStandardVictory(this.players);
+    if (!neutralResult && !result) {
+      return null;
     }
 
-    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    const loverResult = checkLoverVictory(this.players, this.ruleState);
+    if (loverResult) {
+      return this.loverVictoryResult(loverResult);
+    }
+
     if (neutralResult) {
       const winnerRoles = this.victoryRoleSummaries(neutralResult.winnerIds);
       const winnerRoleText = this.formatVictoryRoleSummary(winnerRoles);
@@ -3305,10 +3322,10 @@ export class WerewolfGame {
       };
     }
 
-    const result = checkStandardVictory(this.players);
     if (!result) {
       return null;
     }
+
     if (result.reason === "all_werewolves_eliminated") {
       return {
         camp: "village",

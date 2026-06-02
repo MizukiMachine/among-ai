@@ -1275,7 +1275,7 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
     note: "人間側が吊ってはいけない要注意役"
   },
   Lover: {
-    goal: "恋人2人だけで生き残ると勝利",
+    goal: "ゲーム終了時点で恋人2人とも生存",
     ability: "片方が死亡すると相方も後追い",
     timing: "開始時にペア決定、死亡時に連鎖",
     note: "元陣営より恋人の生存が優先"

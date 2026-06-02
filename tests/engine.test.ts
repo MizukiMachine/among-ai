@@ -4699,7 +4699,7 @@ test("lover victory is exposed as winnerCamp while keeping winner fallback compa
     { role: "Lover" },
     { role: "Lover" },
     { role: "Werewolf", alive: false },
-    { role: "Villager", alive: false },
+    { role: "Villager" },
     { role: "Seer", alive: false },
     { role: "Witch", alive: false }
   ]);
@@ -4709,6 +4709,39 @@ test("lover victory is exposed as winnerCamp while keeping winner fallback compa
   assert.equal(result?.winnerCamp, "lover");
   assert.equal(result?.camp, "village");
   assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+});
+
+test("lover victory waits for a real game-end condition", () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+
+  assert.equal(game.checkVictory(), null);
+});
+
+test("round-limit adjudication awards lovers when both are alive", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  (game as unknown as { round: number }).round = baseConfig.maxRounds;
+
+  const events = await collect(game.run());
+  const ended = events.find((event) => event.type === "game_ended");
+
+  assert.equal(ended?.data?.winnerCamp, "lover");
+  assert.deepEqual(ended?.data?.winnerIds, ["p1", "p2"]);
 });
 
 test("Jester vote death ends as neutral winner while keeping winner fallback compatible", async () => {

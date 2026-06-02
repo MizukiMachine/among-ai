@@ -415,7 +415,7 @@ roles:
     extends: villagePower
     roleStrategy:
       - You are bound to another lover. If one lover dies, the other dies too.
-      - If only the lovers remain alive, the lovers win together.
+      - If both lovers are alive when the game ends, the lovers win together.
       - Balance your original table reasoning with protecting the lover pair's survival.
     nightAction:
       - You have no night action.
@@ -427,7 +427,7 @@ roles:
     publicSpeechGuidanceJa:
       - "恋人の相手は、公開する価値がある時以外は伏せる。"
       - "相手を守りたい気持ちが見えすぎないよう、公開情報から自然に理由を作る。"
-      - "元の陣営の推理と恋人としての生存を両方考える。"
+      - "ゲーム終了時点で恋人2人とも生き残ることを優先しつつ、公開情報で自然に推理する。"
   Jester:
     extends: villagePower
     roleStrategy:
