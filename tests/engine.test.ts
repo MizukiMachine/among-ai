@@ -642,6 +642,29 @@ test("compressed role distribution supports advanced roles before the 15 player 
   }
 });
 
+test("generated player context includes role setup counts and werewolf ally roles only for wolves", () => {
+  const game = new WerewolfGame({ ...baseConfig, playerCount: maxSupportedPlayers }) as TestableGame;
+  const alphaWolf = game.players.find((player) => player.role === "AlphaWolf");
+  const wolf = game.players.find((player) => player.camp === "werewolf");
+  const villager = game.players.find((player) => player.camp !== "werewolf");
+  const contextFor = (game as unknown as { contextFor(player: Player, extra?: string[]): string }).contextFor.bind(game);
+
+  assert.ok(alphaWolf);
+  assert.ok(wolf);
+  assert.ok(villager);
+
+  const wolfContext = contextFor(wolf);
+  assert.match(wolfContext, /Game role breakdown:/);
+  assert.match(wolfContext, /Jester/);
+  assert.match(wolfContext, /WolfBeauty/);
+  assert.match(wolfContext, new RegExp(`${alphaWolf.name} \\(${alphaWolf.id}\\): AlphaWolf`));
+
+  const villageContext = contextFor(villager);
+  assert.match(villageContext, /Game role breakdown:/);
+  assert.match(villageContext, /Jester/);
+  assert.doesNotMatch(villageContext, new RegExp(`${alphaWolf.name} \\(${alphaWolf.id}\\): AlphaWolf`));
+});
+
 test("character roster covers all supported player slots with fixed names and personas", () => {
   assert.equal(characterProfiles.length, maxSupportedPlayers);
   assert.deepEqual(characterNames, characterProfiles.map((profile) => profile.nameJa));
@@ -2535,8 +2558,17 @@ test("human speech choice can publish free text instead of a drafted option", as
 
   const events = await collect(game.runDay());
   const humanSpeechEvents = events.filter((event) => event.type === "player_speech" && event.playerId === players[2].id);
+  const roleSetupPattern = /配役表: .*人狼1人.*占い師1人.*魔女1人.*人間3人/;
 
   assert.ok(requests.some((request) => request.kind === "speech_choice" && request.options.length > 0));
+  assert.ok(
+    requests.some(
+      (request) => request.kind === "speech_choice" && request.context.notes.some((line) => roleSetupPattern.test(line))
+    )
+  );
+  assert.ok(
+    requests.some((request) => request.kind === "target" && request.context.notes.some((line) => roleSetupPattern.test(line)))
+  );
   assert.ok(humanSpeechEvents.some((event) => event.message === "自分の言葉で話します"));
 });
 

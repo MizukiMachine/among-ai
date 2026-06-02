@@ -19,6 +19,7 @@ export type {
   BuildSystemPromptOptions,
   PromptMode,
   PromptPhase,
+  RoleBreakdownEntry,
   RoleSecretContext,
   SeerPrivateResult,
   WitchPrivateState

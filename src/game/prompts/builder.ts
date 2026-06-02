@@ -26,6 +26,7 @@ import {
   type BuildSystemPromptOptions,
   type PromptMode,
   type PromptPhase,
+  type RoleBreakdownEntry,
   type RolePromptProfile,
   type RoleSecretContext,
   type SeerPrivateResult,
@@ -141,6 +142,33 @@ function isWerewolfRole(role: Role): boolean {
   return role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty";
 }
 
+function formatRoleBreakdownEntry(entry: RoleBreakdownEntry, language: string): string {
+  const label = roleLabel(entry.role, language);
+  if (isJapaneseLanguage(language)) {
+    return `${label}${entry.count}人`;
+  }
+  return entry.count === 1 ? label : `${label} x${entry.count}`;
+}
+
+function roleBreakdownLines(roleBreakdown: RoleBreakdownEntry[] | undefined, language: string): string[] {
+  const entries = (roleBreakdown ?? []).filter((entry) => entry.count > 0);
+  if (entries.length === 0) {
+    return [];
+  }
+  if (isJapaneseLanguage(language)) {
+    return [
+      "配役表:",
+      `- この村の役職内訳: ${entries.map((entry) => formatRoleBreakdownEntry(entry, language)).join("、")}。`,
+      "- これは人数だけの公開情報です。誰がどの役職かは、自分に見えている秘密情報や公開発言以外では分かりません。"
+    ];
+  }
+  return [
+    "Role setup:",
+    `- Game role breakdown: ${entries.map((entry) => formatRoleBreakdownEntry(entry, language)).join(", ")}.`,
+    "- These are public counts only. They do not reveal which player has which role unless your private information or public claims show it."
+  ];
+}
+
 function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
   if (!partner) {
     return ["- Lover partner: none known."];
@@ -163,7 +191,12 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
     return [
       "- 把握している人狼:",
       ...(allies.length > 0
-        ? allies.map((ally) => `  - ${ally.name} (${ally.id})${ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"}`)
+        ? allies.map(
+            (ally) =>
+              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+                ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
+              }`
+          )
         : ["  - なし"])
     ];
   }
@@ -197,7 +230,12 @@ function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefine
     return [
       "- Known werewolf allies:",
       ...(allies.length > 0
-        ? allies.map((ally) => `  - ${ally.name} (${ally.id})${ally.alive === undefined ? "" : ally.alive ? " alive" : " dead"}`)
+        ? allies.map(
+            (ally) =>
+              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+                ally.alive === undefined ? "" : ally.alive ? " alive" : " dead"
+              }`
+          )
         : ["  - none"])
     ];
   }
@@ -347,6 +385,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     player,
     phase,
     round,
+    roleBreakdown,
     alivePlayers,
     deadPlayers,
     publicHistory,
@@ -373,6 +412,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "",
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+      ...roleBreakdownLines(roleBreakdown, language),
       `- 生存者: ${formatPlayers(alivePlayers)}。`,
       deadPlayers.length > 0
         ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
@@ -402,6 +442,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "",
     "Current situation:",
     `- ${phaseHeading(phase, language)}, round ${round}.`,
+    ...roleBreakdownLines(roleBreakdown, language),
     `- Alive players: ${formatPlayers(alivePlayers)}.`,
     deadPlayers.length > 0
       ? `- Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
@@ -424,6 +465,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     player,
     phase,
     round,
+    roleBreakdown,
     alivePlayers,
     deadPlayers,
     publicHistory,
@@ -483,6 +525,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
         ]
       : []),
     "",
+    ...roleBreakdownLines(roleBreakdown, language),
     `Alive players: ${formatPlayers(alivePlayers)}.`,
     deadPlayers.length > 0
       ? `Dead players: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}.`
@@ -521,6 +564,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     player,
     phase,
     round,
+    roleBreakdown,
     alivePlayers,
     deadPlayers,
     publicHistory,
@@ -552,6 +596,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     "人物の話し方:",
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
     "",
+    ...roleBreakdownLines(roleBreakdown, language),
     `生存者: ${formatPlayers(alivePlayers)}。`,
     deadPlayers.length > 0
       ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
@@ -591,6 +636,7 @@ export function buildBaseContext(options: {
   player: Player;
   phase: Phase;
   round: number;
+  roleBreakdown?: RoleBreakdownEntry[];
   alivePlayers: TargetCandidate[];
   deadPlayers: Array<TargetCandidate & { role?: Role }>;
   publicHistory: string[];
