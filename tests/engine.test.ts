@@ -5,6 +5,7 @@ import { AnthropicAgent, DemoAgent, summarizeRoundWithLlm } from "../src/game/ag
 import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
+import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH, defaultWerewolfAlignmentSpeechForPlayer } from "../src/game/humanInputDefaults";
 import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer } from "../src/game/redaction";
 import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
@@ -694,6 +695,28 @@ test("character roster covers all supported player slots with fixed names and pe
     assert.equal(player.persona, profile.persona);
     assert.equal(player.characterProfile, profile);
   }
+});
+
+test("default werewolf alignment lines match each character voice", () => {
+  const lines = characterProfiles.map((profile) =>
+    defaultWerewolfAlignmentSpeechForPlayer(
+      {
+        name: profile.nameJa,
+        role: "Werewolf",
+        persona: profile.persona,
+        characterProfile: profile
+      },
+      "Japanese"
+    )
+  );
+
+  assert.equal(lines.length, characterProfiles.length);
+  assert.equal(new Set(lines).size, characterProfiles.length);
+  assert.ok(lines.every((line) => line.includes("人狼")));
+  assert.ok(lines.every((line) => line !== DEFAULT_WEREWOLF_ALIGNMENT_SPEECH));
+  assert.ok(lines.some((line) => /票が集まりやすい位置/.test(line)), "セナ should keep the vote-tactician voice");
+  assert.ok(lines.some((line) => /余計なことは言わない/.test(line)), "シュウヘイ should keep the stoic voice");
+  assert.ok(lines.some((line) => /冗談だけど本気/.test(line)), "イオリ should keep the trickster voice");
 });
 
 test("configured human player keeps the normal shuffled role distribution", () => {
@@ -1948,14 +1971,13 @@ test("first-day werewolf face-off softens special-role fake-claim plans into sit
   assert.match(messages.join("\n"), /票先/u);
 });
 
-test("first-day werewolf face-off offers a human werewolf alignment line without blocking later generation", async () => {
+test("first-day werewolf face-off auto-publishes a character-voice human alignment line", async () => {
   const requests: HumanInputRequestPayload[] = [];
-  const alignmentGate = createDeferred<{ speech: string }>();
   const humanInput: HumanInputHandler = {
     async request(input) {
       requests.push(input);
       if (input.kind === "speech_choice") {
-        return alignmentGate.promise;
+        return { speech: "human input should not be requested during face-off" };
       }
       if (input.kind === "target") {
         return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの判断です。" };
@@ -1984,24 +2006,23 @@ test("first-day werewolf face-off offers a human werewolf alignment line without
   const events = await Promise.race([
     collect(game.runWerewolfFaceoffPass()),
     sleepWithAbort(250).then(() => {
-      throw new Error("The werewolf face-off waited for the optional human alignment line.");
+      throw new Error("The werewolf face-off waited for human alignment input.");
     })
   ]);
   const speeches = events.filter((event) => event.type === "player_speech");
   const speakerIds = new Set(speeches.map((event) => event.playerId));
-  const alignmentRequest = requests.find((request) => request.kind === "speech_choice" && request.speechMode === "werewolf_alignment");
+  const humanSpeech = speeches.find((event) => event.playerId === players[0].id);
 
-  assert.equal(speakerIds.has(players[0].id), false, "the human alignment prompt must not hold the face-off event stream open");
+  assert.equal(requests.length, 0, "the face-off should not open a human input screen");
+  assert.equal(speakerIds.has(players[0].id), true, "the human werewolf still speaks automatically at the face-off");
   assert.ok(speakerIds.has(players[1].id), "the AI ally still introduces itself so the human learns the team");
-  assert.equal(speakerIds.size, 1, "only generated AI face-off lines are emitted synchronously");
-  assert.ok(alignmentRequest);
-  assert.equal(alignmentRequest.nonBlocking, true);
-  assert.equal(alignmentRequest.options.length, 0, "the face-off prompt is free-input only");
-  assert.match(alignmentRequest.task, /意思合わせ/);
-  assert.ok(alignmentRequest.context.notes.every((line) => !line.includes("以降の推理・作戦・展開には使われません")));
-  assert.equal(game.wolfHistory.length, 1, "only the AI ally's generated intro is retained for later wolf context");
-  assert.ok(game.wolfHistory.every((line) => !line.includes("よろしく、仲間として合わせます")));
-  alignmentGate.resolve({ speech: "  よろしく、仲間として合わせます。  " });
+  assert.equal(speakerIds.size, 2, "the AI ally and automatic human line are emitted synchronously");
+  assert.ok(humanSpeech);
+  assert.match(humanSpeech.message, /俺は人狼/);
+  assert.match(humanSpeech.message, /票が集まりやすい位置に置くのが得でしょ/);
+  assert.equal(humanSpeech.data?.automaticHumanAlignment, true);
+  assert.equal(game.wolfHistory.length, 2, "the automatic human line is retained for later wolf context");
+  assert.ok(game.wolfHistory.some((line) => line.includes(humanSpeech.message)));
 });
 
 test("first-day werewolf face-off is a no-op for a lone wolf", async () => {
