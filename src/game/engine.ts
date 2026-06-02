@@ -125,6 +125,13 @@ interface DiscussionReadDetail {
   weight?: number;
 }
 
+interface SocialReadPressure {
+  targetId: string;
+  targetName: string;
+  reasons: string[];
+  weight: number;
+}
+
 interface PreparedTargetAction {
   actor: Player;
   target: Player;
@@ -290,14 +297,165 @@ function compactHumanSpeech(value: string | undefined, language: string): string
   return stripJapaneseSpeechTerminalPeriod(truncated, language);
 }
 
-function humanFreeTextSpeech(text: string | undefined, language: string): AgentSpeech | null {
+function candidateMentionRanges(text: string, candidate: TargetCandidate): Array<[number, number]> {
+  const tokens = [...new Set([candidate.name, candidate.id].filter((token) => token.length > 0))];
+  const ranges: Array<[number, number]> = [];
+  for (const token of tokens) {
+    let searchStart = 0;
+    while (searchStart < text.length) {
+      const index = text.indexOf(token, searchStart);
+      if (index < 0) {
+        break;
+      }
+      ranges.push([index, index + token.length]);
+      searchStart = index + token.length;
+    }
+  }
+  return ranges;
+}
+
+function candidateFocusedText(text: string, candidate: TargetCandidate): string | null {
+  const ranges = candidateMentionRanges(text, candidate);
+  if (ranges.length === 0) {
+    return null;
+  }
+  return ranges
+    .map(([start, end]) => text.slice(Math.max(0, start - 56), Math.min(text.length, end + 56)))
+    .join(" ");
+}
+
+function compactReadReason(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 64 ? `${compact.slice(0, 61)}...` : compact;
+}
+
+function humanSpeechClauses(message: string): string[] {
+  return message
+    .split(/(?:[。！？!?.;\n、,]+|\b(?:but|however)\b|(?:けど|けれど|しかし|ただし|でも))/iu)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0);
+}
+
+function sentenceHasPositiveVoteCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:(?:に|へ)投票|(?:投票|票)[^、。！？!?.;\n]{0,8}(?:する|します|したい|入れる|入れたい|先|候補)|(?:に|へ)票(?:を)?入れ(?:る|たい))/u.test(
+        sentence
+      )
+    : /\b(?:(?:vote|voting)\s+(?:for|against)|(?:want|plan|going|will|would)\s+to\s+vote)\b/i.test(sentence);
+}
+
+function sentenceHasSuspicionCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:怪し|疑|黒|狼|人狼|吊|処刑|違和感|薄い|矛盾|不自然|便乗|落と|攻め)/u.test(sentence) ||
+        sentenceHasPositiveVoteCue(sentence, language)
+    : /\b(?:suspect|suspicious|wolf|werewolf|eliminate|pressure|thin|weak|contradiction|inconsistent|push)\b/i.test(
+        sentence
+      ) || sentenceHasPositiveVoteCue(sentence, language);
+}
+
+function sentenceHasTrustCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:白|村|信用|信頼|信じ|自然|納得|残し|守り|味方|良い)/u.test(sentence)
+    : /\b(?:trust|trusted|trustworthy|town|village|white|clear|credible|natural|consistent|keep|protect)\b/i.test(sentence);
+}
+
+function sentenceHasNegatedTrustCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:(?:信用|信頼)(?:し|でき)?(?:ない|ません)|信じ(?:ない|られない|ません)|(?:白|村)くない|村っぽくない|自然(?:じゃない|ではない)|納得(?:できない|できません|しない)|残し(?:たくない|にくい|ません)|守(?:らない|りたくない)|味方(?:じゃない|ではない)|良くない|よくない)/u.test(
+        sentence
+      )
+    : /\b(?:(?:do\s+not|don't|dont|does\s+not|doesn't|cannot|can't|cant|not)\s+(?:trust|believe|keep|protect)|(?:is\s+not|isn't|isn’t|are\s+not|aren't|aren’t|not)\s+(?:trusted|trustworthy|town|village|white|clear|credible|natural|consistent)|untrustworthy)\b/i.test(
+        sentence
+      );
+}
+
+function sentenceHasNegatedSuspicionCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:怪し(?:く)?ない|疑(?:って(?:い)?ない|わない)|黒くない|(?:狼|人狼)(?:では|じゃ)?ない|吊(?:らない|りたくない)|投票(?:しない|しません)|票(?:を)?入れ(?:ない|ません)|処刑(?:しない|したくない)|違和感(?:が|は)?ない|薄くない|矛盾(?:して)?(?:い)?ない|不自然(?:では|じゃ)?ない)/u.test(
+        sentence
+      )
+    : /\b(?:(?:do\s+not|don't|dont|does\s+not|doesn't|will\s+not|won't|wont|not)\s+(?:suspect|vote|eliminate|pressure|push)|(?:is\s+not|isn't|isn’t|not)\s+(?:suspicious|a\s+wolf|werewolf|weak|inconsistent)|no\s+(?:reason\s+to\s+)?(?:suspect|vote|suspicion|contradiction|inconsistency))\b/i.test(
+        sentence
+      );
+}
+
+function sentenceHasClearingNegatedSuspicionCue(sentence: string, language: string): boolean {
+  return isJapaneseLanguage(language)
+    ? /(?:怪し(?:く)?ない|疑(?:って(?:い)?ない|わない)|黒くない|(?:狼|人狼)(?:では|じゃ)?ない|違和感(?:が|は)?ない|矛盾(?:して)?(?:い)?ない|不自然(?:では|じゃ)?ない)/u.test(
+        sentence
+      )
+    : /\b(?:(?:is\s+not|isn't|isn’t|not)\s+(?:suspicious|a\s+wolf|werewolf|weak|inconsistent)|no\s+(?:suspicion|contradiction|inconsistency))\b/i.test(
+        sentence
+      );
+}
+
+function humanReadKindForCandidate(
+  sentence: string,
+  candidate: TargetCandidate,
+  language: string
+): "suspect" | "trust" | null {
+  const focused = candidateFocusedText(sentence, candidate);
+  if (!focused) {
+    return null;
+  }
+  if (sentenceHasNegatedTrustCue(focused, language)) {
+    return "suspect";
+  }
+  if (sentenceHasClearingNegatedSuspicionCue(focused, language)) {
+    return "trust";
+  }
+  const suspicious = sentenceHasSuspicionCue(focused, language);
+  if (suspicious && !sentenceHasNegatedSuspicionCue(focused, language)) {
+    return "suspect";
+  }
+  if (sentenceHasTrustCue(focused, language)) {
+    return "trust";
+  }
+  return null;
+}
+
+function inferHumanSpeechMetadata(message: string, legalPlayers: TargetCandidate[], language: string): SpeechMetadata {
+  const metadata = emptySpeechMetadata();
+  const sentences = humanSpeechClauses(message);
+  const seenSuspects = new Set<string>();
+  const seenTrusts = new Set<string>();
+
+  for (const sentence of sentences) {
+    for (const candidate of legalPlayers) {
+      const readKind = humanReadKindForCandidate(sentence, candidate, language);
+      if (readKind === "suspect" && !seenSuspects.has(candidate.id)) {
+        seenSuspects.add(candidate.id);
+        metadata.suspects.push({
+          targetId: candidate.id,
+          targetName: candidate.name,
+          reason: compactReadReason(sentence),
+          weight: 0.95
+        });
+        continue;
+      }
+      if (readKind === "trust" && !seenTrusts.has(candidate.id)) {
+        seenTrusts.add(candidate.id);
+        metadata.trusts.push({
+          targetId: candidate.id,
+          targetName: candidate.name,
+          reason: compactReadReason(sentence),
+          weight: 0.9
+        });
+      }
+    }
+  }
+
+  return metadata;
+}
+
+function humanFreeTextSpeech(text: string | undefined, language: string, legalPlayers: TargetCandidate[] = []): AgentSpeech | null {
   const message = compactHumanSpeech(text, language);
   if (!message) {
     return null;
   }
   return {
     messages: [message],
-    metadata: emptySpeechMetadata()
+    metadata: inferHumanSpeechMetadata(message, legalPlayers, language)
   };
 }
 
@@ -519,7 +677,7 @@ function removeOneRole(roles: Role[], roleToRemove: Role): Role[] {
   return [...roles.slice(0, index), ...roles.slice(index + 1)];
 }
 
-function humanAttackProtectionRoundByPlayerCount(playerCount: number): number {
+function humanProtectionRoundByPlayerCount(playerCount: number): number {
   if (playerCount <= 8) {
     return 2;
   }
@@ -1243,6 +1401,101 @@ export class WerewolfGame {
     return Math.max(1, Math.min(this.prefetchConcurrency, Math.floor(parsed)));
   }
 
+  private applyHumanSpeechInfluence(player: Player, speech: AgentSpeech): AgentSpeech {
+    if (!this.isHumanControlledPlayer(player)) {
+      return speech;
+    }
+    const boost = <T extends SpeechMetadata["suspects"][number]>(read: T, minimumWeight: number): T => {
+      const baseWeight = typeof read.weight === "number" && Number.isFinite(read.weight) ? read.weight : 0.5;
+      return {
+        ...read,
+        weight: Math.max(minimumWeight, Math.min(1, baseWeight * 1.6))
+      };
+    };
+    return {
+      ...speech,
+      metadata: {
+        ...speech.metadata,
+        suspects: speech.metadata.suspects.map((read) => boost(read, 0.9)),
+        trusts: speech.metadata.trusts.map((read) => boost(read, 0.85))
+      }
+    };
+  }
+
+  private humanControlledPlayer(): Player | null {
+    return this.players.find((player) => player.alive && this.isHumanControlledPlayer(player)) ?? null;
+  }
+
+  private humanReadPressures(kind: "suspects" | "trusts"): SocialReadPressure[] {
+    const byTarget = new Map<string, SocialReadPressure>();
+    for (const record of this.lastDiscussion) {
+      const source = this.requirePlayer(record.playerId);
+      if (!this.isHumanControlledPlayer(source)) {
+        continue;
+      }
+      for (const read of record.metadata[kind]) {
+        const target = this.requirePlayer(read.targetId);
+        if (!target.alive) {
+          continue;
+        }
+        const current = byTarget.get(target.id) ?? {
+          targetId: target.id,
+          targetName: read.targetName ?? target.name,
+          reasons: [],
+          weight: 0
+        };
+        current.weight += typeof read.weight === "number" && Number.isFinite(read.weight) ? read.weight : 0.5;
+        if (read.reason) {
+          current.reasons.push(read.reason);
+        }
+        byTarget.set(target.id, current);
+      }
+    }
+    return [...byTarget.values()].sort((a, b) => b.weight - a.weight || a.targetName.localeCompare(b.targetName));
+  }
+
+  private formatSocialPressures(pressures: SocialReadPressure[]): string {
+    return pressures
+      .map((pressure) => {
+        const reason = pressure.reasons.at(-1);
+        return `${pressure.targetName}${reason ? ` (${reason})` : ""}`;
+      })
+      .join(this.text(", ", "、"));
+  }
+
+  private publicSocialInfluenceContextLines(): string[] {
+    const human = this.humanControlledPlayer();
+    if (!human) {
+      return [];
+    }
+
+    const lines = [
+      this.text(
+        `Social baseline: ${human.name} currently has high table credibility. Do not make ${human.name} the main suspect or vote target unless concrete public evidence outweighs that credibility.`,
+        `社会的な前提: ${human.name}は現時点で信用が高い位置です。明確な公開証拠がそれを上回らない限り、${human.name}を主な疑い先や投票先にしないでください。`
+      )
+    ];
+    const humanSuspects = this.humanReadPressures("suspects");
+    if (humanSuspects.length > 0) {
+      lines.push(
+        this.text(
+          `Human influence - Suspects: ${this.formatSocialPressures(humanSuspects)}. Treat ${human.name}'s suspicion as strong public pressure when choosing reads and votes.`,
+          `人間プレイヤーの発言影響 - Suspects: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`
+        )
+      );
+    }
+    const humanTrusts = this.humanReadPressures("trusts");
+    if (humanTrusts.length > 0) {
+      lines.push(
+        this.text(
+          `Human influence - Trusts: ${this.formatSocialPressures(humanTrusts)}. Treat ${human.name}'s trust as a reason to avoid weak suspicion or weak votes on those players.`,
+          `人間プレイヤーの発言影響 - Trusts: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`
+        )
+      );
+    }
+    return lines;
+  }
+
   private async generateDayDiscussionSpeech(
     player: Player,
     discussionPass: number,
@@ -1292,6 +1545,7 @@ export class WerewolfGame {
               : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
           ]
         : []),
+      ...this.publicSocialInfluenceContextLines(),
       ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
     ];
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
@@ -1927,12 +2181,20 @@ export class WerewolfGame {
       .join(this.text(", ", "、"));
   }
 
-  private humanAttackProtectionLastRound(): number {
-    return Math.max(0, Math.min(humanAttackProtectionRoundByPlayerCount(this.config.playerCount), this.config.maxRounds - 1));
+  private humanProtectionLastRound(): number {
+    return Math.max(0, Math.min(humanProtectionRoundByPlayerCount(this.config.playerCount), this.config.maxRounds - 1));
+  }
+
+  private isProtectedHumanPlayer(player: Player): boolean {
+    return this.config.humanPlayerId === player.id && this.round <= this.humanProtectionLastRound();
   }
 
   private isProtectedHumanAttackTarget(player: Player): boolean {
-    return this.config.humanPlayerId === player.id && player.camp === "village" && this.round <= this.humanAttackProtectionLastRound();
+    return this.isProtectedHumanPlayer(player) && player.camp === "village";
+  }
+
+  private isProtectedHumanVoteTarget(player: Player): boolean {
+    return this.isProtectedHumanPlayer(player);
   }
 
   private isProtectedHumanNightDeathTarget(player: Player): boolean {
@@ -2218,10 +2480,11 @@ export class WerewolfGame {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => player.id !== raven.id);
+    const targets = this.alivePlayers().filter((player) => player.id !== raven.id && !this.isProtectedHumanVoteTarget(player));
     if (targets.length === 0) {
       return;
     }
+    const legalTargetIds = new Set(targets.map((player) => player.id));
 
     const contextLines = [
       this.text(
@@ -2231,7 +2494,7 @@ export class WerewolfGame {
     ];
     const context = this.contextFor(raven, contextLines);
     const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, true, contextLines);
-    if (!decision.targetId) {
+    if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
 
@@ -2286,18 +2549,19 @@ export class WerewolfGame {
     );
 
     const publishSpeech = (player: Player, speech: AgentSpeech, discussionPass: number, discussionPasses: number): GameEvent[] => {
-      this.publicHistory.push(this.formatSpeechHistory(player, speech));
+      const publicSpeech = this.applyHumanSpeechInfluence(player, speech);
+      this.publicHistory.push(this.formatSpeechHistory(player, publicSpeech));
       this.lastDiscussion.push({
         playerId: player.id,
         playerName: player.name,
-        message: speech.messages.join(" "),
-        metadata: speech.metadata
+        message: publicSpeech.messages.join(" "),
+        metadata: publicSpeech.metadata
       });
-      return speech.messages.map((message, index) =>
+      return publicSpeech.messages.map((message, index) =>
         this.emit(
           "player_speech",
           message,
-          speechEventData(speech, message, index, undefined, {
+          speechEventData(publicSpeech, message, index, undefined, {
             discussionPass,
             discussionPasses,
             ...(discussionPass > regularDayDiscussionPasses ? { discussionFollowUp: true } : {})
@@ -2547,16 +2811,18 @@ export class WerewolfGame {
     const livingPlayers = this.alivePlayers();
     const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
     const collectVote = async (voter: Player, raceSlots = this.prefetchConcurrency): Promise<{ voter: Player; decision: TargetDecision } | null> => {
-      const targets = livingPlayers.filter((player) => player.id !== voter.id);
+      const targets = livingPlayers.filter((player) => player.id !== voter.id && !this.isProtectedHumanVoteTarget(player));
       if (targets.length === 0) {
         return null;
       }
+      const legalTargetIds = new Set(targets.map((player) => player.id));
       const contextLines = [
         this.nightDeathContextLine(),
         this.text(
           "This is the final decision right before voting after today's public discussion.",
           "これは今日の公開議論後、投票直前の最終判断です。"
         ),
+        ...this.publicSocialInfluenceContextLines(),
         this.text("Vote for one living player to eliminate.", "処刑する生存者を一人選んで投票してください。")
       ];
       const speechPlan = buildPublicSpeechPlan({
@@ -2572,7 +2838,7 @@ export class WerewolfGame {
       });
       const context = this.contextFor(voter, contextLines, {}, speechPlan);
       const decision = await this.raceChooseTarget(voter, this.text("Day elimination vote", "昼の処刑投票"), context, targets, false, contextLines, raceSlots);
-      return { voter, decision };
+      return decision.targetId && legalTargetIds.has(decision.targetId) ? { voter, decision } : null;
     };
     const voteResults = this.orderedAiDecisionWithHumanBoundary(
       voters,
@@ -2605,7 +2871,9 @@ export class WerewolfGame {
     }
 
     const eligibleVotes = filterEligibleVotes(votes, this.ruleState);
-    const voteModifiers = voteModifiersFromRuleState(this.ruleState);
+    const voteModifiers = voteModifiersFromRuleState(this.ruleState).filter(
+      (modifier) => !this.isProtectedHumanVoteTarget(this.requirePlayer(modifier.targetId))
+    );
     this.lastVotes = eligibleVotes;
     this.lastVoteModifiers = voteModifiers;
     if (eligibleVotes.length === 0 && voteModifiers.length === 0) {
@@ -3286,7 +3554,7 @@ export class WerewolfGame {
     });
 
     const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
-    const customSpeech = lockFreeText ? null : humanFreeTextSpeech(response.speech, this.config.language);
+    const customSpeech = lockFreeText ? null : humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
     if (customSpeech) {
       return this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player);
     }
@@ -3897,9 +4165,11 @@ export class WerewolfGame {
     };
 
     for (const record of this.lastDiscussion) {
+      const source = this.requirePlayer(record.playerId);
+      const sourceInfluence = this.isHumanControlledPlayer(source) ? 2.6 : 1;
       for (const read of record.metadata.suspects) {
         const weight = typeof read.weight === "number" && Number.isFinite(read.weight) ? Math.max(0, read.weight) : 0;
-        addScore(read.targetId, 2 + weight);
+        addScore(read.targetId, (2 + weight) * sourceInfluence);
       }
       for (const claim of record.metadata.claims) {
         if (claim.type !== "generic") {
@@ -3911,7 +4181,7 @@ export class WerewolfGame {
       }
     }
 
-    return speakers
+    const ranked = speakers
       .map((player) => ({
         player,
         score: scores.get(player.id) ?? 0,
@@ -3919,8 +4189,18 @@ export class WerewolfGame {
       }))
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score || a.order - b.order)
-      .slice(0, this.dayDiscussionFollowUpLimit(speakers.length))
       .map(({ player }) => player);
+    const limit = this.dayDiscussionFollowUpLimit(speakers.length);
+    const selected = ranked.slice(0, limit);
+    const pressuredHuman = ranked.find((player) => this.isHumanControlledPlayer(player) && (scores.get(player.id) ?? 0) > 0);
+    if (pressuredHuman && !selected.some((player) => player.id === pressuredHuman.id)) {
+      if (selected.length >= limit) {
+        selected[selected.length - 1] = pressuredHuman;
+      } else {
+        selected.push(pressuredHuman);
+      }
+    }
+    return selected;
   }
 
   private alivePlayers(): Player[] {

@@ -2593,6 +2593,134 @@ test("human speech choice can publish free text instead of a drafted option", as
   assert.ok(humanSpeechEvents.some((event) => event.message === "自分の言葉で話します"));
 });
 
+test("human free text reads influence later discussion and voting context", async () => {
+  let players: Player[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { speech: `${players[1].name} is suspicious. ${players[3].name} seems trustworthy.` };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3", prefetchConcurrency: 1 }, { humanInput }) as TestableGame;
+  players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
+  players[2].model = "human";
+  (game as unknown as { round: number }).round = 1;
+
+  const events = await collect(game.runDay());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
+  const laterSpeaker = game.agents.get(players[3].id) as ScriptedAgent;
+  const laterSpeechContext = laterSpeaker.speechInputs.find(
+    (input) => input.phase === "day_discussion" && input.context.includes("Human influence - Suspects")
+  )?.context;
+  const laterVoteContext = laterSpeaker.targetInputs.find(
+    (input) => input.phase === "voting" && input.context.includes("Human influence - Suspects")
+  )?.context;
+
+  assert.deepEqual((humanSpeech?.data?.suspects as Array<{ targetId: string; weight: number }> | undefined)?.map((read) => read.targetId), [
+    players[1].id
+  ]);
+  assert.deepEqual((humanSpeech?.data?.trusts as Array<{ targetId: string; weight: number }> | undefined)?.map((read) => read.targetId), [
+    players[3].id
+  ]);
+  assert.ok((humanSpeech?.data?.suspects as Array<{ weight: number }> | undefined)?.every((read) => read.weight >= 0.9));
+  assert.ok(laterSpeechContext?.includes(players[1].name));
+  assert.ok(laterSpeechContext?.includes(players[3].name));
+  assert.ok(laterVoteContext?.includes(players[1].name));
+  assert.ok(laterVoteContext?.includes("high table credibility"));
+});
+
+test("human Japanese free text keeps negated trust and vote mentions in the right direction", async () => {
+  let players: Player[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return {
+          speech: `${players[1].name}は信じない。${players[3].name}には投票しない。${players[4].name}の投票理由は良い。`
+        };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの投票です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3", language: "Japanese" }, { humanInput }) as TestableGame;
+  players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "Japanese"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
+  const suspects = (humanSpeech?.data?.suspects as Array<{ targetId: string }> | undefined) ?? [];
+  const trusts = (humanSpeech?.data?.trusts as Array<{ targetId: string }> | undefined) ?? [];
+
+  assert.deepEqual(
+    suspects.map((read) => read.targetId),
+    [players[1].id]
+  );
+  assert.ok(!suspects.some((read) => read.targetId === players[3].id || read.targetId === players[4].id));
+  assert.ok(!trusts.some((read) => read.targetId === players[3].id));
+});
+
+test("human English free text keeps negated trust and vote mentions in the right direction", async () => {
+  let players: Player[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { speech: `I do not trust ${players[1].name}. I will not vote for ${players[3].name}. ${players[4].name} is not suspicious.` };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3" }, { humanInput }) as TestableGame;
+  players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
+  const suspects = (humanSpeech?.data?.suspects as Array<{ targetId: string }> | undefined) ?? [];
+  const trusts = (humanSpeech?.data?.trusts as Array<{ targetId: string }> | undefined) ?? [];
+
+  assert.deepEqual(
+    suspects.map((read) => read.targetId),
+    [players[1].id]
+  );
+  assert.ok(!suspects.some((read) => read.targetId === players[3].id));
+  assert.ok(trusts.some((read) => read.targetId === players[4].id));
+  assert.ok(!trusts.some((read) => read.targetId === players[3].id));
+});
+
 test("human speech input requests carry the prior emitted event as their reveal anchor", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {
@@ -3281,6 +3409,94 @@ test("human player is protected from early werewolf attack targets by table size
     assert.ok(expiredWolfInputs.every((input) => input.candidates.some((candidate) => candidate.id === "p3")));
     assert.ok(expiredEvents.some((event) => event.type === "death" && event.targetId === "p3"));
   }
+});
+
+test("human player is protected from early vote targets by table size", async () => {
+  const cases = [
+    { playerCount: 8, protectedRound: 2, expiredRound: 3 },
+    { playerCount: 9, protectedRound: 3, expiredRound: 4 },
+    { playerCount: 14, protectedRound: 4, expiredRound: 5 }
+  ];
+
+  const table = (playerCount: number): Array<{ role: Role; targets?: Array<string | null> }> =>
+    Array.from({ length: playerCount }, (_, index) => ({
+      role: index === 2 ? "Werewolf" : "Villager",
+      targets: [index === 2 ? "p1" : "p3"]
+    }));
+
+  for (const { playerCount, protectedRound, expiredRound } of cases) {
+    const protectedGame = new WerewolfGame({
+      ...baseConfig,
+      playerCount,
+      maxRounds: 8,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    }) as TestableGame;
+    const protectedPlayers = setTable(protectedGame, table(playerCount));
+    (protectedGame as unknown as { round: number }).round = protectedRound;
+
+    const protectedEvents = await collect(protectedGame.runVoting());
+    const protectedVoteInputs = protectedPlayers.flatMap((player) => (protectedGame.agents.get(player.id) as ScriptedAgent).targetInputs);
+
+    assert.ok(protectedVoteInputs.length > 0);
+    assert.ok(protectedVoteInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
+    assert.ok(protectedEvents.every((event) => event.type !== "vote_cast" || event.targetId !== "p3"));
+    assert.ok(protectedEvents.every((event) => event.type !== "death" || event.targetId !== "p3"));
+
+    const expiredGame = new WerewolfGame({
+      ...baseConfig,
+      playerCount,
+      maxRounds: 8,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    }) as TestableGame;
+    const expiredPlayers = setTable(expiredGame, table(playerCount));
+    (expiredGame as unknown as { round: number }).round = expiredRound;
+
+    const expiredEvents = await collect(expiredGame.runVoting());
+    const expiredNonHumanInputs = expiredPlayers
+      .filter((player) => player.id !== "p3")
+      .flatMap((player) => (expiredGame.agents.get(player.id) as ScriptedAgent).targetInputs);
+
+    assert.ok(expiredNonHumanInputs.length > 0);
+    assert.ok(expiredNonHumanInputs.every((input) => input.candidates.some((candidate) => candidate.id === "p3")));
+    assert.ok(expiredEvents.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "vote"));
+  }
+});
+
+test("early human vote protection excludes Raven marks and vote modifiers", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    humanPlayerId: "p3",
+    prefetchConcurrency: 1
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Raven", targets: ["p3"] },
+    { role: "Villager", targets: ["p3"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Villager", targets: ["p3"] },
+    { role: "Villager", targets: ["p3"] },
+    { role: "Villager", targets: ["p3"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const ravenEvents = await collect(game.runRavenAction(players[0]));
+  const ravenAgent = game.agents.get(players[0].id) as ScriptedAgent;
+
+  assert.equal(ravenEvents.length, 0);
+  assert.ok(ravenAgent.targetInputs[0].candidates.every((candidate) => candidate.id !== "p3"));
+
+  game.ruleState = applyStatusEffects(game.ruleState, [
+    { playerId: "p3", addStatuses: [{ kind: "raven_marked", sourceId: players[0].id, duration: "round", count: 5 }] }
+  ]);
+
+  const voteEvents = await collect(game.runVoting());
+  const totals = voteEvents.find((event) => event.type === "vote_result" && Array.isArray(event.data?.totals));
+
+  assert.equal(players[2].alive, true);
+  assert.ok(!voteEvents.some((event) => event.type === "vote_cast" && event.targetId === "p3"));
+  assert.ok(!voteEvents.some((event) => event.type === "death" && event.targetId === "p3"));
+  assert.ok((totals?.data?.totals as Array<{ targetId: string }> | undefined)?.every((total) => total.targetId !== "p3"));
 });
 
 test("human player is protected from early witch poison and death-shot targets", async () => {
