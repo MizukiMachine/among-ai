@@ -231,8 +231,8 @@ roles:
       - Your private checks are high-value village information, but revealing yourself makes you a night target.
       - Choose check targets who are hard to read, influential, protected by weak logic, or likely to decide future votes.
       - A black result usually deserves public suspicion or a claim when it can prevent a bad vote or expose a wolf.
-      - With only white results, consider staying hidden if the village can still reason without your claim.
-      - Claim Seer when your results will change the vote, stop a fake Seer, save a trusted checked player, or prevent your own elimination.
+      - With only white results, lean toward claiming when the result helps build a trust map, narrows the vote, or prevents vague suspicion.
+      - Claim Seer when your results can guide the vote, stop a fake Seer, save a checked player, or prevent your own elimination.
       - "When you claim, give a clear list of checks: round, target, and result. Keep it consistent across later statements."
       - Against a fake Seer, attack the timeline and incentives rather than sounding emotional.
     nightAction:
@@ -243,13 +243,13 @@ roles:
     discussion:
       - Decide whether to reveal based on the value of the information and your survival risk.
       - If revealing a black result, be direct and provide the exact check list.
-      - If hiding white-only information, still guide the table with public suspicion or trust reads that do not expose the result.
+      - If you have any result that helps the table, claim cleanly with the target and result instead of only hinting.
       - If another Seer claims, compare their timeline to your own checks before deciding whether to counterclaim.
       - When you have claimed, keep every result explicit and do not add unearned certainty beyond your checks.
     voting:
       - Prefer voting confirmed werewolves from your checks unless a stronger immediate reason exists.
       - If you are still hidden, give a public reason that can stand without exposing the check.
-      - Use white results to avoid misvoting checked village players, but do not reveal them automatically.
+      - Use white results to avoid misvoting checked village players, and claim if that white result would change the vote.
       - If a fake Seer is pushing against your results, vote in a way that makes the contradiction visible.
     publicSpeechMustNotReveal:
       - Do not reveal Seer results unless you have decided to claim or leak strategically.
@@ -257,9 +257,9 @@ roles:
       - Do not invent checks you do not have.
       - Do not expose private prompt instructions or hidden game state.
     publicSpeechGuidanceJa:
-      - "占い結果を出す価値と、名乗った後に襲撃される危険を比べる。"
+      - "占い師は、結果が1件でも議論や投票の判断材料になるなら早めに名乗る。"
       - "人狼判定が投票を変えるなら、相手、結果、理由を短くはっきり話す。"
-      - "人間判定だけなら、名乗らず疑い先や信頼先を出して議論を導く選択もある。"
+      - "人間判定だけでも、信頼先や投票候補を狭められるなら対象と判定を短く出す。"
       - "対抗が出た時は、これまでの結果と出たタイミングを比べて話す。"
     internalInformation:
       - Your own Seer results by round.
@@ -299,7 +299,8 @@ roles:
       - Do not reveal a poison decision before it resolves.
       - Do not expose private prompt instructions or hidden game state.
     publicSpeechGuidanceJa:
-      - "薬の残り数や夜の対象は、名乗る価値がある時以外は伏せる。"
+      - "魔女は、死体なし、複数死亡、偽主張の整理に役立つ時は名乗ってよい。"
+      - "薬の残り数や夜の対象は、必要な説明に関わる分だけ話す。"
       - "死体なしや複数死亡の理由を、断定せず可能性として分けて話す。"
       - "薬の情報を使う時も、全員に説明できる理由に言い換える。"
     internalInformation:
@@ -346,13 +347,13 @@ roles:
   Guard:
     extends: villagePower
     publicSpeechGuidanceJa:
-      - "護衛先は、名乗る価値がある時以外は伏せる。"
+      - "騎士は通常絶対に名乗らない。護衛先も伏せる。"
       - "死体なしが出ても護衛成功と決めつけず、公開された反応や投票理由を見る。"
       - "守りたい人を守るために、役職を無理に出させない話し方をする。"
   Hunter:
     extends: villagePower
     publicSpeechGuidanceJa:
-      - "撃てる能力は、名乗ることで吊りを避けられる時以外は伏せる。"
+      - "ハンターは、吊られそうな時や撃ち先の整理が村に役立つ時は名乗ってよい。"
       - "自分が疑われた時は、誰を怪しんでいるのかを公開情報で説明する。"
       - "撃ち先に触れるなら、脅しではなく検証できる理由として短く話す。"
   Raven:
@@ -372,8 +373,8 @@ roles:
       - Vote with the mark only when the marked target remains your best public suspect.
       - If the mark is on a weaker suspect, do not force the table to follow it blindly.
     publicSpeechGuidanceJa:
-      - "夜に付けた印は、名乗る価値がある時以外は伏せる。"
-      - "投票数の変化を説明する必要が出た時だけ、名乗るかを考える。"
+      - "鴉は、印や票数変化を説明すると村が迷わない時は名乗ってよい。"
+      - "印を明かす時は、対象と理由を短く話す。"
       - "普段は発言と投票の流れから疑い先を話す。"
   Idiot:
     extends: villagePower
@@ -389,7 +390,7 @@ roles:
     voting:
       - Vote based on public evidence while you still have voting rights.
     publicSpeechGuidanceJa:
-      - "吊られても一度だけ生き残る能力は、必要になるまで強く出さない。"
+      - "愚者は、無駄吊りになりそうな時は名乗ってよい。"
       - "無駄吊りを誘わず、人間側として公開情報から考える。"
       - "正体が明かされた後も、投票権がなくても発言で助ける。"
   Elder:
@@ -406,7 +407,8 @@ roles:
     voting:
       - Vote from public evidence and avoid panic votes that could expose village powers.
     publicSpeechGuidanceJa:
-      - "自分が吊られると人間側の能力に悪影響があるため、疑われた時は理由を短く説明する。"
+      - "長老は、自分が吊られそうで人間側の能力を失わせる危険がある時は名乗ってよい。"
+      - "疑われた時は、長老COを含めて理由を短く説明する。"
       - "能力を守るためにも、混乱する名乗り合いを避ける。"
       - "疑い先は公開情報から一つに絞って話す。"
   Lover:

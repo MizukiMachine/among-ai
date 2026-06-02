@@ -318,6 +318,70 @@ function simplePersonaLines(player: Player, language: string): string[] {
   ];
 }
 
+function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
+  const japanese = isJapaneseLanguage(language);
+  if (japanese) {
+    const common = [
+      "役職CO方針: 占い師、魔女、ハンター、鴉、愚者、長老は、公開情報が投票・対抗・自分への疑いを動かす時は短く名乗ってよい。",
+      "騎士は通常絶対に名乗らない。護衛先も伏せる。",
+      "恋人は相方を通常伏せる。村人は役職を騙らない。道化師は単独勝利条件を終盤まで隠す。"
+    ];
+    if (role === "Seer") {
+      return [
+        "あなたは占い師です。結果が1件でも議論の判断材料になるなら早めに名乗り、対象と判定を短く出す。",
+        ...common
+      ];
+    }
+    if (role === "Witch") {
+      return ["あなたは魔女です。死体なし、複数死亡、偽主張の整理に役立つ時は名乗ってよい。薬の詳細は必要分だけ話す。", ...common];
+    }
+    if (role === "Hunter") {
+      return ["あなたはハンターです。吊られそうな時や撃ち先を整理する価値がある時は名乗ってよい。", ...common];
+    }
+    if (role === "Raven") {
+      return ["あなたは鴉です。印や票数変化を説明すると村が迷わない時は名乗ってよい。", ...common];
+    }
+    if (role === "Idiot") {
+      return ["あなたは愚者です。無駄吊りになりそうな時は名乗ってよいが、吊られに行くためのCOはしない。", ...common];
+    }
+    if (role === "Elder") {
+      return ["あなたは長老です。自分が吊られそうで人間側の能力を失わせる危険がある時は名乗ってよい。", ...common];
+    }
+    if (role === "Guard") {
+      return ["あなたは騎士です。通常は絶対に名乗らない。護衛先、護衛成功の推測、自分が騎士であることは伏せる。", ...common];
+    }
+    return common;
+  }
+
+  const common = [
+    "Role-claim policy: Seer, Witch, Hunter, Raven, Idiot, and Elder may claim briefly when it changes votes, counterclaims, or pressure on themselves.",
+    "Guard normally must not claim. Keep protection targets hidden.",
+    "Lover normally keeps the partner hidden. Villager must not fake a power role. Jester hides the neutral win condition until the endgame."
+  ];
+  if (role === "Seer") {
+    return ["You are the Seer. If even one result would help the table judge today, lean toward claiming early with target and result.", ...common];
+  }
+  if (role === "Witch") {
+    return ["You are the Witch. Claim when no-death, multiple deaths, or a fake claim needs your information, revealing only the needed potion details.", ...common];
+  }
+  if (role === "Hunter") {
+    return ["You are the Hunter. Claim if you are near execution or if naming your shot logic helps the village.", ...common];
+  }
+  if (role === "Raven") {
+    return ["You are the Raven. Claim if explaining your mark or a vote-count change prevents a worse execution.", ...common];
+  }
+  if (role === "Idiot") {
+    return ["You are the Idiot. Claim to avoid a wasted execution, but do not claim just to invite one.", ...common];
+  }
+  if (role === "Elder") {
+    return ["You are the Elder. Claim if your execution risk would damage the village's remaining abilities.", ...common];
+  }
+  if (role === "Guard") {
+    return ["You are the Guard. Normally never claim. Keep your protection target, protection success guesses, and Guard identity hidden.", ...common];
+  }
+  return common;
+}
+
 function simplePublicSpeechRules(phase: Phase, role: Role, language: string): string[] {
   const werewolfRole = isWerewolfRole(role);
   if (isJapaneseLanguage(language)) {
@@ -330,6 +394,7 @@ function simplePublicSpeechRules(phase: Phase, role: Role, language: string): st
     return [
       "これまでの会話を踏まえて、自然に次の発言をする。",
       visibilityRule,
+      ...(phase === "werewolf_discussion" || werewolfRole ? [] : simplePublicClaimPolicyLines(role, language)),
       "見えていない発言、反応、矛盾、役職主張を事実として作らない。",
       "出力は画面に出すあなたの発言だけ。説明やJSONは不要。",
       "短い1文、必要な時だけ2文にする。"
@@ -345,6 +410,7 @@ function simplePublicSpeechRules(phase: Phase, role: Role, language: string): st
   return [
     "Use the conversation so far and say the next natural line.",
     visibilityRule,
+    ...(phase === "werewolf_discussion" || werewolfRole ? [] : simplePublicClaimPolicyLines(role, language)),
     "Do not invent unseen statements, reactions, contradictions, or role claims.",
     "Output only your spoken line. No explanation or JSON.",
     "Use one short sentence, or two only when useful."

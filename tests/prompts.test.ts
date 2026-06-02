@@ -68,7 +68,37 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
     assert.ok(profile.publicSpeechGuidanceJa.length > 0, profile.role);
     assert.doesNotMatch(profile.publicSpeechGuidanceJa.join("\n"), /\b(strategy|pressure|record|history|slot)\b/i);
   }
-  assert.match(promptMaterials.roles.Seer.publicSpeechGuidanceJa.join("\n"), /占い結果/);
+  assert.match(promptMaterials.roles.Seer.publicSpeechGuidanceJa.join("\n"), /占い師|判定/);
+  assert.match(promptMaterials.roles.Guard.publicSpeechGuidanceJa.join("\n"), /通常絶対に名乗らない/);
+});
+
+test("Japanese public speech context lists concrete claim roles and excludes Guard", () => {
+  const baseInput = {
+    phase: "day_discussion" as const,
+    promptPhase: "discussion" as const,
+    mode: "public_speech" as const,
+    round: 1,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese"
+  };
+
+  const seerContext = buildPromptContext({
+    ...baseInput,
+    player: player("Seer")
+  });
+  assert.match(seerContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(seerContext, /騎士は通常絶対に名乗らない/);
+  assert.doesNotMatch(seerContext, /占い師など|役職など/);
+
+  const guardContext = buildPromptContext({
+    ...baseInput,
+    player: player("Guard")
+  });
+  assert.match(guardContext, /あなたは騎士です。通常は絶対に名乗らない/);
+  assert.match(guardContext, /護衛先.*伏せる/);
 });
 
 function contextFor(role: Role) {

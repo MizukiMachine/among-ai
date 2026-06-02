@@ -1024,7 +1024,7 @@ test("Japanese demo werewolf does not fake a black Seer result on quiet first da
   }
 });
 
-test("Japanese demo Seer keeps a first-day white result hidden", async () => {
+test("Japanese demo Seer claims a first-day white result", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Villager" }]);
   player.seerResults = { p2: "village" };
@@ -1045,9 +1045,9 @@ test("Japanese demo Seer keeps a first-day white result hidden", async () => {
     privateHistory: []
   });
 
-  assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), false);
+  assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), true);
   const messageText = speech.messages.join(" ");
-  assert.doesNotMatch(messageText, /占い師を名乗ります|判定/);
+  assert.match(messageText, /占い師を名乗ります|人間側判定|判定/);
 });
 
 test("Japanese demo voting reason uses pre-vote framing", async () => {
