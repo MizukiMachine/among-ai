@@ -109,6 +109,27 @@ const roleBreakdownOrder: Role[] = [
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
 
+function humanInfluenceFollowUpPersonaScore(persona: Persona): number {
+  switch (persona) {
+    case "empathetic":
+      return 1.6;
+    case "passionate":
+      return 1.45;
+    case "opportunistic":
+      return 1.25;
+    case "cautious":
+      return 1.05;
+    case "logical":
+      return 0.95;
+    case "trickster":
+      return 0.8;
+    case "aggressive":
+      return 0.65;
+    case "stoic":
+      return 0.5;
+  }
+}
+
 interface DiscussionRecord {
   playerId: string;
   playerName: string;
@@ -130,6 +151,11 @@ interface SocialReadPressure {
   targetName: string;
   reasons: string[];
   weight: number;
+}
+
+interface HumanFollowUpInfluence {
+  responderScores: Map<string, number>;
+  humanReadTargetIds: Set<string>;
 }
 
 interface PreparedTargetAction {
@@ -1525,8 +1551,8 @@ export class WerewolfGame {
               "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
             )
           : this.text(
-              "Final follow-up: give one voting-ready read tied to the strongest suspicion or claim involving you.",
-              "追加発言: 自分に関わる一番強い疑いや主張に触れ、投票前の読みを一つだけ出してください。"
+              "Final follow-up: give one voting-ready read tied to the strongest suspicion, claim, or human-led pressure visible to you.",
+              "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。"
             ),
       ...(openingMove
         ? [
@@ -4194,6 +4220,86 @@ export class WerewolfGame {
     );
   }
 
+  private humanFollowUpInfluence(speakers: Player[], speakerOrder: Map<string, number>): HumanFollowUpInfluence {
+    const responderScores = new Map<string, number>();
+    const humanReadTargetIds = new Set<string>();
+    const human = this.humanControlledPlayer();
+    if (!human || !speakerOrder.has(human.id)) {
+      return { responderScores, humanReadTargetIds };
+    }
+
+    const readWeight = (read: { weight?: number }, fallback = 0.5) =>
+      typeof read.weight === "number" && Number.isFinite(read.weight) ? Math.max(0, Math.min(1, read.weight)) : fallback;
+    const humanSuspects = new Map<string, number>();
+    const humanTrusts = new Map<string, number>();
+    const addReadWeight = (reads: Map<string, number>, targetId: string, weight: number) => {
+      if (!speakerOrder.has(targetId)) {
+        return;
+      }
+      humanReadTargetIds.add(targetId);
+      reads.set(targetId, (reads.get(targetId) ?? 0) + weight);
+    };
+
+    for (const record of this.lastDiscussion) {
+      if (record.playerId !== human.id) {
+        continue;
+      }
+      for (const read of record.metadata.suspects) {
+        addReadWeight(humanSuspects, read.targetId, readWeight(read));
+      }
+      for (const read of record.metadata.trusts) {
+        addReadWeight(humanTrusts, read.targetId, readWeight(read));
+      }
+    }
+
+    if (humanSuspects.size === 0 && humanTrusts.size === 0) {
+      return { responderScores, humanReadTargetIds };
+    }
+
+    const addResponderScore = (playerId: string, amount: number) => {
+      if (!speakerOrder.has(playerId) || playerId === human.id || amount <= 0) {
+        return;
+      }
+      responderScores.set(playerId, (responderScores.get(playerId) ?? 0) + amount);
+    };
+
+    for (const record of this.lastDiscussion) {
+      if (record.playerId === human.id || !speakerOrder.has(record.playerId)) {
+        continue;
+      }
+      const source = this.requirePlayer(record.playerId);
+      if (!source.alive || this.isHumanControlledPlayer(source)) {
+        continue;
+      }
+
+      for (const read of record.metadata.trusts) {
+        const weight = readWeight(read);
+        if (read.targetId === human.id) {
+          addResponderScore(record.playerId, 4 + weight);
+        }
+        const sharedTrustWeight = humanTrusts.get(read.targetId);
+        if (sharedTrustWeight !== undefined) {
+          addResponderScore(record.playerId, 1.5 + Math.min(weight, sharedTrustWeight));
+        }
+      }
+
+      for (const read of record.metadata.suspects) {
+        const sharedSuspectWeight = humanSuspects.get(read.targetId);
+        if (sharedSuspectWeight !== undefined) {
+          addResponderScore(record.playerId, 2 + Math.min(readWeight(read), sharedSuspectWeight));
+        }
+      }
+    }
+
+    for (const speaker of speakers) {
+      if (!this.isHumanControlledPlayer(speaker)) {
+        addResponderScore(speaker.id, humanInfluenceFollowUpPersonaScore(speaker.persona));
+      }
+    }
+
+    return { responderScores, humanReadTargetIds };
+  }
+
   private dayDiscussionFollowUpSpeakers(speakers: Player[]): Player[] {
     const speakerOrder = new Map(speakers.map((player, index) => [player.id, index]));
     const scores = new Map<string, number>();
@@ -4232,6 +4338,38 @@ export class WerewolfGame {
       .map(({ player }) => player);
     const limit = this.dayDiscussionFollowUpLimit(speakers.length);
     const selected = ranked.slice(0, limit);
+    const humanInfluence = this.humanFollowUpInfluence(speakers, speakerOrder);
+    const humanResponder = speakers
+      .map((player) => ({
+        player,
+        score: humanInfluence.responderScores.get(player.id) ?? 0,
+        order: speakerOrder.get(player.id) ?? Number.MAX_SAFE_INTEGER
+      }))
+      .filter(
+        ({ player, score }) =>
+          score > 0 && !this.isHumanControlledPlayer(player) && !selected.some((selectedPlayer) => selectedPlayer.id === player.id)
+      )
+      .sort((a, b) => {
+        const aDirectTarget = humanInfluence.humanReadTargetIds.has(a.player.id);
+        const bDirectTarget = humanInfluence.humanReadTargetIds.has(b.player.id);
+        if (aDirectTarget !== bDirectTarget) {
+          return aDirectTarget ? 1 : -1;
+        }
+        return b.score - a.score || a.order - b.order;
+      })[0]?.player;
+    if (humanResponder) {
+      if (selected.length < limit) {
+        selected.push(humanResponder);
+      } else {
+        for (let index = selected.length - 1; index >= 0; index -= 1) {
+          const replacement = selected[index];
+          if (!this.isHumanControlledPlayer(replacement) && !humanInfluence.humanReadTargetIds.has(replacement.id)) {
+            selected[index] = humanResponder;
+            break;
+          }
+        }
+      }
+    }
     const pressuredHuman = ranked.find((player) => this.isHumanControlledPlayer(player) && (scores.get(player.id) ?? 0) > 0);
     if (pressuredHuman && !selected.some((player) => player.id === pressuredHuman.id)) {
       if (selected.length >= limit) {

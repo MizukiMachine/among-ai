@@ -2655,6 +2655,55 @@ test("human free text reads influence later discussion and voting context", asyn
   assert.ok(laterVoteContext?.includes("high table credibility"));
 });
 
+test("human free text reads reserve an agreeing AI follow-up speaker", async () => {
+  let players: Player[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { speech: `${players[1].name} is suspicious.` };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame({ ...baseConfig, humanPlayerId: "p3", prefetchConcurrency: 1 }, { humanInput }) as TestableGame;
+  players = setTable(game, [
+    {
+      role: "Villager",
+      speeches: [
+        {
+          messages: ["I trust Curie and Byron is already my concern."],
+          metadata: {
+            claims: [],
+            suspects: [{ targetId: "p2", targetName: "Byron", reason: "unclear stance", weight: 0.6 }],
+            trusts: [{ targetId: "p3", targetName: "Curie", reason: "credible pressure", weight: 0.7 }]
+          }
+        }
+      ]
+    },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
+  players[2].model = "human";
+
+  const events = await collect(game.runDay());
+  const followUpSpeakers = events
+    .filter((event) => event.type === "player_speech" && event.data?.discussionPass === 3)
+    .map((event) => event.playerId)
+    .filter((playerId, index, all) => index === 0 || all[index - 1] !== playerId);
+  const agreeingAgent = game.agents.get(players[0].id) as ScriptedAgent;
+
+  assert.deepEqual(followUpSpeakers.slice(0, 2), [players[1].id, players[0].id]);
+  assert.equal(agreeingAgent.speechInputs.length, 3);
+  assert.match(agreeingAgent.speechInputs[2].context, /Human influence - Suspects/);
+});
+
 test("human Japanese free text keeps negated trust and vote mentions in the right direction", async () => {
   let players: Player[] = [];
   const humanInput: HumanInputHandler = {
