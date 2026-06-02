@@ -73,7 +73,7 @@ function normalizeString(value: string | undefined): string | undefined {
 function normalizeResponseForRequest(request: HumanInputRequest, response: HumanInputResponse): HumanInputResponse | null {
   if (request.kind === "speech_choice") {
     const speech = normalizeString(response.speech);
-    if (speech && request.allowFreeText !== false) {
+    if (speech) {
       return { speech };
     }
 

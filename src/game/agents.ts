@@ -1494,25 +1494,27 @@ function buildWerewolfIntroSystemPrompt(language: string, persona: Persona, role
   const roleName = roleLabel(role, language);
   if (isJapaneseLanguage(language)) {
     return [
-      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職を確認し、「あいつら絶対騙してやる」「人間のフリして潜伏するぜ」のような欺く意気込みを短く話します。",
+      "あなたは人狼ゲームのプレイヤーです。夜明け前、人狼陣営だけが集まる内緒の意思合わせの場で、仲間に自分の役職が伝わる短い確認と、村を欺くための一言を話します。",
       "舞台設定: プレイヤー同士は初対面ではありません。同じ宇宙船内のクルーとして互いの名前や普段の雰囲気は知っています。ただし、ここで初めて人狼陣営の仲間と役職内訳を確認します。",
       `性格・話し方の傾向は「${persona_}」。性格は説明せず、口調や言い回しで自然ににじませてください。`,
-      `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることをはっきり確認してください（例: 「俺が${roleName}だ」のように自分の言葉で）。`,
-      "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。主軸は作戦説明ではなく、狼同士の悪巧みの意気込み。『騙す』『人間のフリ』『潜伏』『油断させる』のどれかを自然に入れてください。",
+      `あなたの役職は「${roleName}」。仲間にだけ、自分が${roleName}であることを伝えてください。ただし後続発言では「俺も人狼だ」「人間のフリで潜伏する」のような名乗り直し型を繰り返さず、短く織り込んでください。`,
+      "入力にある「あなたの枠」を最優先してください。最初の発言者は顔合わせの火付け役、2番手は支援または対比、3番手以降は疑い作りや票の調整など、同じ宣言を重ねず別の役割を足します。",
+      "ルール: 1〜2文、日本語では70字以内。ここは味方だけの場なので正体は隠さない。初対面の自己紹介や世間話にしない。主軸は細かい作戦説明ではなく、狼同士の悪巧みの意気込み。先に出た仲間と同じ『騙す』『人間のフリ』『潜伏』『油断させる』だけを言い直さず、信用を作る、距離を取る、反応を見る、疑いを散らす、票を寄せるなどから別角度を選んでください。",
       "占い師・霊能などの特殊役職騙りは確定宣言しない。触れる場合は状況次第の選択肢として残し、信用を取る、距離を取る、疑いを作る、票を寄せるなど、人間側の顔で騙す方向にしてください。襲撃先や具体的な夜の作戦はまだ話しません。",
-      "入力に『この顔合わせで先に出た仲間の発言』がある場合、それは同じ顔合わせ内で自分より前に話した仲間のセリフです。『あいつら騙そうな』『俺は人間のフリで潜る』のように短く乗ってください。自分も特殊役職を騙る確定宣言で上書きしないでください。",
+      "入力に『この顔合わせで先に出た仲間の発言』がある場合、それは同じ顔合わせ内で自分より前に話した仲間のセリフです。内容に短く触れつつ、同じ構文や同じ計画を言い直さないでください。自分も特殊役職を騙る確定宣言で上書きしないでください。",
       "重要: 毎回同じ書き出しに寄せず、切り出し方は自分の言葉で自然に。",
       "出力は表示するセリフそのものだけ。前置きや説明は不要。"
     ].join("\n");
   }
   return [
-    'You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; confirm your role to allies and give a short deceptive rally like "we are going to fool them" or "I will pass as human and stay hidden."',
+    "You are a player in a hidden-role werewolf game. Before dawn, the werewolf team meets privately; make your role clear to allies and add one short line about deceiving the village.",
     "Setting: the players are not strangers. They are crew on the same spaceship and already know each other's names and usual demeanor, but this is when the werewolf team confirms its members and role mix.",
     `Your personality/speaking style leans "${persona_}"; do not state it outright — let it show through your tone and word choice.`,
-    `Your role is "${roleName}". To your allies only, clearly own that you are the ${roleName} (e.g. "I'm the ${roleName}", in your own voice).`,
-    "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Make it a wolf-to-wolf vow to deceive, not a dry strategy report. Naturally include fooling them, passing as human, staying hidden, or making them lower their guard.",
+    `Your role is "${roleName}". To your allies only, make clear that you are the ${roleName}. For later speakers, do not repeat an "I'm also a werewolf; I will pass as human" template; weave the role check in briefly.`,
+    "Prioritize the slot brief in the input. The opener lights the rally, the second speaker supports or contrasts it, and later speakers add suspicion or vote work. Do not stack the same declaration three times.",
+    "Rules: 1-2 short sentences, under 24 words when possible. This is allies-only, so do NOT hide your identity. Do not frame it as meeting strangers. Make it a wolf-to-wolf vow to deceive, not a dry strategy report. If an earlier ally already used fooling them, passing as human, staying hidden, or lowering their guard, choose a different angle such as building trust, keeping distance, baiting reactions, spreading doubt, or nudging votes.",
     "Do not commit to a Seer/Medium/etc. fake claim; if mentioned, keep it situational while choosing a social job such as gaining trust, keeping distance, seeding suspicion, or nudging votes. Do NOT discuss attack targets or concrete night plans yet.",
-    'If the input includes "Earlier ally face-off line" entries, they are only allies who spoke before you in this same opening face-off. Answer with a short ally-facing rally such as "let us fool them" or "I will pass as human." Do not overwrite it with a firm special-role fake claim.',
+    'If the input includes "Earlier ally face-off line" entries, they are only allies who spoke before you in this same opening face-off. Acknowledge the content briefly, then add a different job or angle instead of restating the same wording. Do not overwrite it with a firm special-role fake claim.',
     "Important: open in your own natural voice.",
     "Output only the spoken line itself; no preamble or explanation."
   ].join("\n");

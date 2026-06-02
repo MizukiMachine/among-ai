@@ -1018,9 +1018,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
   assert.match(source, /speechMode === "werewolf_alignment"/);
   assert.match(source, /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)/);
-  assert.match(source, /line\.replace\(\s*\/。\+\$\/u,\s*""\s*\)/);
-  assert.match(source, /renderHumanContextLines\("今回の判断材料", notes, \{ trimTrailingJapanesePeriod: true \}\)/);
-  assert.match(source, /<summary>状況<\/summary>/);
+  assert.doesNotMatch(source, /function renderHumanContext/);
+  assert.doesNotMatch(source, /renderHumanContextLines/);
+  assert.doesNotMatch(source, /<details className="human-context">/);
+  assert.doesNotMatch(source, /<summary>状況<\/summary>/);
   assert.doesNotMatch(
     source,
     /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)[\s\S]*?renderHumanContext\(prompt\)[\s\S]*?function renderHumanInputPanel/
@@ -1067,13 +1068,13 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /speechInputPrompt \? renderHumanInputQuickControls\(\) : null/);
   assert.match(source, /挨拶を入力しましょう/);
   assert.match(source, /未入力なら既定の意思合わせ発言で進みます/);
-  assert.match(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
-  assert.match(source, /"この場面では候補から選んでください"/);
-  assert.match(source, /"候補から選択"/);
-  assert.match(source, /const canSubmitHumanSpeech = isWerewolfAlignment \|\| \(allowFreeText && humanSpeech\.trim\(\)\.length > 0\);/);
+  assert.doesNotMatch(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
+  assert.doesNotMatch(source, /"この場面では候補から選んでください"/);
+  assert.doesNotMatch(source, /"候補から選択"/);
+  assert.match(source, /const canSubmitHumanSpeech = isWerewolfAlignment \|\| humanSpeech\.trim\(\)\.length > 0;/);
   assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "意思合わせで話す" : "既定文で進む"/);
   assert.match(source, /rows=\{7\}/);
-  assert.match(source, /disabled=\{humanSubmitting \|\| !allowFreeText\}/);
+  assert.match(source, /disabled=\{humanSubmitting\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
@@ -1086,10 +1087,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(css, /\.human-speech-composer textarea\s*\{[^}]*background:\s*#2d3338;/s);
   assert.doesNotMatch(css, /\.human-speech-composer textarea\s*\{[^}]*var\(--ship-trim-texture\)/s);
   assert.match(css, /\.human-speech-choice-list\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/s);
-  assert.match(css, /\.human-context summary\s*\{[^}]*font-size:\s*18px;/s);
-  assert.match(css, /\.human-context summary::after\s*\{[^}]*content:\s*"開く";/s);
-  assert.match(css, /\.human-context\[open\] summary::after\s*\{[^}]*content:\s*"閉じる";/s);
-  assert.match(css, /\.human-context-body\s*\{[^}]*font-size:\s*18px;[^}]*line-height:\s*1\.64;/s);
+  assert.doesNotMatch(css, /\.human-context/);
   assert.match(css, /\.human-input-quick-controls\s*\{[^}]*position:\s*absolute;/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-composer textarea\s*\{[^}]*height:\s*clamp\(184px,\s*30vh,\s*220px\);/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.human-speech-choice-list\s*\{[^}]*max-height:\s*none;/s);

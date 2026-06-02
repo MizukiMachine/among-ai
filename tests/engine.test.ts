@@ -1873,9 +1873,10 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
       thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[1].name}`),
     "later wolves see every prior face-off line"
   );
-  assert.match(secondAgent.speechInputs[0].task, /vow to deceive|悪巧み/u);
+  assert.match(secondAgent.speechInputs[0].task, /different wolf-to-wolf angle|悪巧み/u);
   assert.match(secondAgent.speechInputs[0].context, /support or contrast|支援または対比/u);
-  assert.match(thirdAgent.speechInputs[0].context, /Do not add a firm role claim|役職騙りを確定で足さず/u);
+  assert.match(secondAgent.speechInputs[0].context, /Do not repeat their wording|同じ言い回し/u);
+  assert.match(thirdAgent.speechInputs[0].context, /I am also a werewolf|俺も人狼だ/u);
 });
 
 test("first-day werewolf face-off compacts long generated lines for the story display", async () => {
@@ -2589,6 +2590,12 @@ test("human speech choice can publish free text instead of a drafted option", as
 
   assert.ok(requests.some((request) => request.kind === "speech_choice" && request.options.length > 0));
   assert.ok(
+    requests
+      .filter((request) => request.kind === "speech_choice" && request.phase === "day_discussion")
+      .every((request) => request.options.length <= 2),
+    "human speech candidate lists are capped at two options"
+  );
+  assert.ok(
     requests.some(
       (request) => request.kind === "speech_choice" && request.context.notes.some((line) => roleSetupPattern.test(line))
     )
@@ -2766,7 +2773,7 @@ test("human speech input requests carry the prior emitted event as their reveal 
   }
 });
 
-test("human werewolf first-day forced opening must use a drafted deception choice", async () => {
+test("human werewolf first-day opening can use free text", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {
     async request(input) {
@@ -2804,10 +2811,10 @@ test("human werewolf first-day forced opening must use a drafted deception choic
   const firstSpeechRequest = requests.find((request) => request.kind === "speech_choice" && request.phase === "day_discussion");
 
   assert.ok(firstSpeechRequest && firstSpeechRequest.kind === "speech_choice");
-  assert.equal(firstSpeechRequest.allowFreeText, false);
+  assert.equal(firstSpeechRequest.allowFreeText, true);
+  assert.ok(firstSpeechRequest.options.length <= 2);
   assert.ok(firstHumanSpeech);
-  assert.notEqual(firstHumanSpeech.message, "今日は普通に様子見します");
-  assert.match(firstHumanSpeech.message, /人間側|占い師/);
+  assert.equal(firstHumanSpeech.message, "今日は普通に様子見します");
 });
 
 test("human Lover receives partner info in private input context", async () => {
