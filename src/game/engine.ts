@@ -3366,12 +3366,12 @@ export class WerewolfGame {
     const task =
       previousFaceoffHistory.length > 0
         ? this.text(
-            "Confirm your role, react to the face-off so far, and take the assigned complementary social job. If a Seer-style fake claim is mentioned, keep it as a situational option instead of a commitment.",
-            "自分の役職を確認し、これまでの顔合わせに反応して、割り当てられた補完的な社会的役回りを短く宣言してください。占い騙りに触れる場合は、確定ではなく状況次第の選択肢として残してください。"
+            'Confirm your role, answer any earlier ally line from this same opening face-off, and add a short wolf-to-wolf vow to deceive them, such as passing as human, staying hidden, or backing an ally\'s lie. If a Seer-style fake claim is mentioned, keep it as a situational option instead of a commitment.',
+            "自分の役職を確認し、この顔合わせ内で先に話した仲間の発言があれば短く乗って、「人間のフリで潜る」「あいつらを騙そう」など、仲間内の悪巧みの意気込みを足してください。占い騙りに触れる場合は、確定ではなく状況次第の選択肢として残してください。"
           )
         : this.text(
-            "Open the private werewolf face-off by confirming your role and setting one broad social-pressure lane for the team. Keep any Seer-style fake claim only as a situational option.",
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、社会的な圧力で昼を動かす大まかな方針を一つ短く置いてください。占い騙りは確定宣言ではなく、状況次第の選択肢に留めてください。"
+            'Open the private werewolf face-off by confirming your role and giving a short rally like "we will fool them" or "I will pass as human and stay hidden." Keep any Seer-style fake claim only as a situational option.',
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、「あいつら絶対騙してやる」「人間のフリで潜るぜ」のような短い意気込みを話してください。占い騙りは確定宣言ではなく、状況次第の選択肢に留めてください。"
           );
     const input: AgentSpeechInput = {
       player,
@@ -3429,19 +3429,19 @@ export class WerewolfGame {
   private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
     if (previousSpeakerCount === 0) {
       return this.text(
-        "Your slot: opener. Set one broad public-facing lane through social pressure and vote flow. A Seer-style fake claim may remain only a situational option.",
-        "あなたの枠: 最初の発言者。発言圧や票の流れでチーム全体の昼の大まかな方針を一つ置いてください。占い騙りは状況次第の選択肢に留めてください。"
+        'Your slot: opener. Start the wolf-to-wolf rally with a clear intent to deceive: pass as human, stay hidden, or make them lower their guard. A Seer-style fake claim may remain only a situational option.',
+        "あなたの枠: 最初の発言者。人間のフリで潜る、油断させる、絶対騙すなど、狼同士の悪巧みの意気込みを先に置いてください。占い騙りは状況次第の選択肢に留めてください。"
       );
     }
     if (previousSpeakerCount === 1) {
       return this.text(
-        "Your slot: support or contrast. A teammate has already set the main lane. Do not commit to a special-role fake claim too; keep that line situational and say whether you will back them, keep distance, sound cautious, or question them lightly.",
-        "あなたの枠: 支援または対比。仲間がすでに主な方針を置いています。自分も特殊役職騙りを確定せず、その線は状況次第に残し、信じる側・距離を取る側・慎重な村人・軽く疑う側のどれで補完するかを言ってください。"
+        "Your slot: support or contrast. A teammate has already started the deceptive rally. Do not commit to a special-role fake claim too; keep that line situational and say how you will back the lie, pass as human, keep distance, or bait reactions.",
+        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。自分も特殊役職騙りを確定せず、その線は状況次第に残し、人間のフリで潜る・嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。"
       );
     }
     return this.text(
-      "Your slot: pressure or vote work. The team already has a lane and a cover. Do not add a firm role claim; fill a social job such as nudging suspicion, narrowing vote options, or staying quiet until someone reacts.",
-      "あなたの枠: 圧力または票の調整。チームにはすでに方針とカバー役があります。役職騙りを確定で足さず、疑いを寄せる・投票先を狭める・反応を見るまで黙るなど、社会的な役回りを埋めてください。"
+      "Your slot: pressure or vote work. The team already has a deceptive rally and cover. Do not add a firm role claim; add a short vow about nudging suspicion, narrowing votes, staying hidden, or making them trust the wrong face.",
+      "あなたの枠: 圧力または票の調整。チームにはすでに騙す意気込みとカバー役があります。役職騙りを確定で足さず、疑いを寄せる・票を狭める・人間のフリで潜る・間違った顔を信じさせる、などを短く足してください。"
     );
   }
 
@@ -3463,8 +3463,8 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, clearly own your own role, and coordinate a distinct public-facing social job in one display-safe line. If you mention Seer/Medium/etc. fake claims here, phrase them as situational options, and do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職をはっきり確認し、昼に担う社会的な役回りが仲間と分かれるように一画面に収まる短さで話してください。ここで占い師・霊能などの特殊役職騙りに触れる場合は状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
+        'Check in with your allies, clearly own your own role, and speak like wolves psyching each other up to deceive the village. Keep it display-safe and short: "we will fool them", "I will pass as human", "let us make them lower their guard." If you mention Seer/Medium/etc. fake claims here, phrase them as situational options, and do not discuss attack targets or detailed plans yet.',
+        "仲間と意思を合わせ、自分の役職をはっきり確認し、狼同士で村を騙す気持ちを高める口調で話してください。「あいつら騙そうな」「人間のフリで潜る」「油断させる」など、一画面に収まる短さにします。ここで占い師・霊能などの特殊役職騙りに触れる場合は状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
     if (roleBrief) {
@@ -3474,10 +3474,15 @@ export class WerewolfGame {
       lines.push(
         ...previousFaceoffHistory
           .slice(-6)
-          .map((line) => this.text(`Face-off so far: ${line}`, `顔合わせでの発言: ${line}`)),
+          .map((line) =>
+            this.text(
+              `Earlier ally face-off line from this same opening meeting: ${line}`,
+              `この顔合わせで先に出た仲間の発言: ${line}`
+            )
+          ),
         this.text(
-          "Treat those prior lines as the live conversation. The team already has public-facing roles in progress; do not restart with a firm special-role fake claim for yourself. Refer to an ally's plan and fill the missing social job.",
-          "これまでの発言を今の会話として受けてください。チーム内の昼の役回りはすでに進んでいます。特殊役職騙りを自分の確定役として言い直さないでください。仲間の方針に触れ、不足している社会的な役回りを埋めてください。"
+          'Use only those same-face-off ally lines as context. Do not infer any conversation outside those entries. The team is psyching itself up to deceive the village; do not restart with a firm special-role fake claim for yourself. Refer to an ally\'s line and add your own short "I will fool them" angle.',
+          "上の行は、この顔合わせ内で先に出た仲間の発言だけです。それ以外の会話は想定しないでください。チーム内では村を騙す意気込みが進んでいます。特殊役職騙りを自分の確定役として言い直さないでください。仲間の言葉に触れ、自分なりの「あいつらを騙す」角度を短く足してください。"
         )
       );
     }

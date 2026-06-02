@@ -713,6 +713,7 @@ test("default werewolf alignment lines match each character voice", () => {
   assert.equal(lines.length, characterProfiles.length);
   assert.equal(new Set(lines).size, characterProfiles.length);
   assert.ok(lines.every((line) => line.includes("人狼")));
+  assert.ok(lines.every((line) => /(騙|フリ|ふり|潜|油断)/u.test(line)));
   assert.ok(lines.every((line) => line !== DEFAULT_WEREWOLF_ALIGNMENT_SPEECH));
   assert.ok(lines.some((line) => /票が集まりやすい位置/.test(line)), "セナ should keep the vote-tactician voice");
   assert.ok(lines.some((line) => /余計なことは言わない/.test(line)), "シュウヘイ should keep the stoic voice");
@@ -1859,7 +1860,10 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
     wolves.map((wolf) => wolf.id),
     "face-off lines are generated in table order so later speakers can use earlier context"
   );
-  assert.ok(!firstAgent.speechInputs[0].context.includes("Face-off so far"), "the first wolf opens without invented prior context");
+  assert.ok(
+    !firstAgent.speechInputs[0].context.includes("Earlier ally face-off line"),
+    "the first wolf opens without invented prior context"
+  );
   assert.ok(
     secondAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[0].name}`),
     "the second wolf sees the first wolf's face-off line"
@@ -1869,7 +1873,7 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
       thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[1].name}`),
     "later wolves see every prior face-off line"
   );
-  assert.match(secondAgent.speechInputs[0].task, /complementary social job|補完/u);
+  assert.match(secondAgent.speechInputs[0].task, /vow to deceive|悪巧み/u);
   assert.match(secondAgent.speechInputs[0].context, /support or contrast|支援または対比/u);
   assert.match(thirdAgent.speechInputs[0].context, /Do not add a firm role claim|役職騙りを確定で足さず/u);
 });

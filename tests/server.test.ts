@@ -211,7 +211,7 @@ test("optional werewolf alignment input fills empty speech with a minimal line",
 
   assert.ok(requestId);
   assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
-  assert.deepEqual(await alignmentPromise, { speech: "昼は人間側として合わせます" });
+  assert.deepEqual(await alignmentPromise, { speech: "あいつら絶対騙してやる" });
   session.close();
 });
 
