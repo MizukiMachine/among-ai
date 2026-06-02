@@ -1161,14 +1161,33 @@ function effectivePlayerCountForScenario(count: number, scenario: DebugScenario)
   return Math.max(normalizePlayerCount(count), minimumPlayerCountForScenario(scenario));
 }
 
-function getRoleDistributionItems(count: number): Array<[Role, number]> {
+const headerRoleOrder = [
+  "Werewolf",
+  "AlphaWolf",
+  "WolfBeauty",
+  "Seer",
+  "Witch",
+  "Guard",
+  "Hunter",
+  "Raven",
+  "Idiot",
+  "Elder",
+  "Lover",
+  "Villager",
+  "Jester"
+] as const satisfies readonly Role[];
+
+export function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const counts = new Map<Role, number>();
   for (const role of createRoles(normalizedCount)) {
     counts.set(role, (counts.get(role) ?? 0) + 1);
   }
 
-  return [...counts.entries()];
+  return headerRoleOrder.flatMap((role) => {
+    const roleCount = counts.get(role);
+    return roleCount === undefined ? [] : [[role, roleCount]];
+  });
 }
 
 function runModeClass(count: number): string {
@@ -1275,7 +1294,7 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
     note: "人間側が吊ってはいけない要注意役"
   },
   Lover: {
-    goal: "恋人2人だけで生き残ると勝利",
+    goal: "ゲーム終了時点で恋人2人とも生存",
     ability: "片方が死亡すると相方も後追い",
     timing: "開始時にペア決定、死亡時に連鎖",
     note: "元陣営より恋人の生存が優先"

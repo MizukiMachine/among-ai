@@ -7,6 +7,7 @@ import {
   buildTargetSystemPrompt
 } from "../src/game/prompts";
 import { detectDaySituations } from "../src/game/daySituations";
+import { reviewJapaneseOutput } from "../src/game/japaneseStyle";
 import { buildPublicSpeechPlan, firstDayOpeningMove } from "../src/game/speechPlanning";
 import { getCharacterProfile } from "../src/game/characters";
 import { getPromptMaterialPath, promptMaterialPlaceholders, promptMaterials, validatePromptMaterials } from "../src/game/prompts/materials";
@@ -63,13 +64,21 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.equal("speechJson" in promptMaterials.outputFormats, false);
   assert.match(promptMaterials.outputFormats.targetJson.instruction, /reasonKind/);
   assert.match(promptMaterials.outputFormats.targetJson.japaneseInstruction, /選択理由は.*コード側/);
-  assert.match(promptMaterials.roundSummary.jsonInstruction, /Do not reveal hidden roles beyond public claims/);
+  assert.match(promptMaterials.roundSummary.jsonInstruction, /公開主張を超えて隠し役職を明かしません/);
   for (const profile of Object.values(promptMaterials.roles)) {
     assert.ok(profile.publicSpeechGuidanceJa.length > 0, profile.role);
     assert.doesNotMatch(profile.publicSpeechGuidanceJa.join("\n"), /\b(strategy|pressure|record|history|slot)\b/i);
   }
   assert.match(promptMaterials.roles.Seer.publicSpeechGuidanceJa.join("\n"), /占い師|判定/);
   assert.match(promptMaterials.roles.Guard.publicSpeechGuidanceJa.join("\n"), /通常絶対に名乗らない/);
+  assert.match(
+    promptMaterials.roles.Werewolf.publicSpeechGuidanceJa.join("\n"),
+    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+  );
+  assert.match(
+    promptMaterials.roles.Jester.publicSpeechGuidanceJa.join("\n"),
+    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+  );
 });
 
 test("Japanese public speech context lists concrete claim roles and excludes Guard", () => {
@@ -93,6 +102,24 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   assert.match(seerContext, /騎士は通常絶対に名乗らない/);
   assert.doesNotMatch(seerContext, /占い師など|役職など/);
 
+  const werewolfContext = buildPromptContext({
+    ...baseInput,
+    player: player("Werewolf")
+  });
+  assert.match(werewolfContext, /人狼側の役職騙り方針/);
+  assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(werewolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(werewolfContext, /騎士は通常の騙り対象にしない/);
+
+  const jesterContext = buildPromptContext({
+    ...baseInput,
+    player: player("Jester")
+  });
+  assert.match(jesterContext, /道化師の役職騙り方針/);
+  assert.match(jesterContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(jesterContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(jesterContext, /単独勝利条件は終盤まで隠す/);
+
   const guardContext = buildPromptContext({
     ...baseInput,
     player: player("Guard")
@@ -110,9 +137,9 @@ function contextFor(role: Role) {
     round: 2,
     alivePlayers,
     deadPlayers: [{ id: "p8", name: "Edison", role: "Seer" }],
-    publicHistory: ["Byron: I want a timeline before voting."],
-    privateHistory: ["Round 1: voted for Curie."],
-    language: "English",
+    publicHistory: ["Byron: 投票前に時系列を見たいです。"],
+    privateHistory: ["第1ラウンド: Curieへ投票。"],
+    language: "Japanese",
     roleBreakdown: [
       { role: "Werewolf", count: 2 },
       { role: "AlphaWolf", count: 1 },
@@ -138,11 +165,11 @@ test("public speech context is a simple character-role-conversation prompt", () 
   for (const role of ["Werewolf", "Seer", "Witch", "Villager"] as const) {
     const context = contextFor(role);
 
-    assert.match(context, /Character:/);
-    assert.match(context, /Role:/);
-    assert.match(context, /Role setup:/);
-    assert.match(context, /Conversation so far:/);
-    assert.match(context, /Speech rules:/);
+    assert.match(context, /人物設定:/);
+    assert.match(context, /役職:/);
+    assert.match(context, /配役表:/);
+    assert.match(context, /これまでの会話:/);
+    assert.match(context, /発言ルール:/);
     assert.doesNotMatch(context, /Role strategy:|Public discussion guidance:|Public speech boundary:|Speech plan:/);
     assert.doesNotMatch(context, /Edison \(Seer\)/);
   }
@@ -151,7 +178,7 @@ test("public speech context is a simple character-role-conversation prompt", () 
 test("prompt builder only exposes secrets visible to each role", () => {
   const werewolf = contextFor("Werewolf");
   assert.match(werewolf, /SecretWolf/);
-  assert.match(werewolf, /SecretWolf \(secret-wolf\): AlphaWolf/);
+  assert.match(werewolf, /SecretWolf \(secret-wolf\): α人狼/);
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
@@ -172,7 +199,7 @@ test("prompt builder only exposes secrets visible to each role", () => {
 
   const witch = contextFor("Witch");
   assert.match(witch, /SecretVictim/);
-  assert.match(witch, /Save potion remaining: yes/);
+  assert.match(witch, /救済薬: 残っています/);
   assert.doesNotMatch(witch, /SecretWolf/);
   assert.doesNotMatch(witch, /SecretCheck/);
 
@@ -183,12 +210,12 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(lover, /SecretVictim/);
 
   const villager = contextFor("Villager");
-  assert.match(villager, /No private role information/);
+  assert.match(villager, /自分だけの役職情報はありません/);
   assert.doesNotMatch(villager, /SecretWolf/);
   assert.doesNotMatch(villager, /SecretCheck/);
   assert.doesNotMatch(villager, /SecretVictim/);
   assert.doesNotMatch(villager, /SecretLover/);
-  assert.doesNotMatch(villager, /Save potion remaining/);
+  assert.doesNotMatch(villager, /救済薬/);
 });
 
 test("role breakdown is public counts only while werewolf ally roles stay secret", () => {
@@ -251,7 +278,7 @@ test("werewolf private discussion uses private wolf guidance without public spee
     deadPlayers: [],
     publicHistory: [],
     privateHistory: [],
-    language: "English",
+    language: "Japanese",
     secret: {
       werewolfAllies: [
         { id: "p1", name: "Ada", role: "Werewolf", alive: true },
@@ -260,17 +287,17 @@ test("werewolf private discussion uses private wolf guidance without public spee
     }
   });
 
-  assert.match(context, /Werewolf-only private discussion guidance/);
-  assert.match(context, /Darwin \(p4\): AlphaWolf dead/);
-  assert.doesNotMatch(context, /Public discussion guidance/);
-  assert.doesNotMatch(context, /Public speech boundary/);
+  assert.match(context, /人狼だけの非公開相談方針/);
+  assert.match(context, /Darwin \(p4\): α人狼 死亡/);
+  assert.doesNotMatch(context, /昼議論の役職方針/);
+  assert.doesNotMatch(context, /公開発言の境界/);
 });
 
 test("system prompts keep public speech simple while target and boolean outputs stay structured", () => {
   const base = {
     player: player("Seer"),
     phase: "voting" as const,
-    language: "English",
+    language: "Japanese",
     legalPlayers: alivePlayers
   };
 
@@ -278,14 +305,14 @@ test("system prompts keep public speech simple while target and boolean outputs 
   const target = buildTargetSystemPrompt({ ...base, allowSkip: false });
   const boolean = buildBooleanSystemPrompt(base);
 
-  assert.match(speech, /Use the conversation so far and your role/);
-  assert.match(speech, /Output only the spoken line/);
+  assert.match(speech, /これまでの会話と自分の役職/);
+  assert.match(speech, /出力は画面に出す発言だけ/);
   assert.doesNotMatch(speech, /Return strict JSON only|reasoning metadata|surface wording|public-safe facts/);
-  assert.match(target, /Return strict JSON only/);
+  assert.match(target, /厳密な JSON/);
   assert.match(target, /"targetId"/);
   assert.match(target, /"reasonKind"/);
-  assert.match(target, /You must choose one listed target and one reasonKind/);
-  assert.match(boolean, /Return strict JSON only/);
+  assert.match(target, /必ず一覧にある対象 ID と reasonKind/);
+  assert.match(boolean, /厳密な JSON/);
   assert.match(boolean, /"decision"/);
 });
 
@@ -316,6 +343,8 @@ test("Japanese public speech prompts keep only persona, role, and conversation c
 
   assert.match(system, /これまでの会話と自分の役職/);
   assert.match(system, /出力は画面に出す発言だけ/);
+  assert.match(system, /日本語だけで書く/);
+  assert.match(system, /中国語の語彙や簡体字・繁体字/);
   assert.match(context, /人物設定/);
   assert.match(context, /役職/);
   assert.match(context, /これまでの会話/);
@@ -329,6 +358,17 @@ test("Japanese public speech prompts keep only persona, role, and conversation c
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
   assert.doesNotMatch(generatedPrompt, /观望|觉得|应该|确实|因为|所以/);
   assert.doesNotMatch(context, /役職ごとの発言方針|昼の状況別話法|初日特別モード|Speech plan|No prior public statements|vagueness as observed evidence|Task-specific visible context/);
+});
+
+test("Japanese output review rejects Chinese vocabulary in displayed speech", () => {
+  assert.deepEqual(reviewJapaneseOutput("初日は発言を控えすぎず、投票基準を先に出します", "Japanese"), {
+    ok: true,
+    issues: []
+  });
+
+  const review = reviewJapaneseOutput("初日は发言を控えて、様子を見るべきだと思います", "Japanese");
+  assert.equal(review.ok, false);
+  assert.match(review.issues.join("\n"), /Chinese vocabulary/);
 });
 
 test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {
@@ -414,6 +454,8 @@ test("first-day public speech context stays simple even when a speech plan exist
     })
   });
   assert.match(wolfContext, /公開の場では、人狼であること、仲間、夜の相談は漏らさない/);
+  assert.match(wolfContext, /人狼側の役職騙り方針/);
+  assert.match(wolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
   assert.doesNotMatch(wolfContext, /三分の二以上|初日特別モード|偽役職アピール/);
 
   assert.doesNotMatch(context, /暫定読み/);

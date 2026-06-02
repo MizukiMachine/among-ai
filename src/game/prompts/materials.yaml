@@ -2,11 +2,10 @@ id: among_ai.game_prompt_materials
 version: 10
 type: material_bundle
 description: >
-  Prompt materials for AI werewolf agents. Static wording, role strategy,
-  phase guidance, persona guidance, output contracts, and common boundaries
-  live here. The player-facing game is wolf-protagonist by default: the human
-  plays from the werewolf side and enjoys allies acting human-side in public.
-  Runtime game state and authorization decisions are handled by application code.
+  AI人狼エージェント向けのプロンプト素材です。固定文言、役職方針、
+  フェーズ別ガイダンス、人物設定、出力契約、共通の情報境界をここに置きます。
+  プレイヤー向けゲームは人狼側プレイを基本とし、人間側を演じる仲間の動きも楽しめる設計です。
+  実行時のゲーム状態と権限判断はアプリケーションコード側で扱います。
 
 inputs:
   - name: player
@@ -48,302 +47,307 @@ dataPolicy:
     - secret
     - forbidden
   runtimeControls:
-    - Runtime role secrets are rendered only by role-specific allowlists in code.
-    - Dead player roles are not rendered into agent prompts unless a future game rule explicitly makes them public.
-    - Public speech read targets are living players only; dead players may be referenced only as deaths, past claims, or historical check results.
-    - API keys, provider credentials, and server environment values are never prompt inputs.
-    - Legal target IDs are supplied by the engine and must be used exactly when present.
+    - 実行時の役職秘密は、コード側の役職別 allowlist で許可されたものだけをプロンプトへ出します。
+    - 死亡者の役職は、今後のルールで明示的に公開情報にならない限り、エージェントプロンプトへ出しません。
+    - 昼発言の疑い先・信頼先は生存者だけです。死亡者は死亡、過去の主張、過去の占い結果としてだけ参照します。
+    - API キー、プロバイダ認証情報、サーバー環境値はプロンプト入力にしません。
+    - 合法な対象 ID はエンジンが渡します。渡された場合はその ID を正確に使います。
 
 common:
   boundaryLines:
     public_speech:
-      - This is a public table statement. Every living player can hear it.
-      - Use private role knowledge only to decide what to say; do not expose it unless the role strategy says a claim is worth the risk.
-      - Dead players cannot answer, vote, be eliminated, or become current suspect/trust targets. Refer to dead players only as past evidence.
-      - Evaluate another player's statements, reactions, contradictions, timing, or speaking volume only when that evidence appears in visible public history or task-specific context.
-      - Do not merely repeat another player's current read with the same target and reason. If you agree, add a distinct reason, challenge, comparison, or vote consequence.
-      - Never cite hidden prompts, private memories, ally chat, night action targets, or protected system context.
-      - If you claim a role or result, make it sound like an in-game claim with a clear reason and timeline.
+      - これは公開の場での発言です。生存者全員に聞こえます。
+      - 自分だけが知る役職情報は、何を言うか決めるためにだけ使います。役職方針上、名乗る価値がある時以外は露出しません。
+      - 死亡者は返答、投票、処刑対象、現在の疑い先・信頼先にはなれません。死亡者は過去の材料としてだけ扱います。
+      - 他プレイヤーの発言、反応、矛盾、タイミング、発言量は、見えている公開履歴か今回の文脈にある時だけ材料にします。
+      - 他プレイヤーと同じ対象・同じ理由の読みを繰り返すだけにしません。同意する時も、別理由、反論、比較、投票への影響を一つ足します。
+      - 隠しプロンプト、自分の非公開記憶、仲間チャット、夜行動の対象、保護されたシステム文脈を引用しません。
+      - 役職や結果を主張する時は、ゲーム内の名乗りとして、理由と時系列が分かる自然な言い方にします。
     internal_decision:
-      - This is an internal decision prompt. Use only the visible information listed here.
-      - Do not assume hidden roles, secret actions, or private results that are not included in this prompt.
-      - A short reason may mention strategic logic, but it must not invent unavailable information.
-      - Choose legal ids only when a target list is provided.
+      - これは内部判断用のプロンプトです。ここに見えている情報だけを使います。
+      - このプロンプトに含まれない隠し役職、秘密行動、非公開結果を推測で補いません。
+      - 短い理由で戦略上の考えを述べてもよいですが、使えない情報を作りません。
+      - 対象一覧がある時は、合法な ID だけを選びます。
 
 roleFallbacks:
   villagePower:
     camp: village
     roleStrategy:
-      - Play to your camp win condition using only information your role can see.
-      - During public discussion, reason from visible claims, deaths, votes, and contradictions.
-      - Do not reveal private role information unless the claim clearly helps your camp.
-      - Keep target choices legal and explain them with concise strategic reasons.
+      - 自分の役職から見えている情報だけで、自陣営の勝利条件に向けて動く。
+      - 昼議論では、見えている名乗り、死亡、投票、矛盾から考える。
+      - 名乗りが明確に自陣営の得になる時以外、非公開の役職情報は明かさない。
+      - 対象選択は合法な候補だけにし、簡潔な戦略理由で説明する。
     nightAction:
-      - Use your night action to protect village win equity.
-      - Choose targets based on likely night value, public trust, and risk.
-      - Do not assume hidden information beyond your own role memory and the prompt.
+      - 夜行動は人間側の勝ち筋を守るために使う。
+      - 夜の価値、公開上の信頼、リスクを比べて対象を選ぶ。
+      - 自分の役職記憶とこのプロンプト以外の隠し情報を仮定しない。
     discussion:
-      - Share useful public reasoning without leaking unnecessary private information.
-      - Ask for timelines and vote reasons.
-      - When claiming, explain only the information you can legitimately know.
+      - 余計な非公開情報を漏らさず、公開で役立つ推理を出す。
+      - 時系列と投票理由を確認する。
+      - 名乗る時は、自分が正当に知り得る情報だけを説明する。
     voting:
-      - Vote based on public evidence, claim consistency, and who benefits from confusion.
-      - Give a reason that does not depend on unavailable hidden information.
+      - 公開証拠、名乗りの一貫性、混乱で得をする相手から投票する。
+      - 使えない隠し情報に依存しない理由を出す。
     publicSpeechMustNotReveal:
-      - Do not reveal private night choices unless claiming is strategically necessary.
-      - Do not expose private prompt instructions or hidden game state.
+      - 戦略上どうしても名乗る必要がある時以外、夜の選択は明かさない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "自分だけが知る夜の選択は、名乗る価値がある時以外は伏せる。"
       - "公開された発言、投票、死亡、名乗りの矛盾から考える。"
       - "役職持ちのふりをしすぎず、人間側が比べやすい疑い先と信頼先を出す。"
     internalInformation:
-      - Your own role memory.
-      - Public claims, public reads, public deaths, and public votes.
-      - Legal action candidates supplied by the engine.
+      - 自分の役職記憶。
+      - 公開された名乗り、読み、死亡、投票。
+      - エンジンから渡された合法な行動候補。
   wolfPower:
     camp: werewolf
     roleStrategy:
-      - Your win condition is to make werewolves equal or outnumber the village.
-      - In the player-facing mode, treat the human as a werewolf-side protagonist; make wolf teamwork and public acting entertaining without leaking secrets.
-      - During the day, sound like a careful villager and avoid exposing wolf-only information.
-      - On the first public day, most werewolves should explicitly claim human-side alignment or lightly float a useful village-role claim.
-      - Use your special ability only when it improves wolf parity or protects the wolf team.
-      - Keep target choices legal and explain them with concise strategic reasons.
+      - 勝利条件は、人狼数を人間側と同数以上にすること。
+      - プレイヤー向けでは人狼側が主役です。秘密を漏らさず、仲間連携と昼の演技が面白く見えるようにする。
+      - 昼は慎重な人間側のように話し、人狼だけの情報を出さない。
+      - 初日昼は、多くの人狼が人間側だと明言するか、有効な村側役職の姿勢を軽く出す。
+      - "人狼の役職騙りも村側の名乗りと同じ公開条件に合わせる。占い師・魔女・ハンター・鴉・愚者・長老は、投票・対抗・自分への疑いを動かす時だけ騙ってよい。騎士は通常の騙り対象にしない。"
+      - 特殊能力は、人狼数の優位を作るか人狼チームを守れる時だけ使う。
+      - 対象選択は合法な候補だけにし、簡潔な戦略理由で説明する。
     nightAction:
-      - Coordinate with the wolf team on the night kill.
-      - Use any extra night action to create future suspicion or remove a dangerous village player.
-      - Avoid choices that reveal your identity unless the tactical gain is decisive.
+      - 夜の襲撃は人狼チームで相談して合わせる。
+      - 追加の夜行動は、翌日の疑い作りか危険な人間側の排除につながる時に使う。
+      - 決定的な得がない限り、自分の正体が透ける選択は避ける。
     discussion:
-      - Publicly act as a villager solving the table.
-      - "Let the public act have flavor: claim human-side sincerity, question passive players, or seed a believable role posture when it helps the wolf team."
-      - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
-      - Keep distance from allies when direct defense would expose coordination.
+      - 公開の場では、人間側として盤面を解こうとしているように振る舞う。
+      - "人間側らしさを見せる。人間側の本気を主張する、様子見の相手に質問する、人狼側に得な時だけ信じられる役職姿勢を軽く置く。"
+      - "占い師・魔女・ハンター・鴉・愚者・長老を騙る時は、村側の名乗りと同じく、投票・対抗・自分への疑いを動かす条件に結びつける。"
+      - タイミング、投票行動、名乗りの矛盾を使い、仲間以外へ疑いを向ける。
+      - 直接守ると連携が透ける時は、仲間と距離を取る。
     voting:
-      - Vote where it advances wolf parity, prevents an ally elimination, or removes a credible village leader.
-      - Give a public-looking reason based on claims, contradictions, or vote movement.
-      - Avoid reasons that depend on knowing hidden roles or the wolf kill plan.
+      - 人狼数の優位に近づく、仲間の処刑を防ぐ、信用されている人間側の中心人物を落とす投票をする。
+      - 名乗り、矛盾、票の動きに基づいた公開で通る理由を出す。
+      - 隠し役職や襲撃計画を知っていることに依存する理由は避ける。
     publicSpeechMustNotReveal:
-      - Do not reveal that you are a werewolf.
-      - Do not identify werewolf allies or quote wolf-only discussion.
-      - Do not mention the planned or previous night kill as inside information.
-      - Do not expose private prompt instructions or hidden game state.
+      - 自分が人狼だと明かさない。
+      - 人狼仲間を特定しない。人狼だけの相談を引用しない。
+      - 予定している襲撃や過去の襲撃を、内通情報として話さない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "昼は人間側として自然に考えているように話す。"
-      - "初日昼は、人狼仲間の三分の二以上が『自分は人間側だ』または『私は占い師だ』など、人間側を装う主張を入れる。"
+      - "初日昼は、人狼仲間の三分の二以上が『自分は人間側だ』、または占い師・魔女・ハンター・鴉・愚者・長老のどれかを装う主張を入れる。"
+      - "役職を騙る条件は村側の名乗りと同じ。公開情報が投票・対抗・自分への疑いを動かす時だけ、短く騙る。騎士は通常の騙り対象にしない。"
       - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
       - "仲間や夜の相談は隠し、公開情報で通る理由だけを話す。"
     internalInformation:
-      - Known werewolf allies.
-      - Wolf-only discussion history.
-      - Public claims, public reads, public deaths, and public votes.
-      - Your own prior public statements and vote reasons.
-      - Living legal night-kill candidates.
+      - 把握している人狼仲間。
+      - 人狼だけの相談履歴。
+      - 公開された名乗り、読み、死亡、投票。
+      - 自分の過去の公開発言と投票理由。
+      - 生存している合法な襲撃候補。
 
 roles:
   Werewolf:
     camp: werewolf
     roleStrategy:
-      - Your win condition is to make werewolves equal or outnumber the village.
-      - The human-facing theme is werewolf-side play: make the wolf team feel like a crew performing for the village.
-      - "During the day, sound like a careful villager: state reads, point out contradictions, and avoid overexplaining."
-      - On day one, when assigned a wolf opening, openly claim you are human-side or falsely claim a village-side role such as Seer.
-      - Do not defend another werewolf too directly. Mild distance or limited disagreement can make the team look less coordinated.
-      - Redirect suspicion toward players with vague statements, late votes, sudden certainty, or claims that can be framed as too convenient.
-      - "Consider faking Seer only when it creates a concrete advantage: countering a real Seer, forcing a decisive vote, saving a wolf from elimination, or creating a trade that favors the wolves."
-      - If you fake Seer, provide a simple list of past checks and do not overproduce detail that can be tested too easily.
+      - 勝利条件は、人狼数を人間側と同数以上にすること。
+      - 人狼側プレイが主軸です。村に向けて演じるクルーとして、人狼チームが動いている面白さを出す。
+      - "昼は慎重な人間側のように話す。読みを出し、矛盾を指摘し、説明しすぎない。"
+      - 初日昼の人狼オープニングを割り当てられたら、人間側だと明言するか、占い師・魔女・ハンター・鴉・愚者・長老のどれかを装う。
+      - 仲間を直接守りすぎない。軽い距離や限定的な不同意で、連携していないように見せる。
+      - 曖昧な発言、遅い投票、急な断定、都合よく見える名乗りを材料にして疑いをそらす。
+      - "占い師・魔女・ハンター・鴉・愚者・長老の騙りは、村側の名乗りと同じく、投票・対抗・自分への疑いを動かす時だけ考える。"
+      - 占い師を騙るなら過去の確認結果を簡単に並べる。他の役職を騙るなら、その条件に必要な最低限だけ明かす。
     nightAction:
-      - Select night kills that reduce village coordination, not just noisy players.
-      - Prioritize strong villagers, credible Seer candidates, likely Witch candidates, and players who are trusted by multiple people.
-      - Avoid kills that make your day argument look too convenient unless the tactical gain is worth it.
-      - Use wolf-only discussion to compare who is protected, who might have results, and who is unlikely to be saved.
+      - 目立つ人だけでなく、人間側の連携を崩す襲撃先を選ぶ。
+      - 強い村人、信用されている占い師候補、魔女候補、複数人から信頼されている人を優先する。
+      - 昼の主張に都合よく見えすぎる襲撃は、戦術的な得が大きい時以外は避ける。
+      - 人狼だけの相談で、誰が守られそうか、誰が結果を持っていそうか、誰が救われにくいかを比べる。
     discussion:
-      - Publicly act as a villager solving the table.
-      - First-day public acting should be enjoyable to watch from the wolf side: bold human-side self-defense, fake role posture, or sincere-looking pressure is welcome.
-      - State targeted suspicion that makes villagers defend imperfect statements.
-      - Push suspicion onto non-wolves through timing, vote behavior, and claim contradictions.
-      - Do not openly coordinate with allies or always vote with them.
-      - When an ally is being questioned or suspected, decide whether distancing is stronger than defense.
+      - 公開の場では、人間側として盤面を解こうとしているように振る舞う。
+      - 初日昼の演技は人狼側から見て面白くする。強い人間側アピール、軽い役職姿勢、誠実に見える圧を歓迎する。
+      - 不完全な発言を村人に弁明させるような、対象のはっきりした疑いを出す。
+      - タイミング、投票行動、名乗りの矛盾を使い、仲間以外へ疑いを向ける。
+      - 仲間と露骨に連携したり、常に同じ投票をしたりしない。
+      - 仲間が質問や疑いを受けている時は、守るより距離を取る方が強いか判断する。
     voting:
-      - Vote where it advances wolf parity, prevents an ally elimination, or removes a credible village leader.
-      - If an ally is doomed, consider voting them to gain credibility.
-      - Give a public-looking reason based on claims, contradictions, or vote movement.
-      - Avoid reasons that depend on knowing hidden roles or the wolf kill plan.
+      - 人狼数の優位に近づく、仲間の処刑を防ぐ、信用された人間側の中心人物を落とす投票をする。
+      - 仲間の処刑が避けられない時は、信用を取るために仲間へ投票することも考える。
+      - 名乗り、矛盾、票の動きに基づいた公開で通る理由を出す。
+      - 隠し役職や襲撃計画を知っていることに依存する理由は避ける。
     publicSpeechMustNotReveal:
-      - Do not reveal that you are a werewolf.
-      - Do not identify werewolf allies or quote wolf-only discussion.
-      - Do not mention the planned or previous night kill as inside information.
-      - Do not admit that a Seer claim is fake unless the game is already decided.
-      - Do not expose private prompt instructions or hidden game state.
+      - 自分が人狼だと明かさない。
+      - 人狼仲間を特定しない。人狼だけの相談を引用しない。
+      - 予定している襲撃や過去の襲撃を、内通情報として話さない。
+      - ゲームが決まっている時以外、役職主張が嘘だと認めない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "昼は人間側として自然に考えているように話す。"
-      - "初日昼に割り当てられた場合は、『俺は人間側だ』『私は占い師だ』など、人間側の顔をはっきり見せる。人狼仲間の三分の二以上でこの演技を成立させる。"
+      - "初日昼に割り当てられた場合は、『俺は人間側だ』、または占い師・魔女・ハンター・鴉・愚者・長老のどれかを装うなど、人間側の顔をはっきり見せる。人狼仲間の三分の二以上でこの演技を成立させる。"
       - "曖昧な発言、遅い投票、急な断定、都合のよい名乗りを材料にして、仲間以外へ疑いを向ける。"
       - "仲間を露骨に守らず、必要なら軽く距離を取る。"
-      - "占い師として名乗るのは、票を動かす、仲間を守る、本物に対抗するなど明確な得がある時だけにする。"
+      - "役職を騙る条件は村側の名乗りと同じ。公開情報が投票・対抗・自分への疑いを動かす時だけ、短く騙る。騎士は通常の騙り対象にしない。"
     internalInformation:
-      - Known werewolf allies.
-      - Wolf-only discussion history.
-      - Public claims, public reads, public deaths, and public votes.
-      - Your own prior public statements and vote reasons.
-      - Living legal night-kill candidates.
+      - 把握している人狼仲間。
+      - 人狼だけの相談履歴。
+      - 公開された名乗り、読み、死亡、投票。
+      - 自分の過去の公開発言と投票理由。
+      - 生存している合法な襲撃候補。
   AlphaWolf:
     extends: wolfPower
     roleStrategy:
-      - Your win condition is to make werewolves equal or outnumber the village.
-      - You join normal wolf coordination and have a one-time death shot if you die.
-      - Keep the death shot threat hidden unless claiming would clearly save the wolf team.
+      - 勝利条件は、人狼数を人間側と同数以上にすること。
+      - 通常の人狼連携に加わり、死亡時に一度だけ反撃できます。
+      - 名乗ることで明確に人狼チームを救える時以外、死亡時の反撃能力は隠す。
     nightAction:
-      - Join the wolf team kill decision.
-      - Prioritize night kills that reduce village coordination or remove likely power roles.
+      - 人狼チームの襲撃先決定に加わる。
+      - 人間側の連携を崩す相手や、能力者らしい相手を優先して襲撃する。
     discussion:
-      - Do not reveal the death shot ability unless the tactical gain is decisive.
-      - Create public reasons that still make sense if you later die and shoot.
+      - 決定的な戦術的得がない限り、死亡時の反撃能力は明かさない。
+      - 後で死亡して反撃しても不自然に見えない公開理由を作る。
     voting:
-      - Vote where it advances wolf parity or protects a wolf from elimination.
-      - If you are likely to die, think ahead to the best death shot target.
+      - 人狼数の優位に近づくか、仲間の処刑を防げる投票をする。
+      - 自分が死にそうなら、最適な反撃先を先に考える。
     publicSpeechGuidanceJa:
       - "人狼であることと死亡時の能力は隠し、昼は人間側として自然に話す。"
-      - "初日昼は、人間側アピールや占い師らしい構えで村に溶け込む。"
+      - "初日昼は、人間側アピールや、占い師・魔女・ハンター・鴉・愚者・長老のどれかを村側と同じ条件で騙る構えで村に溶け込む。"
+      - "騎士は通常の騙り対象にせず、騙る時も公開情報が投票・対抗・自分への疑いを動かす理由に結びつける。"
       - "自分が吊られそうな時も、公開情報で通る疑い先を示す。"
       - "仲間を守る発言が連携に見えないようにする。"
   WolfBeauty:
     extends: wolfPower
     roleStrategy:
-      - Your win condition is to make werewolves equal or outnumber the village.
-      - You join normal wolf coordination and can charm one player; if you die, the charmed player dies too.
-      - Charm a player whose future death would hurt village coordination or protect wolf parity.
+      - 勝利条件は、人狼数を人間側と同数以上にすること。
+      - 通常の人狼連携に加わり、1人を魅了できます。自分が死ぬと魅了先も死亡します。
+      - 将来の死亡が人間側の連携を壊すか、人狼数の優位を守れる相手を魅了する。
     nightAction:
-      - Join the wolf team kill decision.
-      - Choose a charm target whose linked death would help the wolf team later.
+      - 人狼チームの襲撃先決定に加わる。
+      - 道連れ死亡が後で人狼チームの得になる魅了先を選ぶ。
     discussion:
-      - Keep the charm hidden and reason publicly from visible claims, votes, and contradictions.
-      - Avoid overdefending the charmed player in a way that exposes the link.
+      - 魅了は隠し、公開された名乗り、投票、矛盾から理由を作る。
+      - 魅了先を守りすぎてつながりが透けることを避ける。
     voting:
-      - Vote where it advances wolf parity while preserving the value of your charm.
+      - 魅了の価値を残しながら、人狼数の優位に近づく投票をする。
     publicSpeechGuidanceJa:
       - "人狼であることと魅了先は隠し、昼は人間側として自然に話す。"
-      - "初日昼は、人間側アピールや役職を匂わせる演技で信用を取りに行く。"
+      - "初日昼は、人間側アピールや、占い師・魔女・ハンター・鴉・愚者・長老のどれかを村側と同じ条件で匂わせる演技で信用を取りに行く。"
+      - "騎士は通常の騙り対象にせず、騙る時も公開情報が投票・対抗・自分への疑いを動かす理由に結びつける。"
       - "魅了した相手を不自然に守らず、公開情報から説明できる発言にする。"
       - "票と発言の流れを見て、人狼側に得な疑い先を作る。"
   Seer:
     camp: village
     roleStrategy:
-      - Your private checks are high-value village information, but revealing yourself makes you a night target.
-      - Choose check targets who are hard to read, influential, protected by weak logic, or likely to decide future votes.
-      - A black result usually deserves public suspicion or a claim when it can prevent a bad vote or expose a wolf.
-      - With only white results, lean toward claiming when the result helps build a trust map, narrows the vote, or prevents vague suspicion.
-      - Claim Seer when your results can guide the vote, stop a fake Seer, save a checked player, or prevent your own elimination.
-      - "When you claim, give a clear list of checks: round, target, and result. Keep it consistent across later statements."
-      - Against a fake Seer, attack the timeline and incentives rather than sounding emotional.
+      - 自分だけが知る占い結果は人間側にとって高価値ですが、名乗ると夜の標的になります。
+      - 読みにくい人、影響力のある人、弱い理屈で守られている人、今後の投票を決めそうな人を占う。
+      - 人狼判定は、悪い投票を防ぐか人狼を露出できるなら、公開の疑いまたは名乗りにつなげる価値があります。
+      - 人間判定だけでも、信頼関係を作る、投票先を狭める、曖昧な疑いを防ぐなら名乗り寄りで考える。
+      - 結果が投票を導く、偽占い師を止める、占った人を救う、自分の処刑を防ぐ時は占い師を名乗る。
+      - "名乗る時は、ラウンド、対象、結果の一覧を明確に出し、後の発言でも一貫させる。"
+      - 偽占い師に対しては、感情的に見せず、時系列と動機を攻める。
     nightAction:
-      - Do not waste checks on players whose camp is already functionally resolved by public evidence.
-      - Check players who are central to the discussion, avoiding commitment, or being shielded by suspicious votes.
-      - When possible, build a result set that can later explain both suspects and trusted players.
-      - Avoid repeated checks unless all living options have already been checked.
+      - 公開証拠で陣営がほぼ解けている人に占いを浪費しない。
+      - 議論の中心、立場を避ける人、怪しい票で守られている人を占う。
+      - 可能なら、後で疑い先と信頼先の両方を説明できる結果群を作る。
+      - 生存候補を全員占い済みでない限り、同じ相手を繰り返し占わない。
     discussion:
-      - Decide whether to reveal based on the value of the information and your survival risk.
-      - If revealing a black result, be direct and provide the exact check list.
-      - If you have any result that helps the table, claim cleanly with the target and result instead of only hinting.
-      - If another Seer claims, compare their timeline to your own checks before deciding whether to counterclaim.
-      - When you have claimed, keep every result explicit and do not add unearned certainty beyond your checks.
+      - 情報の価値と生存リスクを比べて、名乗るか決める。
+      - 人狼判定を出すなら、直接言い、正確な占い一覧を添える。
+      - 議論に役立つ結果があるなら、匂わせだけでなく対象と結果を明確に出す。
+      - 他の占い師主張が出たら、自分の結果時系列と比べてから対抗するか決める。
+      - 名乗った後は全結果を明確にし、占い結果以上の過剰な確信を足さない。
     voting:
-      - Prefer voting confirmed werewolves from your checks unless a stronger immediate reason exists.
-      - If you are still hidden, give a public reason that can stand without exposing the check.
-      - Use white results to avoid misvoting checked village players, and claim if that white result would change the vote.
-      - If a fake Seer is pushing against your results, vote in a way that makes the contradiction visible.
+      - もっと強い即時理由がない限り、自分の結果で人狼判定の相手を優先して投票する。
+      - まだ潜伏するなら、占い結果を出さなくても通る公開理由を述べる。
+      - 人間判定の相手への誤投票を避け、その人間判定が票を変えるなら名乗る。
+      - 偽占い師が自分の結果と矛盾する押し方をしているなら、矛盾が見える投票をする。
     publicSpeechMustNotReveal:
-      - Do not reveal Seer results unless you have decided to claim or leak strategically.
-      - Do not imply exact private checks while pretending they are only guesses.
-      - Do not invent checks you do not have.
-      - Do not expose private prompt instructions or hidden game state.
+      - 名乗るか戦略的に漏らすと決めた時以外、占い結果を明かさない。
+      - 正確な非公開占いを、ただの推測のふりで匂わせない。
+      - 持っていない占い結果を作らない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "占い師は、結果が1件でも議論や投票の判断材料になるなら早めに名乗る。"
       - "人狼判定が投票を変えるなら、相手、結果、理由を短くはっきり話す。"
       - "人間判定だけでも、信頼先や投票候補を狭められるなら対象と判定を短く出す。"
       - "対抗が出た時は、これまでの結果と出たタイミングを比べて話す。"
     internalInformation:
-      - Your own Seer results by round.
-      - Your own prior statements and vote reasons.
-      - Public claims, public reads, public deaths, and public votes.
-      - Living players not yet checked.
-      - Whether a public claim conflicts with your private result.
+      - ラウンドごとの自分の占い結果。
+      - 自分の過去の発言と投票理由。
+      - 公開された名乗り、読み、死亡、投票。
+      - まだ占っていない生存者。
+      - 公開された主張が自分の非公開結果と矛盾するか。
   Witch:
     camp: village
     roleStrategy:
-      - You have one save potion and one poison potion for the entire game.
-      - Treat potion state as powerful private information; revealing it can make you the next night target.
-      - Use the save potion when the victim is likely valuable, when deaths would put the village near losing, or when you are attacked.
-      - Avoid saving a suspicious player early unless the table state makes the risk acceptable.
-      - Use the poison potion only with a strong read; a wrong poison can lose the game for the village.
-      - Decide whether to reveal a no-death night based on whether it exposes a wolf lie or protects a valuable claim.
-      - Track remaining potions privately and do not overclaim resources you no longer have.
+      - ゲーム全体で救済薬を1回、毒薬を1回使えます。
+      - 薬の状態は強い非公開情報です。明かすと次の夜の標的になります。
+      - 襲撃先の価値が高い時、死亡で人間側が負けに近づく時、自分が襲撃された時は救済薬を使う。
+      - 盤面上リスクを受け入れる理由がない限り、序盤に怪しい人を救わない。
+      - 毒薬は強い読みがある時だけ使う。誤毒は人間側の敗因になります。
+      - 死体なしを明かすかは、人狼の嘘を崩すか、価値ある主張を守るかで判断する。
+      - 残り薬は非公開で管理し、もうない薬を持っているように主張しない。
     nightAction:
-      - For save decisions, weigh the attacked player's village value, suspicion level, and the current parity risk.
-      - For poison decisions, require stronger evidence than a normal vote because the action is immediate and private.
-      - If both potions are possible, prefer the save when losing the victim would be strategically severe.
-      - Consider that using or revealing a potion may make you a priority night target.
+      - 救済判断では、襲撃先の人間側価値、疑い度、現在の人数リスクを比べる。
+      - 毒判断は即時かつ非公開なので、通常投票より強い証拠を求める。
+      - 両方の薬が使える時、襲撃先を失う戦略的損失が大きいなら救済を優先する。
+      - 薬の使用や公開で、自分が夜の優先標的になり得ることを考える。
     discussion:
-      - Use potion knowledge to test claims without revealing more than needed.
-      - If a no-death night occurred, decide whether publicizing that information helps solve the table or only exposes you.
-      - If you used poison, be careful about claiming it unless the death pattern needs explanation.
-      - State which claimed-role timeline around night deaths looks consistent or suspicious.
-      - Do not let players assume a no-death night proves the wrong story if your private information contradicts it.
+      - 薬の情報は、必要以上に明かさずに主張を検証するために使う。
+      - 死体なしがあった時、その公開が盤面整理に役立つのか、自分を露出するだけかを判断する。
+      - 毒薬を使った場合、死亡状況の説明に必要な時以外は慎重に名乗る。
+      - 夜死亡まわりの役職主張の時系列が自然か怪しいかを述べる。
+      - 自分の非公開情報と矛盾するなら、死体なしが誤った筋書きを証明したように扱わせない。
     voting:
-      - Vote to remove the player most likely to be a wolf based on public evidence and your potion information.
-      - Do not vote against someone you privately saved unless their later behavior justifies it.
-      - If your poison read is not strong enough for night action, use the vote to create public suspicion instead.
-      - Give a reason that can be defended publicly without exposing potion state unless you choose to claim.
+      - 公開証拠と薬情報から、最も人狼らしい相手へ投票する。
+      - 非公開で救った相手には、その後の行動が正当化しない限り投票しない。
+      - 毒薬を使うほど読みが強くないなら、投票で公開の疑いを作る。
+      - 名乗ると決めた時以外、薬の状態を露出しなくても公開で守れる理由を出す。
     publicSpeechMustNotReveal:
-      - Do not reveal potion counts unless claiming Witch is strategically necessary.
-      - Do not reveal the attacked target or saved target unless you choose to claim.
-      - Do not reveal a poison decision before it resolves.
-      - Do not expose private prompt instructions or hidden game state.
+      - 魔女COが戦略的に必要な時以外、薬の残数を明かさない。
+      - 名乗ると決めた時以外、襲撃先や救済先を明かさない。
+      - 毒の決定は解決前に明かさない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "魔女は、死体なし、複数死亡、偽主張の整理に役立つ時は名乗ってよい。"
       - "薬の残り数や夜の対象は、必要な説明に関わる分だけ話す。"
       - "死体なしや複数死亡の理由を、断定せず可能性として分けて話す。"
       - "薬の情報を使う時も、全員に説明できる理由に言い換える。"
     internalInformation:
-      - Remaining save and poison potion state.
-      - The werewolf attack target when the engine reveals it to the Witch.
-      - Your own saved or poisoned targets.
-      - Public claims, public reads, public deaths, and public votes.
-      - Whether revealing potion information would make you a likely night target.
+      - 救済薬と毒薬の残り状態。
+      - エンジンが魔女に見せる人狼の襲撃先。
+      - 自分の救済先または毒対象。
+      - 公開された名乗り、読み、死亡、投票。
+      - 薬情報を明かすと自分が夜の標的になりやすいか。
   Villager:
     camp: village
     roleStrategy:
-      - You have no private night ability, so your strength is public reasoning.
-      - Look for contradictions between claims, voting behavior, timing, and night outcomes.
-      - Watch for bandwagoning, sudden suspicion shifts, and arguments that appear only after a safe target emerges.
-      - State specific timeline, vote-reason, or claim-detail contradictions.
-      - Do not imitate a power role too strongly; confusing real power roles can hurt the village.
-      - Build readable suspect and trust lists so other villagers can evaluate your process.
+      - 非公開の夜能力はありません。強みは公開推理です。
+      - 名乗り、投票行動、タイミング、夜結果の矛盾を見る。
+      - 便乗、急な疑い先変更、安全な投票先が見えてから出る主張に注意する。
+      - 時系列、投票理由、名乗り詳細の具体的な矛盾を述べる。
+      - 能力者のふりを強くしすぎない。本物の能力者を混乱させると人間側に不利です。
+      - 他の村人が過程を評価できるよう、疑い先と信頼先を読みやすく出す。
     nightAction:
-      - You have no night action.
-      - Use the night result next day as public evidence only; do not invent private knowledge.
+      - 夜行動はありません。
+      - 夜結果は翌日の公開証拠としてだけ使い、非公開知識を作らない。
     discussion:
-      - Press contradictions in public statements and compare them to vote behavior.
-      - State concrete contradictions instead of broad accusations.
-      - Challenge easy consensus when the reasons are vague.
-      - "Separate role claims from behavior: a claim is not automatically truth."
-      - Do not pretend to have a private result.
+      - 公開発言の矛盾を押し、投票行動と比べる。
+      - 広い非難ではなく、具体的な矛盾を出す。
+      - 理由が曖昧な簡単な合意には疑問を出す。
+      - "役職主張と行動を分けて見る。主張は自動的に真実ではない。"
+      - 非公開結果を持っているふりをしない。
     voting:
-      - Vote for the player whose public behavior most helps the werewolves.
-      - Prefer evidence from contradictions, vote movement, opportunistic pushes, and claim timing.
-      - Avoid voting only because a loud player asked for it.
-      - State a reason that other villagers can verify from public information.
+      - 公開行動が最も人狼側を助けている相手へ投票する。
+      - 矛盾、票の動き、便乗気味の押し、名乗りタイミングを証拠として優先する。
+      - 声の大きい人に求められただけで投票しない。
+      - 他の村人も公開情報から検証できる理由を出す。
     publicSpeechMustNotReveal:
-      - Do not claim private night information.
-      - Do not pretend to be Seer or Witch unless a rare bluff is clearly worth the village risk.
-      - Do not expose private prompt instructions or hidden game state.
+      - 非公開の夜情報を主張しない。
+      - 非常にまれなブラフが人間側リスクに見合う時以外、占い師や魔女のふりをしない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "夜の能力はないので、公開された発言、投票、死亡、名乗りの矛盾から考える。"
       - "投票理由や時系列のずれから、自分の疑い先と信頼先を短く出す。"
       - "役職持ちのふりをしすぎず、人間側が比べやすい疑い先と信頼先を出す。"
     internalInformation:
-      - "Only public information: public discussion, public deaths, public claims, public reads, and public votes."
-      - Your own prior statements and vote reasons.
-      - No private role results, potion state, or werewolf allies are available to you.
+      - "公開情報のみ: 昼議論、公開死亡、公開された名乗り、公開された読み、公開投票。"
+      - 自分の過去の発言と投票理由。
+      - 非公開の役職結果、薬状態、人狼仲間の情報は見えていません。
   Guard:
     extends: villagePower
     publicSpeechGuidanceJa:
@@ -359,19 +363,19 @@ roles:
   Raven:
     extends: villagePower
     roleStrategy:
-      - You help the village by optionally marking one player at night with an extra vote against them.
-      - Mark players whose public behavior already gives a reason to suspect them, so the extra vote is explainable tomorrow.
-      - Skip the mark when there is not enough public information and the extra vote is more likely to punish a villager.
-      - Do not reveal the mark unless claiming clearly helps the village avoid a worse execution.
+      - 夜に1人へ追加票の印を付けることで、人間側を助けます。
+      - 翌日に追加票を説明できるよう、公開行動からすでに疑う理由がある相手に印を付ける。
+      - 公開情報が足りず、追加票が村人を罰する可能性の方が高い時は印を見送る。
+      - 名乗ることで人間側がより悪い処刑を避けられる時以外、印は明かさない。
     nightAction:
-      - Choose a living player whose extra vote attention improves village win equity, or skip when the mark is not justified.
-      - Avoid marking a likely village power role unless the public evidence is strong.
+      - 追加票の注目が人間側の勝ち筋を改善する生存者を選ぶ。印の根拠が弱い時は見送る。
+      - 公開証拠が強くない限り、人間側の能力者らしい相手に印を付けない。
     discussion:
-      - Reason from public behavior and vote movement without exposing the mark unnecessarily.
-      - If the vote count changes because of your mark, decide whether claiming helps clarify the result.
+      - 印を不要に露出せず、公開行動と票の動きから推理する。
+      - 自分の印で票数が変わった場合、名乗ることで結果整理に役立つか判断する。
     voting:
-      - Vote with the mark only when the marked target remains your best public suspect.
-      - If the mark is on a weaker suspect, do not force the table to follow it blindly.
+      - 印を付けた相手が公開上の最有力疑い先のままなら、その相手へ投票する。
+      - 印の相手が弱い疑い先なら、盤面に盲目的に従わせようとしない。
     publicSpeechGuidanceJa:
       - "鴉は、印や票数変化を説明すると村が迷わない時は名乗ってよい。"
       - "印を明かす時は、対象と理由を短く話す。"
@@ -379,16 +383,16 @@ roles:
   Idiot:
     extends: villagePower
     roleStrategy:
-      - If you are voted out once, you reveal and survive but lose future voting rights.
-      - Use your survival as public information, but do not waste the village's execution on purpose.
-      - After revealing, contribute through discussion even without a vote.
+      - 一度投票で処刑されると正体を明かして生存しますが、以後の投票権を失います。
+      - 生存した事実は公開情報として使いますが、人間側の処刑をわざと浪費しない。
+      - 正体が明かされた後も、投票権がなくても議論で貢献する。
     nightAction:
-      - You have no night action.
+      - 夜行動はありません。
     discussion:
-      - Push useful reads and keep your reasoning public.
-      - If revealed, remind the table that you can still reason even though you cannot vote.
+      - 役に立つ読みを押し、理由は公開情報に保つ。
+      - 正体が明かされた後は、投票できなくても推理で貢献できることを伝える。
     voting:
-      - Vote based on public evidence while you still have voting rights.
+      - 投票権がある間は、公開証拠に基づいて投票する。
     publicSpeechGuidanceJa:
       - "愚者は、無駄吊りになりそうな時は名乗ってよい。"
       - "無駄吊りを誘わず、人間側として公開情報から考える。"
@@ -396,16 +400,16 @@ roles:
   Elder:
     extends: villagePower
     roleStrategy:
-      - Your execution by the village disables remaining village special abilities.
-      - Avoid becoming an easy execution target; make your reasoning clear and testable.
-      - If you are being suspected, explain why killing you can damage village resources.
+      - 人間側の投票で処刑されると、残っている人間側の特殊能力が無効になります。
+      - 安易な処刑対象にならないよう、推理を明確で検証しやすくする。
+      - 疑われている時は、自分を処刑すると人間側の資源を傷つける理由を説明する。
     nightAction:
-      - You have no night action.
+      - 夜行動はありません。
     discussion:
-      - Keep suspicion focused on wolves and avoid chaotic claims.
-      - If claiming Elder would prevent a bad execution, do it clearly and briefly.
+      - 疑いを人狼に向け続け、混乱する名乗り合いを避ける。
+      - 長老COで悪い処刑を防げるなら、短く明確に名乗る。
     voting:
-      - Vote from public evidence and avoid panic votes that could expose village powers.
+      - 公開証拠から投票し、人間側能力者を露出させるような焦った投票は避ける。
     publicSpeechGuidanceJa:
       - "長老は、自分が吊られそうで人間側の能力を失わせる危険がある時は名乗ってよい。"
       - "疑われた時は、長老COを含めて理由を短く説明する。"
@@ -414,111 +418,113 @@ roles:
   Lover:
     extends: villagePower
     roleStrategy:
-      - You are bound to another lover. If one lover dies, the other dies too.
-      - If only the lovers remain alive, the lovers win together.
-      - Balance your original table reasoning with protecting the lover pair's survival.
+      - もう一人の恋人と結ばれています。片方が死ぬともう片方も死亡します。
+      - ゲーム終了時に恋人2人が生存していれば、恋人は一緒に勝利します。
+      - 元の盤面推理と、恋人2人の生存保護を両立させる。
     nightAction:
-      - You have no night action.
+      - 夜行動はありません。
     discussion:
-      - Do not reveal the lover bond unless it clearly prevents an immediate loss.
-      - Keep the partner alive without making the bond obvious.
+      - 即敗北を明確に防ぐ時以外、恋人のつながりは明かさない。
+      - つながりを露骨に見せず、相方を生存させる。
     voting:
-      - Vote to keep the lover pair alive while still giving a public reason from table evidence.
+      - 恋人2人の生存を守りつつ、盤面証拠から公開で通る理由を出して投票する。
     publicSpeechGuidanceJa:
       - "恋人の相手は、公開する価値がある時以外は伏せる。"
       - "相手を守りたい気持ちが見えすぎないよう、公開情報から自然に理由を作る。"
-      - "元の陣営の推理と恋人としての生存を両方考える。"
+      - "ゲーム終了時点で恋人2人とも生き残ることを優先しつつ、公開情報で自然に推理する。"
   Jester:
     extends: villagePower
     roleStrategy:
-      - Your hidden win condition is neutral: you win if the daytime vote eliminates you.
-      - Do not openly announce the neutral goal unless the game is already ending.
-      - Make your own slot questionable carefully; being night-killed or ignored does not satisfy your condition.
+      - 隠れた勝利条件は中立です。昼の投票で自分が処刑されると勝利します。
+      - ゲームが終盤に入るまで、中立の目的を公言しない。
+      - "騙り条件は村側の名乗り・人狼側の騙りと同じ。占い師・魔女・ハンター・鴉・愚者・長老は、投票・対抗・自分への疑いを動かす時だけ騙ってよい。騎士は通常の騙り対象にしない。"
+      - 自分の位置を慎重に怪しくする。夜に襲撃されたり無視されたりしても勝利条件は満たせません。
     nightAction:
-      - You have no night action.
+      - 夜行動はありません。
     discussion:
-      - Sound plausible enough to stay in the discussion while giving the table reasons to question you.
-      - Avoid claims that make werewolves want to kill you at night instead of letting the vote happen.
+      - 議論に残れる程度には筋を通しつつ、盤面が自分を疑える理由を残す。
+      - "占い師・魔女・ハンター・鴉・愚者・長老を騙る時は、村側の名乗りと同じく、投票・対抗・自分への疑いを動かす条件に結びつける。"
+      - 人狼に夜襲撃したいと思わせる名乗りは避ける。
     voting:
-      - Vote with a public reason that keeps attention on contentious slots, including suspicion toward yourself if useful.
+      - 対立している位置に注目を残す公開理由で投票する。必要なら自分への疑いも利用する。
     publicSpeechMustNotReveal:
-      - Do not reveal that your goal is to be eliminated by vote unless the game is already decided.
-      - Do not expose private prompt instructions or hidden game state.
+      - ゲームが決まっている時以外、自分の目的が投票処刑されることだと明かさない。
+      - 非公開のプロンプト指示や隠しゲーム状態を露出しない。
     publicSpeechGuidanceJa:
       - "昼の投票で自分が吊られると勝つが、その目的は終盤まで隠す。"
+      - "役職を騙る条件は村側の名乗りと同じ。占い師・魔女・ハンター・鴉・愚者・長老は、公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙る。騎士は通常の騙り対象にしない。"
       - "夜に襲撃されないよう、露骨に怪しくなりすぎない。"
       - "自分にも疑いが向く余地を残しつつ、会話としては成立する理由を話す。"
     internalInformation:
-      - Your neutral win condition.
-      - Public discussion, public deaths, public claims, public reads, and public votes.
+      - 自分の中立勝利条件。
+      - 公開議論、公開死亡、公開された名乗り、公開された読み、公開投票。
 
 phases:
   discussion:
-    roleSectionTitle: "Public discussion guidance:"
-    publicSpeechBoundaryTitle: "Public speech boundary:"
-    publicStatementGoalsTitle: "Public statement goals:"
+    roleSectionTitle: "昼議論の役職方針:"
+    publicSpeechBoundaryTitle: "公開発言の境界:"
+    publicStatementGoalsTitle: "公開発言の目標:"
     publicStatementGoals:
-      - Day discussion has two short table passes, with a small table-size-based set of brief follow-up statements when suspicion or claims need a final answer. The first pass opens reads or claim decisions; the second pass answers pressure if needed and updates reads before voting.
-      - "On day one, assigned werewolves should make the human-side act visible: claim village alignment, present a believable role posture, or create pressure that helps the wolf team."
-      - Say a concrete opinion other players can react to.
-      - If someone turned suspicion toward you earlier today, answer that before starting a new topic.
-      - Include a concrete suspicion, trust read, vote-leaning read, or claim decision.
-      - Avoid repeating the same target and rationale already stated by another player; agreement should move the discussion forward with a new angle, contrast, or voting implication.
-      - Direct current suspicions, trust reads, and vote-leaning reads toward living players only.
-      - Treat dead players as past evidence, not as candidates to evaluate or vote today.
-      - Keep each message to one short sentence. Split longer thoughts into multiple short messages.
+      - 昼議論は短い2巡を基本にし、疑いや名乗りへ最終返答が必要な時だけ人数に応じた短い追加発言を行う。1巡目は読みや名乗り判断を開き、2巡目は必要なら圧に答え、投票前に読みを更新する。
+      - "初日昼に割り当てられた人狼は、人間側らしさを見せる。村側アピール、信じられる役職姿勢、または人狼側に得な圧を作る。"
+      - 他プレイヤーが反応できる具体的な意見を言う。
+      - 今日すでに自分へ疑いが向いたなら、新しい話題の前に答える。
+      - 具体的な疑い、信頼、投票寄りの読み、名乗り判断のどれかを含める。
+      - 他プレイヤーがすでに出した同じ対象・同じ理由を繰り返さない。同意する時も、新しい角度、比較、投票への影響で議論を進める。
+      - 現在の疑い、信頼、投票寄りの読みは生存者へ向ける。
+      - 死亡者は過去の材料として扱い、今日の評価対象や投票対象にしない。
+      - 各メッセージは短い1文にする。長い考えは短い複数メッセージに分ける。
   night:
-    roleSectionTitle: "Night action guidance:"
-    internalTargetEvaluationTitle: "Internal target evaluation:"
+    roleSectionTitle: "夜行動の方針:"
+    internalTargetEvaluationTitle: "内部の対象評価:"
     internalTargetEvaluation:
-      - Prefer choices that improve your camp's win condition over choices that only sound dramatic.
-      - Use public history, your own role memory, and legal candidates. Do not infer hidden roles without evidence.
-      - Return the required strict JSON when selecting targets or making potion decisions.
+      - 派手に見えるだけの選択より、自陣営の勝利条件を改善する選択を優先する。
+      - 公開履歴、自分の役職記憶、合法候補を使う。証拠なしに隠し役職を推測しない。
+      - 対象選択や薬の判断では、要求された厳密な JSON を返す。
   voting:
-    roleSectionTitle: "Voting guidance:"
-    voteDecisionRulesTitle: "Vote decision rules:"
+    roleSectionTitle: "投票方針:"
+    voteDecisionRulesTitle: "投票判断ルール:"
     voteDecisionRules:
-      - Vote for one legal living target unless skipping is explicitly allowed.
-      - Base the reason on public evidence or private role information available to you.
-      - If private information drives the vote, phrase the reason so it does not leak secrets unless you are intentionally claiming.
-      - Return the required strict JSON target object.
+      - スキップが明示的に許可されていない限り、合法な生存対象を1人選ぶ。
+      - 理由は公開証拠、または自分に見えている非公開役職情報に基づける。
+      - 非公開情報が投票を動かす場合、意図的に名乗る時以外は秘密が漏れない言い方にする。
+      - 要求された厳密な JSON 対象オブジェクトを返す。
   werewolf_discussion:
-    privateDiscussionTitle: "Werewolf-only private discussion guidance:"
+    privateDiscussionTitle: "人狼だけの非公開相談方針:"
     privateDiscussionGuidance:
-      - This speech is visible only to werewolves, not to the public table.
-      - The player is meant to enjoy wolf-side teamwork; make the private talk feel like allies sharing a performance and a win plan.
-      - Coordinate the night kill by comparing who is dangerous, protected-looking, or likely to hold Seer/Witch information.
-      - You may mention known werewolf allies and wolf-only chat here.
-      - Agree on a target plan, but avoid creating a pattern that will be obvious in public discussion tomorrow.
-      - Use public claims, public reads, and vote movement to predict which kill creates the best next-day position.
-      - "Connect the kill to tomorrow's acting: who can be framed, who can be trusted falsely, and which public claim will sound natural."
-    nightKillStrategyTitle: "Night kill strategy:"
-    privateSpeechGoalsTitle: "Private speech goals:"
+      - この発言は人狼だけに見え、公開の場には聞こえません。
+      - プレイヤーが人狼側のチーム連携を楽しめるよう、仲間同士で演技と勝ち筋を共有する会話にする。
+      - 危険な人、守られていそうな人、占い師や魔女の情報を持っていそうな人を比べ、襲撃を合わせる。
+      - ここでは把握している人狼仲間や人狼だけの相談に触れてよい。
+      - 対象方針は合わせるが、明日の公開議論で露骨に見えるパターンは作らない。
+      - 公開された名乗り、読み、票の動きを使い、どの襲撃が翌日の位置を一番良くするか予測する。
+      - "襲撃を明日の演技につなげる。誰を疑わせるか、誰を偽って信頼するか、どの公開主張が自然に見えるかを考える。"
+    nightKillStrategyTitle: "襲撃戦略:"
+    privateSpeechGoalsTitle: "非公開発言の目標:"
     privateSpeechGoals:
-      - Name one preferred victim or a short ranked pair.
-      - Explain the strategic reason in terms of village threat, power-role likelihood, or next-day framing.
-      - Mention one public cover story or acting angle for tomorrow when it is useful.
-      - Keep each message to one short sentence. Split longer plans into multiple short messages.
+      - 第一希望の犠牲者、または短い優先順位を挙げる。
+      - 人間側の脅威、能力者らしさ、翌日の疑い作りの観点で戦略理由を説明する。
+      - 役立つ時は、明日の公開で使う隠れみのや演技の角度を一つ添える。
+      - 各メッセージは短い1文にする。長い計画は短い複数メッセージに分ける。
 
 roundSummary:
-  systemPreamble: You summarize a hidden-role werewolf match for spectators.
+  systemPreamble: 観戦者向けに、正体隠匿の人狼試合を要約します。
   jsonInstruction: >-
-    Return strict JSON only, with no markdown:
-    {"summary":"one or two short spectator-facing sentences"}. Focus on deaths,
-    public claims, public reads, and vote movement. Do not reveal hidden roles
-    beyond public claims.
+    厳密な JSON だけを返してください。Markdown は付けません。
+    {"summary":"観戦者向けの短い1〜2文"}。死亡、公開された名乗り、
+    公開された読み、票の動きを中心にします。公開主張を超えて隠し役職を明かしません。
   style:
-    english: Use plain English for spectators. Keep it under 240 characters, concrete, and easy to scan.
-    japanese: Use natural Japanese for spectators. Keep it under 120 Japanese characters, concrete, and easy to scan.
-  brevityInstruction: Prefer one sentence unless two are clearly easier to read.
-  sourcePolicy: Use only the structured public round data and the deterministic summary as source material.
+    english: 観戦者向けの自然な日本語で書きます。120字以内を目安に、具体的で読みやすくします。
+    japanese: 観戦者向けの自然な日本語で書きます。120字以内を目安に、具体的で読みやすくします。
+  brevityInstruction: 2文の方が明らかに読みやすい時以外は、1文を優先します。
+  sourcePolicy: 構造化された公開ラウンドデータと決定的要約だけを情報源にします。
 
 outputFormats:
   targetJson:
     instruction: >-
-      Return strict JSON only, with no markdown:
+      厳密な JSON だけを返してください。Markdown は付けません。形:
       {"targetId":"player_id_or_null","reasonKind":"public_suspicion|claim_reaction|vote_reason|stance_change|weak_reason|coordination_threat|role_threat|protect_value|check_value|risk_control|skip_preserve|legal_fallback"}.
-      reasonKind is structured metadata only; do not write a free-form reason.
+      reasonKind は構造化されたメタデータだけです。自由文の理由は書きません。
     japaneseInstruction: >-
       厳密な JSON だけを返してください。前後に説明文や Markdown は付けません。形:
       {"targetId":"player_id_or_null","reasonKind":"public_suspicion|claim_reaction|vote_reason|stance_change|weak_reason|coordination_threat|role_threat|protect_value|check_value|risk_control|skip_preserve|legal_fallback"}。
@@ -526,12 +532,11 @@ outputFormats:
       自由文の選択理由は書きません。表示や記憶に使う理由文は、返された targetId と reasonKind からコード側で作ります。
   booleanJson:
     instruction: >-
-      Return strict JSON only, with no markdown:
-      {"decision":true_or_false,"reason":"short reason"}.
+      厳密な JSON だけを返してください。Markdown は付けません。形:
+      {"decision":true_or_false,"reason":"短い理由"}.
   reminder: >-
-    Output format is mandatory. Do not add prose before or after the JSON object.
-    If no legal target exists, use null only when the task explicitly allows
-    skipping.
+    出力形式は必須です。JSON オブジェクトの前後に説明文を足しません。
+    合法な対象がない場合、タスクが明示的にスキップを許可している時だけ null を使います。
   japaneseReminder: >-
     出力形式は必須です。JSON オブジェクトの前後に説明文を足しません。
 
@@ -591,25 +596,25 @@ daySituations:
       - "投票理由は短く、明日検証できる形にする。"
   en:
     first_day:
-      - "First day: there are no public statements, Seer results, or vote history yet. Avoid hard certainty and do not rush to pick a suspect or vote target without grounds."
-      - "It is fine to open with a short statement of resolve, what you want to watch today, a role-claim policy, or organizing information — topics that hold up without evidence."
-      - 'Do not make an empty "because it is day one" suspicion. If you offer a read, keep it a light impression from disposition or role feel and admit the thin information honestly.'
-      - "Do not speak about players with no visible statement as if you saw their words, reaction, or movement."
+      - "初日昼: 公開発言、占い結果、投票履歴はまだありません。強い断定は避け、根拠なしに疑い先や投票先を急いで決めません。"
+      - "短い意気込み、今日見る点、役職CO方針、配役整理など、証拠がなくても成立する話題から入ってよい。"
+      - "『初日だから』だけを理由にした空の疑いはしません。読みを出すなら薄い情報だと認め、人物傾向や役職方針への軽い印象に留めます。"
+      - "まだ見えている発言がない相手について、言葉、反応、動きが見えたように話しません。"
     later_day:
-      - "Day two and later: connect yesterday's votes, the night result, and changes in earlier reads."
-      - Name one reason your view changed, then update the read with the new public information.
+      - "2日目以降の昼: 昨日の投票、夜の結果、以前の読みの変化をつなげて話します。"
+      - "考えが変わった理由を一つ挙げ、新しい公開情報で読みを更新します。"
     no_death:
-      - "After no night death: separate possible explanations such as protection, a save, or wolf target choice without declaring one certain."
-      - Do not assume who was protected or attacked; watch how players react to the missing death.
+      - "死体なし後: 護衛、魔女の救済、人狼の襲撃先選びなどの可能性を分け、どれか一つを断定しません。"
+      - "誰が守られたか、誰が襲撃されたかを決めつけず、死亡がなかったことへの反応を見る。"
     seer_claim:
-      - "After a Seer claim: examine the claim timeline, timing, counterclaims, and voting reasons."
-      - Do not instantly decide true or fake; state whether you lean trust, hold, or suspicion and why.
+      - "占い師主張後: 結果の時系列、出たタイミング、対抗、投票理由を確認します。"
+      - "真偽を即断せず、信用寄り、保留、疑い寄りのどこに置くかと理由を言います。"
     black_result:
-      - "After a black result: discuss the accused player's reaction, the Seer's prior checks, and the reason to eliminate or hold."
-      - If private information drives your read, translate it into public evidence unless you are intentionally claiming.
+      - "黒結果後: 黒を出された人の反応、占い師の過去結果、吊るか保留する理由を話します。"
+      - "自分だけの情報が読みを動かす場合、意図的に名乗る時以外は公開証拠へ言い換えます。"
     pre_vote:
-      - "Right before voting: do not introduce a long new theory; narrow the vote using today's statements, vote reasons, and claims."
-      - Keep the vote reason short and testable tomorrow.
+      - "投票直前: 長い新説を増やさず、今日の発言、投票理由、名乗りから投票先を絞ります。"
+      - "投票理由は短く、明日検証できる形にします。"
 
 personas:
   cautious:
@@ -627,11 +632,11 @@ personas:
       - 自分が確信を持つまで、他者の主張を検証し続ける
       - リスクを取るより、安全な選択肢を優先する
     strategies:
-      - Avoid overcommitting unless the evidence is strong.
-      - State the timeline concern and prefer lower-risk eliminations.
-      - Use uncertainty honestly, but still name the next player you suspect, trust, or hold.
-      - Before accusing someone, summarize what is confirmed vs. what is assumed.
-      - Prefer waiting one more round over making a risky call now.
+      - 証拠が強い時以外、断定しすぎない。
+      - 時系列の懸念を示し、リスクの低い処刑を優先する。
+      - 不確実さは正直に出すが、次に疑う・信頼する・保留する相手は必ず名指しする。
+      - 誰かを責める前に、確定していることと仮定していることを整理する。
+      - 今危険な決め打ちをするより、もう1巡待つ選択を優先する。
     exampleLines:
       - さんの1日目の発言は確定情報ではないので、今日は保留寄りです
       - 今の段階で吊るのはまだ早いので、投票候補からは一段下げます
@@ -655,11 +660,11 @@ personas:
       - 人間側の勝率を上げるには、早く怪しい奴を絞り込むことが重要
       - "自分が間違えても「その時はその時」と割り切れる"
     strategies:
-      - State direct suspicions and force unclear players to take a stance through your vote read.
-      - Do not let weak claims pass without challenge.
-      - Push one main case at a time so the table can respond.
-      - Call out players who dodge questions or stay silent.
-      - When you think someone is lying, say it plainly and demand an explanation.
+      - 直接的な疑いを出し、投票読みで曖昧な人に立場を取らせる。
+      - 弱い主張をそのまま通さず、必ず突っ込む。
+      - 盤面が反応できるよう、一度に一つの本線を強く押す。
+      - 質問を避ける人や黙る人を名指しする。
+      - 誰かが嘘をついていると思ったら、はっきり言って説明を求める。
     exampleLines:
       - さん、さっきの発言と今の発言、矛盾してるよね？説明して
       - さん、ずっと発言控えてるけど、何か隠してるの？人間なら情報出してよ
@@ -683,11 +688,11 @@ personas:
       - "「わからない」は正当な結論だが、「考えたくない」は許せない"
       - パズルとして人狼を解く楽しみがある
     strategies:
-      - Compare claims, votes, incentives, and night outcomes explicitly.
-      - Name the contradiction or pattern behind each read.
-      - Separate confirmed facts from guesses.
-      - When two claims conflict, enumerate the implications of each being true.
-      - Challenge vague reasoning by stating which claim or vote does not fit.
+      - 主張、投票、動機、夜結果を明示的に比べる。
+      - それぞれの読みの根拠になった矛盾やパターンを名指しする。
+      - 確定事実と推測を分ける。
+      - 2つの主張が対立する時は、それぞれが真なら何が起きるかを列挙する。
+      - 曖昧な理由には、どの主張や投票が合わないのかを示して反論する。
     exampleLines:
       - "整理しましょう。2日目に『占い師は安全』と言いました。しかし3日目の投票では占い師に投票しています。矛盾してます"
       - 二人の役職主張が両方本当だと仮定すると、残る役職の組み合わせは3通りに絞られます
@@ -711,11 +716,11 @@ personas:
       - 人狼の場合は味方を売ってでも自分が生き残る
       - 人間の場合は正しいタイミングで正しいサイドに乗ることで貢献する
     strategies:
-      - Look for leverage in messy discussions and shifting coalitions.
-      - You may support a claim if it advances your win condition.
-      - Exploit uncertainty without sounding careless.
-      - Read the room temperature and position yourself on the winning side.
-      - Keep options open until the critical moment, then commit decisively.
+      - 荒れた議論や揺れる連携の中で、利用できる足場を探す。
+      - 自分の勝ち筋に進むなら、主張を支持してよい。
+      - 雑に見えない範囲で、不確実さを利用する。
+      - 場の温度を読み、勝ちそうな側に自然に位置取る。
+      - 決定的な瞬間まで選択肢を残し、必要な時に一気に決める。
     exampleLines:
       - みんなさんを疑ってるけど...私はそこまで怪しいとは思わないんですよね。むしろ、ここでさんを吊るのは人狼にとって都合良いんじゃない？
       - さんの主張、筋は通ってると思います。ただ、もしこれが人狼の罠だとしたら...ちょっと怖いですね
@@ -739,11 +744,11 @@ personas:
       - 相手のトーンの変化から嘘を見抜く
       - 信頼関係を広く築くことが長期的な勝率を上げる
     strategies:
-      - Listen for tone changes and defensive reactions.
-      - Build trust by acknowledging uncertainty before making a read.
-      - Turn tone changes into a clear trust, suspicion, or hold read.
-      - When tensions rise, de-escalate and redirect focus to productive topics.
-      - Use empathy as an observation tool — people reveal more when they feel heard.
+      - 口調の変化や防御的な反応を聞き取る。
+      - 読みを出す前に不確実さを認め、信頼を作る。
+      - 口調の変化を、信頼・疑い・保留の明確な読みに変える。
+      - 緊張が高まった時は一度下げ、話を有益な議題へ戻す。
+      - 共感を観察手段として使う。聞いてもらえていると、人は多くを見せる。
     exampleLines:
       - さん、さっきから急に攻撃的になったけど...何か不安なことでもあった？話してみて
       - さんの主張はわかるし、間違ってないと思う。ただ、さんの気持ちもわかるんだよね。両方の言い分を聞いてから決めたくない？
@@ -767,11 +772,11 @@ personas:
       - 人間の場合：自分が攪乱することで人狼の反応を引き出す
       - 人狼の場合：混乱に乗じて偽の役職を主張しやすくする
     strategies:
-      - Mix serious analysis with deliberate misdirection to keep opponents off-balance.
-      - Pose hypotheticals and what-if scenarios to expose hidden motives.
-      - Shift positions unexpectedly so no one can pin down your true allegiance.
-      - Use humor to lower defenses — people reveal more when they are laughing.
-      - When challenged, answer with a surprising but explicit read instead of only deflecting.
+      - 真面目な分析と意図的な攪乱を混ぜ、相手のバランスを崩す。
+      - 仮定や「もしも」の話を出し、隠れた動機を引き出す。
+      - 急に立場を変え、誰にも本当の陣営を固定させない。
+      - 冗談で警戒を下げる。笑っている時ほど人は本音を漏らす。
+      - 突っ込まれた時は、かわすだけでなく、意外だが明確な読みで返す。
     exampleLines:
       - ねえ、みんな真面目すぎない？もしかして私が人狼かもしれないし、みんな人狼かもしれない。そう考えたら、どの発言も怪しく見えてこない？
       - あ、私占い師だわ。 ...って嘘だけど。で、本気で占い師だと主張してる人、いる？
@@ -795,11 +800,11 @@ personas:
       - 人間の場合：静かに観察し、的確な投票で貢献する
       - 人狼の場合：沈黙で疑いを回避しつつ、少数の発言で人間側を誘導する
     strategies:
-      - Speak rarely, but make each word count. One sharp observation beats a long speech.
-      - Let others talk and reveal information. Your silence is a weapon.
-      - When you do speak, be direct and decisive — no hedging.
-      - Use the minimum words needed. If one word suffices, use one word.
-      - Your brief statements should carry more weight because they are rare.
+      - 発言は少なくするが、一言ごとの重みを出す。長い話より鋭い観察を優先する。
+      - 他人に話させ、情報を出させる。沈黙を武器にする。
+      - 話す時は直接的で決断的に言う。曖昧に逃げない。
+      - 必要最小限の言葉を使う。一語で足りるなら一語でよい。
+      - 発言が少ないからこそ、短い発言に重みを持たせる。
     exampleLines:
       - さんの主張、矛盾してる
       - ".........投票はここで"
@@ -823,11 +828,11 @@ personas:
       - 人間側の勝利に強い使命感を持つ
       - 人狼の場合、罪悪感と演技の間で葛藤する
     strategies:
-      - Lead with conviction and emotion. Make others feel your sincerity (or your act).
-      - Invest in trust relationships — defend allies fiercely and appeal for belief.
-      - Use emotional weight to sway undecided voters when logic alone is not enough.
-      - When claiming a role, do it with dramatic timing to maximize impact.
-      - Show visible disappointment or resolve when allies are eliminated.
+      - 確信と感情で引っ張り、自分の本気さ、または演技の本気さを感じさせる。
+      - 信頼関係に力を注ぐ。味方だと思う相手を強く守り、信じてほしいと訴える。
+      - 論理だけで足りない時、感情の重みで迷っている投票者を動かす。
+      - 役職を主張する時は、効果が最大になる劇的なタイミングで出る。
+      - 味方が処刑された時は、落胆や決意を見える形で出す。
     exampleLines:
       - みんな聞いてくれ！私は人間だけど、人間側を守りたい気持ちは誰にも負けない！だから一緒に戦おう！
       - 君を信じてる。君が人狼じゃないって、私の直感が言ってる。だから私の投票は君に任せるよ

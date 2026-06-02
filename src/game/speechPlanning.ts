@@ -59,20 +59,20 @@ function labels(language: string) {
   return {
     unknownCause: japanese ? "不明" : "unknown",
     possibleCausesTitle: japanese ? "公開ルール上あり得る夜死亡" : "Public-rule night death causes in this setup",
-    speechPlanTitle: japanese ? "この発言の設計" : "Speech plan",
-    firstDaySpecialTitle: japanese ? "初日特別モード" : "First-day opening mode",
-    publicKnowledgeTitle: japanese ? "公開知識" : "Public knowledge",
-    deathLine: japanese ? "昨夜の死亡" : "Last night's deaths",
-    publicCause: japanese ? "公開上の死因" : "public cause",
+    speechPlanTitle: japanese ? "この発言の設計" : "この発言の設計",
+    firstDaySpecialTitle: japanese ? "初日特別モード" : "初日特別モード",
+    publicKnowledgeTitle: japanese ? "公開知識" : "公開知識",
+    deathLine: japanese ? "昨夜の死亡" : "昨夜の死亡",
+    publicCause: japanese ? "公開上の死因" : "公開上の死因",
     mustAdvance: japanese
       ? "死因候補を並べるだけで終わらず、生存者への読み、投票理由、役職主張の評価のどれかに進める。"
-      : "Do not stop at listing death causes; advance to a read, vote reason, or claim evaluation about a living player.",
+      : "死因候補を並べるだけで終わらず、生存者への読み、投票理由、役職主張の評価のどれかに進める。",
     mustStateStance: japanese
       ? "発言ターンを使うので、質問、様子見、今後見る点だけで終えず、自分の疑い・信頼・投票候補・役職主張への判断を必ず言う。保留する時も、理由と次に確認したい点を一緒に言う。"
-      : "Because speech turns are limited, do not end with only a question, wait-and-see note, or future watch point; state your suspicion, trust, vote candidate, or claim-trust stance. If you hold, pair it with a reason and what you want checked next.",
+      : "発言ターンを使うので、質問、様子見、今後見る点だけで終えず、自分の疑い・信頼・投票候補・役職主張への判断を必ず言う。保留する時も、理由と次に確認したい点を一緒に言う。",
     mustUseRecentContext: japanese
       ? "直前までの昼発言に自然につなげる。最後の1〜2発言への賛成、反対、補足、自分への疑いへの返答のどれかを一つ入れ、別議題だけで始めない。"
-      : "Connect naturally to the public statements immediately before this turn. Start from agreement, disagreement, a supplement, or an answer to pressure aimed at you; do not open with an unrelated new topic.",
+      : "直前までの昼発言に自然につなげる。最後の1〜2発言への賛成、反対、補足、自分への疑いへの返答のどれかを一つ入れ、別議題だけで始めない。",
     causeLabels: {
       werewolf_attack: japanese ? "人狼の襲撃" : "werewolf attack",
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
@@ -85,38 +85,38 @@ function labels(language: string) {
     intents: {
       connect_night_death_to_living_players: japanese
         ? "昨夜の死亡を、生存者の発言・投票・役職主張への自分の読みにつなげる。"
-        : "Connect the night death to your own read on a living player's speech, vote, or claim.",
+        : "昨夜の死亡を、生存者の発言・投票・役職主張への自分の読みにつなげる。",
       state_living_read: japanese
         ? "直前までに見えた発言、投票、死亡、役職主張から、生存者を一人以上挙げて自分の疑い・信頼・投票候補の理由を言う。保留する時も、理由と次に確認したい点を添える。"
-        : "Use the visible discussion so far to name at least one living player and state your suspicion, trust, vote-candidate, or hold reason.",
+        : "直前までに見えた発言、投票、死亡、役職主張から、生存者を一人以上挙げて自分の疑い・信頼・投票候補の理由を言う。保留する時も、理由と次に確認したい点を添える。",
       update_living_read: japanese
         ? "死亡者ではなく、生存者への疑いか信頼を一つ更新する。"
-        : "Update one suspicion or trust read about a living player, not a dead player.",
+        : "死亡者ではなく、生存者への疑いか信頼を一つ更新する。",
       answer_or_update: japanese
         ? "直前で自分に向いた疑いがあれば答えたうえで、生存者への読みを一つ更新する。"
-        : "If the latest statements pressured you, answer that first, then update one read on a living player.",
+        : "直前で自分に向いた疑いがあれば答えたうえで、生存者への読みを一つ更新する。",
       vote_ready_read: japanese
         ? "投票先を考えられる形で、生存者への読みを一つに絞る。"
-        : "Narrow to one living-player read that can support a vote.",
+        : "投票先を考えられる形で、生存者への読みを一つに絞る。",
       open_discussion: japanese
         ? "公開情報が少ない時も、直前までの発言に反応したうえで、自分の意見として生存者への疑い・信頼・保留・投票候補を一つ出す。保留する時は理由と次に確認したい点を添える。"
-        : "Even when public information is thin, respond to the visible discussion so far and state one suspicion, trust, hold, or vote-candidate read on a living player.",
+        : "公開情報が少ない時も、直前までの発言に反応したうえで、自分の意見として生存者への疑い・信頼・保留・投票候補を一つ出す。保留する時は理由と次に確認したい点を添える。",
       open_first_day: japanese
         ? "まだ占い結果も投票履歴もなく、会話の材料は薄い。見えていない反応は根拠にせず、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出して議論を動かす。『様子見』『保留』『話を聞く』で終えない。"
-        : "There are no public statements, Seer results, or vote history yet. Do not invent unseen reactions; move the table by offering vote criteria, claim-handling policy, a direct question, or a light day-one hypothesis. Do not end with only 'wait and see,' 'hold,' or 'hear people out.'"
+        : "まだ占い結果も投票履歴もなく、会話の材料は薄い。見えていない反応は根拠にせず、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出して議論を動かす。『様子見』『保留』『話を聞く』で終えない。"
     },
     revisionHint: japanese
       ? "前の返答は自分の判断が足りません。生存者への疑い・信頼・投票候補、または役職主張への判断を、画面に出るセリフ内ではっきり言ってください。保留する時も理由を添えてください。"
-      : "The previous response did not state your stance. Revise the displayed dialogue to include suspicion, trust, hold, a vote candidate, or a claim-trust judgment.",
+      : "前の返答は自分の判断が足りません。生存者への疑い・信頼・投票候補、または役職主張への判断を、画面に出るセリフ内ではっきり言ってください。保留する時も理由を添えてください。",
     emptyHistoryRevisionHint: japanese
       ? "前の返答は、まだこの昼の発言が見えていない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問など、材料なしでも自分から動かせる議題に直してください。"
-      : "The previous response cited another player's speech or action as if it had already happened, but no public statements are visible yet. Revise it as a tentative character- or role-based suspicion, trust, hold, or vote-candidate stance.",
+      : "前の返答は、まだこの昼の発言が見えていない状況で他人の発言や動きを既にあった事実のように引用しています。初日は、見えていない反応を根拠にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問など、材料なしでも自分から動かせる議題に直してください。",
     unseenClaimRevisionHint: japanese
       ? "前の返答は、見えている昼の発言にない占い師COや役職主張が出た前提で話しています。初日は、まだ出ていない主張を既成事実にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問などに直してください。"
-      : "The previous response treated a Seer or role claim as visible even though no such public claim is in the visible discussion. Revise without assuming that claim exists.",
+      : "前の返答は、見えている昼の発言にない占い師COや役職主張が出た前提で話しています。初日は、まだ出ていない主張を既成事実にせず、投票基準、占い師が名乗る条件、配役整理、答えやすい名指し質問などに直してください。",
     openingFillerRevisionHint: japanese
       ? "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出してください。"
-      : "The previous response was passive and did not move the discussion. Even on day one, add vote criteria, claim policy, a direct question, or a light vote candidate."
+      : "前の返答は受け身で、議論を動かしていません。初日でも、投票基準、占い師が名乗る条件、役職を明かさせすぎない方針、配役整理、答えやすい名指し質問のどれかを自分から出してください。"
   };
 }
 
@@ -179,13 +179,13 @@ export function renderPublicSpeechDiversityContext(
   }
 
   return [
-    "Recent public reads already used by other players:",
+    "他プレイヤーが直近で既に出した読み:",
     ...recentReads.map((read) => readSummaryLine(read, language)),
     "",
-    "Avoid repeated table angles:",
-    "- Do not merely repeat the same target and the same reason.",
-    "- If you agree, add one distinct vote consequence, evidence point, challenge, or comparison.",
-    "- If several players already share that read, move the discussion forward with a hold, alternate candidate, claim judgment, or vote plan."
+    "発言の重複を避ける:",
+    "- 同じ対象と同じ理由だけを繰り返さない。",
+    "- 同意する時も、票への影響、証拠、質問、比較のどれかを一つ足す。",
+    "- 既に複数人が同じ読みを出しているなら、保留、別候補、役職主張の判断、投票方針のどれかで議論を進める。"
   ];
 }
 
@@ -214,73 +214,73 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
   const definitions: Record<FirstDayOpeningMoveKind, FirstDayOpeningMove> = {
     opening_resolve: {
       kind,
-      label: japanese ? "開幕の意気込みから入る" : "Open with resolve",
+      label: japanese ? "開幕の意気込みから入る" : "開幕の意気込みから入る",
       instruction: japanese
         ? "議論に入る前の短い意気込みから入り、今日の投票基準か最初に聞きたい質問を一つ出す。初対面の自己紹介や『みんなの話を聞いてから』だけで止めない。"
-        : "Open with a short statement of resolve, then state one vote criterion or one question you want answered today. Do not frame it as meeting strangers or stop at hearing people out."
+        : "議論に入る前の短い意気込みから入り、今日の投票基準か最初に聞きたい質問を一つ出す。初対面の自己紹介や『みんなの話を聞いてから』だけで止めない。"
     },
     organize_setup: {
       kind,
-      label: japanese ? "配役構成や流れを整理する" : "Organize the setup or flow",
+      label: japanese ? "配役構成や流れを整理する" : "配役構成や流れを整理する",
       instruction: japanese
         ? "配役構成や人数、初日にやるべきことを整理し、投票基準か役職の名乗り条件のどちらを先に決めるか具体的に提案する。"
-        : "Organize the setup and day-one tasks, then make a concrete proposal about vote criteria or role-claim conditions."
+        : "配役構成や人数、初日にやるべきことを整理し、投票基準か役職の名乗り条件のどちらを先に決めるか具体的に提案する。"
     },
     overstate_village_side: {
       kind,
-      label: japanese ? "村側アピールが強すぎる" : "Overstate village-side self-defense",
+      label: japanese ? "村側アピールが強すぎる" : "村側アピールが強すぎる",
       instruction: japanese
         ? "初日限定の火種として、自分は人間側だと少し強めに言い、様子見だけの相手は投票候補に入れる余地を残す。"
-        : "As a first-day spark, slightly overstate that you are on the village side, leaving room for others to read it as defensive."
+        : "初日限定の火種として、自分は人間側だと少し強めに言い、様子見だけの相手は投票候補に入れる余地を残す。"
     },
     wolf_human_side_claim: {
       kind,
-      label: japanese ? "人狼の人間側アピール" : "Werewolf claims village-side alignment",
+      label: japanese ? "人狼の人間側アピール" : "人狼の人間側アピール",
       instruction: japanese
         ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、自分は人間側だとはっきり主張したうえで、理由の薄い相手や様子見の相手を投票候補に入れる流れを作る。仲間や夜の相談は絶対に漏らさない。"
-        : "You are on the werewolf team. In this public opening, hide that identity, explicitly claim you are village-side, and create pressure against thin or passive players. Never expose allies or wolf-only chat."
+        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、自分は人間側だとはっきり主張したうえで、理由の薄い相手や様子見の相手を投票候補に入れる流れを作る。仲間や夜の相談は絶対に漏らさない。"
     },
     wolf_fake_role_claim: {
       kind,
-      label: japanese ? "人狼の偽役職アピール" : "Werewolf seeds a fake role claim",
+      label: japanese ? "人狼の偽役職アピール" : "人狼の偽役職アピール",
       instruction: japanese
-        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、反応を見る一言と投票基準につなげる。"
-        : "You are on the werewolf team. In this public opening, hide that identity and claim one of these village-side roles: Seer, Witch, Hunter, Raven, Idiot, or Elder. Do not use Guard as the normal claim. Keep it light and tie it to reactions or vote criteria."
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを村側と同じ条件で名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
+        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを村側と同じ条件で名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
     },
     state_vote_criteria: {
       kind,
-      label: japanese ? "投票基準を出す" : "State vote criteria",
+      label: japanese ? "投票基準を出す" : "投票基準を出す",
       instruction: japanese
         ? "初日の投票基準を先に出す。理由の具体性、質問への答え方、便乗していないかなど、投票候補に入れる条件を短く示す。"
-        : "Open by stating first-day vote criteria such as speaking volume, concrete answers, or stiffness."
+        : "初日の投票基準を先に出す。理由の具体性、質問への答え方、便乗していないかなど、投票候補に入れる条件を短く示す。"
     },
     ask_role_claim_policy: {
       kind,
-      label: japanese ? "占い師が名乗る条件を聞く" : "Ask claim-policy preferences",
+      label: japanese ? "占い師が名乗る条件を聞く" : "占い師が名乗る条件を聞く",
       instruction: japanese
         ? "占い師が今日名乗るべき条件について、自分の仮案を先に言ってから全体に聞く。すぐ名乗るのか、結果が重い時だけ名乗るのか、伏せるならどう守るのかを話題にする。"
-        : "Ask the table how role claims, especially Seer claims, should be handled today."
+        : "占い師が今日名乗るべき条件について、自分の仮案を先に言ってから全体に聞く。すぐ名乗るのか、結果が重い時だけ名乗るのか、伏せるならどう守るのかを話題にする。"
     },
     ask_table_question: {
       kind,
-      label: japanese ? "序盤の質問を投げる" : "Ask an opening table question",
+      label: japanese ? "序盤の質問を投げる" : "序盤の質問を投げる",
       instruction: japanese
         ? "誰か一人か全体に短い質問を投げる。今日の投票理由、占い師が名乗る条件、役職を明かさせすぎない進め方のどれかを聞き、自分の基準も一言添える。"
-        : "Ask one player or the table a short question about vote reasons, Seer reveal conditions, or avoiding forced role exposure, and include your own criterion."
+        : "誰か一人か全体に短い質問を投げる。今日の投票理由、占い師が名乗る条件、役職を明かさせすぎない進め方のどれかを聞き、自分の基準も一言添える。"
     },
     tentative_reaction_read: {
       kind,
-      label: japanese ? "名指しで投票基準を聞く" : "Apply light named pressure",
+      label: japanese ? "名指しで投票基準を聞く" : "名指しで投票基準を聞く",
       instruction: japanese
         ? "初日限定で、一人を名指しして投票基準や役職方針を聞く。見えていない過去発言は引用せず、返答が曖昧なら投票候補に入れる形に留める。"
-        : "For day one only, name one player and apply light pressure from personality, role-policy posture, or first-day stance without citing unseen prior speech."
+        : "初日限定で、一人を名指しして投票基準や役職方針を聞く。見えていない過去発言は引用せず、返答が曖昧なら投票候補に入れる形に留める。"
     },
     early_power_role_attention: {
       kind,
-      label: japanese ? "能力者への触れ方が早い" : "Touch power roles early",
+      label: japanese ? "能力者への触れ方が早い" : "能力者への触れ方が早い",
       instruction: japanese
         ? "占い師、魔女、ハンター、鴉、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
-        : "Bring up claim policy for Seer, Witch, Hunter, Raven, Idiot, and Elder. Treat Guard as normally never claiming, and avoid forcing role exposure."
+        : "占い師、魔女、ハンター、鴉、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
     }
   };
   return definitions[kind];
@@ -515,7 +515,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
     return /\b(I|I'm|I am|my)\b.{0,40}\b(village|villager|town|not a wolf|should not be eliminated)\b/i.test(text);
   }
   if (move.kind === "wolf_fake_role_claim") {
-    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Guard|Hunter|role|claim)\b/i.test(text);
+    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Hunter|Raven|Idiot|Elder|role|claim)\b/i.test(text);
   }
   if (move.kind === "state_vote_criteria") {
     return /\b(vote criteria|criteria|concrete answers|speaking volume|take a position|stiffness)\b/i.test(text);

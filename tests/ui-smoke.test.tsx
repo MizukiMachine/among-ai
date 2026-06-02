@@ -13,6 +13,7 @@ import {
   eventRoundLabel,
   eventSpeakerForSpectator,
   formatMessage,
+  getRoleDistributionItems,
   hasSeenHumanInputRevealAnchor,
   isCurrentHumanInputRevealAnchor,
   mentionedCharactersForEvent,
@@ -687,6 +688,13 @@ test("role color classes keep hunter with village and jester distinct", () => {
   assert.match(source, /Jester:\s*"role-neutral"/);
   assert.match(css, /\.header-role-chip\.role-neutral,\s*\.role-rule-popover\.role-neutral-rule \.role-rule-camp\s*\{/);
   assert.match(css, /\.role-neutral\s*\{/);
+});
+
+test("header role distribution keeps Jester out of the green Lover and Villager run", () => {
+  const roles = getRoleDistributionItems(15).map(([role]) => role);
+
+  assert.deepEqual(roles.slice(-3), ["Lover", "Villager", "Jester"]);
+  assert.ok(roles.indexOf("Jester") > roles.indexOf("Villager"));
 });
 
 test("story controls stay stable as history grows", () => {

@@ -723,13 +723,13 @@ test("generated player context includes role setup counts and werewolf ally role
   assert.ok(villager);
 
   const wolfContext = contextFor(wolf);
-  assert.match(wolfContext, /Game role breakdown:/);
+  assert.match(wolfContext, /配役表:/);
   assert.match(wolfContext, /Jester/);
   assert.match(wolfContext, /WolfBeauty/);
   assert.match(wolfContext, new RegExp(`${alphaWolf.name} \\(${alphaWolf.id}\\): AlphaWolf`));
 
   const villageContext = contextFor(villager);
-  assert.match(villageContext, /Game role breakdown:/);
+  assert.match(villageContext, /配役表:/);
   assert.match(villageContext, /Jester/);
   assert.doesNotMatch(villageContext, new RegExp(`${alphaWolf.name} \\(${alphaWolf.id}\\): AlphaWolf`));
 });
@@ -1415,7 +1415,7 @@ test("day discussion gives each living player a second response pass", async () 
 
   const firstAgent = game.agents.get(players[0].id) as ScriptedAgent;
   assert.equal(firstAgent.speechInputs.length, 2);
-  assert.match(firstAgent.speechInputs[0].context, /Conversation so far/);
+  assert.match(firstAgent.speechInputs[0].context, /これまでの会話/);
   assert.doesNotMatch(firstAgent.speechInputs[0].context, /Discussion pass 1 of 2/);
   assert.doesNotMatch(firstAgent.speechInputs[1].context, /Second pass: if needed, answer direct pressure/);
   assert.match(firstAgent.speechInputs[1].context, /ノゾミ speaks/);
@@ -1540,6 +1540,49 @@ test("speech diagnostics record single simple public speech completion", async (
   assert.equal(completed.speechPlanReviewEnabled, false);
   assert.equal(diagnostics.some((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id), false);
   assert.equal(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id), false);
+});
+
+test("Japanese public speech retries when Chinese vocabulary appears", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  game.agents.set(
+    players[0].id,
+    new ScriptedAgent(players[0].name, [], [], [
+      {
+        messages: ["初日は发言を控えて、様子を見るべきだと思います"],
+        metadata: emptyMetadata
+      },
+      {
+        messages: ["初日は発言を控えすぎず、投票基準を先に出します"],
+        metadata: emptyMetadata
+      }
+    ])
+  );
+
+  const events = await collect(game.runDay());
+  const speechEvent = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+
+  assert.equal(speechEvent?.message, "初日は発言を控えすぎず、投票基準を先に出します");
+  assert.doesNotMatch(speechEvent?.message ?? "", /发言/);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id));
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id));
+  const completed = diagnostics.find((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id);
+  assert.ok(completed);
+  assert.equal(completed.attempts, 2);
+  assert.equal(completed.retried, true);
 });
 
 test("simple public speech does not run old timeline rejection", async () => {
@@ -1829,9 +1872,9 @@ test("simple conversation plan drives day one without agenda scheduler directive
     .flatMap((agent) => agent.speechInputs.map((input) => input.context));
 
   assert.ok(allContexts.length > 0);
-  assert.ok(allContexts.some((context) => context.includes("Character")), "day speech should include character context");
-  assert.ok(allContexts.some((context) => context.includes("Role")), "day speech should include role context");
-  assert.ok(allContexts.some((context) => context.includes("Conversation so far")), "day speech should include conversation history");
+  assert.ok(allContexts.some((context) => context.includes("人物設定")), "day speech should include character context");
+  assert.ok(allContexts.some((context) => context.includes("役職")), "day speech should include role context");
+  assert.ok(allContexts.some((context) => context.includes("これまでの会話")), "day speech should include conversation history");
   assert.ok(allContexts.every((context) => !context.includes("First-day opening mode")), "opening sparks should not be injected into prompts");
   assert.ok(allContexts.every((context) => !context.includes("Speech plan")), "speech-plan scaffolding should not be injected");
   assert.ok(
@@ -2318,7 +2361,7 @@ test("day-1 warm-up stays out of real discussion history", async () => {
   assert.ok(warmups.length > 0, "LLM day one still emits day-zero warm-up resolves");
   assert.ok(firstRegular, "regular day discussion still follows warm-up");
   assert.ok(firstSpeechInput, "the first regular speech is generated");
-  assert.match(firstSpeechInput.context, /Conversation so far:\n- None yet/);
+  assert.match(firstSpeechInput.context, /これまでの会話:\n- まだありません。/);
   assert.doesNotMatch(firstSpeechInput.context, /INTRO /, "warm-up lines must not be visible discussion evidence");
 });
 
@@ -2666,7 +2709,7 @@ test("day discussion adds focused follow-up speakers after regular passes", asyn
 
   const pressuredAgent = game.agents.get(players[1].id) as ScriptedAgent;
   assert.equal(pressuredAgent.speechInputs.length, 3);
-  assert.match(pressuredAgent.speechInputs[2].context, /Conversation so far/);
+  assert.match(pressuredAgent.speechInputs[2].context, /これまでの会話/);
   assert.doesNotMatch(pressuredAgent.speechInputs[2].context, /Follow-up pass for selected speakers/);
 });
 
@@ -2880,10 +2923,10 @@ test("human free text reads influence later discussion and voting context", asyn
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
   const laterSpeaker = game.agents.get(players[3].id) as ScriptedAgent;
   const laterSpeechContext = laterSpeaker.speechInputs.find(
-    (input) => input.phase === "day_discussion" && input.context.includes("Human influence - Suspects")
+    (input) => input.phase === "day_discussion" && input.context.includes("人間プレイヤーの発言影響 - 疑い")
   )?.context;
   const laterVoteContext = laterSpeaker.targetInputs.find(
-    (input) => input.phase === "voting" && input.context.includes("Human influence - Suspects")
+    (input) => input.phase === "voting" && input.context.includes("人間プレイヤーの発言影響 - 疑い")
   )?.context;
 
   assert.deepEqual((humanSpeech?.data?.suspects as Array<{ targetId: string; weight: number }> | undefined)?.map((read) => read.targetId), [
@@ -2896,7 +2939,7 @@ test("human free text reads influence later discussion and voting context", asyn
   assert.ok(laterSpeechContext?.includes(players[1].name));
   assert.ok(laterSpeechContext?.includes(players[3].name));
   assert.ok(laterVoteContext?.includes(players[1].name));
-  assert.ok(laterVoteContext?.includes("high table credibility"));
+  assert.ok(laterVoteContext?.includes("信用が高い位置"));
 });
 
 test("human free text reads reserve an agreeing AI follow-up speaker", async () => {
@@ -2945,7 +2988,7 @@ test("human free text reads reserve an agreeing AI follow-up speaker", async () 
 
   assert.deepEqual(followUpSpeakers.slice(0, 2), [players[1].id, players[0].id]);
   assert.equal(agreeingAgent.speechInputs.length, 3);
-  assert.match(agreeingAgent.speechInputs[2].context, /Human influence - Suspects/);
+  assert.match(agreeingAgent.speechInputs[2].context, /人間プレイヤーの発言影響 - 疑い/);
 });
 
 test("human Japanese free text keeps negated trust and vote mentions in the right direction", async () => {
@@ -3389,11 +3432,13 @@ test("LLM summary mode uses a short provider summary when available", async () =
     assert.equal(body.model, "test-model");
     assert.equal(body.max_tokens, 512);
     assert.deepEqual(body.thinking, { type: "disabled" });
-    assert.match(body.system, /plain English for spectators/);
+    assert.match(body.system, /観戦者向けの自然な日本語/);
+    assert.match(body.system, /返答言語: 日本語/);
     assert.equal(body.messages[0].role, "user");
+    assert.match(String(body.messages[0].content), /構造化された公開ラウンドデータ/);
     return new Response(
       JSON.stringify({
-        content: [{ type: "text", text: JSON.stringify({ summary: "Votes tightened around Darwin after public reads." }) }]
+        content: [{ type: "text", text: JSON.stringify({ summary: "公開推理を受けて、投票はDarwinに集まりました。" }) }]
       }),
       {
         status: 200,
@@ -3407,7 +3452,7 @@ test("LLM summary mode uses a short provider summary when available", async () =
       ...baseConfig,
       provider: "llm",
       model: "test-model",
-      language: "English",
+      language: "Japanese",
       summaryMode: "llm"
     }) as TestableGame;
     setTable(game, [
@@ -3423,9 +3468,9 @@ test("LLM summary mode uses a short provider summary when available", async () =
     const summary = await game.emitRoundSummary();
 
     assert.ok(summary);
-    assert.equal(summary.message, "Votes tightened around Darwin after public reads.");
+    assert.equal(summary.message, "公開推理を受けて、投票はDarwinに集まりました。");
     assert.equal(summary.data?.summarySource, "llm");
-    assert.match(String(summary.data?.deterministicMessage), /Votes:/);
+    assert.match(String(summary.data?.deterministicMessage), /投票:/);
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
@@ -3444,9 +3489,10 @@ test("LLM summary prompt switches to Japanese spectator style", async () => {
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     assert.deepEqual(body.thinking, { type: "disabled" });
-    assert.match(body.system, /natural Japanese for spectators/);
-    assert.match(body.system, /Respond in Japanese/);
+    assert.match(body.system, /観戦者向けの自然な日本語/);
+    assert.match(body.system, /返答言語: 日本語/);
     assert.equal(body.messages[0].role, "user");
+    assert.match(String(body.messages[0].content), /ラウンド: 1/);
     return new Response(
       JSON.stringify({
         content: [{ type: "text", text: JSON.stringify({ summary: "投票はDarwinに集まり、公開推理が焦点になっています。" }) }]
@@ -3493,7 +3539,7 @@ test("seer records a private camp result for the chosen living target", async ()
 
   assert.equal(players[0].seerResults.p2, "werewolf");
   assert.equal(players[0].seerResultRounds.p2, 1);
-  assert.ok(players[0].memories.some((memory) => memory.includes("checked as werewolf")));
+  assert.ok(players[0].memories.some((memory) => memory.includes("人狼判定")));
   assert.ok(events.some((event) => event.type === "private_info" && event.targetId === "p2"));
 });
 
@@ -3829,8 +3875,10 @@ test("human player is protected from early witch poison and death-shot targets",
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "werewolf"));
   assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3"));
   assert.ok(witchInputs.length > 0);
+  assert.ok(witchInputs.every((input) => input.actionLabel === "魔女の毒薬"));
   assert.ok(witchInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
   assert.ok(hunterInputs.length > 0);
+  assert.ok(hunterInputs.every((input) => input.actionLabel === "ハンターの道連れ"));
   assert.ok(hunterInputs.every((input) => input.candidates.every((candidate) => candidate.id !== "p3")));
 });
 
@@ -3937,6 +3985,7 @@ test("LLM target decisions race duplicate requests and accept the fastest result
   assert.equal(events[0]?.targetId, "p3");
   assert.equal(agent.targetInputs.length, 5);
   assert.ok(agent.targetInputs.every((input) => input.phase === "guard_action"));
+  assert.ok(agent.targetInputs.every((input) => input.actionLabel === "騎士の夜護衛"));
   await waitUntil(() => agent.abortedTargets >= 4);
   assert.equal(players[0].memories.some((memory) => memory.includes("LLM error") || memory.includes("対象選択中")), false);
 });
@@ -4617,7 +4666,7 @@ test("Lover role links paired lovers and resolves heartbreak deaths", async () =
 
   const events = await collect(game.runVoting());
 
-  assert.match(context, new RegExp(`Lover partner: ${players[4].name}`));
+  assert.match(context, new RegExp(`恋人の相方: ${players[4].name}`));
   assert.equal(players[3].alive, false);
   assert.equal(players[4].alive, false);
   const loverDeath = events.find((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "lover");
@@ -4656,7 +4705,7 @@ test("lover victory is exposed as winnerCamp while keeping winner fallback compa
     { role: "Lover" },
     { role: "Lover" },
     { role: "Werewolf", alive: false },
-    { role: "Villager", alive: false },
+    { role: "Villager" },
     { role: "Seer", alive: false },
     { role: "Witch", alive: false }
   ]);
@@ -4666,6 +4715,39 @@ test("lover victory is exposed as winnerCamp while keeping winner fallback compa
   assert.equal(result?.winnerCamp, "lover");
   assert.equal(result?.camp, "village");
   assert.deepEqual(result?.winnerIds, ["p1", "p2"]);
+});
+
+test("lover victory waits for a real game-end condition", () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+
+  assert.equal(game.checkVictory(), null);
+});
+
+test("round-limit adjudication awards lovers when both are alive", async () => {
+  const game = createGame();
+  setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  (game as unknown as { round: number }).round = baseConfig.maxRounds;
+
+  const events = await collect(game.run());
+  const ended = events.find((event) => event.type === "game_ended");
+
+  assert.equal(ended?.data?.winnerCamp, "lover");
+  assert.deepEqual(ended?.data?.winnerIds, ["p1", "p2"]);
 });
 
 test("Jester vote death ends as neutral winner while keeping winner fallback compatible", async () => {
@@ -4831,7 +4913,7 @@ test("LLM target selection retries malformed JSON and falls back to a random leg
     });
 
     assert.equal(decision.targetId, "p2");
-    assert.match(decision.reason, /Fallback legal choice/);
+    assert.match(decision.reason, /対象選択JSONが不正/);
     assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;
@@ -4978,12 +5060,12 @@ test("LLM public speech uses a single simple speech request", async () => {
     const userContent = String((body.messages as Array<{ content: string }>)[0]?.content ?? "");
     assert.equal(body.model, "test-model");
     assert.equal((body.messages as Array<{ role: string }>)[0]?.role, "user");
-    assert.match(String(body.system), /Use the conversation so far and your role/);
+    assert.match(String(body.system), /これまでの会話と自分の役職/);
     assert.doesNotMatch(String(body.system), /reasoning metadata|public-safe facts|Return strict JSON only/);
-    assert.match(userContent, /Public context with claims and reads/);
+    assert.match(userContent, /公開文脈/);
     return new Response(
       JSON.stringify({
-        content: [{ type: "text", text: "Byron's changed line is the part I want pressure on." }]
+        content: [{ type: "text", text: "ノゾミの発言が変わったので、ここは怪しいです。" }]
       }),
       {
         status: 200,
@@ -4995,23 +5077,23 @@ test("LLM public speech uses a single simple speech request", async () => {
   try {
     const game = createGame();
     const [player] = setTable(game, [{ role: "Villager" }]);
-    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "English", 1024);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
 
     const speech = await agent.speak({
       player,
       phase: "day_discussion",
-      task: "Speak.",
-      context: "Public context with claims and reads.",
+      task: "発言してください。",
+      context: "公開文脈: 主張と読みがあります。",
       knownPlayers: [
-        { id: "p1", name: "Ada" },
-        { id: "p2", name: "Byron" }
+        { id: "p1", name: "セナ" },
+        { id: "p2", name: "ノゾミ" }
       ],
       publicHistory: [],
       privateHistory: []
     });
 
     assert.equal(bodies.length, 1);
-    assert.deepEqual(speech.messages, ["Byron's changed line is the part I want pressure on."]);
+    assert.deepEqual(speech.messages, ["ノゾミの発言が変わったので、ここは怪しいです"]);
     assert.equal(speech.metadata.suspects[0]?.targetId, "p2");
     assert.deepEqual(speech.metadata.trusts, []);
     assert.deepEqual(speech.metadata.claims, []);

@@ -42,7 +42,7 @@ export type DeathCause = "werewolf" | "poison" | "vote" | "hunter" | "multiple" 
 export type VictoryReason =
   | "all_werewolves_eliminated"
   | "werewolf_parity"
-  | "only_lovers_alive"
+  | "lovers_alive_at_game_end"
   | "neutral_role_condition";
 
 export interface DeathVictoryConditionDefinition {

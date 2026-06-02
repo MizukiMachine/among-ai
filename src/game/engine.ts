@@ -10,7 +10,7 @@ import {
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
 import { defaultWerewolfAlignmentSpeechForPlayer } from "./humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
-import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
+import { reviewJapaneseOutput, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import { buildBaseContext, type RoleBreakdownEntry, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
@@ -108,6 +108,22 @@ const roleBreakdownOrder: Role[] = [
 ];
 
 const fallbackAgent = new DemoAgent("fallback", "demo", defaultLanguage);
+
+const targetActionLabels: Record<string, string> = {
+  "Guard night protection": "騎士の夜護衛",
+  "Werewolf night kill vote": "人狼の夜襲撃投票",
+  "Seer identity check": "占い師の判定",
+  "Witch poison potion": "魔女の毒薬",
+  "Wolf Beauty charm": "美女狼の魅了",
+  "Raven mark": "鴉の印",
+  "Day elimination vote": "昼の処刑投票",
+  "Alpha Wolf death shot": "α人狼の道連れ",
+  "Hunter death shot": "ハンターの道連れ"
+};
+
+function targetActionLabel(action: string): string {
+  return targetActionLabels[action] ?? action;
+}
 
 function humanInfluenceFollowUpPersonaScore(persona: Persona): number {
   switch (persona) {
@@ -316,7 +332,7 @@ const humanSpeechDraftCount = humanSpeechChoiceCount + 1;
 
 function defaultHumanHoldSpeech(language: string): AgentSpeech {
   return {
-    messages: [isJapaneseLanguage(language) ? "今は発言を控える" : "I will hold my statement for now"],
+    messages: [isJapaneseLanguage(language) ? "今は発言を控える" : "今は発言を控える"],
     metadata: emptySpeechMetadata()
   };
 }
@@ -530,13 +546,13 @@ function containsWerewolfFaceoffSpecialRolePlan(value: string, language: string)
   }
   if (isJapaneseLanguage(language)) {
     return (
-      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|共有)/u.test(compact) &&
+      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|愚者|長老|共有)/u.test(compact) &&
       /(騙|ふり|振る舞|っぽく|名乗|CO|カミングアウト|結果|白|黒|対抗)/iu.test(compact)
     );
   }
   const lower = compact.toLowerCase();
   return (
-    /\b(seer|medium|guard|knight|hunter|witch|raven|oracle)\b/u.test(lower) &&
+    /\b(seer|medium|guard|knight|hunter|witch|raven|idiot|elder|oracle)\b/u.test(lower) &&
     /\b(fake|claim|pretend|pose|act|result|counterclaim|co)\b/u.test(lower)
   );
 }
@@ -554,7 +570,7 @@ function werewolfFaceoffRoleConfirmationPrefix(player: Player, message: string, 
       return stripJapaneseSpeechTerminalPeriod(candidate.replace(/[、,]$/u, ""), language);
     }
   }
-  return isJapaneseLanguage(language) ? `こちらは${player.name}、${roleName}だ` : `I'm ${player.name}, the ${roleName}`;
+  return isJapaneseLanguage(language) ? `こちらは${player.name}、${roleName}だ` : `こちらは${player.name}、${roleName}だ`;
 }
 
 function werewolfFaceoffConditionalRoleJob(value: string, previousSpeakerCount: number, language: string): string {
@@ -569,14 +585,14 @@ function werewolfFaceoffConditionalRoleJob(value: string, previousSpeakerCount: 
     return `${roleOption}は状況次第で必要なら任せ、俺は反応を見て票先を絞る`;
   }
   const lower = value.toLowerCase();
-  const roleOption = lower.includes("seer") ? "a Seer claim" : "a fake-role claim";
+  const roleOption = lower.includes("seer") ? "占い騙り" : "役職騙り";
   if (previousSpeakerCount === 0) {
-    return `I will keep ${roleOption} situational and read the vote flow first`;
+    return `${roleOption}は状況次第の選択肢に残し、まずは票の流れを見る`;
   }
   if (previousSpeakerCount === 1) {
-    return `I will leave that line situational and keep distance while seeding doubt`;
+    return `その線は状況次第に残し、俺は距離を取って疑いを散らす`;
   }
-  return `I will only use ${roleOption} if needed and narrow votes from reactions`;
+  return `${roleOption}は状況次第で必要なら任せ、俺は反応を見て票先を絞る`;
 }
 
 function normalizeWerewolfFaceoffSpeech(
@@ -1580,7 +1596,7 @@ export class WerewolfGame {
 
     const lines = [
       this.text(
-        `Social baseline: ${human.name} currently has high table credibility. Do not make ${human.name} the main suspect or vote target unless concrete public evidence outweighs that credibility.`,
+        `社会的な前提: ${human.name}は現時点で信用が高い位置です。明確な公開証拠がそれを上回らない限り、${human.name}を主な疑い先や投票先にしないでください。`,
         `社会的な前提: ${human.name}は現時点で信用が高い位置です。明確な公開証拠がそれを上回らない限り、${human.name}を主な疑い先や投票先にしないでください。`
       )
     ];
@@ -1588,8 +1604,8 @@ export class WerewolfGame {
     if (humanSuspects.length > 0) {
       lines.push(
         this.text(
-          `Human influence - Suspects: ${this.formatSocialPressures(humanSuspects)}. Treat ${human.name}'s suspicion as strong public pressure when choosing reads and votes.`,
-          `人間プレイヤーの発言影響 - Suspects: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`
+          `人間プレイヤーの発言影響 - 疑い: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`,
+          `人間プレイヤーの発言影響 - 疑い: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`
         )
       );
     }
@@ -1597,8 +1613,8 @@ export class WerewolfGame {
     if (humanTrusts.length > 0) {
       lines.push(
         this.text(
-          `Human influence - Trusts: ${this.formatSocialPressures(humanTrusts)}. Treat ${human.name}'s trust as a reason to avoid weak suspicion or weak votes on those players.`,
-          `人間プレイヤーの発言影響 - Trusts: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`
+          `人間プレイヤーの発言影響 - 信頼: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`,
+          `人間プレイヤーの発言影響 - 信頼: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`
         )
       );
     }
@@ -1616,42 +1632,42 @@ export class WerewolfGame {
     const contextLines = [
       this.nightDeathContextLine(),
       this.text(
-        "Discuss suspicions, claims, or information with the whole table.",
+        "疑い、役職主張、情報を全体に向けて話してください。",
         "疑い、役職主張、情報を全体に向けて話してください。"
       ),
       discussionPass <= regularDayDiscussionPasses
         ? this.text(
-            `Discussion pass ${discussionPass} of ${regularDayDiscussionPasses}.`,
+            `昼議論 ${discussionPass}巡目 / ${regularDayDiscussionPasses}巡。`,
             `昼議論 ${discussionPass}巡目 / ${regularDayDiscussionPasses}巡。`
           )
         : this.text(
-            "Follow-up pass for selected speakers after the two table passes.",
+            "2巡後に必要な人だけが行う追加発言です。",
             "2巡後に必要な人だけが行う追加発言です。"
           ),
       discussionPass === 1
         ? this.round === 1
           ? this.text(
-              "First pass: there is no prior day discussion yet. State one opening opinion such as vote-reason standards, claim-handling conditions, setup flow, or a direct question. Do not invent prior reactions.",
+              "1巡目: まだ昼の発言はありません。投票理由の残し方、役職主張の扱い、進め方、答えやすい名指し質問など、自分の初期意見を一つ出してください。見えていない反応や矛盾は作らないでください。",
               "1巡目: まだ昼の発言はありません。投票理由の残し方、役職主張の扱い、進め方、答えやすい名指し質問など、自分の初期意見を一つ出してください。見えていない反応や矛盾は作らないでください。"
             )
           : this.text(
-              "First pass: connect to the visible public history so far, then state one clear read, claim decision, or vote-leaning view from your own position.",
+              "1巡目: ここまで見えている昼発言に自然につなげたうえで、自分の読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。",
               "1巡目: ここまで見えている昼発言に自然につなげたうえで、自分の読み・役職主張の判断・投票寄りの見方のどれかを一つだけ短く出してください。"
             )
         : discussionPass === 2
           ? this.text(
-              "Second pass: if needed, answer direct pressure briefly, then update one vote-ready read.",
+              "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。",
               "2巡目: 必要なら自分への疑いに短く答え、その後に投票前の読みを一つ更新してください。"
             )
           : this.text(
-              "Final follow-up: give one voting-ready read tied to the strongest suspicion, claim, or human-led pressure visible to you.",
+              "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。",
               "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。"
             ),
       ...(openingMove
         ? [
             this.isJapanese()
               ? `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
-              : `First-day opening mode: ${openingMove.label}. ${openingMove.instruction}`
+              : `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
           ]
         : []),
       ...this.publicSocialInfluenceContextLines(),
@@ -1825,13 +1841,18 @@ export class WerewolfGame {
     }
 
     const adjudicated = adjudicateStandardVictory(this.players);
-    yield this.finishGame({
-      camp: adjudicated,
-      reason: this.text(
-        `Round limit reached after ${this.config.maxRounds} rounds.`,
-        `${this.config.maxRounds}ラウンドの上限に到達しました。`
-      )
-    });
+    const loverResult = checkLoverVictory(this.players, this.ruleState);
+    yield this.finishGame(
+      loverResult
+        ? this.loverVictoryResult(loverResult)
+        : {
+            camp: adjudicated,
+            reason: this.text(
+              `Round limit reached after ${this.config.maxRounds} rounds.`,
+              `${this.config.maxRounds}ラウンドの上限に到達しました。`
+            )
+          }
+    );
   }
 
   private async *runNight(): AsyncGenerator<GameEvent> {
@@ -1958,19 +1979,19 @@ export class WerewolfGame {
         const targets = this.werewolfAttackTargets();
         const contextLines = [
           this.text(
-            `Known werewolves: ${werewolves.map((player) => player.name).join(", ")}.`,
+            `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`,
             `把握している人狼: ${werewolves.map((player) => player.name).join(", ")}。`
           ),
           this.text(
-            `Possible victims: ${targets.map((player) => player.name).join(", ")}.`,
+            `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`,
             `襲撃候補: ${targets.map((player) => player.name).join(", ")}。`
           ),
           this.text(
-            "Choose the kill that helps the wolf team erase the village and gives tomorrow's public acting the cleanest cover.",
+            "村人を全排除するため、明日の昼に人間側として演じやすい襲撃先を選んでください。",
             "村人を全排除するため、明日の昼に人間側として演じやすい襲撃先を選んでください。"
           ),
           this.text(
-            "If a human werewolf ally proposes a victim, treat that proposal as a strong team signal and respond to it directly.",
+            "人間プレイヤーの人狼仲間が襲撃先を提案した場合は、強いチーム方針として扱い、その提案に直接反応してください。",
             "人間プレイヤーの人狼仲間が襲撃先を提案した場合は、強いチーム方針として扱い、その提案に直接反応してください。"
           ),
           ...this.wolfHistory.slice(-8).map((line) => this.text(`Werewolf chat: ${line}`, `人狼チャット: ${line}`))
@@ -2168,15 +2189,15 @@ export class WerewolfGame {
       : null;
     const contextLines = [
       this.text(
-        "Choose one living player to protect from the werewolf attack tonight.",
+        "今夜の人狼襲撃から守る生存者を一人選んでください。",
         "今夜の人狼襲撃から守る生存者を一人選んでください。"
       ),
       blocked
         ? this.text(
-            `You cannot protect ${blocked} again because you protected them last night.`,
+            `${blocked}は昨夜護衛したため、連続では守れません。`,
             `${blocked}は昨夜護衛したため、連続では守れません。`
           )
-        : this.text("No one is blocked by consecutive protection.", "連続護衛で除外される対象はいません。")
+        : this.text("連続護衛で除外される対象はいません。", "連続護衛で除外される対象はいません。")
     ];
     const context = this.contextFor(guard, contextLines);
     const decision = await this.raceChooseTarget(guard, this.text("Guard night protection", "騎士の夜護衛"), context, targets, false, contextLines);
@@ -2301,7 +2322,7 @@ export class WerewolfGame {
     }
 
     return this.text(
-      `Werewolf attack vote totals: ${totalsText}. ${targetName} had the most votes, so they will be attacked tonight.`,
+      `人狼の襲撃投票結果は${totalsText}です。最多票の${targetName}を襲撃することが決定しました。`,
       `人狼の襲撃投票結果は${totalsText}です。最多票の${targetName}を襲撃することが決定しました。`
     );
   }
@@ -2380,7 +2401,7 @@ export class WerewolfGame {
     }
 
     const contextLines = [
-      this.text("Choose one living player to check tonight.", "今夜占う生存者を一人選んでください。")
+      this.text("今夜占う生存者を一人選んでください。", "今夜占う生存者を一人選んでください。")
     ];
     const decision = await this.withPhase("seer_action", () => {
       const context = this.contextFor(seer, contextLines);
@@ -2406,12 +2427,13 @@ export class WerewolfGame {
 
     this.phase = "seer_action";
     const resultRound = Math.max(1, this.round);
+    const targetCampLabelJa = target.camp === "werewolf" ? "人狼" : "人間側";
     seer.seerResults[target.id] = target.camp;
     seer.seerResultRounds[target.id] = resultRound;
     seer.memories.push(
       this.text(
-        `Round ${resultRound}: ${target.name} checked as ${target.camp}.`,
-        `第${resultRound}ラウンド: ${target.name}は${this.campText(target.camp)}判定。`
+        `第${resultRound}ラウンド: ${target.name}は${targetCampLabelJa}判定。`,
+        `第${resultRound}ラウンド: ${target.name}は${targetCampLabelJa}判定。`
       )
     );
     return this.emit(
@@ -2442,10 +2464,10 @@ export class WerewolfGame {
     if (killTarget && this.witchState.savePotion) {
       const contextLines = [
         this.text(
-          `${killTarget.name} will be killed by werewolves tonight.`,
+          `${killTarget.name}が今夜人狼に襲撃されます。`,
           `${killTarget.name}が今夜人狼に襲撃されます。`
         ),
-        this.text("Decide whether to spend your only save potion.", "一度だけ使える蘇生薬を使うか判断してください。")
+        this.text("一度だけ使える蘇生薬を使うか判断してください。", "一度だけ使える蘇生薬を使うか判断してください。")
       ];
       const save = await this.withPhase("witch_action", () => {
         const context = this.contextFor(witch, contextLines, {
@@ -2457,7 +2479,7 @@ export class WerewolfGame {
         });
         return this.raceDecide(
           witch,
-          this.text(`Use the save potion on ${killTarget.name}?`, `${killTarget.name}に蘇生薬を使いますか？`),
+          this.text(`${killTarget.name}に蘇生薬を使いますか？`, `${killTarget.name}に蘇生薬を使いますか？`),
           context,
           contextLines
         );
@@ -2476,10 +2498,10 @@ export class WerewolfGame {
       }
       const legalPoisonTargetIds = new Set(poisonTargets.map((player) => player.id));
       const contextLines = [
-        this.text("You may spend your only poison potion tonight, or skip.", "今夜、一度だけ使える毒薬を使うか、見送るか選べます。"),
+        this.text("今夜、一度だけ使える毒薬を使うか、見送るか選べます。", "今夜、一度だけ使える毒薬を使うか、見送るか選べます。"),
         killTarget
-          ? this.text(`The werewolf victim is ${killTarget.name}.`, `人狼の襲撃先は${killTarget.name}です。`)
-          : this.text("No werewolf victim is known.", "人狼の襲撃先は不明です。")
+          ? this.text(`人狼の襲撃先は${killTarget.name}です。`, `人狼の襲撃先は${killTarget.name}です。`)
+          : this.text("人狼の襲撃先は不明です。", "人狼の襲撃先は不明です。")
       ];
       const decision = await this.withPhase("witch_action", () => {
         const context = this.contextFor(witch, contextLines, {
@@ -2583,7 +2605,7 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "Choose one living player to charm. If you die, that player dies with you.",
+        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。",
         "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。"
       )
     ];
@@ -2613,13 +2635,13 @@ export class WerewolfGame {
     ]);
     wolfBeauty.memories.push(
       this.text(
-        `Round ${this.round}: charmed ${target.name}. Reason: ${decision.reason}`,
+        `第${this.round}ラウンド: ${target.name}を魅了。理由: ${decision.reason}`,
         `第${this.round}ラウンド: ${target.name}を魅了。理由: ${decision.reason}`
       )
     );
     yield this.emit(
       "night_action",
-      this.text(`${wolfBeauty.name} charmed ${target.name}.`, `${wolfBeauty.name}が${target.name}を魅了しました。`),
+      this.text(`${wolfBeauty.name}が${target.name}を魅了しました。`, `${wolfBeauty.name}が${target.name}を魅了しました。`),
       {
         visibility: "private",
         action: "wolf_beauty_charm",
@@ -2645,7 +2667,7 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "You may mark one living player, or skip. The mark adds one vote against them in the next vote.",
+        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。",
         "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。"
       )
     ];
@@ -2789,7 +2811,7 @@ export class WerewolfGame {
       for await (const { player, speech } of this.raceAiWithHumanLast(
         passSpeakers,
         (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
-        this.progressReporter("day_speech", this.text("Day discussion", "昼議論"), {
+        this.progressReporter("day_speech", this.text("昼議論", "昼議論"), {
           pass: discussionPass,
           passes: regularDayDiscussionPasses
         })
@@ -2805,7 +2827,7 @@ export class WerewolfGame {
       for await (const { player, speech } of this.raceAiWithHumanLast(
         followUpSpeakers,
         (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
-        this.progressReporter("day_speech", this.text("Day discussion follow-up", "昼議論の追加発言"), {
+        this.progressReporter("day_speech", this.text("昼議論の追加発言", "昼議論の追加発言"), {
           pass: followUpDayDiscussionPass,
           passes: followUpDayDiscussionPass
         })
@@ -2822,7 +2844,7 @@ export class WerewolfGame {
   // Day runs before night each round, so round 1's day has no preceding night to report.
   private nightDeathContextLine(): string {
     if (this.round <= 1) {
-      return this.text("The game has just begun; no one has died yet.", "ゲームが始まりました。まだ犠牲者はいません。");
+      return this.text("ゲームが始まりました。まだ犠牲者はいません。", "ゲームが始まりました。まだ犠牲者はいません。");
     }
     const deathNames = this.lastNightDeaths.map((id) => this.requirePlayer(id).name);
     return deathNames.length > 0
@@ -2877,14 +2899,14 @@ export class WerewolfGame {
           "自分の関心事をひとこと添えて。"
         ]
       : [
-          "Lead with your first stance in one line.",
-          "Open with a short bit of resolve.",
-          "Slip in a light quip or grumble.",
-          "Open by addressing the whole table.",
-          "Keep it blunt and very short.",
-          "State one bit of resolve for today.",
-          "Be breezy and easygoing.",
-          "Add one thing you care about."
+          "最初の姿勢を一言で出す。",
+          "短い意気込みから入る。",
+          "軽い冗談かぼやきを混ぜる。",
+          "全体への呼びかけから入る。",
+          "とにかく端的に、短く。",
+          "今日の意気込みをひとこと。",
+          "気さくに、ゆるい雰囲気で。",
+          "自分の関心事をひとこと添えて。"
         ];
   }
 
@@ -3171,7 +3193,7 @@ export class WerewolfGame {
           yield this.emit(
             "system",
             this.text(
-              `${player.name} was revealed as the ${sourceRoleLabel} and fulfilled their neutral win condition by vote elimination.`,
+              `${player.name}は${sourceRoleLabel}であることが明らかになり、投票処刑で中立勝利条件を満たしました。`,
               `${player.name}は${sourceRoleLabel}であることが明らかになり、投票処刑で中立勝利条件を満たしました。`
             ),
             {
@@ -3230,14 +3252,14 @@ export class WerewolfGame {
 
     this.hunterShotsUsed.add(hunter.id);
     const legalTargetIds = new Set(targets.map((player) => player.id));
-    const deathShotRole = hunter.role === "AlphaWolf" ? this.text("Alpha Wolf", "α人狼") : this.text("Hunter", "ハンター");
+    const deathShotRole = hunter.role === "AlphaWolf" ? this.text("α人狼", "α人狼") : this.text("ハンター", "ハンター");
     const contextLines = [
       this.text(
-        `You died as the ${deathShotRole} and may shoot one living player before leaving the game.`,
+        `あなたは${deathShotRole}として死亡しました。退場前に生存者を一人撃てます。`,
         `あなたは${deathShotRole}として死亡しました。退場前に生存者を一人撃てます。`
       ),
       this.text(
-        `Legal shot targets: ${targets.map((player) => player.name).join(", ")}.`,
+        `撃てる対象: ${targets.map((player) => player.name).join(", ")}。`,
         `撃てる対象: ${targets.map((player) => player.name).join(", ")}。`
       )
     ];
@@ -3278,18 +3300,30 @@ export class WerewolfGame {
     return winnerRoles.map((winner) => `${winner.playerName} (${this.roleText(winner.role)})`).join(", ");
   }
 
+  private loverVictoryResult(loverResult: ReturnType<typeof checkLoverVictory>): VictoryResult {
+    if (!loverResult) {
+      throw new Error("lover victory result is required");
+    }
+    return {
+      camp: loverResult.fallbackCamp,
+      winnerCamp: loverResult.camp,
+      winnerIds: loverResult.winnerIds,
+      reason: this.text("Both lovers are alive at game end.", "ゲーム終了時点で恋人2人とも生存しています。")
+    };
+  }
+
   private checkVictory(): VictoryResult | null {
-    const loverResult = checkLoverVictory(this.players, this.ruleState);
-    if (loverResult) {
-      return {
-        camp: loverResult.fallbackCamp,
-        winnerCamp: loverResult.camp,
-        winnerIds: loverResult.winnerIds,
-        reason: this.text("Only the lovers remain alive.", "恋人だけが生存しています。")
-      };
+    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    const result = checkStandardVictory(this.players);
+    if (!neutralResult && !result) {
+      return null;
     }
 
-    const neutralResult = checkNeutralVictory(this.players, this.ruleState);
+    const loverResult = checkLoverVictory(this.players, this.ruleState);
+    if (loverResult) {
+      return this.loverVictoryResult(loverResult);
+    }
+
     if (neutralResult) {
       const winnerRoles = this.victoryRoleSummaries(neutralResult.winnerIds);
       const winnerRoleText = this.formatVictoryRoleSummary(winnerRoles);
@@ -3305,10 +3339,10 @@ export class WerewolfGame {
       };
     }
 
-    const result = checkStandardVictory(this.players);
     if (!result) {
       return null;
     }
+
     if (result.reason === "all_werewolves_eliminated") {
       return {
         camp: "village",
@@ -3351,7 +3385,7 @@ export class WerewolfGame {
         const partner = this.requirePlayer(partnerStatus.targetId);
         roleNotes.push(
           this.text(
-            `Private role info: Lover partner is ${partner.name} (${partner.alive ? "alive" : "dead"}).`,
+            `自分だけの役職情報: 恋人の相方は${partner.name}です（${partner.alive ? "生存" : "死亡"}）。`,
             `自分だけの役職情報: 恋人の相方は${partner.name}です（${partner.alive ? "生存" : "死亡"}）。`
           )
         );
@@ -3361,7 +3395,7 @@ export class WerewolfGame {
     if (player.role === "Jester") {
       roleNotes.push(
         this.text(
-          "Private role info: You are the Jester. You win alone if the day vote executes you.",
+          "自分だけの役職情報: あなたは道化師です。昼の投票で処刑されると単独勝利です。",
           "自分だけの役職情報: あなたは道化師です。昼の投票で処刑されると単独勝利です。"
         )
       );
@@ -3378,7 +3412,7 @@ export class WerewolfGame {
         return this.isJapanese() ? `${label}${entry.count}人` : entry.count === 1 ? label : `${label} x${entry.count}`;
       })
       .join(this.isJapanese() ? "、" : ", ");
-    return this.text(`Role setup: ${summary}.`, `配役表: ${summary}。`);
+    return this.text(`配役表: ${summary}。`, `配役表: ${summary}。`);
   }
 
   private uiContextWithRoleBreakdown(uiContext: string[] = []): string[] {
@@ -3452,6 +3486,72 @@ export class WerewolfGame {
       const speech = this.sanitizeSpeechForPhase(await agent.speak(input), legalPlayers, player);
       if (requestAbortSignal?.aborted) {
         throw new Error("Speech request cancelled.");
+      }
+
+      const outputReview = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
+      if (!outputReview.ok) {
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_review_rejected",
+          attempts,
+          issues: outputReview.issues,
+          styleIssues: outputReview.issues,
+          revisionHint: this.text(
+            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。",
+            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。"
+          )
+        });
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: ${outputReview.issues.join(", ")} — retrying once. Original: "${speech.messages
+              .join(" ")
+              .substring(0, 120)}…"`
+          );
+        }
+        this.throwIfCancelled();
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
+
+        attempts += 1;
+        const retryInput: AgentSpeechInput = {
+          ...input,
+          context: [
+            input.context,
+            "",
+            this.text(
+              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。",
+              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。"
+            )
+          ].join("\n")
+        };
+        const retrySpeech = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers, player);
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
+        const retryReview = reviewJapaneseOutput(retrySpeech.messages.join(" "), this.config.language);
+        if (retryReview.ok) {
+          emitSpeechAttemptDiagnostic({ kind: "speech_retry_accepted", attempts, issues: [], styleIssues: [] });
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
+          return retrySpeech;
+        }
+
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_retry_rejected",
+          attempts,
+          issues: retryReview.issues,
+          styleIssues: retryReview.issues
+        });
+        if (!options.suppressMemorySideEffects) {
+          console.warn(
+            `[speech-review] ${player.name}: retry still has issues (${retryReview.issues.join(
+              ", "
+            )}). Using simple Japanese fallback.`
+          );
+        }
+        const fallback = this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers, player);
+        const fallbackReview = reviewJapaneseOutput(fallback.messages.join(" "), this.config.language);
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: fallbackReview.ok });
+        return fallback;
       }
 
       emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: false });
@@ -3569,12 +3669,12 @@ export class WerewolfGame {
     const task =
       previousFaceoffHistory.length > 0
         ? this.text(
-            "Briefly make your role clear, answer any earlier ally line from this same opening face-off, and add a different wolf-to-wolf angle instead of repeating the opener: back the lie, keep distance, bait reactions, seed doubt, or nudge votes. If a Seer-style fake claim is mentioned, keep it as a situational option instead of a commitment.",
-            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い騙りに触れる場合は、確定ではなく状況次第の選択肢として残してください。"
+            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は、村側と同じ条件の状況次第の選択肢として残してください。",
+            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は、村側と同じ条件の状況次第の選択肢として残してください。"
           )
         : this.text(
-            'Open the private werewolf face-off by confirming your role and setting one clear deceptive angle for the team, such as staying hidden, winning trust, or making them lower their guard. Keep any Seer-style fake claim only as a situational option.',
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い騙りは確定宣言ではなく、状況次第の選択肢に留めてください。"
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言ではなく、村側と同じ条件の状況次第の選択肢に留めてください。",
+            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言ではなく、村側と同じ条件の状況次第の選択肢に留めてください。"
           );
     const input: AgentSpeechInput = {
       player,
@@ -3632,18 +3732,18 @@ export class WerewolfGame {
   private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
     if (previousSpeakerCount === 0) {
       return this.text(
-        "Your slot: opener. Own your role and set only one deceptive team angle: stay hidden, win trust, or make them lower their guard. Avoid a broad template that packs every wolf tactic into one line. A Seer-style fake claim may remain only a situational option.",
-        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い騙りは状況次第の選択肢に留めてください。"
+        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い師・魔女・ハンター・鴉・愚者・長老の騙りは村側と同じ条件の状況次第の選択肢に留めてください。",
+        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い師・魔女・ハンター・鴉・愚者・長老の騙りは村側と同じ条件の状況次第の選択肢に留めてください。"
       );
     }
     if (previousSpeakerCount === 1) {
       return this.text(
-        "Your slot: support or contrast. A teammate has already started the deceptive rally. Do not repeat their wording or another full role-introduction template; make your role clear briefly, then say how you will back the lie, keep distance, or bait reactions. Keep special-role fake claims situational.",
-        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは状況次第に留めてください。"
+        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは村側と同じ条件の状況次第に留めてください。",
+        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは村側と同じ条件の状況次第に留めてください。"
       );
     }
     return this.text(
-      'Your slot: pressure or vote work. The team already has a deceptive rally and cover. Do not add another "I am also a werewolf / I will pass as human" line; keep your role clear in a brief phrase, then add suspicion, vote narrowing, misdirection, or trust-shifting.',
+      "あなたの枠: 圧力または票の調整。チームにはすでに騙す意気込みとカバー役があります。「俺も人狼だ／人間のフリで潜る」をもう一度言わず、役職は短く伝えたうえで、疑いを寄せる・票を狭める・誤誘導する・信じる相手を間違わせる、などを短く足してください。",
       "あなたの枠: 圧力または票の調整。チームにはすでに騙す意気込みとカバー役があります。「俺も人狼だ／人間のフリで潜る」をもう一度言わず、役職は短く伝えたうえで、疑いを寄せる・票を狭める・誤誘導する・信じる相手を間違わせる、などを短く足してください。"
     );
   }
@@ -3666,8 +3766,8 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, make your role clear, and speak like wolves psyching each other up to deceive the village. The opener may set the main deceptive angle; later speakers should not repeat the same role-introduction or plan, and should instead add cover, distance, reaction bait, suspicion, or vote work. If you mention Seer/Medium/etc. fake claims here, phrase them as situational options, and do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職が伝わるようにし、狼同士で村を騙す気持ちを高める口調で話してください。最初の発言者は欺き方の主軸を置き、後続は同じ名乗りや同じ作戦を繰り返さず、カバー・距離取り・反応釣り・疑い作り・票調整などを足します。ここで占い師・霊能などの特殊役職騙りに触れる場合は状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
+        "Check in with your allies, make your role clear, and speak like wolves psyching each other up to deceive the village. The opener may set the main deceptive angle; later speakers should not repeat the same role-introduction or plan, and should instead add cover, distance, reaction bait, suspicion, or vote work. If you mention Seer/Witch/Hunter/Raven/Idiot/Elder fake claims here, phrase them as situational options under the same conditions as village claims, and do not discuss attack targets or detailed plans yet.",
+        "仲間と意思を合わせ、自分の役職が伝わるようにし、狼同士で村を騙す気持ちを高める口調で話してください。最初の発言者は欺き方の主軸を置き、後続は同じ名乗りや同じ作戦を繰り返さず、カバー・距離取り・反応釣り・疑い作り・票調整などを足します。ここで占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は村側と同じ条件の状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
       )
     ];
     if (roleBrief) {
@@ -3679,12 +3779,12 @@ export class WerewolfGame {
           .slice(-6)
           .map((line) =>
             this.text(
-              `Earlier ally face-off line from this same opening meeting: ${line}`,
+              `この顔合わせで先に出た仲間の発言: ${line}`,
               `この顔合わせで先に出た仲間の発言: ${line}`
             )
           ),
         this.text(
-          "Use only those same-face-off ally lines as context. Do not infer any conversation outside those entries. The team is psyching itself up to deceive the village; do not restart with a firm special-role fake claim or another full role-introduction template. Refer to an ally's line and add a different short angle.",
+          "上の行は、この顔合わせ内で先に出た仲間の発言だけです。それ以外の会話は想定しないでください。チーム内では村を騙す意気込みが進んでいます。特殊役職騙りを自分の確定役として言い直したり、名乗り直しの型からやり直したりしないでください。仲間の言葉に触れ、自分なりの別角度を短く足してください。",
           "上の行は、この顔合わせ内で先に出た仲間の発言だけです。それ以外の会話は想定しないでください。チーム内では村を騙す意気込みが進んでいます。特殊役職騙りを自分の確定役として言い直したり、名乗り直しの型からやり直したりしないでください。仲間の言葉に触れ、自分なりの別角度を短く足してください。"
         )
       );
@@ -3931,6 +4031,7 @@ export class WerewolfGame {
       player,
       phase: this.phase,
       action,
+      actionLabel: targetActionLabel(action),
       context,
       uiContext: visibleUiContext,
       candidates: targetCandidates,

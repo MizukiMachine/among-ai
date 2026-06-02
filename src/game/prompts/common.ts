@@ -1,5 +1,5 @@
 import type { Persona, Phase } from "../types";
-import { isJapaneseLanguage, personaLabel, phaseLabel } from "../i18n";
+import { defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel } from "../i18n";
 import { personaDetails } from "./personaDetails";
 import { promptMaterials } from "./materials";
 import type { PromptMode, PromptPhase } from "./schemas";
@@ -12,8 +12,8 @@ export function bulletList(lines: string[]): string {
   return lines.map((line) => `- ${line}`).join("\n");
 }
 
-export function formatPlayers(players: Array<{ id: string; name: string }>): string {
-  return players.length > 0 ? players.map((player) => `${player.name} (${player.id})`).join(", ") : "none";
+export function formatPlayers(players: Array<{ id: string; name: string }>, language = defaultLanguage): string {
+  return players.length > 0 ? players.map((player) => `${player.name} (${player.id})`).join(", ") : isJapaneseLanguage(language) ? "なし" : "none";
 }
 
 export function recentLines(lines: string[], count: number): string[] {

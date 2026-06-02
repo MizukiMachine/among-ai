@@ -39,16 +39,15 @@ export function checkStandardVictory(players: RulePlayer[]): VictoryCheckResult 
 }
 
 export function checkLoverVictory(players: RulePlayer[], state: RuleState): VictoryCheckResult | null {
-  const alivePlayers = players.filter((player) => player.alive);
-  const lovers = alivePlayers.filter((player) => playerStatuses(state, player.id, "lover").length > 0);
+  const lovers = players.filter((player) => playerStatuses(state, player.id, "lover").some((status) => status.targetId));
 
-  if (alivePlayers.length === 2 && lovers.length === 2) {
+  if (lovers.length === 2 && lovers.every((player) => player.alive)) {
     const werewolf = countAliveByCamp(players, "werewolf");
     const village = countAliveByCamp(players, "village");
     return {
       camp: "lover",
       fallbackCamp: adjudicateStandardVictory(players),
-      reason: "only_lovers_alive",
+      reason: "lovers_alive_at_game_end",
       counts: { werewolf, village },
       winnerIds: lovers.map((player) => player.id)
     };
