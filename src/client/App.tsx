@@ -1453,18 +1453,14 @@ export function App() {
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
   const [tourRect, setTourRect] = useState<DOMRect | null>(null);
-  // Modal spotlight shown when a werewolf ally is unveiled at the face-off: dims the whole
-  // screen and lights only that roster card while its role flips. Tracks the card's id + rect.
+  // Spotlight shown when a werewolf ally is unveiled at the face-off: frame only that roster
+  // card while its role flips, without dimming the main story panel or the rest of the screen.
   const [revealSpotlight, setRevealSpotlight] = useState<{ id: string; rect: DOMRect } | null>(null);
   // The id of the event whose speech typewriter has fully finished revealing. The role-reveal
   // spotlight gates on this so it only fires once the face-off line has been shown end-to-end,
   // never the instant the speech event arrives.
   const [typedCompleteEventId, setTypedCompleteEventId] = useState<number | null>(null);
   const revealSpotlightTimerRef = useRef<number | null>(null);
-  // Fully tears down the active spotlight (flag + listeners + timer); set by the reveal effect so
-  // a click-to-skip dismisses it exactly like the timeout does, instead of leaving live listeners
-  // that could resurrect the overlay on the next scroll/resize.
-  const revealDismissRef = useRef<(() => void) | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [pendingHumanInputs, setPendingHumanInputsState] = useState<PendingHumanInputEntry[]>([]);
   const [humanSpeech, setHumanSpeech] = useState("");
@@ -1764,9 +1760,9 @@ export function App() {
     };
   }, [tourStepIndex, tourSteps]);
 
-  // When a role is unveiled in the story, raise a modal spotlight over their roster card:
-  // scroll it into view, dim everything else, and hold for REVEAL_SPOTLIGHT_MS before clearing.
-  // The card stays revealed afterwards; only the dramatic overlay is transient.
+  // When a role is unveiled in the story, frame their roster card and hold for
+  // REVEAL_SPOTLIGHT_MS before clearing. The card stays revealed afterwards; only the
+  // dramatic ring is transient.
   //
   // Gate on the reveal message being *fully* typed out (`typedCompleteEventId`), so the dramatic
   // beat lands after the message has finished its typewriter sweep — not the instant the speech
@@ -1805,7 +1801,6 @@ export function App() {
       window.removeEventListener("scroll", measure, true);
       setRevealSpotlight(null);
     };
-    revealDismissRef.current = dismiss;
     findCard()?.scrollIntoView({ block: "nearest", inline: "nearest" });
     measure();
     window.addEventListener("resize", measure);
@@ -3932,7 +3927,6 @@ export function App() {
     };
     return (
       <div className="role-reveal-overlay" role="presentation" aria-hidden="true">
-        <div className="role-reveal-overlay-backdrop" onClick={() => revealDismissRef.current?.()} />
         <div className="role-reveal-overlay-spotlight" style={spotlightStyle} />
       </div>
     );
