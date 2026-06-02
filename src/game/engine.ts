@@ -1,4 +1,5 @@
 import { setMaxListeners } from "node:events";
+import { hedge, mergeAbortSignals, raceCandidates } from "llm-hedge";
 import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import {
@@ -799,32 +800,6 @@ async function* orderedConcurrentDecisionMap<T, R>(
   }
 }
 
-function mergeAbortSignals(a?: AbortSignal, b?: AbortSignal): { signal?: AbortSignal; cleanup: () => void } {
-  if (!a) {
-    return { signal: b, cleanup: () => undefined };
-  }
-  if (!b || a === b) {
-    return { signal: a, cleanup: () => undefined };
-  }
-
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  if (a.aborted || b.aborted) {
-    abort();
-    return { signal: controller.signal, cleanup: () => undefined };
-  }
-
-  a.addEventListener("abort", abort, { once: true });
-  b.addEventListener("abort", abort, { once: true });
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      a.removeEventListener("abort", abort);
-      b.removeEventListener("abort", abort);
-    }
-  };
-}
-
 export class WerewolfGame {
   private readonly players: Player[];
   private readonly agents = new Map<string, Agent>();
@@ -1213,55 +1188,29 @@ export class WerewolfGame {
     }
   }
 
+  // Speculative race over different speakers: the slot/cancel mechanism lives in
+  // llm-hedge; the speculative flag and the losers-aborted diagnostic are policy.
   private async firstFinishedSpeechRace<R>(
     players: Player[],
     run: (player: Player, options?: SpeculativeRunOptions) => Promise<R>
   ): Promise<{ player: Player; value: R }> {
-    type RaceResult =
-      | { ok: true; slotId: string; player: Player; value: R; controller: AbortController }
-      | { ok: false; slotId: string; player: Player; error: unknown; controller: AbortController };
-    type RaceController = { controller: AbortController; player: Player };
-    const active = new Map<string, Promise<RaceResult>>();
-    const controllers = new Map<string, RaceController>();
-    let lastError: unknown;
-
-    for (const [index, player] of players.entries()) {
-      const slotId = `${player.id}:${index}`;
-      const controller = new AbortController();
-      controllers.set(slotId, { controller, player });
-      const promise = run(player, { signal: controller.signal, speculative: true }).then(
-        (value) => ({ ok: true, slotId, player, value, controller }) as RaceResult,
-        (error: unknown) => ({ ok: false, slotId, player, error, controller }) as RaceResult
-      );
-      active.set(slotId, promise);
-    }
-
-    while (active.size > 0) {
-      const result = await Promise.race(active.values());
-      active.delete(result.slotId);
-      controllers.delete(result.slotId);
-      if (result.ok) {
-        const abortedPlayerIds = [...controllers.values()].map(({ player }) => player.id);
-        for (const { controller } of controllers.values()) {
-          controller.abort();
-        }
-        if (abortedPlayerIds.length > 0) {
+    const { item, value } = await raceCandidates(
+      players,
+      (player, ctx) => run(player, { signal: ctx.signal, speculative: true }),
+      {
+        onLosersAborted: ({ winner, losers, raceSize }) => {
           this.emitSpeechDiagnostic({
             kind: "speech_race_losers_aborted",
-            playerId: result.player.id,
-            playerName: result.player.name,
+            playerId: winner.id,
+            playerName: winner.name,
             speculative: true,
-            raceSize: players.length,
-            abortedPlayerIds
+            raceSize,
+            abortedPlayerIds: losers.map((player) => player.id)
           });
         }
-        return { player: result.player, value: result.value };
       }
-      result.controller.abort();
-      lastError = result.error;
-    }
-
-    throw lastError;
+    );
+    return { player: item, value };
   }
 
   private shouldRaceAiDecision(player: Player): boolean {
@@ -1274,45 +1223,15 @@ export class WerewolfGame {
     );
   }
 
+  // Hedged race over redundant copies of the same decision: the slot count is
+  // decided here (policy) and the redundancy/cancel mechanism is delegated to
+  // llm-hedge.
   private async firstFinishedDecisionRace<R>(
-    player: Player,
     run: (options?: SpeculativeRunOptions) => Promise<R>,
     raceSlots = this.prefetchConcurrency
   ): Promise<R> {
     const limit = this.normalizedDecisionRaceSlots(raceSlots);
-    type RaceResult =
-      | { ok: true; slotId: string; value: R; controller: AbortController }
-      | { ok: false; slotId: string; error: unknown; controller: AbortController };
-    const active = new Map<string, Promise<RaceResult>>();
-    const controllers = new Map<string, AbortController>();
-    let lastError: unknown;
-
-    for (let index = 0; index < limit; index += 1) {
-      const slotId = `${player.id}:decision:${index}`;
-      const controller = new AbortController();
-      controllers.set(slotId, controller);
-      const promise = run({ signal: controller.signal, speculative: true }).then(
-        (value) => ({ ok: true, slotId, value, controller }) as RaceResult,
-        (error: unknown) => ({ ok: false, slotId, error, controller }) as RaceResult
-      );
-      active.set(slotId, promise);
-    }
-
-    while (active.size > 0) {
-      const result = await Promise.race(active.values());
-      active.delete(result.slotId);
-      controllers.delete(result.slotId);
-      if (result.ok) {
-        for (const controller of controllers.values()) {
-          controller.abort();
-        }
-        return result.value;
-      }
-      result.controller.abort();
-      lastError = result.error;
-    }
-
-    throw lastError;
+    return hedge((ctx) => run({ signal: ctx.signal, speculative: true }), { slots: limit });
   }
 
   private normalizedDecisionRaceSlots(raceSlots: number | undefined): number {
@@ -3347,7 +3266,6 @@ export class WerewolfGame {
       // decision-race pattern the AI night/vote choices use.
       const raceSlots = this.shouldRaceHumanChoice(shadow) ? this.prefetchConcurrency : 1;
       candidates = await this.firstFinishedDecisionRace(
-        player,
         (options) => this.draftHumanSpeechChoiceSet(shadow, input, options?.signal),
         raceSlots
       );
@@ -3476,7 +3394,6 @@ export class WerewolfGame {
     }
 
     return this.firstFinishedDecisionRace(
-      player,
       (options) =>
         this.safeChooseTarget(player, action, context, candidates, allowSkip, uiContext, {
           abortSignal: options?.signal,
@@ -3551,7 +3468,6 @@ export class WerewolfGame {
     }
 
     return this.firstFinishedDecisionRace(
-      player,
       (options) =>
         this.safeDecide(player, question, context, uiContext, {
           abortSignal: options?.signal,

@@ -1,5 +1,6 @@
-import Anthropic, { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
-import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import { completeWithRetry, createLlmClient, createLlmQueue, parseJsonObject, type LlmTraceEvent } from "llm-hedge";
 import { claimedRoleBySpeakerFromText, detectDaySituations, type DaySituation } from "./daySituations";
 import { stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
 import {
@@ -36,9 +37,6 @@ const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
 const defaultZaiModel = "glm-5-turbo";
 const fixedLlmRequestConcurrency = 5;
 const fixedLlmRequestMinIntervalMs = 0;
-const llmRequestRetries = 3;
-const llmRequestAttempts = llmRequestRetries + 1;
-const initialLlmBackoffMs = 1_000;
 const targetSelectionAttempts = 2;
 const booleanDecisionAttempts = 2;
 const maxSpeechMessages = 3;
@@ -684,29 +682,6 @@ function clampReason(text: unknown, fallback: string): string {
   return compact.length > 150 ? `${compact.slice(0, 147)}...` : compact;
 }
 
-function extractJsonObject(text: string): Record<string, unknown> | null {
-  const trimmed = text.trim();
-  const direct = tryParseJson(trimmed);
-  if (direct) {
-    return direct;
-  }
-
-  const match = trimmed.match(/\{[\s\S]*\}/);
-  if (!match) {
-    return null;
-  }
-  return tryParseJson(match[0]);
-}
-
-function tryParseJson(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function emptySpeechMetadata(): SpeechMetadata {
   return {
     suspects: [],
@@ -735,7 +710,7 @@ export function buildSimpleFallbackSpeech(input: AgentSpeechInput, language: str
 }
 
 function parseDisplayedSpeechMessages(content: string, fallback: string, language: string): string[] {
-  const parsed = extractJsonObject(content);
+  const parsed = parseJsonObject(content);
   if (!parsed) {
     if (isSpeechJsonLeak(content)) {
       return normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language);
@@ -762,61 +737,9 @@ function positiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function abortError(message = "LLM request cancelled."): Error {
-  return new Error(message);
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw abortError();
-  }
-}
-
-function createAnthropicClient(apiKey: string, baseUrl: string, timeoutMs: number): Anthropic {
-  return new Anthropic({
-    apiKey,
-    baseURL: baseUrl,
-    timeout: timeoutMs,
-    maxRetries: 0
-  });
-}
-
-type LlmQueueEntry = {
-  id: number;
-  queuedAt: number;
-  startedAt?: number;
-  model: string;
-  maxTokens: number;
-  label?: string;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-  signal?: AbortSignal;
-  abort: () => void;
-};
-
-/**
- * Structured per-request trace event. Mirrors the AMONG_AI_LLM_QUEUE_TRACE
- * console output but is delivered to an in-process sink so measurement tooling
- * (scripts/llm-latency-probe.ts) can aggregate timings without parsing stdout.
- */
-export interface LlmTraceEvent {
-  kind: string;
-  requestId: number;
-  model: string;
-  maxTokens: number;
-  label?: string;
-  active: number;
-  queued: number;
-  concurrency: number;
-  waitMs?: number;
-  activeMs?: number;
-}
+// LlmTraceEvent is owned by llm-hedge; re-exported so trace tooling can keep
+// `import { type LlmTraceEvent } from "../src/game/agents"`.
+export type { LlmTraceEvent };
 
 let llmTraceSink: ((event: LlmTraceEvent) => void) | null = null;
 
@@ -825,187 +748,32 @@ export function setLlmQueueTraceSink(sink: ((event: LlmTraceEvent) => void) | nu
   llmTraceSink = sink;
 }
 
-const llmQueue: LlmQueueEntry[] = [];
-let activeLlmRequests = 0;
-let nextLlmStartAt = 0;
-let llmStartTimer: ReturnType<typeof setTimeout> | null = null;
-let nextLlmRequestId = 0;
-
-function llmRequestConcurrency(): number {
-  return fixedLlmRequestConcurrency;
-}
-
-function llmRequestMinIntervalMs(): number {
-  return fixedLlmRequestMinIntervalMs;
-}
-
 function llmQueueTraceEnabled(): boolean {
   return process.env.AMONG_AI_LLM_QUEUE_TRACE === "1";
 }
 
-function emitLlmQueueTrace(kind: string, entry: LlmQueueEntry, extra: Record<string, unknown> = {}): void {
-  if (llmTraceSink) {
-    llmTraceSink({
-      kind,
-      requestId: entry.id,
-      model: entry.model,
-      maxTokens: entry.maxTokens,
-      label: entry.label,
-      active: activeLlmRequests,
-      queued: llmQueue.length,
-      concurrency: llmRequestConcurrency(),
-      waitMs: typeof extra.waitMs === "number" ? extra.waitMs : undefined,
-      activeMs: typeof extra.activeMs === "number" ? extra.activeMs : undefined
-    });
-  }
-
-  if (!llmQueueTraceEnabled()) {
-    return;
-  }
-
-  console.info(
-    `[llm-queue] ${JSON.stringify({
-      kind,
-      requestId: entry.id,
-      model: entry.model,
-      maxTokens: entry.maxTokens,
-      label: entry.label,
-      active: activeLlmRequests,
-      queued: llmQueue.length,
-      concurrency: llmRequestConcurrency(),
-      ...extra
-    })}`
-  );
-}
-
-function scheduleLlmQueue(): void {
-  if (llmStartTimer) {
-    return;
-  }
-
-  const now = Date.now();
-  const delay = Math.max(0, nextLlmStartAt - now);
-  llmStartTimer = setTimeout(() => {
-    llmStartTimer = null;
-    drainLlmQueue();
-  }, delay);
-}
-
-function drainLlmQueue(): void {
-  while (activeLlmRequests < llmRequestConcurrency() && llmQueue.length > 0) {
-    const now = Date.now();
-    if (now < nextLlmStartAt) {
-      scheduleLlmQueue();
+// A single process-wide admission queue shared by every LLM request, preserving
+// the previous module-global behavior. The trace callback fans the structured
+// event out to the optional in-process sink and, when AMONG_AI_LLM_QUEUE_TRACE=1,
+// to stdout (byte-identical to the prior `[llm-queue]` output).
+const sharedLlmQueue = createLlmQueue({
+  concurrency: fixedLlmRequestConcurrency,
+  minIntervalMs: fixedLlmRequestMinIntervalMs,
+  onTrace: (event) => {
+    llmTraceSink?.(event);
+    if (!llmQueueTraceEnabled()) {
       return;
     }
-
-    const entry = llmQueue.shift();
-    if (!entry) {
-      return;
-    }
-    entry.signal?.removeEventListener("abort", entry.abort);
-    if (entry.signal?.aborted) {
-      entry.reject(abortError());
-      continue;
-    }
-
-    activeLlmRequests += 1;
-    nextLlmStartAt = now + llmRequestMinIntervalMs();
-    entry.startedAt = now;
-    emitLlmQueueTrace("started", entry, { waitMs: now - entry.queuedAt });
-    entry.resolve();
+    console.info(`[llm-queue] ${JSON.stringify(event)}`);
   }
-}
-
-async function acquireLlmSlot(
-  signal: AbortSignal | undefined,
-  request: { model: string; maxTokens: number; label?: string }
-): Promise<() => void> {
-  throwIfAborted(signal);
-  let acquiredEntry: LlmQueueEntry | null = null;
-  await new Promise<void>((resolve, reject) => {
-    const entry: LlmQueueEntry = {
-      id: ++nextLlmRequestId,
-      queuedAt: Date.now(),
-      model: request.model,
-      maxTokens: request.maxTokens,
-      label: request.label,
-      resolve: () => {
-        acquiredEntry = entry;
-        resolve();
-      },
-      reject,
-      signal,
-      abort: () => {
-        const index = llmQueue.indexOf(entry);
-        if (index !== -1) {
-          llmQueue.splice(index, 1);
-        }
-        emitLlmQueueTrace("aborted_waiting", entry, { waitMs: Date.now() - entry.queuedAt });
-        reject(abortError());
-      }
-    };
-    signal?.addEventListener("abort", entry.abort, { once: true });
-    llmQueue.push(entry);
-    emitLlmQueueTrace("queued", entry);
-    drainLlmQueue();
-  });
-  if (!acquiredEntry) {
-    throw abortError();
-  }
-  const entry = acquiredEntry as LlmQueueEntry;
-
-  let released = false;
-  return () => {
-    if (released) {
-      return;
-    }
-    released = true;
-    activeLlmRequests = Math.max(0, activeLlmRequests - 1);
-    emitLlmQueueTrace("finished", entry, {
-      activeMs: entry.startedAt ? Date.now() - entry.startedAt : undefined
-    });
-    drainLlmQueue();
-  };
-}
-
-function isRetryableAnthropicError(error: unknown): boolean {
-  if (error instanceof APIConnectionTimeoutError) {
-    return false;
-  }
-  if (error instanceof APIError) {
-    const status = error.status ?? 0;
-    return status === 429 || status >= 500 || /(?:rate limit|429)/i.test(error.message);
-  }
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-    if (
-      error.name === "AbortError" ||
-      message.includes("timeout") ||
-      message.includes("aborted") ||
-      message.includes("cancelled")
-    ) {
-      return false;
-    }
-    return (
-      message.includes("econnreset") ||
-      message.includes("rate limit") ||
-      message.includes("429")
-    );
-  }
-  return false;
-}
-
-function retryDelayMs(attempt: number): number {
-  return initialLlmBackoffMs * 2 ** Math.max(0, attempt - 1);
-}
+});
 
 function parseTargetSelection(
   content: string,
   candidates: AgentTargetInput["candidates"],
   allowSkip: boolean
 ): { valid: true; decision: TargetDecision } | { valid: false } {
-  const parsed = extractJsonObject(content);
+  const parsed = parseJsonObject(content);
   if (!parsed || !Object.hasOwn(parsed, "targetId")) {
     return { valid: false };
   }
@@ -1026,7 +794,7 @@ function parseTargetSelection(
 }
 
 function parseBooleanDecision(content: string): { valid: true; decision: boolean } | { valid: false } {
-  const parsed = extractJsonObject(content);
+  const parsed = parseJsonObject(content);
   return typeof parsed?.decision === "boolean" ? { valid: true, decision: parsed.decision } : { valid: false };
 }
 
@@ -1202,7 +970,7 @@ function evidenceTarget(input: AgentTargetInput): TargetCandidate | null {
 }
 
 function normalizeLlmSummary(content: string): string | null {
-  const parsed = extractJsonObject(content);
+  const parsed = parseJsonObject(content);
   const summary = typeof parsed?.summary === "string" ? parsed.summary : content.replace(/```(?:json)?|```/g, "");
   return clampSummary(summary);
 }
@@ -1866,6 +1634,9 @@ export class DemoAgent implements Agent {
   }
 }
 
+// Thin wrapper over llm-hedge's completeWithRetry: resolves the provider/env
+// timeout and assembles the (provider-specific) create params, then delegates
+// the slot/timeout/retry mechanism to the SDK against the shared queue.
 async function completeAnthropic(
   client: Anthropic,
   model: string,
@@ -1877,69 +1648,22 @@ async function completeAnthropic(
   signal?: AbortSignal,
   label?: string
 ): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= llmRequestAttempts; attempt += 1) {
-    try {
-      throwIfAborted(signal);
-      const releaseSlot = await acquireLlmSlot(signal, { model, maxTokens, label });
-      const configuredTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
-      const abortTimeoutMs = timeoutMs ?? configuredTimeoutMs;
-      const controller = new AbortController();
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      let abortFromExternalSignal: (() => void) | null = null;
-      const abortGate = new Promise<never>((_, reject) => {
-        const rejectWithAbort = (error: Error) => {
-          controller.abort();
-          reject(error);
-        };
-        abortFromExternalSignal = () => {
-          rejectWithAbort(abortError());
-        };
-        if (signal?.aborted) {
-          abortFromExternalSignal();
-          return;
-        }
-        signal?.addEventListener("abort", abortFromExternalSignal, { once: true });
-        timeout = setTimeout(() => {
-          rejectWithAbort(abortError("LLM request timed out."));
-        }, abortTimeoutMs);
-      });
-      const abortFromExternalSignalForCleanup = abortFromExternalSignal;
-      if (!abortFromExternalSignalForCleanup) {
-        controller.abort();
-        throw abortError();
-      }
-      try {
-        const request = client.messages.create(
-          {
-            model,
-            system,
-            messages,
-            max_tokens: maxTokens,
-            thinking: { type: "disabled" },
-            temperature
-          },
-          { signal: controller.signal }
-        );
-        const response = await Promise.race([request, abortGate]);
-        const textBlock = response.content.find((block): block is TextBlock => block.type === "text");
-        return textBlock?.text ?? "";
-      } finally {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        signal?.removeEventListener("abort", abortFromExternalSignalForCleanup);
-        releaseSlot();
-      }
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableAnthropicError(error) || attempt === llmRequestAttempts) {
-        throw error;
-      }
-      await sleep(retryDelayMs(attempt));
-    }
-  }
-  throw lastError;
+  const configuredTimeoutMs = positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
+  return completeWithRetry({
+    client,
+    params: {
+      model,
+      system,
+      messages,
+      max_tokens: maxTokens,
+      thinking: { type: "disabled" },
+      temperature
+    },
+    queue: sharedLlmQueue,
+    timeoutMs: timeoutMs ?? configuredTimeoutMs,
+    signal,
+    label
+  });
 }
 
 export async function summarizeRoundWithLlm(input: {
@@ -1975,11 +1699,11 @@ export async function summarizeRoundWithLlm(input: {
     }
   ];
   const model = input.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel;
-  const client = createAnthropicClient(
+  const client = createLlmClient({
     apiKey,
-    process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
-    positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
-  );
+    baseUrl: process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
+    timeoutMs: positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
+  });
   const content = await completeAnthropic(client, model, system, messages, 512, 0.35, undefined, input.abortSignal, "recap");
 
   return normalizeLlmSummary(content);
@@ -2209,11 +1933,11 @@ export function createAgentFactory(options: {
   const configuredModel = options.model || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultZaiModel;
   const maxTokens = positiveInt(process.env.ZAI_MAX_TOKENS ?? process.env.LLM_MAX_TOKENS, defaultLlmMaxTokens);
   const anthropicCompatibleClient = apiKey
-    ? createAnthropicClient(
+    ? createLlmClient({
         apiKey,
-        process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
-        positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
-      )
+        baseUrl: process.env.ZAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? defaultZaiBaseUrl,
+        timeoutMs: positiveInt(process.env.ZAI_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs)
+      })
     : null;
 
   return (name: string) => {

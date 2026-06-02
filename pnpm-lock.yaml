@@ -23,6 +23,9 @@ importers:
       hono:
         specifier: ^4.10.7
         version: 4.12.18
+      llm-hedge:
+        specifier: workspace:*
+        version: link:packages/llm-hedge
       lucide-react:
         specifier: ^0.561.0
         version: 0.561.0(react@19.2.6)
@@ -63,6 +66,12 @@ importers:
       typescript-eslint:
         specifier: ^8.50.0
         version: 8.59.3(eslint@9.39.4)(typescript@5.9.3)
+
+  packages/llm-hedge:
+    devDependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.96.0
+        version: 0.96.0
 
 packages:
 
