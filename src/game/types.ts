@@ -377,6 +377,7 @@ export interface AgentTargetInput {
   player: Player;
   phase: Phase;
   action: string;
+  actionLabel?: string;
   context: string;
   uiContext?: string[];
   candidates: TargetCandidate[];

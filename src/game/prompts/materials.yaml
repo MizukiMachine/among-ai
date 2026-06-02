@@ -533,7 +533,7 @@ outputFormats:
   booleanJson:
     instruction: >-
       厳密な JSON だけを返してください。Markdown は付けません。形:
-      {"decision":true_or_false,"reason":"short reason"}.
+      {"decision":true_or_false,"reason":"短い理由"}.
   reminder: >-
     出力形式は必須です。JSON オブジェクトの前後に説明文を足しません。
     合法な対象がない場合、タスクが明示的にスキップを許可している時だけ null を使います。
