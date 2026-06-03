@@ -3822,6 +3822,81 @@ test("werewolf attack target generation waits until private discussion finishes"
   await run.return(undefined);
 });
 
+test("werewolf night discussion opens with one reaction round when an ally was voted out", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const reactionSpeech = (message: string): AgentSpeech => ({
+    messages: [message],
+    metadata: { suspects: [], trusts: [], claims: [] }
+  });
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    {
+      role: "Werewolf",
+      targets: ["p1", "p4"],
+      speeches: [reactionSpeech("P2_REACTION 票筋が見えた、立て直す"), reactionSpeech("P2_ATTACK 襲撃先を絞る")]
+    },
+    {
+      role: "AlphaWolf",
+      targets: ["p1", "p4"],
+      speeches: [reactionSpeech("P3_REACTION その票は明日ごまかす"), reactionSpeech("P3_ATTACK 村を削る")]
+    },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  await collect(game.runVoting());
+  assert.equal(players[0].alive, false);
+
+  const events = await collect(game.runNight());
+  const werewolfSpeeches = events.filter((event) => event.type === "player_speech" && event.phase === "werewolf_discussion");
+  const reactionEvents = werewolfSpeeches.filter((event) => event.data?.werewolfEliminationReaction === true);
+  const secondWolfAgent = game.agents.get(players[1].id) as ScriptedAgent;
+  const alphaWolfAgent = game.agents.get(players[2].id) as ScriptedAgent;
+
+  assert.deepEqual(
+    reactionEvents.map((event) => event.playerId),
+    [players[1].id, players[2].id],
+    "each surviving wolf gets one reaction line before normal attack discussion"
+  );
+  assert.ok(werewolfSpeeches.slice(0, 2).every((event) => event.data?.werewolfEliminationReaction === true));
+  assert.equal(werewolfSpeeches[2]?.data?.werewolfEliminationReaction, undefined);
+  assert.equal(reactionEvents[0].data?.eliminatedAllyId, players[0].id);
+  assert.equal(reactionEvents[0].data?.eliminatedAllyRole, "Werewolf");
+  assert.match(alphaWolfAgent.speechInputs[0].context, new RegExp(`${players[0].name}.*投票で処刑`));
+  assert.match(alphaWolfAgent.speechInputs[0].context, /P2_REACTION/);
+  assert.match(secondWolfAgent.speechInputs[1].context, /人狼チャット: .*P2_REACTION/);
+  assert.match(secondWolfAgent.speechInputs[1].context, /人狼チャット: .*P3_REACTION/);
+});
+
+test("werewolf night discussion does not add the reaction round when a villager was voted out", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const speech = (message: string): AgentSpeech => ({
+    messages: [message],
+    metadata: { suspects: [], trusts: [], claims: [] }
+  });
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4", "p5"], speeches: [speech("P1_NORMAL 襲撃相談")] },
+    { role: "Werewolf", targets: ["p4", "p5"], speeches: [speech("P2_NORMAL 襲撃相談")] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  await collect(game.runVoting());
+  assert.equal(players[3].alive, false);
+
+  const events = await collect(game.runNight());
+  const werewolfSpeeches = events.filter((event) => event.type === "player_speech" && event.phase === "werewolf_discussion");
+
+  assert.equal(werewolfSpeeches.some((event) => event.data?.werewolfEliminationReaction === true), false);
+  assert.ok(werewolfSpeeches.some((event) => event.message.includes("P1_NORMAL")));
+  assert.ok(werewolfSpeeches.some((event) => event.message.includes("P2_NORMAL")));
+});
+
 test("human werewolf private discussion biases later wolf votes without adding virtual votes", async () => {
   const requests: HumanInputRequestPayload[] = [];
   let preferredTargetId = "";
