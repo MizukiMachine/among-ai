@@ -597,6 +597,7 @@ type HumanInputSubmitPayload = {
   targetId?: string | null;
   reason?: string;
   decision?: boolean;
+  visibleEventId?: number | null;
 };
 
 function dataString(event: GameEvent | undefined, key: string): string {
@@ -2975,7 +2976,8 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestId: request.id,
-          ...payload
+          ...payload,
+          visibleEventId: currentEvent?.id ?? null
         })
       });
 

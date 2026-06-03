@@ -109,6 +109,10 @@ function normalizeString(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function normalizeVisibleEventId(value: number | null | undefined): number | null | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : value === null ? null : undefined;
+}
+
 function normalizeResponseForRequest(request: HumanInputRequest, response: HumanInputResponse): HumanInputResponse | null {
   if (request.kind === "speech_choice") {
     if (request.nonBlocking && request.speechMode === "discussion_interrupt" && response.decision === false) {
@@ -117,17 +121,19 @@ function normalizeResponseForRequest(request: HumanInputRequest, response: Human
 
     const speech = normalizeString(response.speech);
     if (speech) {
-      return { speech };
+      return { speech, visibleEventId: normalizeVisibleEventId(response.visibleEventId) };
     }
 
     const choiceId = normalizeString(response.choiceId);
     if (!choiceId) {
       if (request.nonBlocking && request.speechMode === "werewolf_alignment" && request.options.length === 0) {
-        return { speech: DEFAULT_WEREWOLF_ALIGNMENT_SPEECH };
+        return { speech: DEFAULT_WEREWOLF_ALIGNMENT_SPEECH, visibleEventId: normalizeVisibleEventId(response.visibleEventId) };
       }
       return null;
     }
-    return request.options.some((option) => option.id === choiceId) ? { choiceId } : null;
+    return request.options.some((option) => option.id === choiceId)
+      ? { choiceId, visibleEventId: normalizeVisibleEventId(response.visibleEventId) }
+      : null;
   }
 
   if (request.kind === "boolean") {

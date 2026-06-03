@@ -477,6 +477,7 @@ export interface HumanInputResponse {
   targetId?: string | null;
   reason?: string;
   decision?: boolean;
+  visibleEventId?: number | null;
 }
 
 export interface HumanInputHandler {

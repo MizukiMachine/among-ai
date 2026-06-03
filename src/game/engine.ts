@@ -247,12 +247,22 @@ interface HumanDayDiscussionInterruptState {
 interface DayDiscussionSpeechResult {
   player: Player;
   speech: AgentSpeech;
+  visibleEventId?: number | null;
 }
 
 interface PendingHumanDayDiscussionInterrupt {
   controller: AbortController;
   promise: Promise<DayDiscussionSpeechResult | null>;
   settled: boolean;
+  rollbackSnapshot: HumanDayDiscussionRollbackSnapshot;
+  rollbackPoints: Map<number, HumanDayDiscussionRollbackSnapshot>;
+}
+
+interface HumanDayDiscussionRollbackSnapshot {
+  publicHistoryLength: number;
+  lastDiscussionLength: number;
+  remainingAi: Player[];
+  accepted: number;
 }
 
 interface PreparedTargetAction {
@@ -1540,7 +1550,7 @@ export class WerewolfGame {
     humanInterruptState: HumanDayDiscussionInterruptState,
     onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
   ): AsyncGenerator<{ player: Player; speech: AgentSpeech }> {
-    const remainingAi = players.filter((player) => !this.isHumanControlledPlayer(player));
+    let remainingAi = players.filter((player) => !this.isHumanControlledPlayer(player));
     const human = this.humanControlledPlayer();
     const total = remainingAi.length;
     const limit = Math.max(1, this.prefetchConcurrency);
@@ -1566,12 +1576,49 @@ export class WerewolfGame {
     let pendingHumanInterrupt = humanInterruptState.pending ?? null;
     let completedNormally = false;
 
+    const createRollbackSnapshot = (): HumanDayDiscussionRollbackSnapshot => ({
+      publicHistoryLength: this.publicHistory.length,
+      lastDiscussionLength: this.lastDiscussion.length,
+      remainingAi: [...remainingAi],
+      accepted
+    });
+
+    const restoreRollbackSnapshot = (snapshot: HumanDayDiscussionRollbackSnapshot) => {
+      this.publicHistory.length = snapshot.publicHistoryLength;
+      this.lastDiscussion.length = snapshot.lastDiscussionLength;
+      remainingAi = [...snapshot.remainingAi];
+      accepted = snapshot.accepted;
+    };
+
+    const recordRollbackPoint = (pending: PendingHumanDayDiscussionInterrupt, speech: AgentSpeech) => {
+      const endEventId = this.eventId;
+      const messageCount = Math.max(1, speech.messages.length);
+      const snapshot = createRollbackSnapshot();
+      for (let eventId = Math.max(1, endEventId - messageCount + 1); eventId <= endEventId; eventId += 1) {
+        pending.rollbackPoints.set(eventId, snapshot);
+      }
+    };
+
+    const rollbackForHumanInterrupt = (
+      pending: PendingHumanDayDiscussionInterrupt,
+      humanInterrupt: DayDiscussionSpeechResult
+    ) => {
+      const visibleEventId = humanInterrupt.visibleEventId ?? null;
+      const snapshot =
+        visibleEventId === null ? pending.rollbackSnapshot : (pending.rollbackPoints.get(visibleEventId) ?? pending.rollbackSnapshot);
+      restoreRollbackSnapshot(snapshot);
+      report();
+    };
+
     const openPendingHumanInterrupt = (player: Player): PendingHumanDayDiscussionInterrupt => {
       const controller = new AbortController();
+      const rollbackSnapshot = createRollbackSnapshot();
       const pending: PendingHumanDayDiscussionInterrupt = {
         controller,
         promise: Promise.resolve(null),
-        settled: false
+        settled: false,
+        rollbackSnapshot,
+        rollbackPoints: new Map([[this.eventId, rollbackSnapshot]])
       };
       pending.promise = this.requestHumanDayDiscussionInterrupt(
         player,
@@ -1616,15 +1663,35 @@ export class WerewolfGame {
     };
 
     try {
-      while (remainingAi.length > 0) {
+      while (true) {
+        if (remainingAi.length === 0) {
+          if (!pendingHumanInterrupt) {
+            break;
+          }
+          const activeHumanInterrupt = pendingHumanInterrupt;
+          const humanInterrupt = await consumePendingHumanInterrupt(activeHumanInterrupt);
+          if (!humanInterrupt) {
+            break;
+          }
+          active = 0;
+          rollbackForHumanInterrupt(activeHumanInterrupt, humanInterrupt);
+          report();
+          humanInterruptState.remaining -= 1;
+          humanInterruptState.available = false;
+          yield humanInterrupt;
+          continue;
+        }
+
         if (human && humanInterruptState.available && humanInterruptState.remaining > 0 && !pendingHumanInterrupt) {
           pendingHumanInterrupt = openPendingHumanInterrupt(human);
         }
 
         if (pendingHumanInterrupt?.settled) {
+          const activeHumanInterrupt = pendingHumanInterrupt;
           const humanInterrupt = await consumePendingHumanInterrupt(pendingHumanInterrupt);
           if (humanInterrupt) {
             active = 0;
+            rollbackForHumanInterrupt(activeHumanInterrupt, humanInterrupt);
             report();
             humanInterruptState.remaining -= 1;
             humanInterruptState.available = false;
@@ -1659,11 +1726,13 @@ export class WerewolfGame {
           if (outcome.kind === "human") {
             if (pendingHumanInterrupt === activeHumanInterrupt) {
               pendingHumanInterrupt = null;
+              humanInterruptState.pending = null;
             }
             if (outcome.result) {
               aiRace.catch(() => undefined);
               aiRaceController.abort();
               active = 0;
+              rollbackForHumanInterrupt(activeHumanInterrupt, outcome.result);
               report();
               humanInterruptState.remaining -= 1;
               humanInterruptState.available = false;
@@ -1687,6 +1756,9 @@ export class WerewolfGame {
         report();
         humanInterruptState.available = remainingAi.length > 0;
         yield winner.value;
+        if (pendingHumanInterrupt) {
+          recordRollbackPoint(pendingHumanInterrupt, winner.value.speech);
+        }
       }
 
       completedNormally = true;
@@ -1703,7 +1775,7 @@ export class WerewolfGame {
     discussionPasses: number,
     remainingInterruptions: number,
     abortSignal: AbortSignal
-  ): Promise<{ player: Player; speech: AgentSpeech } | null> {
+  ): Promise<DayDiscussionSpeechResult | null> {
     const handler = this.humanInput?.requestOptional;
     if (!handler) {
       return null;
@@ -1756,7 +1828,9 @@ export class WerewolfGame {
         return null;
       }
       const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
-      return customSpeech ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player) } : null;
+      return customSpeech
+        ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
+        : null;
     } finally {
       requestAbort.cleanup();
     }
@@ -3240,7 +3314,7 @@ export class WerewolfGame {
   private async *runDay(): AsyncGenerator<GameEvent> {
     const isOpeningLlmRound = this.round === 1 && this.config.provider === "llm";
     const humanInterruptsEnabled = this.humanDayDiscussionInterruptsEnabled();
-    const runOpeningWarmup = isOpeningLlmRound && !humanInterruptsEnabled;
+    const runOpeningWarmup = isOpeningLlmRound;
     const warmupPrefetch = runOpeningWarmup ? this.getOrStartFirstDayWarmupSpeechPrefetch(this.round) : null;
     const cancelWarmupPrefetch = () => {
       if (!warmupPrefetch) {
