@@ -25,7 +25,6 @@
 - `src/game`: ゲームエンジン、AIエージェント、発言計画、秘匿情報の redaction
 - `src/game/rules`: 役職、夜行動、投票、死亡解決、勝敗判定
 - `src/game/prompts`: YAML素材、プロンプト組み立て、秘密情報の露出制御
-- `packages/llm-hedge`: LLM呼び出しのキュー、レース、リトライ、キャンセル用ライブラリ
 - `public/assets`: キャラクター画像、BGM、SFX、SF UI素材
 - `tests`: エンジン、プロンプト、サーバー、UI、音声アセットの回帰テスト
 
@@ -38,8 +37,29 @@ Browser UI
       -> Redaction and human input sessions
 ```
 
+## LLM実行レイヤー (llm-hedge)
+
+LLM呼び出しのキュー・レース・リトライ・タイムアウト・キャンセルは、外部ライブラリ
+[`llm-hedge`](https://github.com/MizukiMachine/llm-hedge)（npm公開）に切り出してある。
+このリポジトリには同梱せず、`package.json` の `"llm-hedge": "file:../llm-hedge"` で
+隣接する [`../llm-hedge`](https://github.com/MizukiMachine/llm-hedge) を参照する。
+
+`llm-hedge` を変更したいときは、**唯一の正である `../llm-hedge` リポジトリの `src/` だけを編集**する
+（among-ai 内に実体コピーは無い）。`file:` リンクはビルド成果物 `dist/` を参照するので、
+変更を among-ai に反映するにはライブラリ側でビルドが要る:
+
+```bash
+cd ../llm-hedge
+pnpm build          # tsc で src/ -> dist/ を再生成
+# among-ai 側は file: リンク経由で dist/ を見ているので即反映される
+```
+
+> 生TSではなくビルド成果物（＝npmで配布する実物）を消費しているため、ローカルで
+> 公開パッケージをそのまま dogfood できる。配布・CI 向けには `../llm-hedge` で
+> `npm publish`（バージョンを上げてから）。
+
 ## 関連ドキュメント
 
 - 機能仕様: [docs/functional-specification.md](docs/functional-specification.md)
 - プロンプト管理: [docs/prompt-management.md](docs/prompt-management.md)
-- LLM実行レイヤー: [packages/llm-hedge/README.md](packages/llm-hedge/README.md)
+- LLM実行レイヤー: [llm-hedge (GitHub)](https://github.com/MizukiMachine/llm-hedge)
