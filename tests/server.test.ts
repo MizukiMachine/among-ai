@@ -214,6 +214,66 @@ test("optional werewolf alignment input fills empty speech with a minimal line",
   session.close();
 });
 
+test("optional human input session requests can be cancelled", async () => {
+  let requestId = "";
+  let cancelledRequestId = "";
+  const controller = new AbortController();
+  const session = new HumanInputSession(
+    (request) => {
+      requestId = request.id;
+    },
+    (request) => {
+      cancelledRequestId = request.id;
+    }
+  );
+  const interruptPromise = session.requestOptional(
+    {
+      kind: "speech_choice",
+      speechMode: "discussion_interrupt",
+      nonBlocking: true,
+      playerId: "p1",
+      playerName: "シオン",
+      phase: "day_discussion",
+      role: "Villager",
+      task: "発言してください",
+      context: { notes: [], publicHistory: [], privateHistory: [] },
+      options: []
+    },
+    { signal: controller.signal }
+  );
+
+  assert.ok(requestId);
+  controller.abort();
+  assert.equal(cancelledRequestId, requestId);
+  assert.deepEqual(await interruptPromise, null);
+  assert.deepEqual(session.submit(requestId, { speech: "遅れた発言" }), { ok: false, error: "input_not_pending" });
+  session.close();
+});
+
+test("optional day discussion input can be skipped", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const interruptPromise = session.requestOptional({
+    kind: "speech_choice",
+    speechMode: "discussion_interrupt",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion",
+    role: "Villager",
+    task: "発言してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: []
+  });
+
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { decision: false }), { ok: true });
+  assert.deepEqual(await interruptPromise, { decision: false });
+  session.close();
+});
+
 test("village stream payload is redacted on the server before SSE delivery", async () => {
   const app = createApp();
   const response = await app.request(

@@ -278,6 +278,10 @@ export function createApp(): Hono {
         humanSession = config.humanPlayerId
           ? new HumanInputSession((request) => {
               controller.enqueue(sseFrame("human_input", request));
+            }, (request) => {
+              if (!cancelled && !abortController.signal.aborted) {
+                controller.enqueue(sseFrame("human_input_cancelled", { requestId: request.id }));
+              }
             })
           : null;
         if (humanSession) {

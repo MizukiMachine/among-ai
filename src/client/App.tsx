@@ -108,6 +108,15 @@ function isOptionalWerewolfAlignmentInput(request: HumanInputRequest | null): re
   );
 }
 
+function isOptionalDiscussionInterruptInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+  speechMode: "discussion_interrupt";
+} {
+  return Boolean(
+    request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "discussion_interrupt"
+  );
+}
+
 function shouldHoldSubmittedHumanInputScene(request: HumanInputRequest): boolean {
   return request.kind === "speech_choice" && !request.nonBlocking;
 }
@@ -1629,6 +1638,7 @@ export function App() {
   const humanInputAnchorAcknowledged = pendingHumanInputEntry?.anchorAcknowledged ?? false;
   const blockingHumanInput = isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
   const nonBlockingHumanInput = pendingHumanInput && !isBlockingHumanInput(pendingHumanInput) ? pendingHumanInput : null;
+  const optionalDiscussionInterruptInput = isOptionalDiscussionInterruptInput(pendingHumanInput) ? pendingHumanInput : null;
   const blockingHumanInputAdvanceReady = Boolean(
     blockingHumanInput &&
       shouldRevealBlockingHumanInputAfterAdvance(
@@ -1640,6 +1650,7 @@ export function App() {
   );
   const nonBlockingHumanInputAdvanceReady = Boolean(
     nonBlockingHumanInput &&
+      !isOptionalDiscussionInterruptInput(nonBlockingHumanInput) &&
       shouldRevealNonBlockingHumanInputAfterAdvance(pendingHumanInputRevealAfterEventId, currentEvent, humanInputAnchorAcknowledged)
   );
   const humanInputAdvanceReady = blockingHumanInputAdvanceReady || nonBlockingHumanInputAdvanceReady;
@@ -1651,6 +1662,13 @@ export function App() {
       ? nonBlockingHumanInput
       : null;
   const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
+  const availableSpeechInterruptInput =
+    optionalDiscussionInterruptInput &&
+    !humanInputAnchorAcknowledged &&
+    hasSeenHumanInputRevealAnchor(pendingHumanInputRevealAfterEventId, events)
+      ? optionalDiscussionInterruptInput
+      : null;
+  const optionalDiscussionInterruptSkipReady = Boolean(availableSpeechInterruptInput);
   const pendingHumanInputNotice =
     blockingHumanInput && queuedEvents.length > 0 && queuedEvents.length <= humanInputNoticeLeadCount ? blockingHumanInput : null;
   const selectedCharacterPlayer = selectedCharacterId ? snapshot?.players.find((player) => player.id === selectedCharacterId) ?? null : null;
@@ -2277,6 +2295,7 @@ export function App() {
         submittedHumanInputRef.current = null;
         completeHumanInputRequest(submittedHumanInput);
         if (replaceTrailingLocalHumanSpeechEvent(event)) {
+          hideProcessingHudNow();
           return;
         }
         const nextEvents = [...eventsRef.current, event];
@@ -2284,12 +2303,14 @@ export function App() {
         setEvents(nextEvents);
         setSnapshot(event.snapshot);
         playEventSfx(event);
+        hideProcessingHudNow();
         setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
         return;
       }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
+      hideProcessingHudNow();
     });
 
     source.addEventListener("human_input", (message) => {
@@ -2305,6 +2326,22 @@ export function App() {
         setGameStatus(statusForPendingHumanInputLeadIn(queuedRef.current.length));
       } else {
         setGameStatus("生成中");
+      }
+    });
+
+    source.addEventListener("human_input_cancelled", (message) => {
+      const payload = JSON.parse((message as MessageEvent).data) as { requestId?: string };
+      const requestId = payload.requestId;
+      if (!requestId) {
+        return;
+      }
+      const wasActive = pendingHumanInputsRef.current[0]?.request.id === requestId;
+      updatePendingHumanInputs((currentInputs) => currentInputs.filter((entry) => entry.request.id !== requestId));
+      if (submittedHumanInputRef.current?.id === requestId) {
+        submittedHumanInputRef.current = null;
+      }
+      if (wasActive) {
+        initializeHumanInputForm(pendingHumanInputsRef.current[0]?.request ?? null);
       }
     });
 
@@ -2418,6 +2455,10 @@ export function App() {
   }
 
   function skipOptionalHumanInputOnStoryAdvance(): boolean {
+    if (optionalDiscussionInterruptSkipReady) {
+      void submitHumanInput({ decision: false });
+      return true;
+    }
     if (!isOptionalWerewolfAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
       return false;
     }
@@ -2448,6 +2489,15 @@ export function App() {
       revealNext();
       return;
     }
+  }
+
+  function openSpeechInterruptInput() {
+    if (!availableSpeechInterruptInput || paused) {
+      return;
+    }
+    playSfx("ui_confirm");
+    acknowledgeActiveHumanInput();
+    setGameStatus("入力待ち");
   }
 
   useEffect(() => {
@@ -2651,7 +2701,10 @@ export function App() {
       const canRetreat = !paused && !visibleHumanInput && events.length > 0;
       const canStartOpening = settingsConfirmed && events.length === 0 && !running && queuedRef.current.length === 0;
       const canAdvance =
-        !paused && !readyHumanInput && !isBackKey && (queuedRef.current.length > 0 || canStartOpening || humanInputAdvanceReady);
+        !paused &&
+        !readyHumanInput &&
+        !isBackKey &&
+        (queuedRef.current.length > 0 || canStartOpening || humanInputAdvanceReady || optionalDiscussionInterruptSkipReady);
       if (isBackKey && canRetreat) {
         event.preventDefault();
         retreatStory();
@@ -2670,6 +2723,7 @@ export function App() {
     events.length,
     humanInputAdvanceReady,
     humanSpeech,
+    optionalDiscussionInterruptSkipReady,
     paused,
     pendingHumanInput,
     readyHumanInput,
@@ -2710,10 +2764,16 @@ export function App() {
   }
 
   function createLocalHumanSpeechEvent(request: HumanInputRequest, payload: HumanInputSubmitPayload): GameEvent | null {
-    if (request.kind !== "speech_choice" || !request.nonBlocking || request.speechMode !== "werewolf_alignment") {
+    if (
+      request.kind !== "speech_choice" ||
+      !request.nonBlocking ||
+      (request.speechMode !== "werewolf_alignment" && request.speechMode !== "discussion_interrupt")
+    ) {
       return null;
     }
-    const message = humanSpeechEchoMessage(payload.speech) ?? displayMessageText(DEFAULT_WEREWOLF_ALIGNMENT_SPEECH);
+    const fallbackMessage =
+      request.speechMode === "werewolf_alignment" ? displayMessageText(DEFAULT_WEREWOLF_ALIGNMENT_SPEECH) : null;
+    const message = humanSpeechEchoMessage(payload.speech) ?? fallbackMessage;
     const eventSnapshot = snapshot ?? currentEvent?.snapshot;
     if (!message || !eventSnapshot) {
       return null;
@@ -2805,15 +2865,24 @@ export function App() {
     }
 
     const isWerewolfAlignment = prompt.speechMode === "werewolf_alignment";
+    const isDiscussionInterrupt = prompt.speechMode === "discussion_interrupt";
     const canSubmitHumanSpeech = isWerewolfAlignment || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfAlignment
       ? "未入力なら既定の意思合わせ発言で進みます"
-      : "候補から選ぶか、自由に発言を入力してください";
+      : isDiscussionInterrupt
+        ? "今の流れに短く発言を挟めます"
+        : "候補から選ぶか、自由に発言を入力してください";
     const speechPlaceholder = isWerewolfAlignment
       ? "例: 昼は人間側の顔で信用を取りに行く"
+      : isDiscussionInterrupt
+        ? "例: その読みなら、私はシオンよりガクの理由の薄さを見たい"
       : "発言を入力";
-    const speechPromptTitle = isWerewolfAlignment ? "挨拶を入力しましょう" : null;
-    const speechAriaLabel = isWerewolfAlignment ? "人狼意思合わせ発言の入力" : "自由入力の発言";
+    const speechPromptTitle = isWerewolfAlignment ? "挨拶を入力しましょう" : isDiscussionInterrupt ? "発言を挟む" : null;
+    const speechAriaLabel = isWerewolfAlignment
+      ? "人狼意思合わせ発言の入力"
+      : isDiscussionInterrupt
+        ? "昼議論に挟む発言"
+        : "自由入力の発言";
     const speechSubmitLabel = isWerewolfAlignment ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む") : "発言する";
 
     return (
@@ -3237,19 +3306,29 @@ export function App() {
   const firstScenePending = setupMode && settingsConfirmed && running && queuedEvents.length === 0;
   const waitingForSubmittedHumanInput = submittedHumanInputRef.current !== null;
   const storyWaitingForStream =
-    !setupMode && !paused && running && queuedEvents.length === 0 && !visibleHumanInput && !humanInputAdvanceReady;
-  const storyProcessingActive = storyWaitingForStream || waitingForSubmittedHumanInput || processingHudVisible;
+    !setupMode &&
+    !paused &&
+    running &&
+    queuedEvents.length === 0 &&
+    !visibleHumanInput &&
+    !humanInputAdvanceReady &&
+    !optionalDiscussionInterruptSkipReady;
+  const unreadStoryAvailable = queuedEvents.length > 0;
+  const storyProcessingBlocksAdvance =
+    storyWaitingForStream ||
+    (waitingForSubmittedHumanInput && !unreadStoryAvailable) ||
+    (processingHudVisible && !unreadStoryAvailable && !humanInputAdvanceReady && !optionalDiscussionInterruptSkipReady);
   const storyNextDisabled =
     paused ||
     Boolean(readyHumanInput) ||
     (setupMode && !settingsConfirmed) ||
     firstScenePending ||
-    (storyProcessingActive && !humanInputAdvanceReady) ||
-    (queuedEvents.length === 0 && (running || events.length > 0) && !humanInputAdvanceReady);
+    storyProcessingBlocksAdvance ||
+    (queuedEvents.length === 0 && (running || events.length > 0) && !humanInputAdvanceReady && !optionalDiscussionInterruptSkipReady);
   const primaryActionIsGameStart = setupMode && settingsConfirmed;
-  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : humanInputAdvanceReady ? "入力へ" : storyProcessingActive ? "処理中" : "次へ";
+  const primaryActionLabel = primaryActionIsGameStart ? "ゲーム開始" : humanInputAdvanceReady ? "入力へ" : storyProcessingBlocksAdvance ? "処理中" : "次へ";
   const primaryActionHint =
-    primaryActionIsGameStart && storyProcessingActive ? "準備中" : storyProcessingActive && !humanInputAdvanceReady ? "思考中" : "Enter / →";
+    primaryActionIsGameStart && storyProcessingBlocksAdvance ? "準備中" : storyProcessingBlocksAdvance ? "思考中" : "Enter / →";
   const runControlState = storyRunControlState(gameStarted, paused);
 
   useEffect(() => {
@@ -4350,6 +4429,18 @@ export function App() {
                             </span>
                             <ChevronRight className="story-next-chevron" size={20} />
                           </button>
+                          {availableSpeechInterruptInput ? (
+                            <button
+                              className="icon-button story-run-button story-interrupt-button"
+                              disabled={paused || humanSubmitting}
+                              onClick={openSpeechInterruptInput}
+                              title="昼議論に発言を挟む"
+                              type="button"
+                            >
+                              <MessageCircle size={18} />
+                              <span>発言</span>
+                            </button>
+                          ) : null}
                           {renderRunControls()}
                           {!humanEnabled ? (
                             <div className="view-toggle view-toggle-inline">

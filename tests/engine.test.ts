@@ -3087,6 +3087,66 @@ test("human participation still reports batched progress for AI day work", async
   assert.ok(progressEvents.every((progress) => progress.concurrency <= 2));
 });
 
+test("human day interrupt restarts the remaining AI race with the latest human speech", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  let optionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Fallback blocking speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input, options) {
+      requests.push(input);
+      optionalRequestCount += 1;
+      if (optionalRequestCount === 1) {
+        return Promise.resolve({ speech: "ガクを疑っています。" });
+      }
+      options?.signal?.addEventListener("abort", () => undefined, { once: true });
+      return Promise.resolve(null);
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      language: "Japanese",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new ScriptedAgent(players[0].name));
+  game.agents.set(
+    players[1].id,
+    new DelayedSpeechAgent(players[1].name, [30, 1], (input) =>
+      input.context.includes("ガクを疑っています") ? "ガクの疑いに反応します。" : "人間発言を見ていません。"
+    )
+  );
+  game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [1], () => "次のAI発言です。"));
+
+  const events = await collect(game.runDay());
+  const daySpeeches = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+  const humanSpeechIndex = daySpeeches.findIndex((event) => event.playerId === players[2].id);
+
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every((request) => request.kind === "speech_choice" && request.speechMode === "discussion_interrupt"));
+  assert.ok(requests.every((request) => request.kind !== "speech_choice" || (request.nonBlocking === true && request.options.length === 0)));
+  assert.ok(humanSpeechIndex > 0, "the interrupt becomes available only after an AI speech");
+  assert.equal(daySpeeches[humanSpeechIndex]?.message, "ガクを疑っています");
+  assert.ok(daySpeeches.some((event) => event.message === "ガクの疑いに反応します。"));
+});
+
 test("human speech choice can publish free text instead of a drafted option", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {

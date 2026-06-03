@@ -90,6 +90,7 @@ const maxFollowUpDayDiscussionSpeakers = 6;
 const defaultAiPrefetchConcurrency = 5;
 const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
+const maxHumanDayDiscussionInterruptions = 5;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
@@ -235,6 +236,11 @@ interface HumanSocialInfluenceProfile {
   mode: HumanInfluenceMode;
   suspects: SocialReadPressure[];
   trusts: SocialReadPressure[];
+}
+
+interface HumanDayDiscussionInterruptState {
+  remaining: number;
+  available: boolean;
 }
 
 interface PreparedTargetAction {
@@ -1156,7 +1162,19 @@ export class WerewolfGame {
             options.humanInput!.request({
               ...input,
               revealAfterEventId: input.revealAfterEventId ?? (this.eventId > 0 ? this.eventId : null)
-            })
+            }),
+          ...(options.humanInput.requestOptional
+            ? {
+                requestOptional: (input, requestOptions) =>
+                  options.humanInput!.requestOptional!(
+                    {
+                      ...input,
+                      revealAfterEventId: input.revealAfterEventId ?? (this.eventId > 0 ? this.eventId : null)
+                    },
+                    requestOptions
+                  )
+              }
+            : {})
         }
       : undefined;
     this.abortSignal = options.abortSignal;
@@ -1498,15 +1516,160 @@ export class WerewolfGame {
     }
   }
 
+  private humanDayDiscussionInterruptsEnabled(): boolean {
+    return Boolean(this.humanInput?.requestOptional && this.humanControlledPlayer());
+  }
+
+  private async *raceAiWithHumanInterrupts(
+    players: Player[],
+    discussionPass: number,
+    discussionPasses: number,
+    openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>,
+    humanInterruptState: HumanDayDiscussionInterruptState,
+    onProgress?: (progress: Pick<GenerationProgress, "total" | "started" | "completed" | "active" | "queued" | "concurrency">) => void
+  ): AsyncGenerator<{ player: Player; speech: AgentSpeech }> {
+    const remainingAi = players.filter((player) => !this.isHumanControlledPlayer(player));
+    const human = this.humanControlledPlayer();
+    const total = remainingAi.length;
+    const limit = Math.max(1, this.prefetchConcurrency);
+    let accepted = 0;
+    let active = 0;
+    const report = () => {
+      try {
+        onProgress?.({
+          total,
+          started: Math.min(total, accepted + active),
+          completed: accepted,
+          active,
+          queued: Math.max(0, total - accepted - active),
+          concurrency: limit
+        });
+      } catch {
+        // Progress observers are best-effort and must not break game generation.
+      }
+    };
+
+    while (remainingAi.length > 0) {
+      const racers = speechRaceSlots(remainingAi, limit);
+      active = racers.length;
+      report();
+
+      const winner = await this.firstFinishedSpeechRace(
+        racers,
+        (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, openingMoveByPlayerId, options)
+      );
+      const acceptedIndex = remainingAi.findIndex((player) => player.id === winner.player.id);
+      if (acceptedIndex !== -1) {
+        remainingAi.splice(acceptedIndex, 1);
+      }
+      accepted += 1;
+      active = 0;
+      report();
+      humanInterruptState.available = remainingAi.length > 0;
+      yield winner.value;
+
+      if (!human || !humanInterruptState.available || humanInterruptState.remaining <= 0) {
+        continue;
+      }
+
+      const humanInterrupt = await this.requestHumanDayDiscussionInterrupt(
+        human,
+        discussionPass,
+        discussionPasses,
+        humanInterruptState.remaining,
+        this.abortSignal ?? new AbortController().signal
+      );
+      if (!humanInterrupt) {
+        continue;
+      }
+      humanInterruptState.remaining -= 1;
+      humanInterruptState.available = false;
+      yield humanInterrupt;
+    }
+  }
+
+  private async requestHumanDayDiscussionInterrupt(
+    player: Player,
+    discussionPass: number,
+    discussionPasses: number,
+    remainingInterruptions: number,
+    abortSignal: AbortSignal
+  ): Promise<{ player: Player; speech: AgentSpeech } | null> {
+    const handler = this.humanInput?.requestOptional;
+    if (!handler) {
+      return null;
+    }
+    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
+    const contextLines = [
+      this.nightDeathContextLine(),
+      discussionPass <= regularDayDiscussionPasses
+        ? this.text(
+            `昼議論 ${discussionPass}巡目 / ${discussionPasses}巡。`,
+            `昼議論 ${discussionPass}巡目 / ${discussionPasses}巡。`
+          )
+        : this.text(
+            "2巡後に必要な人だけが行う追加発言です。",
+            "2巡後に必要な人だけが行う追加発言です。"
+          ),
+      this.text(
+        "直前までの発言に口を挟むなら、疑い・信頼・役職主張への反応・投票前の読みのどれかを短く出してください。",
+        "直前までの発言に口を挟むなら、疑い・信頼・役職主張への反応・投票前の読みのどれかを短く出してください。"
+      ),
+      this.text(
+        `この昼に残っている任意発言回数: ${Math.max(0, remainingInterruptions)}回。`,
+        `この昼に残っている任意発言回数: ${Math.max(0, remainingInterruptions)}回。`
+      ),
+      ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
+    ];
+    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
+    try {
+      const response = await handler(
+        {
+          kind: "speech_choice",
+          speechMode: "discussion_interrupt",
+          nonBlocking: true,
+          playerId: player.id,
+          playerName: player.name,
+          phase: this.phase,
+          role: player.role,
+          task: this.text("Interrupt the public day discussion.", "昼議論に発言を挟んでください。"),
+          context: buildHumanInputContext({
+            uiContext: contextLines,
+            publicHistory: this.publicHistory,
+            privateHistory: this.humanVisiblePrivateHistory(player)
+          }),
+          allowFreeText: true,
+          options: []
+        },
+        { signal: requestAbort.signal }
+      );
+      if (!response) {
+        return null;
+      }
+      const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
+      return customSpeech ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player) } : null;
+    } finally {
+      requestAbort.cleanup();
+    }
+  }
+
   // Speculative race over different speakers: the slot/cancel mechanism lives in
   // llm-hedge; the speculative flag and the losers-aborted diagnostic are policy.
   private async firstFinishedSpeechRace<R>(
     players: Player[],
-    run: (player: Player, options?: SpeculativeRunOptions) => Promise<R>
+    run: (player: Player, options?: SpeculativeRunOptions) => Promise<R>,
+    externalSignal?: AbortSignal
   ): Promise<{ player: Player; value: R }> {
     const { item, value } = await raceCandidates(
       players,
-      (player, ctx) => run(player, { signal: ctx.signal, speculative: true }),
+      async (player, ctx) => {
+        const mergedAbort = mergeAbortSignals(ctx.signal, externalSignal);
+        try {
+          return await run(player, { signal: mergedAbort.signal, speculative: true });
+        } finally {
+          mergedAbort.cleanup();
+        }
+      },
       {
         onLosersAborted: ({ winner, losers, raceSize }) => {
           this.emitSpeechDiagnostic({
@@ -3055,6 +3218,12 @@ export class WerewolfGame {
       this.firstDayOpeningSpeechPrefetch = null;
     }
 
+    const humanInterruptsEnabled = this.humanDayDiscussionInterruptsEnabled();
+    const humanInterruptState: HumanDayDiscussionInterruptState = {
+      remaining: maxHumanDayDiscussionInterruptions,
+      available: false
+    };
+
     for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
       let passSpeakers = speakers;
       if (discussionPass === 1 && firstDayOpeningMoveByPlayerId.size > 0) {
@@ -3064,36 +3233,71 @@ export class WerewolfGame {
           for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
             yield event;
           }
+          if (humanInterruptsEnabled) {
+            humanInterruptState.available = true;
+          }
           passSpeakers = speakers.filter((player) => player.id !== openingSpeaker.id);
         }
       }
 
-      for await (const { player, speech } of this.raceAiWithHumanLast(
-        passSpeakers,
-        (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
-        this.progressReporter("day_speech", this.text("昼議論", "昼議論"), {
-          pass: discussionPass,
-          passes: regularDayDiscussionPasses
-        })
-      )) {
-        for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
-          yield event;
+      const progressReporter = this.progressReporter("day_speech", this.text("昼議論", "昼議論"), {
+        pass: discussionPass,
+        passes: regularDayDiscussionPasses
+      });
+      if (humanInterruptsEnabled) {
+        for await (const { player, speech } of this.raceAiWithHumanInterrupts(
+          passSpeakers,
+          discussionPass,
+          regularDayDiscussionPasses,
+          firstDayOpeningMoveByPlayerId,
+          humanInterruptState,
+          progressReporter
+        )) {
+          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+            yield event;
+          }
+        }
+      } else {
+        for await (const { player, speech } of this.raceAiWithHumanLast(
+          passSpeakers,
+          (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
+          progressReporter
+        )) {
+          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+            yield event;
+          }
         }
       }
     }
 
     const followUpSpeakers = this.dayDiscussionFollowUpSpeakers(speakers);
     if (followUpSpeakers.length > 0) {
-      for await (const { player, speech } of this.raceAiWithHumanLast(
-        followUpSpeakers,
-        (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
-        this.progressReporter("day_speech", this.text("昼議論の追加発言", "昼議論の追加発言"), {
-          pass: followUpDayDiscussionPass,
-          passes: followUpDayDiscussionPass
-        })
-      )) {
-        for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
-          yield event;
+      const progressReporter = this.progressReporter("day_speech", this.text("昼議論の追加発言", "昼議論の追加発言"), {
+        pass: followUpDayDiscussionPass,
+        passes: followUpDayDiscussionPass
+      });
+      if (humanInterruptsEnabled) {
+        for await (const { player, speech } of this.raceAiWithHumanInterrupts(
+          followUpSpeakers,
+          followUpDayDiscussionPass,
+          followUpDayDiscussionPass,
+          firstDayOpeningMoveByPlayerId,
+          humanInterruptState,
+          progressReporter
+        )) {
+          for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
+            yield event;
+          }
+        }
+      } else {
+        for await (const { player, speech } of this.raceAiWithHumanLast(
+          followUpSpeakers,
+          (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
+          progressReporter
+        )) {
+          for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
+            yield event;
+          }
         }
       }
     }

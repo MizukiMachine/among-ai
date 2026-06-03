@@ -444,7 +444,7 @@ export interface SpeechChoiceOption {
 
 export interface HumanSpeechChoiceInputRequest extends HumanInputRequestBase {
   kind: "speech_choice";
-  speechMode?: "discussion" | "werewolf_alignment";
+  speechMode?: "discussion" | "discussion_interrupt" | "werewolf_alignment";
   task: string;
   options: SpeechChoiceOption[];
   allowFreeText?: boolean;
@@ -481,6 +481,7 @@ export interface HumanInputResponse {
 
 export interface HumanInputHandler {
   request(input: HumanInputRequestPayload): Promise<HumanInputResponse>;
+  requestOptional?(input: HumanInputRequestPayload, options?: { signal?: AbortSignal }): Promise<HumanInputResponse | null>;
 }
 
 export interface VoteRecord {
