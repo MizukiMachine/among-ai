@@ -1504,12 +1504,12 @@ export function App() {
   const lastClientUiTraceKeyRef = useRef("");
   const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
   const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
+  const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest | null>(null);
   const eventsRef = useRef<GameEvent[]>([]);
   const queuedRef = useRef<GameEvent[]>([]);
   const pausedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
   const revealFirstEventRef = useRef(false);
-  const revealNextStoryEventOnArrivalRef = useRef(false);
   const processingHudShownAtRef = useRef<number | null>(null);
   const processingHudHideTimerRef = useRef<number | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2134,7 +2134,7 @@ export function App() {
 
   function resetHumanInputState() {
     submittedHumanInputRef.current = null;
-    revealNextStoryEventOnArrivalRef.current = false;
+    discardStoryUntilHumanEchoRef.current = null;
     commitPendingHumanInputs([]);
     setHumanSpeech("");
     setHumanTargetId(null);
@@ -2398,6 +2398,9 @@ export function App() {
       const submittedHumanInput = submittedHumanInputRef.current;
       if (submittedHumanInput && isSubmittedHumanSpeechEvent(submittedHumanInput, event)) {
         submittedHumanInputRef.current = null;
+        if (discardStoryUntilHumanEchoRef.current?.id === submittedHumanInput.id) {
+          discardStoryUntilHumanEchoRef.current = null;
+        }
         completeHumanInputRequest(submittedHumanInput);
         if (replaceTrailingLocalHumanSpeechEvent(event)) {
           hideProcessingHudNow();
@@ -2412,18 +2415,13 @@ export function App() {
         setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
         return;
       }
-      if (revealNextStoryEventOnArrivalRef.current) {
-        revealNextStoryEventOnArrivalRef.current = false;
-        if (queuedRef.current.length === 0 && !pausedRef.current) {
-          const nextEvents = [...eventsRef.current, event];
-          eventsRef.current = nextEvents;
-          setEvents(nextEvents);
-          setSnapshot(event.snapshot);
-          playEventSfx(event);
-          hideProcessingHudNow();
-          setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
-          return;
-        }
+      const discardUntilHumanEcho = discardStoryUntilHumanEchoRef.current;
+      if (discardUntilHumanEcho) {
+        postClientTrace("discard_stale_game_before_human_echo", {
+          request: clientTraceRequestSummary(discardUntilHumanEcho),
+          event: clientTraceEventSummary(event)
+        });
+        return;
       }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
@@ -2591,8 +2589,8 @@ export function App() {
   }
 
   function skipOptionalHumanInputOnStoryAdvance(): boolean {
-    if (optionalDiscussionInterruptSkipReady) {
-      void submitHumanInput({ decision: false }, { revealNextStoryEventOnArrival: true });
+    if (optionalDiscussionInterruptSkipReady && queuedRef.current.length === 0) {
+      void submitHumanInput({ decision: false });
       return true;
     }
     if (!isOptionalWerewolfAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
@@ -2947,23 +2945,28 @@ export function App() {
     setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
   }
 
-  async function submitHumanInput(
-    payload: HumanInputSubmitPayload,
-    options: { revealNextStoryEventOnArrival?: boolean } = {}
-  ) {
+  function discardUnreadStoryBeforeHumanInterrupt(request: HumanInputRequest) {
+    if (!isOptionalDiscussionInterruptInput(request) || queuedRef.current.length === 0) {
+      return;
+    }
+    postClientTrace("discard_unread_before_human_interrupt", {
+      request: clientTraceRequestSummary(request),
+      discardedCount: queuedRef.current.length
+    });
+    queuedRef.current = [];
+    setQueuedEvents([]);
+  }
+
+  async function submitHumanInput(payload: HumanInputSubmitPayload) {
     const currentGameId = gameId;
     const request = pendingHumanInput;
     if (!currentGameId || !request || humanSubmitting) {
       return;
     }
 
-    const revealNextStoryEventOnArrival = options.revealNextStoryEventOnArrival === true;
     const localHumanSpeechEvent = createLocalHumanSpeechEvent(request, payload);
     const holdSubmittedScene = shouldHoldSubmittedHumanInputScene(request);
     submittedHumanInputRef.current = holdSubmittedScene ? request : null;
-    if (revealNextStoryEventOnArrival) {
-      revealNextStoryEventOnArrivalRef.current = true;
-    }
     setHumanSubmitting(true);
     setHumanInputError("");
     try {
@@ -2981,8 +2984,12 @@ export function App() {
       }
 
       if (localHumanSpeechEvent) {
+        discardUnreadStoryBeforeHumanInterrupt(request);
         completeHumanInputRequest(request);
         submittedHumanInputRef.current = request;
+        if (isOptionalDiscussionInterruptInput(request)) {
+          discardStoryUntilHumanEchoRef.current = request;
+        }
         showLocalHumanSpeechEvent(localHumanSpeechEvent);
       } else if (holdSubmittedScene) {
         if (submittedHumanInputRef.current === request) {
@@ -2994,9 +3001,6 @@ export function App() {
         setGameStatus("生成中");
       }
     } catch (error) {
-      if (revealNextStoryEventOnArrival) {
-        revealNextStoryEventOnArrivalRef.current = false;
-      }
       if (submittedHumanInputRef.current === request) {
         submittedHumanInputRef.current = null;
       }
