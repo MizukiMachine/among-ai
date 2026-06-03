@@ -77,14 +77,14 @@ test("stream options accept a human player and player view", () => {
   assert.equal(options.debugScenario, "none");
 });
 
-test("stream options force human players onto the werewolf camp", () => {
+test("stream options default human camp preference to random", () => {
   assert.equal(
     parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanCamp=bogus")).humanCampPreference,
-    "werewolf"
+    "random"
   );
   assert.equal(
     parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanCamp=village")).humanCampPreference,
-    "werewolf"
+    "village"
   );
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanCamp=werewolf")).humanCampPreference, "random");
 });
