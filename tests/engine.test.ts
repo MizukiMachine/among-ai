@@ -2539,6 +2539,50 @@ test("day-1 warm-up excludes the human player", async () => {
   assert.equal(speakerIds.size, players.length - 1, "every AI player intros, the human is skipped");
 });
 
+test("human day interrupt mode skips day-1 warm-up before the first regular speech", async () => {
+  const optionalRequests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { speech: "" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human player vote." };
+      }
+      return { decision: false };
+    },
+    async requestOptional(input) {
+      optionalRequests.push(input);
+      return null;
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", humanPlayerId: "p1", prefetchConcurrency: 5 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  players[0].model = "human";
+  for (const player of players.slice(1)) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runDay());
+  const speeches = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+
+  assert.ok(speeches.length > 0, "regular day discussion should still run");
+  assert.ok(!speeches.some((event) => event.data?.warmup === true), "human interrupt mode should not show warm-up speeches first");
+  assert.equal(speeches[0].data?.discussionPass, 1, "the first visible AI speech is regular discussion");
+  assert.ok(optionalRequests.length > 0, "the optional interrupt opens after the first regular AI speech");
+  assert.equal(optionalRequests[0]?.revealAfterEventId, speeches[0].id);
+});
+
 test("first-day opening keeps the human player last even when the human is p1", async () => {
   const humanInput: HumanInputHandler = {
     async request(input) {
@@ -3147,9 +3191,10 @@ test("human day interrupt restarts the remaining AI race with the latest human s
   assert.ok(daySpeeches.some((event) => event.message === "ガクの疑いに反応します。"));
 });
 
-test("optional human day interrupt does not block the next AI speech race", async () => {
+test("optional human day interrupt stays open while the next AI speech race continues", async () => {
   let optionalRequestCount = 0;
   let cancelledOptionalRequestCount = 0;
+  let cancelledBeforeIteratorReturn = 0;
   const humanInput: HumanInputHandler = {
     async request(input) {
       if (input.kind === "target") {
@@ -3210,13 +3255,15 @@ test("optional human day interrupt does not block the next AI speech race", asyn
         daySpeeches.push(next.value);
       }
     }
+    cancelledBeforeIteratorReturn = cancelledOptionalRequestCount;
   } finally {
     await iterator.return?.(undefined);
   }
 
   assert.equal(daySpeeches.length, 2);
   assert.ok(optionalRequestCount > 0, "the optional interrupt request should open after the first AI speech");
-  assert.ok(cancelledOptionalRequestCount > 0, "the stale optional request should be cancelled when the next AI speech wins");
+  assert.equal(cancelledBeforeIteratorReturn, 0, "the optional interrupt must stay open when the next AI speech wins");
+  assert.ok(cancelledOptionalRequestCount > 0, "closing the iterator should still clean up the open optional request");
   assert.equal(daySpeeches[1]?.message, "次のAI発言です。");
 });
 

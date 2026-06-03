@@ -1056,19 +1056,26 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /const optionalDiscussionInterruptSkipReady = Boolean\(availableSpeechInterruptInput\);/);
-  assert.match(source, /const revealNextStoryEventOnArrivalRef = useRef\(false\);/);
-  assert.match(source, /void submitHumanInput\(\{ decision: false \}, \{ revealNextStoryEventOnArrival: true \}\);/);
+  assert.doesNotMatch(source, /const revealNextStoryEventOnArrivalRef = useRef\(false\);/);
+  assert.doesNotMatch(source, /void submitHumanInput\(\{ decision: false \}, \{ revealNextStoryEventOnArrival: true \}\);/);
+  assert.match(source, /optionalDiscussionInterruptSkipReady && queuedRef\.current\.length === 0/);
+  assert.match(source, /void submitHumanInput\(\{ decision: false \}\);/);
   assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
   assert.match(source, /humanInputAdvanceReady,/);
   assert.doesNotMatch(source, /resetImmediately/);
   assert.match(source, /if \(skipOptionalHumanInputOnStoryAdvance\(\)\) \{/);
-  assert.match(
-    source,
-    /if \(revealNextStoryEventOnArrivalRef\.current\) \{[\s\S]*?revealNextStoryEventOnArrivalRef\.current = false;[\s\S]*?queuedRef\.current\.length === 0 && !pausedRef\.current[\s\S]*?eventsRef\.current = nextEvents;[\s\S]*?setEvents\(nextEvents\);[\s\S]*?return;[\s\S]*?\}/
-  );
+  assert.doesNotMatch(source, /revealNextStoryEventOnArrivalRef/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
   assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "discussion_interrupt"/);
   assert.match(source, /source\.addEventListener\("human_input_cancelled"/);
+  assert.match(source, /const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest \| null>\(null\);/);
+  assert.match(source, /function discardUnreadStoryBeforeHumanInterrupt\(request: HumanInputRequest\)/);
+  assert.match(source, /isOptionalDiscussionInterruptInput\(request\) \|\| queuedRef\.current\.length === 0/);
+  assert.match(source, /postClientTrace\("discard_unread_before_human_interrupt"/);
+  assert.match(source, /queuedRef\.current = \[\];[\s\S]*setQueuedEvents\(\[\]\);/);
+  assert.match(source, /const discardUntilHumanEcho = discardStoryUntilHumanEchoRef\.current;/);
+  assert.match(source, /postClientTrace\("discard_stale_game_before_human_echo"/);
+  assert.match(source, /discardStoryUntilHumanEchoRef\.current = request;/);
   assert.match(source, /className="icon-button story-run-button story-interrupt-button"/);
   assert.match(source, /type:\s*"player_speech"/);
   assert.match(source, /localHumanEcho:\s*true/);
@@ -1089,8 +1096,8 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submittedHumanInput && isSubmittedHumanSpeechEvent\(submittedHumanInput, event\)/);
   assert.match(source, /completeHumanInputRequest\(submittedHumanInput\);[\s\S]*eventsRef\.current = nextEvents;[\s\S]*setEvents\(nextEvents\);[\s\S]*setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);[\s\S]*return;/);
   assert.match(source, /function resetHumanInputState\(\) \{\s*submittedHumanInputRef\.current = null;/);
-  assert.match(source, /function resetHumanInputState\(\) \{[\s\S]*?revealNextStoryEventOnArrivalRef\.current = false;/);
-  assert.match(source, /if \(localHumanSpeechEvent\) \{\s*completeHumanInputRequest\(request\);[\s\S]*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
+  assert.match(source, /function resetHumanInputState\(\) \{[\s\S]*?discardStoryUntilHumanEchoRef\.current = null;/);
+  assert.match(source, /if \(localHumanSpeechEvent\) \{\s*discardUnreadStoryBeforeHumanInterrupt\(request\);[\s\S]*completeHumanInputRequest\(request\);[\s\S]*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
   assert.match(source, /else if \(holdSubmittedScene\) \{\s*if \(submittedHumanInputRef\.current === request\) \{[\s\S]*showProcessingHudNow\(\);[\s\S]*setGameStatus\("生成中"\);/s);
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
   assert.match(source, /className="human-input-quick-controls"/);

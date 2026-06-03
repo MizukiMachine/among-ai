@@ -241,6 +241,18 @@ interface HumanSocialInfluenceProfile {
 interface HumanDayDiscussionInterruptState {
   remaining: number;
   available: boolean;
+  pending?: PendingHumanDayDiscussionInterrupt | null;
+}
+
+interface DayDiscussionSpeechResult {
+  player: Player;
+  speech: AgentSpeech;
+}
+
+interface PendingHumanDayDiscussionInterrupt {
+  controller: AbortController;
+  promise: Promise<DayDiscussionSpeechResult | null>;
+  settled: boolean;
 }
 
 interface PreparedTargetAction {
@@ -1549,14 +1561,48 @@ export class WerewolfGame {
       }
     };
 
-    type DayDiscussionSpeechResult = { player: Player; speech: AgentSpeech };
     type AiRaceWinner = { player: Player; value: DayDiscussionSpeechResult };
-    type PendingHumanInterrupt = {
-      controller: AbortController;
-      promise: Promise<DayDiscussionSpeechResult | null>;
+
+    let pendingHumanInterrupt = humanInterruptState.pending ?? null;
+    let completedNormally = false;
+
+    const openPendingHumanInterrupt = (player: Player): PendingHumanDayDiscussionInterrupt => {
+      const controller = new AbortController();
+      const pending: PendingHumanDayDiscussionInterrupt = {
+        controller,
+        promise: Promise.resolve(null),
+        settled: false
+      };
+      pending.promise = this.requestHumanDayDiscussionInterrupt(
+        player,
+        discussionPass,
+        discussionPasses,
+        humanInterruptState.remaining,
+        controller.signal
+      ).then(
+        (result) => {
+          pending.settled = true;
+          return result;
+        },
+        (error) => {
+          pending.settled = true;
+          throw error;
+        }
+      );
+      humanInterruptState.pending = pending;
+      return pending;
     };
 
-    let pendingHumanInterrupt: PendingHumanInterrupt | null = null;
+    const consumePendingHumanInterrupt = async (
+      pending: PendingHumanDayDiscussionInterrupt
+    ): Promise<DayDiscussionSpeechResult | null> => {
+      const result = await pending.promise;
+      if (pendingHumanInterrupt === pending) {
+        pendingHumanInterrupt = null;
+        humanInterruptState.pending = null;
+      }
+      return result;
+    };
 
     const cancelPendingHumanInterrupt = () => {
       if (!pendingHumanInterrupt) {
@@ -1564,6 +1610,7 @@ export class WerewolfGame {
       }
       const pending = pendingHumanInterrupt;
       pendingHumanInterrupt = null;
+      humanInterruptState.pending = null;
       pending.promise.catch(() => undefined);
       pending.controller.abort();
     };
@@ -1571,17 +1618,19 @@ export class WerewolfGame {
     try {
       while (remainingAi.length > 0) {
         if (human && humanInterruptState.available && humanInterruptState.remaining > 0 && !pendingHumanInterrupt) {
-          const controller = new AbortController();
-          pendingHumanInterrupt = {
-            controller,
-            promise: this.requestHumanDayDiscussionInterrupt(
-              human,
-              discussionPass,
-              discussionPasses,
-              humanInterruptState.remaining,
-              controller.signal
-            )
-          };
+          pendingHumanInterrupt = openPendingHumanInterrupt(human);
+        }
+
+        if (pendingHumanInterrupt?.settled) {
+          const humanInterrupt = await consumePendingHumanInterrupt(pendingHumanInterrupt);
+          if (humanInterrupt) {
+            active = 0;
+            report();
+            humanInterruptState.remaining -= 1;
+            humanInterruptState.available = false;
+            yield humanInterrupt;
+            continue;
+          }
         }
 
         const racers = speechRaceSlots(remainingAi, limit);
@@ -1596,7 +1645,7 @@ export class WerewolfGame {
 
         let winner: AiRaceWinner;
         if (pendingHumanInterrupt) {
-          const activeHumanInterrupt: PendingHumanInterrupt = pendingHumanInterrupt;
+          const activeHumanInterrupt: PendingHumanDayDiscussionInterrupt = pendingHumanInterrupt;
           const outcome = await Promise.race<
             | { kind: "ai"; result: AiRaceWinner }
             | { kind: "human"; result: DayDiscussionSpeechResult | null }
@@ -1623,7 +1672,6 @@ export class WerewolfGame {
             }
             winner = await aiRace;
           } else {
-            cancelPendingHumanInterrupt();
             winner = outcome.result;
           }
         } else {
@@ -1640,8 +1688,12 @@ export class WerewolfGame {
         humanInterruptState.available = remainingAi.length > 0;
         yield winner.value;
       }
+
+      completedNormally = true;
     } finally {
-      cancelPendingHumanInterrupt();
+      if (!completedNormally) {
+        cancelPendingHumanInterrupt();
+      }
     }
   }
 
@@ -3187,7 +3239,9 @@ export class WerewolfGame {
 
   private async *runDay(): AsyncGenerator<GameEvent> {
     const isOpeningLlmRound = this.round === 1 && this.config.provider === "llm";
-    const warmupPrefetch = isOpeningLlmRound ? this.getOrStartFirstDayWarmupSpeechPrefetch(this.round) : null;
+    const humanInterruptsEnabled = this.humanDayDiscussionInterruptsEnabled();
+    const runOpeningWarmup = isOpeningLlmRound && !humanInterruptsEnabled;
+    const warmupPrefetch = runOpeningWarmup ? this.getOrStartFirstDayWarmupSpeechPrefetch(this.round) : null;
     const cancelWarmupPrefetch = () => {
       if (!warmupPrefetch) {
         return;
@@ -3260,7 +3314,7 @@ export class WerewolfGame {
     // Keep the "day zero" opening resolves even without the old director layer. They are
     // generated first, then the first real public line begins prefetching; they are not
     // fed back into publicHistory/lastDiscussion and therefore cannot become fake evidence.
-    if (isOpeningLlmRound) {
+    if (runOpeningWarmup) {
       yield* this.runFirstDayWarmupPass(warmupPrefetch);
     }
     this.throwIfCancelled();
@@ -3275,87 +3329,127 @@ export class WerewolfGame {
       this.firstDayOpeningSpeechPrefetch = null;
     }
 
-    const humanInterruptsEnabled = this.humanDayDiscussionInterruptsEnabled();
     const humanInterruptState: HumanDayDiscussionInterruptState = {
       remaining: maxHumanDayDiscussionInterruptions,
       available: false
     };
+    const cancelHumanInterruptState = () => {
+      const pending = humanInterruptState.pending;
+      if (!pending) {
+        return;
+      }
+      humanInterruptState.pending = null;
+      pending.promise.catch(() => undefined);
+      pending.controller.abort();
+    };
+    const consumeHumanInterruptState = async (): Promise<DayDiscussionSpeechResult | null> => {
+      const pending = humanInterruptState.pending;
+      if (!pending) {
+        return null;
+      }
+      const result = await pending.promise;
+      if (humanInterruptState.pending === pending) {
+        humanInterruptState.pending = null;
+      }
+      return result;
+    };
+    let discussionCompletedNormally = false;
 
-    for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
-      let passSpeakers = speakers;
-      if (discussionPass === 1 && firstDayOpeningMoveByPlayerId.size > 0) {
-        if (openingSpeaker) {
-          const { player, speech } = await (prefetchedOpeningSpeech ??
-            this.generateDayDiscussionSpeech(openingSpeaker, discussionPass, firstDayOpeningMoveByPlayerId));
-          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
-            yield event;
+    try {
+      for (let discussionPass = 1; discussionPass <= regularDayDiscussionPasses; discussionPass += 1) {
+        let passSpeakers = speakers;
+        if (discussionPass === 1 && firstDayOpeningMoveByPlayerId.size > 0) {
+          if (openingSpeaker) {
+            const { player, speech } = await (prefetchedOpeningSpeech ??
+              this.generateDayDiscussionSpeech(openingSpeaker, discussionPass, firstDayOpeningMoveByPlayerId));
+            for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+              yield event;
+            }
+            if (humanInterruptsEnabled) {
+              humanInterruptState.available = true;
+            }
+            passSpeakers = speakers.filter((player) => player.id !== openingSpeaker.id);
           }
-          if (humanInterruptsEnabled) {
-            humanInterruptState.available = true;
+        }
+
+        const progressReporter = this.progressReporter("day_speech", this.text("昼議論", "昼議論"), {
+          pass: discussionPass,
+          passes: regularDayDiscussionPasses
+        });
+        if (humanInterruptsEnabled) {
+          for await (const { player, speech } of this.raceAiWithHumanInterrupts(
+            passSpeakers,
+            discussionPass,
+            regularDayDiscussionPasses,
+            firstDayOpeningMoveByPlayerId,
+            humanInterruptState,
+            progressReporter
+          )) {
+            for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+              yield event;
+            }
           }
-          passSpeakers = speakers.filter((player) => player.id !== openingSpeaker.id);
+        } else {
+          for await (const { player, speech } of this.raceAiWithHumanLast(
+            passSpeakers,
+            (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
+            progressReporter
+          )) {
+            for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
+              yield event;
+            }
+          }
         }
       }
 
-      const progressReporter = this.progressReporter("day_speech", this.text("昼議論", "昼議論"), {
-        pass: discussionPass,
-        passes: regularDayDiscussionPasses
-      });
-      if (humanInterruptsEnabled) {
-        for await (const { player, speech } of this.raceAiWithHumanInterrupts(
-          passSpeakers,
-          discussionPass,
-          regularDayDiscussionPasses,
-          firstDayOpeningMoveByPlayerId,
-          humanInterruptState,
-          progressReporter
-        )) {
-          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
-            yield event;
+      const followUpSpeakers = this.dayDiscussionFollowUpSpeakers(speakers);
+      if (followUpSpeakers.length > 0) {
+        const progressReporter = this.progressReporter("day_speech", this.text("昼議論の追加発言", "昼議論の追加発言"), {
+          pass: followUpDayDiscussionPass,
+          passes: followUpDayDiscussionPass
+        });
+        if (humanInterruptsEnabled) {
+          for await (const { player, speech } of this.raceAiWithHumanInterrupts(
+            followUpSpeakers,
+            followUpDayDiscussionPass,
+            followUpDayDiscussionPass,
+            firstDayOpeningMoveByPlayerId,
+            humanInterruptState,
+            progressReporter
+          )) {
+            for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
+              yield event;
+            }
           }
-        }
-      } else {
-        for await (const { player, speech } of this.raceAiWithHumanLast(
-          passSpeakers,
-          (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, firstDayOpeningMoveByPlayerId, options),
-          progressReporter
-        )) {
-          for (const event of publishSpeech(player, speech, discussionPass, regularDayDiscussionPasses)) {
-            yield event;
+        } else {
+          for await (const { player, speech } of this.raceAiWithHumanLast(
+            followUpSpeakers,
+            (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
+            progressReporter
+          )) {
+            for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
+              yield event;
+            }
           }
         }
       }
-    }
-
-    const followUpSpeakers = this.dayDiscussionFollowUpSpeakers(speakers);
-    if (followUpSpeakers.length > 0) {
-      const progressReporter = this.progressReporter("day_speech", this.text("昼議論の追加発言", "昼議論の追加発言"), {
-        pass: followUpDayDiscussionPass,
-        passes: followUpDayDiscussionPass
-      });
-      if (humanInterruptsEnabled) {
-        for await (const { player, speech } of this.raceAiWithHumanInterrupts(
-          followUpSpeakers,
+      const lateHumanInterrupt = await consumeHumanInterruptState();
+      if (lateHumanInterrupt) {
+        humanInterruptState.remaining -= 1;
+        humanInterruptState.available = false;
+        for (const event of publishSpeech(
+          lateHumanInterrupt.player,
+          lateHumanInterrupt.speech,
           followUpDayDiscussionPass,
-          followUpDayDiscussionPass,
-          firstDayOpeningMoveByPlayerId,
-          humanInterruptState,
-          progressReporter
+          followUpDayDiscussionPass
         )) {
-          for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
-            yield event;
-          }
+          yield event;
         }
-      } else {
-        for await (const { player, speech } of this.raceAiWithHumanLast(
-          followUpSpeakers,
-          (player, options) => this.generateDayDiscussionSpeech(player, followUpDayDiscussionPass, firstDayOpeningMoveByPlayerId, options),
-          progressReporter
-        )) {
-          for (const event of publishSpeech(player, speech, followUpDayDiscussionPass, followUpDayDiscussionPass)) {
-            yield event;
-          }
-        }
+      }
+      discussionCompletedNormally = true;
+    } finally {
+      if (!discussionCompletedNormally) {
+        cancelHumanInterruptState();
       }
     }
 
