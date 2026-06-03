@@ -1509,6 +1509,7 @@ export function App() {
   const pausedRef = useRef(false);
   const statusBeforePauseRef = useRef("待機中");
   const revealFirstEventRef = useRef(false);
+  const revealNextStoryEventOnArrivalRef = useRef(false);
   const processingHudShownAtRef = useRef<number | null>(null);
   const processingHudHideTimerRef = useRef<number | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2133,6 +2134,7 @@ export function App() {
 
   function resetHumanInputState() {
     submittedHumanInputRef.current = null;
+    revealNextStoryEventOnArrivalRef.current = false;
     commitPendingHumanInputs([]);
     setHumanSpeech("");
     setHumanTargetId(null);
@@ -2410,6 +2412,19 @@ export function App() {
         setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
         return;
       }
+      if (revealNextStoryEventOnArrivalRef.current) {
+        revealNextStoryEventOnArrivalRef.current = false;
+        if (queuedRef.current.length === 0 && !pausedRef.current) {
+          const nextEvents = [...eventsRef.current, event];
+          eventsRef.current = nextEvents;
+          setEvents(nextEvents);
+          setSnapshot(event.snapshot);
+          playEventSfx(event);
+          hideProcessingHudNow();
+          setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
+          return;
+        }
+      }
       const nextQueue = [...queuedRef.current, event];
       queuedRef.current = nextQueue;
       setQueuedEvents(nextQueue);
@@ -2577,7 +2592,7 @@ export function App() {
 
   function skipOptionalHumanInputOnStoryAdvance(): boolean {
     if (optionalDiscussionInterruptSkipReady) {
-      void submitHumanInput({ decision: false });
+      void submitHumanInput({ decision: false }, { revealNextStoryEventOnArrival: true });
       return true;
     }
     if (!isOptionalWerewolfAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
@@ -2932,16 +2947,23 @@ export function App() {
     setGameStatus(statusForVisibleStory(event, queuedRef.current.length));
   }
 
-  async function submitHumanInput(payload: HumanInputSubmitPayload) {
+  async function submitHumanInput(
+    payload: HumanInputSubmitPayload,
+    options: { revealNextStoryEventOnArrival?: boolean } = {}
+  ) {
     const currentGameId = gameId;
     const request = pendingHumanInput;
     if (!currentGameId || !request || humanSubmitting) {
       return;
     }
 
+    const revealNextStoryEventOnArrival = options.revealNextStoryEventOnArrival === true;
     const localHumanSpeechEvent = createLocalHumanSpeechEvent(request, payload);
     const holdSubmittedScene = shouldHoldSubmittedHumanInputScene(request);
     submittedHumanInputRef.current = holdSubmittedScene ? request : null;
+    if (revealNextStoryEventOnArrival) {
+      revealNextStoryEventOnArrivalRef.current = true;
+    }
     setHumanSubmitting(true);
     setHumanInputError("");
     try {
@@ -2972,6 +2994,9 @@ export function App() {
         setGameStatus("生成中");
       }
     } catch (error) {
+      if (revealNextStoryEventOnArrival) {
+        revealNextStoryEventOnArrivalRef.current = false;
+      }
       if (submittedHumanInputRef.current === request) {
         submittedHumanInputRef.current = null;
       }

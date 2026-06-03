@@ -3147,6 +3147,79 @@ test("human day interrupt restarts the remaining AI race with the latest human s
   assert.ok(daySpeeches.some((event) => event.message === "ガクの疑いに反応します。"));
 });
 
+test("optional human day interrupt does not block the next AI speech race", async () => {
+  let optionalRequestCount = 0;
+  let cancelledOptionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Fallback blocking speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(_input, options) {
+      optionalRequestCount += 1;
+      return new Promise<null>((resolve) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelledOptionalRequestCount += 1;
+            resolve(null);
+          },
+          { once: true }
+        );
+      });
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "次のAI発言です。"));
+  game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [1], () => "三人目のAI発言です。"));
+
+  const iterator = game.runDay();
+  const daySpeeches: GameEvent[] = [];
+  try {
+    while (daySpeeches.length < 2) {
+      const next = await Promise.race([
+        iterator.next(),
+        sleepWithAbort(500).then<IteratorResult<GameEvent>>(() => {
+          throw new Error("Timed out waiting for AI speech while optional human interrupt was pending.");
+        })
+      ]);
+      if (next.done) {
+        break;
+      }
+      if (next.value.type === "player_speech" && next.value.phase === "day_discussion" && next.value.playerId !== players[2].id) {
+        daySpeeches.push(next.value);
+      }
+    }
+  } finally {
+    await iterator.return?.(undefined);
+  }
+
+  assert.equal(daySpeeches.length, 2);
+  assert.ok(optionalRequestCount > 0, "the optional interrupt request should open after the first AI speech");
+  assert.ok(cancelledOptionalRequestCount > 0, "the stale optional request should be cancelled when the next AI speech wins");
+  assert.equal(daySpeeches[1]?.message, "次のAI発言です。");
+});
+
 test("human speech choice can publish free text instead of a drafted option", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {
