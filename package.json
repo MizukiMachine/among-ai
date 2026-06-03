@@ -20,7 +20,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.2.1",
     "hono": "^4.10.7",
-    "llm-hedge": "workspace:*",
+    "llm-hedge": "file:../llm-hedge",
     "lucide-react": "^0.561.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
