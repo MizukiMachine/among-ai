@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createApp, parseStreamOptions } from "../src/server/app";
 import { HumanInputSession } from "../src/server/humanSessions";
@@ -84,6 +87,93 @@ test("stream options force human players onto the werewolf camp", () => {
     "werewolf"
   );
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanCamp=werewolf")).humanCampPreference, "random");
+});
+
+test("client debug trace endpoint is inert unless persistent tracing is enabled", async () => {
+  const originalTrace = process.env.AMONG_AI_TRACE;
+  delete process.env.AMONG_AI_TRACE;
+
+  try {
+    const app = createApp();
+    const response = await app.request("/api/debug/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        streamLogId: "stream-test",
+        kind: "ui_state",
+        payload: { storyNextDisabled: true }
+      })
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: false, enabled: false });
+  } finally {
+    if (originalTrace === undefined) {
+      delete process.env.AMONG_AI_TRACE;
+    } else {
+      process.env.AMONG_AI_TRACE = originalTrace;
+    }
+  }
+});
+
+test("client debug trace endpoint writes sanitized JSONL when enabled", async () => {
+  const originalTrace = process.env.AMONG_AI_TRACE;
+  const originalTraceDir = process.env.AMONG_AI_TRACE_DIR;
+  const traceDir = mkdtempSync(join(tmpdir(), "among-ai-trace-"));
+
+  try {
+    process.env.AMONG_AI_TRACE = "1";
+    process.env.AMONG_AI_TRACE_DIR = traceDir;
+
+    const app = createApp();
+    const response = await app.request("/api/debug/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        streamLogId: "stream-test",
+        kind: "ui_state",
+        payload: {
+          storyNextDisabled: true,
+          queuedCount: 4,
+          message: "この本文は保存しない",
+          pendingHumanInput: {
+            id: "request-1",
+            kind: "speech_choice",
+            speechMode: "discussion_interrupt",
+            speech: "秘密発言"
+          }
+        }
+      })
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { ok?: boolean; enabled?: boolean; filePath?: string };
+    assert.equal(body.ok, true);
+    assert.equal(body.enabled, true);
+    assert.ok(body.filePath);
+
+    const files = readdirSync(traceDir);
+    assert.equal(files.length, 1);
+    const content = readFileSync(join(traceDir, files[0]), "utf8");
+    const line = JSON.parse(content.trim()) as { kind: string; payload: Record<string, unknown> };
+
+    assert.equal(line.kind, "client.ui_state");
+    assert.equal(line.payload.storyNextDisabled, true);
+    assert.equal(line.payload.queuedCount, 4);
+    assert.doesNotMatch(content, /この本文は保存しない|秘密発言/);
+  } finally {
+    if (originalTrace === undefined) {
+      delete process.env.AMONG_AI_TRACE;
+    } else {
+      process.env.AMONG_AI_TRACE = originalTrace;
+    }
+    if (originalTraceDir === undefined) {
+      delete process.env.AMONG_AI_TRACE_DIR;
+    } else {
+      process.env.AMONG_AI_TRACE_DIR = originalTraceDir;
+    }
+    rmSync(traceDir, { recursive: true, force: true });
+  }
 });
 
 test("stream emits progress frames for batched AI generation", async () => {

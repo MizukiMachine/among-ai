@@ -359,6 +359,9 @@ interface StreamSystemPayload {
   humanPlayerId?: string | null;
   message?: string;
   prefetchConcurrency?: number | null;
+  streamLogId?: string | null;
+  traceEnabled?: boolean;
+  traceFile?: string | null;
   view?: SpectatorMode;
 }
 
@@ -1496,6 +1499,9 @@ export function App() {
   const [humanSubmitting, setHumanSubmitting] = useState(false);
   const [humanInputError, setHumanInputError] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
+  const streamLogIdRef = useRef<string | null>(null);
+  const clientTraceEnabledRef = useRef(false);
+  const lastClientUiTraceKeyRef = useRef("");
   const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
   const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
   const eventsRef = useRef<GameEvent[]>([]);
@@ -2139,6 +2145,82 @@ export function App() {
     sourceRef.current = null;
   }
 
+  function clientTraceRequestSummary(request: HumanInputRequest | null): Record<string, unknown> | null {
+    if (!request) {
+      return null;
+    }
+    return {
+      id: request.id,
+      kind: request.kind,
+      speechMode: request.kind === "speech_choice" ? request.speechMode : undefined,
+      nonBlocking: request.nonBlocking === true,
+      phase: request.phase,
+      playerId: request.playerId,
+      revealAfterEventId: request.revealAfterEventId ?? null
+    };
+  }
+
+  function clientTraceProgressSummary(progress: GenerationProgress | null): Record<string, unknown> | null {
+    if (!progress) {
+      return null;
+    }
+    return {
+      round: progress.round,
+      phase: progress.phase,
+      task: progress.task,
+      label: progress.label,
+      total: progress.total,
+      started: progress.started,
+      completed: progress.completed,
+      active: progress.active,
+      queued: progress.queued,
+      concurrency: progress.concurrency,
+      pass: progress.pass,
+      passes: progress.passes,
+      redacted: progress.redacted === true
+    };
+  }
+
+  function clientTraceEventSummary(event: GameEvent | undefined): Record<string, unknown> | null {
+    if (!event) {
+      return null;
+    }
+    return {
+      id: event.id,
+      round: event.round,
+      phase: event.phase,
+      type: event.type,
+      playerId: event.playerId,
+      targetId: event.targetId,
+      messageLength: event.message.length,
+      visibility: event.data?.visibility,
+      redacted: event.data?.redacted === true
+    };
+  }
+
+  function postClientTrace(kind: string, payload: Record<string, unknown>) {
+    const streamLogId = streamLogIdRef.current;
+    if (!clientTraceEnabledRef.current || !streamLogId || typeof window === "undefined") {
+      return;
+    }
+
+    const body = JSON.stringify({ streamLogId, kind, payload });
+    const url = "/api/debug/client-log";
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      const blob = new Blob([body], { type: "application/json" });
+      if (navigator.sendBeacon(url, blob)) {
+        return;
+      }
+    }
+
+    void fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true
+    }).catch(() => undefined);
+  }
+
   function clearProcessingHudHideTimer() {
     if (processingHudHideTimerRef.current !== null) {
       window.clearTimeout(processingHudHideTimerRef.current);
@@ -2163,6 +2245,9 @@ export function App() {
     audioControllerRef.current?.stopBgm();
     pausedRef.current = false;
     revealFirstEventRef.current = false;
+    streamLogIdRef.current = null;
+    clientTraceEnabledRef.current = false;
+    lastClientUiTraceKeyRef.current = "";
     resetHumanInputState();
     setPaused(false);
     setActiveOverlay(null);
@@ -2221,6 +2306,9 @@ export function App() {
     closeGameStream();
     pausedRef.current = false;
     revealFirstEventRef.current = Boolean(options.revealFirstEvent);
+    streamLogIdRef.current = null;
+    clientTraceEnabledRef.current = false;
+    lastClientUiTraceKeyRef.current = "";
     resetHumanInputState();
     setPaused(false);
     eventsRef.current = [];
@@ -2259,15 +2347,25 @@ export function App() {
 
     source.addEventListener("system", (message) => {
       const payload = JSON.parse((message as MessageEvent).data) as StreamSystemPayload;
+      streamLogIdRef.current = payload.streamLogId ?? null;
+      clientTraceEnabledRef.current = payload.traceEnabled === true;
       setGameId(payload.gameId ?? null);
       if (payload.humanPlayerId) {
         setHumanPlayerId(payload.humanPlayerId);
       }
+      postClientTrace("system", {
+        gameIdPresent: Boolean(payload.gameId),
+        humanPlayerId: payload.humanPlayerId ?? null,
+        prefetchConcurrency: payload.prefetchConcurrency ?? null,
+        traceFilePresent: Boolean(payload.traceFile),
+        view: payload.view ?? null
+      });
       setGameStatus("生成中");
     });
 
     source.addEventListener("progress", (message) => {
       const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
+      postClientTrace("progress", clientTraceProgressSummary(progress) ?? {});
       if (!pausedRef.current && eventsRef.current.length > 0 && queuedRef.current.length === 0) {
         showProcessingHudNow();
       }
@@ -2277,6 +2375,11 @@ export function App() {
 
     source.addEventListener("game", (message) => {
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
+      postClientTrace("game", {
+        event: clientTraceEventSummary(event),
+        eventsCount: eventsRef.current.length,
+        queuedCount: queuedRef.current.length
+      });
       setGenerationProgress(null);
       if (revealFirstEventRef.current) {
         revealFirstEventRef.current = false;
@@ -2322,6 +2425,12 @@ export function App() {
       setGenerationProgress(null);
       hideProcessingHudNow();
       enqueueHumanInput(request, revealAfterEventId);
+      postClientTrace("human_input", {
+        request: clientTraceRequestSummary(request),
+        revealAfterEventId,
+        eventsCount: eventsRef.current.length,
+        queuedCount: queuedRef.current.length
+      });
       if (isBlockingHumanInput(request)) {
         setGameStatus(statusForPendingHumanInputLeadIn(queuedRef.current.length));
       } else {
@@ -2335,6 +2444,10 @@ export function App() {
       if (!requestId) {
         return;
       }
+      postClientTrace("human_input_cancelled", {
+        requestId,
+        activeRequestId: pendingHumanInputsRef.current[0]?.request.id ?? null
+      });
       const wasActive = pendingHumanInputsRef.current[0]?.request.id === requestId;
       updatePendingHumanInputs((currentInputs) => currentInputs.filter((entry) => entry.request.id !== requestId));
       if (submittedHumanInputRef.current?.id === requestId) {
@@ -2346,6 +2459,10 @@ export function App() {
     });
 
     source.addEventListener("done", () => {
+      postClientTrace("done", {
+        eventsCount: eventsRef.current.length,
+        queuedCount: queuedRef.current.length
+      });
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
@@ -2359,6 +2476,10 @@ export function App() {
     });
 
     source.addEventListener("error", (message) => {
+      postClientTrace("error", {
+        eventsCount: eventsRef.current.length,
+        queuedCount: queuedRef.current.length
+      });
       revealFirstEventRef.current = false;
       setRunning(false);
       setSourceDone(true);
@@ -3330,6 +3451,63 @@ export function App() {
   const primaryActionHint =
     primaryActionIsGameStart && storyProcessingBlocksAdvance ? "準備中" : storyProcessingBlocksAdvance ? "思考中" : "Enter / →";
   const runControlState = storyRunControlState(gameStarted, paused);
+
+  useEffect(() => {
+    const payload = {
+      currentEventId: currentEvent?.id ?? null,
+      currentEventType: currentEvent?.type ?? null,
+      currentEventPhase: currentEvent?.phase ?? null,
+      currentEventRound: currentEvent?.round ?? null,
+      eventsCount: events.length,
+      queuedCount: queuedEvents.length,
+      running,
+      sourceDone,
+      paused,
+      status,
+      processingHudVisible,
+      waitingForSubmittedHumanInput,
+      storyWaitingForStream,
+      unreadStoryAvailable,
+      storyProcessingBlocksAdvance,
+      storyNextDisabled,
+      humanInputAdvanceReady,
+      optionalDiscussionInterruptSkipReady,
+      readyHumanInput: Boolean(readyHumanInput),
+      visibleHumanInput: Boolean(visibleHumanInput),
+      pendingHumanInput: clientTraceRequestSummary(pendingHumanInput),
+      submittedHumanInput: clientTraceRequestSummary(submittedHumanInputRef.current),
+      generationProgress: clientTraceProgressSummary(generationProgress)
+    };
+    const key = JSON.stringify(payload);
+    if (key === lastClientUiTraceKeyRef.current) {
+      return;
+    }
+    lastClientUiTraceKeyRef.current = key;
+    postClientTrace("ui_state", payload);
+  }, [
+    currentEvent?.id,
+    currentEvent?.phase,
+    currentEvent?.round,
+    currentEvent?.type,
+    events.length,
+    generationProgress,
+    humanInputAdvanceReady,
+    optionalDiscussionInterruptSkipReady,
+    paused,
+    pendingHumanInput,
+    processingHudVisible,
+    queuedEvents.length,
+    readyHumanInput,
+    running,
+    sourceDone,
+    status,
+    storyNextDisabled,
+    storyProcessingBlocksAdvance,
+    storyWaitingForStream,
+    unreadStoryAvailable,
+    visibleHumanInput,
+    waitingForSubmittedHumanInput
+  ]);
 
   useEffect(() => {
     clearProcessingHudHideTimer();
