@@ -274,6 +274,10 @@ function legalTargetLineForLanguage(players: TargetCandidate[] | undefined, lang
   return `選べる対象ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function getRoleStrategy(role: Role): string {
   return bulletList(getRolePromptProfile(role).roleStrategy);
 }
@@ -474,6 +478,19 @@ function publicSpeechSituationLines(extra: string[]): string[] {
   );
 }
 
+function selfAwarePublicHistoryLine(line: string, player: Player, language: string): string {
+  const speakerPattern = new RegExp(`^\\s*${escapeRegExp(player.name)}\\s*:`, "u");
+  if (!speakerPattern.test(line)) {
+    return line;
+  }
+  const selfLabel = isJapaneseLanguage(language) ? `自分（${player.name}）:` : `Self (${player.name}):`;
+  return line.replace(speakerPattern, selfLabel);
+}
+
+function publicSpeechHistoryLines(lines: string[], player: Player, language: string, count: number): string[] {
+  return recentLines(lines.map((line) => selfAwarePublicHistoryLine(line, player, language)), count);
+}
+
 function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): string {
   const {
     player,
@@ -489,7 +506,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     extra = []
   } = options;
   const japanese = isJapaneseLanguage(language);
-  const recentPublicHistory = publicHistory.length > 0 ? recentLines(publicHistory, 24) : ["- まだありません。"];
+  const recentPublicHistory = publicHistory.length > 0 ? publicSpeechHistoryLines(publicHistory, player, language, 24) : ["- まだありません。"];
   const visibleSituation = publicSpeechSituationLines(extra);
   const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : ["- なし。"];
 
@@ -854,6 +871,7 @@ export function buildSimpleSpeechSystemPrompt(options: BuildSystemPromptOptions)
       ...(styleGuide.length > 0 ? ["", ...styleGuide] : []),
       "",
       "これまでの会話と自分の役職を踏まえて、自然な次の発言をしてください。",
+      `自分の名前（${options.player.name}）を第三者として扱わない。自分について話す時は一人称を使い、「${options.player.name}を吊る」「${options.player.name}が怪しい」のように他人事で書かない。`,
       "役職を明かす、隠す、嘘をつく、曖昧にする判断は状況に合わせます。",
       "出力は画面に出す発言だけ。説明、箇条書き、JSONは不要です。",
       "短い1文、必要な時だけ2文にしてください。"
@@ -867,6 +885,7 @@ export function buildSimpleSpeechSystemPrompt(options: BuildSystemPromptOptions)
     `役職: ${roleName}。`,
     "",
     "これまでの会話と自分の役職を踏まえて、自然な次の発言をしてください。",
+    `自分の名前（${options.player.name}）を第三者として扱わない。自分について話す時は一人称を使い、「${options.player.name}を吊る」「${options.player.name}が怪しい」のように他人事で書かない。`,
     "役職を明かす、隠す、嘘をつく、曖昧にする判断は状況に合わせます。",
     "出力は画面に出す発言だけ。説明、箇条書き、JSONは不要です。",
     "短い1文、必要な時だけ2文にしてください。"

@@ -4344,28 +4344,36 @@ export class WerewolfGame {
     if (speech.metadata.claims.length > 0) {
       parts.push(
         this.text(
-          `Claims: ${speech.metadata.claims.map((claim) => this.formatClaimSummary(player.name, claim)).join("; ")}`,
-          `主張: ${speech.metadata.claims.map((claim) => this.formatClaimSummary(player.name, claim)).join("; ")}`
+          `Public claim note (not spoken): ${speech.metadata.claims.map((claim) => this.formatClaimSummary(player.name, claim)).join("; ")}`,
+          `公開主張メモ（発話ではない）: ${speech.metadata.claims.map((claim) => this.formatClaimSummary(player.name, claim)).join("; ")}`
         )
       );
     }
     if (speech.metadata.suspects.length > 0) {
       parts.push(
         this.text(
-          `Suspects: ${speech.metadata.suspects.map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`).join(", ")}`,
-          `疑い先: ${speech.metadata.suspects.map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`).join(", ")}`
+          `Public read note (not spoken): ${player.name} suspects ${speech.metadata.suspects
+            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .join(", ")}`,
+          `公開読みメモ（発話ではない）: ${player.name}が${speech.metadata.suspects
+            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .join("、")}を疑い`
         )
       );
     }
     if (speech.metadata.trusts.length > 0) {
       parts.push(
         this.text(
-          `Trusts: ${speech.metadata.trusts.map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`).join(", ")}`,
-          `信頼先: ${speech.metadata.trusts.map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`).join(", ")}`
+          `Public trust note (not spoken): ${player.name} trusts ${speech.metadata.trusts
+            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .join(", ")}`,
+          `公開信頼メモ（発話ではない）: ${player.name}が${speech.metadata.trusts
+            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .join("、")}を信頼`
         )
       );
     }
-    return parts.join(" ");
+    return parts.join("\n");
   }
 
   private async emitRoundSummary(): Promise<GameEvent> {

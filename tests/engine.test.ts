@@ -1603,6 +1603,9 @@ test("split speech emits one event per message and records metadata once", async
     speechEvents.map((event) => event.data?.discussionPasses),
     [2, 2, 2]
   );
+  assert.match(game.publicHistory.join("\n"), /Public read note \(not spoken\): .* suspects Byron/);
+  assert.doesNotMatch(game.publicHistory.join("\n"), /Suspects:/);
+  assert.doesNotMatch(game.publicHistory.join("\n"), /Trusts:/);
 });
 
 test("day discussion gives each living player a second response pass", async () => {
@@ -5360,6 +5363,75 @@ test("LLM public speech uses a single simple speech request", async () => {
     assert.equal(speech.metadata.suspects[0]?.targetId, "p2");
     assert.deepEqual(speech.metadata.trusts, []);
     assert.deepEqual(speech.metadata.claims, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LLM public speech normalizes self-name wording and strips trailing read labels", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: "お前ら対抗出た瞬間にガク吊る話止まって、どっち吊るかで揉めてるだろ。コハルのタイミング疑ってたのどこ行ったんだよ 疑い先: コハル"
+          }
+        ]
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const gakuProfile = characterProfiles.find((profile) => profile.nameJa === "ガク");
+    assert.ok(gakuProfile);
+    const gaku: Player = {
+      id: gakuProfile.playerId,
+      name: gakuProfile.nameJa,
+      role: "Villager",
+      camp: "village",
+      persona: gakuProfile.persona,
+      alive: true,
+      model: "llm",
+      memories: [],
+      seerResults: {},
+      seerResultRounds: {},
+      witch: { savePotion: false, poisonPotion: false },
+      characterProfile: gakuProfile
+    };
+    const koharu = characterProfiles.find((profile) => profile.nameJa === "コハル");
+    assert.ok(koharu);
+    const agent = new AnthropicAgent("llm", createTestAnthropicClient(), "test-model", "Japanese", 1024);
+
+    const speech = await agent.speak({
+      player: gaku,
+      phase: "day_discussion",
+      task: "昼議論で発言してください。",
+      context: "公開文脈: コハルのCOタイミングが議論されています。",
+      knownPlayers: [
+        { id: gaku.id, name: gaku.name },
+        { id: koharu.playerId, name: koharu.nameJa }
+      ],
+      legalPlayers: [{ id: koharu.playerId, name: koharu.nameJa }],
+      publicHistory: [],
+      privateHistory: []
+    });
+
+    assert.equal(calls, 1);
+    assert.deepEqual(speech.messages, [
+      "お前ら対抗出た瞬間に俺を吊る話止まって、どっち吊るかで揉めてるだろ",
+      "コハルのタイミング疑ってたのどこ行ったんだよ"
+    ]);
+    assert.doesNotMatch(speech.messages.join(" "), /疑い先:/);
+    assert.equal(speech.metadata.suspects[0]?.targetId, koharu.playerId);
   } finally {
     globalThis.fetch = originalFetch;
   }

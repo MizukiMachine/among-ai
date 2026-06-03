@@ -306,6 +306,7 @@ test("system prompts keep public speech simple while target and boolean outputs 
   const boolean = buildBooleanSystemPrompt(base);
 
   assert.match(speech, /これまでの会話と自分の役職/);
+  assert.match(speech, /自分の名前/);
   assert.match(speech, /出力は画面に出す発言だけ/);
   assert.doesNotMatch(speech, /Return strict JSON only|reasoning metadata|surface wording|public-safe facts/);
   assert.match(target, /厳密な JSON/);
@@ -580,6 +581,34 @@ test("first-day follow-up context does not reset visible speech to empty", () =>
   assert.match(context, /ノゾミ: 今は役職方針を伏せて/);
   assert.doesNotMatch(context, /まだ、この昼の発言はありません/);
   assert.doesNotMatch(context, /まだ公開発言|まだ、この昼の発言はありません/);
+});
+
+test("public speech context marks the speaker's own prior lines as self", () => {
+  const gaku = {
+    ...player("Villager", "p9", "ガク", "aggressive"),
+    characterProfile: getCharacterProfile("p9")
+  };
+  const context = buildPromptContext({
+    player: gaku,
+    phase: "day_discussion",
+    round: 1,
+    alivePlayers: [
+      { id: "p5", name: "コハル" },
+      { id: "p6", name: "シュウヘイ" },
+      { id: "p9", name: "ガク" }
+    ],
+    deadPlayers: [],
+    publicHistory: [
+      "ガク: コハルのタイミングが気になる。 疑い先: コハル",
+      "シュウヘイ: そこ。短く見る"
+    ],
+    privateHistory: [],
+    language: "Japanese"
+  });
+
+  assert.match(context, /自分（ガク）: コハルのタイミングが気になる/);
+  assert.doesNotMatch(context, /- ガク: コハルのタイミング/);
+  assert.match(context, /シュウヘイ: そこ。短く見る/);
 });
 
 test("character voice context uses compact profile fields without sample-line facts", () => {

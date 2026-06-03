@@ -276,6 +276,20 @@ function normalizeSpeechLine(text: string, fallback: string, language: string): 
   return stripJapaneseSpeechTerminalPeriod(clampText(text, fallback), language);
 }
 
+function stripDisplayedSpeechMetadata(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const speechOnly = trimmed
+    .replace(
+      /(?:^|[\s。！？.!?])(?:疑い先|信頼先|主張|メタデータ|metadata|suspects?|trusts?|claims?)\s*[:：].*$/iu,
+      ""
+    )
+    .trim();
+  return speechOnly.length > 0 ? speechOnly : null;
+}
+
 function stripSpeechMessageLabel(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -283,12 +297,12 @@ function stripSpeechMessageLabel(text: string): string | null {
   }
   const speechLabel = trimmed.match(/^(?:実際の発話|発話|発言|セリフ|台詞|speech|spoken line|message|line)\s*[:：]\s*(.+)$/iu);
   if (speechLabel?.[1]) {
-    return speechLabel[1].trim();
+    return stripDisplayedSpeechMetadata(speechLabel[1]);
   }
   if (/^(?:方針|思考|理由|分析|狙い|作戦|計画|plan|strategy|reasoning|analysis|rationale)\s*[:：]/iu.test(trimmed)) {
     return null;
   }
-  return trimmed;
+  return stripDisplayedSpeechMetadata(trimmed);
 }
 
 function normalizeSpeechMessages(messagesSource: string[], fallback: string, language: string): string[] {
@@ -514,8 +528,7 @@ function parseDisplayedSpeechMessages(content: string, fallback: string, languag
     if (isSpeechJsonLeak(content)) {
       return normalizeSpeechMessages(extractMalformedSpeechMessages(content), fallback, language);
     }
-    const line = normalizeSpeechLine(content, fallback, language);
-    return line ? [line] : [];
+    return normalizeSpeechMessages([content], fallback, language);
   }
 
   const messagesSource = Array.isArray(parsed.messages)
@@ -526,6 +539,49 @@ function parseDisplayedSpeechMessages(content: string, fallback: string, languag
         ? [parsed.speech]
         : [];
   return normalizeSpeechMessages(messagesSource, fallback, language);
+}
+
+function firstPersonForPlayer(input: AgentSpeechInput, language: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return "I";
+  }
+  const style = input.player.characterProfile?.speechStyle ?? "";
+  const firstPerson = style.match(/一人称は「([^」]+)」/u)?.[1]?.trim();
+  if (firstPerson) {
+    return firstPerson;
+  }
+  if (input.player.persona === "aggressive" || input.player.persona === "stoic" || input.player.persona === "passionate") {
+    return "俺";
+  }
+  if (input.player.persona === "cautious" || input.player.persona === "trickster") {
+    return "僕";
+  }
+  return "私";
+}
+
+function normalizeSpeakerSelfReferences(text: string, input: AgentSpeechInput, language: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return text;
+  }
+  const speakerName = input.player.name.trim();
+  if (!speakerName) {
+    return text;
+  }
+  const escapedName = escapeRegExp(speakerName);
+  const self = firstPersonForPlayer(input, language);
+  return text
+    .replace(new RegExp(`${escapedName}(?:さん|君|ちゃん)?\\s*を\\s*(吊る|処刑する|疑う)`, "gu"), `${self}を$1`)
+    .replace(new RegExp(`${escapedName}\\s*吊る`, "gu"), `${self}を吊る`)
+    .replace(new RegExp(`${escapedName}\\s*吊り`, "gu"), `${self}吊り`)
+    .replace(new RegExp(`${escapedName}\\s*処刑`, "gu"), `${self}処刑`)
+    .replace(new RegExp(`${escapedName}(?:さん|君|ちゃん)?(?=\\s*(?:を|が|は|も|の|に|から))`, "gu"), self)
+    .replace(new RegExp(`${escapedName}(?=\\s*(?:怪し|疑い|黒|人狼|狼))`, "gu"), self);
+}
+
+function normalizeSpeakerPerspectiveMessages(messages: string[], input: AgentSpeechInput, fallback: string, language: string): string[] {
+  return messages
+    .map((message) => normalizeSpeechLine(normalizeSpeakerSelfReferences(message, input, language), fallback, language))
+    .filter(Boolean);
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -760,7 +816,7 @@ function evidenceTarget(input: AgentTargetInput): TargetCandidate | null {
       ) {
         score += 4;
       }
-      const suspectMentions = context.match(new RegExp(`suspects: [^\\n.]*${escapedName}`, "g"))?.length ?? 0;
+      const suspectMentions = context.match(new RegExp(`(?:suspects:?|suspects\\s+)[^\\n.]*${escapedName}`, "g"))?.length ?? 0;
       score += suspectMentions;
       return { candidate, score };
     })
@@ -1555,7 +1611,8 @@ class LlmAgent implements Agent {
       input.abortSignal,
       "speech"
     );
-    const messages = parseDisplayedSpeechMessages(content, fallback, this.language);
+    const parsedMessages = parseDisplayedSpeechMessages(content, fallback, this.language);
+    const messages = normalizeSpeakerPerspectiveMessages(parsedMessages, input, fallback, this.language);
 
     return {
       messages: messages.length > 0 ? messages : [normalizeSpeechLine(fallback, fallback, this.language)],
