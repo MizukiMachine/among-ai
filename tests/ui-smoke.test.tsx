@@ -35,11 +35,13 @@ test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
 
   assert.match(html, /among ai/);
-  assert.match(html, /人狼として参加/);
-  assert.match(html, /プレイ目標/);
-  assert.match(html, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
-  assert.match(html, /仲間の演技を見ながら村人の全排除を狙います/);
-  assert.doesNotMatch(html, /狼陣営でプレイ/);
+  assert.match(html, /自分も参加してプレイ/);
+  assert.doesNotMatch(html, /プレイ目標/);
+  assert.doesNotMatch(html, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
+  assert.doesNotMatch(html, /仲間の演技を見ながら村人の全排除を狙います/);
+  assert.match(html, /人間陣営/);
+  assert.match(html, /狼陣営/);
+  assert.match(html, /ランダム/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
@@ -968,24 +970,25 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*const nextEvents = \[event\];[^}]*eventsRef\.current = nextEvents;[^}]*setEvents\(nextEvents\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
-test("setup locks human play to the werewolf camp", () => {
+test("setup exposes human camp preference choices", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /const initialHumanEnabled = true;/);
-  assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "werewolf";/);
-  assert.match(source, /className="field setup-field play-goal-field"/);
-  assert.match(source, /className="setup-note play-goal-note"/);
-  assert.match(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
-  assert.match(source, /仲間の演技を見ながら村人の全排除を狙います/);
-  assert.match(source, /className="field setup-field play-goal-field"[\s\S]*<span>プレイ目標<\/span>[\s\S]*className="field setup-field participant-field"[\s\S]*<span>参加方式<\/span>/);
-  assert.doesNotMatch(source, /label: "狼陣営でプレイ"/);
-  assert.doesNotMatch(source, /label: "人間陣営"/);
-  assert.doesNotMatch(source, /label: "ランダム"/);
+  assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
+  assert.doesNotMatch(source, /className="field setup-field play-goal-field"/);
+  assert.doesNotMatch(source, /className="setup-note play-goal-note"/);
+  assert.doesNotMatch(source, /プレイ目標/);
+  assert.doesNotMatch(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
+  assert.doesNotMatch(source, /仲間の演技を見ながら村人の全排除を狙います/);
+  assert.match(source, /label: "人間陣営"/);
+  assert.match(source, /label: "狼陣営"/);
+  assert.match(source, /label: "ランダム"/);
   assert.match(source, /params\.set\("humanCamp", humanCampPreference\)/);
-  assert.doesNotMatch(source, /className="segments human-camp-options"/);
-  assert.match(css, /\.play-goal-field\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s);
-  assert.doesNotMatch(css, /\.human-camp-options/);
+  assert.match(source, /className="segments human-camp-options"/);
+  assert.doesNotMatch(css, /\.play-goal-field/);
+  assert.doesNotMatch(css, /\.play-goal-note/);
+  assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
 });
 
 test("human input waits behind unread story events with a visible notice", () => {

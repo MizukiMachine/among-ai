@@ -19,6 +19,7 @@ import {
   Send,
   Settings,
   Shield,
+  Shuffle,
   Sparkles,
   Skull,
   Square,
@@ -233,7 +234,7 @@ const initialPlayerCount = 7;
 const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = true;
 const initialHumanPlayerId = "p1";
-const initialHumanCampPreference: HumanCampPreference = "werewolf";
+const initialHumanCampPreference: HumanCampPreference = "random";
 const initialSpectatorMode: SpectatorMode = "player";
 // How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
 // deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
@@ -1158,6 +1159,11 @@ const playerCountOptions = Array.from(
   { length: maxSupportedPlayers - minSupportedPlayers + 1 },
   (_, index) => minSupportedPlayers + index
 );
+const humanCampPreferenceOptions: Array<{ value: HumanCampPreference; label: string; icon: ReactNode }> = [
+  { value: "village", label: "人間陣営", icon: <Shield size={13} /> },
+  { value: "werewolf", label: "狼陣営", icon: <Moon size={13} /> },
+  { value: "random", label: "ランダム", icon: <Shuffle size={13} /> }
+];
 const minPlayerCount = minSupportedPlayers;
 const humanInputNoticeLeadCount = 2;
 const maxMentionedCharacterCards = 5;
@@ -2071,7 +2077,6 @@ export function App() {
     if (nextEnabled) {
       setDebugScenario("none");
       setSpectatorMode("player");
-      setHumanCampPreference("werewolf");
     } else {
       setSpectatorMode("omniscient");
     }
@@ -2083,6 +2088,14 @@ export function App() {
       updateHumanEnabled(true, { playSound: false });
     }
     setHumanPlayerId(playerId);
+  }
+
+  function updateHumanCampPreference(preference: HumanCampPreference) {
+    playSetupConfirmSfx();
+    if (!humanEnabled) {
+      updateHumanEnabled(true, { playSound: false });
+    }
+    setHumanCampPreference(preference);
   }
 
   function commitPendingHumanInputs(nextInputs: PendingHumanInputEntry[]) {
@@ -3868,15 +3881,6 @@ export function App() {
         </div>
 
         <div className="setup-grid">
-          <div className="field setup-field play-goal-field">
-            <span>プレイ目標</span>
-            <span className="setup-note play-goal-note" role="note">
-              ・このゲームは人狼陣営をシュミレーション出来るゲームです
-              <br />
-              ・仲間の演技を見ながら村人の全排除を狙います
-            </span>
-          </div>
-
           <div className="field setup-field participant-field">
             <span>参加方式</span>
             <div className="segments participant-mode">
@@ -3894,35 +3898,57 @@ export function App() {
                 type="button"
               >
                 <Gamepad2 size={13} />
-                人狼として参加
+                自分も参加してプレイ
               </button>
             </div>
 
-            <div className="setup-cast-preview" aria-label="参加キャラクター">
-              <div className="setup-cast-heading">
-                <span>参加キャラクター</span>
-                <strong>{effectivePlayerCount}人</strong>
+            {humanEnabled ? (
+              <div className="human-camp-field">
+                <span>陣営</span>
+                <div className="segments human-camp-options" role="group" aria-label="陣営">
+                  {humanCampPreferenceOptions.map((option) => (
+                    <button
+                      aria-pressed={humanCampPreference === option.value}
+                      className={humanCampPreference === option.value ? "selected" : ""}
+                      key={option.value}
+                      onClick={() => updateHumanCampPreference(option.value)}
+                      type="button"
+                    >
+                      {option.icon}
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="setup-cast-grid selectable">
-                {humanPlayerOptions.map((player) => (
-                  <button
-                    aria-pressed={humanEnabled && humanPlayerId === player.id}
-                    className={humanEnabled && humanPlayerId === player.id ? "selected" : ""}
-                    key={player.id}
-                    onClick={() => selectHumanPlayer(player.id)}
-                    type="button"
-                  >
-                    <CharacterImage
-                      src={getCharacterImage(player.id)}
-                      fallback={<UserRound size={16} />}
-                      decoding="sync"
-                      fetchPriority="high"
-                    />
-                    <span>{player.name}</span>
-                  </button>
-                ))}
+            ) : null}
+
+            {humanEnabled ? (
+              <div className="setup-cast-preview" aria-label="参加キャラクター">
+                <div className="setup-cast-heading">
+                  <span>参加キャラクター</span>
+                  <strong>{effectivePlayerCount}人</strong>
+                </div>
+                <div className="setup-cast-grid selectable">
+                  {humanPlayerOptions.map((player) => (
+                    <button
+                      aria-pressed={humanPlayerId === player.id}
+                      className={humanPlayerId === player.id ? "selected" : ""}
+                      key={player.id}
+                      onClick={() => selectHumanPlayer(player.id)}
+                      type="button"
+                    >
+                      <CharacterImage
+                        src={getCharacterImage(player.id)}
+                        fallback={<UserRound size={16} />}
+                        decoding="sync"
+                        fetchPriority="high"
+                      />
+                      <span>{player.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           <div className="field setup-field player-count-field">
