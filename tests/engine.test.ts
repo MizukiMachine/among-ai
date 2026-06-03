@@ -6,12 +6,14 @@ import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
 import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH, defaultWerewolfAlignmentSpeechForPlayer } from "../src/game/humanInputDefaults";
+import { roleLabel } from "../src/game/i18n";
 import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer } from "../src/game/redaction";
 import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
 import { firstDayOpeningMoveKinds, firstDayWerewolfOpeningMoveKinds } from "../src/game/speechPlanning";
+import { werewolfFaceoffLineOptionsForPlayer, werewolfFaceoffRoles } from "../src/game/werewolfFaceoffLines";
 import type {
   Agent,
   AgentBooleanInput,
@@ -824,6 +826,31 @@ test("default werewolf alignment lines match each character voice", () => {
   assert.ok(lines.some((line) => /票が集まりやすい位置/.test(line)), "セナ should keep the vote-tactician voice");
   assert.ok(lines.some((line) => /余計なことは言わない/.test(line)), "シュウヘイ should keep the stoic voice");
   assert.ok(lines.some((line) => /冗談だけど本気/.test(line)), "イオリ should keep the trickster voice");
+});
+
+test("fixed werewolf face-off lines cover every character and wolf role", () => {
+  const allLines: string[] = [];
+
+  for (const profile of characterProfiles) {
+    for (const role of werewolfFaceoffRoles) {
+      const lines = werewolfFaceoffLineOptionsForPlayer(
+        {
+          name: profile.nameJa,
+          role,
+          characterProfile: profile
+        },
+        "Japanese"
+      );
+
+      assert.equal(lines.length, 3, `${profile.nameJa} ${role} should have three variants`);
+      assert.equal(new Set(lines).size, 3, `${profile.nameJa} ${role} variants should be distinct`);
+      assert.ok(lines.every((line) => line.includes(roleLabel(role, "Japanese"))));
+      assert.ok(lines.every((line) => line.length <= 72), `${profile.nameJa} ${role} variants fit the face-off display`);
+      allLines.push(...lines);
+    }
+  }
+
+  assert.equal(new Set(allLines).size, characterProfiles.length * werewolfFaceoffRoles.length * 3);
 });
 
 test("configured human player keeps the normal shuffled role distribution", () => {
@@ -2113,7 +2140,7 @@ type OpeningTestableGame = TestableGame & {
   runWerewolfFaceoffPass(): AsyncGenerator<GameEvent>;
 };
 
-test("first-day werewolf face-off: every AI wolf greets the team and owns their role, secret to the camp", async () => {
+test("first-day werewolf face-off: every AI wolf uses a fixed role line, secret to the camp", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
     { role: "AlphaWolf" },
@@ -2132,20 +2159,29 @@ test("first-day werewolf face-off: every AI wolf greets the team and owns their 
   const speeches = events.filter((event) => event.type === "player_speech");
   const wolves = players.filter((player) => player.camp === "werewolf");
 
-  // Only the werewolf-camp members speak, each via the dedicated werewolf-intro path.
+  // Only the werewolf-camp members speak, each with one of the fixed character/role lines.
   assert.deepEqual(
     new Set(speeches.map((event) => event.playerId)),
     new Set(wolves.map((player) => player.id)),
     "every werewolf-camp member introduces themselves, and no villager does"
   );
-  assert.ok(
-    speeches.every((event) => typeof event.message === "string" && event.message.startsWith("WOLF-INTRO ")),
-    "the dedicated werewolf-intro path is used (not the public warm-up or speak())"
-  );
-  // The role is owned in the line — AlphaWolf/WolfBeauty/Werewolf each name themselves.
-  assert.ok(speeches.some((event) => event.message.includes("AlphaWolf")));
-  assert.ok(speeches.some((event) => event.message.includes("WolfBeauty")));
-  assert.ok(speeches.some((event) => event.message.includes("Werewolf")));
+  for (const event of speeches) {
+    const speaker = wolves.find((wolf) => wolf.id === event.playerId);
+    assert.ok(speaker);
+    assert.ok(
+      werewolfFaceoffLineOptionsForPlayer(speaker, baseConfig.language).includes(event.message),
+      `${speaker.name} should speak one fixed ${speaker.role} face-off line`
+    );
+  }
+  assert.ok(speeches.some((event) => event.message.includes("α人狼")));
+  assert.ok(speeches.some((event) => event.message.includes("美女狼")));
+  assert.ok(speeches.some((event) => event.message.includes("人狼")));
+
+  for (const player of players) {
+    const agent = game.agents.get(player.id) as IntroAgent;
+    assert.equal(agent.werewolfIntroCalls.length, 0, "face-off fixed lines should not call improviseWerewolfIntro");
+    assert.equal(agent.speakCalls.length, 0, "face-off fixed lines should not call speak()");
+  }
 
   // The whole meeting is werewolf-visibility and announced with a secret phase change.
   assert.ok(speeches.every((event) => event.data?.visibility === "werewolf"), "intros are werewolf-visibility");
@@ -2157,13 +2193,13 @@ test("first-day werewolf face-off: every AI wolf greets the team and owns their 
   for (const event of speeches) {
     const villagerView = redactEventForPlayer(event, villager.id);
     assert.equal(villagerView.message, redactEventForVillage(event).message);
-    assert.doesNotMatch(villagerView.message, /WOLF-INTRO/, "villagers must not see the werewolf face-off");
+    assert.notEqual(villagerView.message, event.message, "villagers must not see the werewolf face-off");
     const wolfView = redactEventForPlayer(event, wolves[0].id);
-    assert.match(wolfView.message, /WOLF-INTRO/, "any werewolf-camp viewer sees the face-off");
+    assert.equal(wolfView.message, event.message, "any werewolf-camp viewer sees the face-off");
   }
 });
 
-test("first-day werewolf face-off carries previous ally lines into later prompts", async () => {
+test("first-day werewolf face-off randomizes AI speaker order and records fixed lines", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
     { role: "AlphaWolf" },
@@ -2178,132 +2214,54 @@ test("first-day werewolf face-off carries previous ally lines into later prompts
     game.agents.set(player.id, new IntroAgent(player.name));
   }
 
-  const events = await collect(game.runWerewolfFaceoffPass());
-  const speeches = events.filter((event) => event.type === "player_speech");
-  const wolves = players.filter((player) => player.camp === "werewolf");
-  const firstAgent = game.agents.get(wolves[0].id) as IntroAgent;
-  const secondAgent = game.agents.get(wolves[1].id) as IntroAgent;
-  const thirdAgent = game.agents.get(wolves[2].id) as IntroAgent;
+  const originalRandom = Math.random;
+  const rolls = [0, 0, 0, 0, 0];
+  Math.random = () => rolls.shift() ?? 0;
+  try {
+    const events = await collect(game.runWerewolfFaceoffPass());
+    const speeches = events.filter((event) => event.type === "player_speech");
+    const wolves = players.filter((player) => player.camp === "werewolf");
 
-  assert.deepEqual(
-    speeches.map((event) => event.playerId),
-    wolves.map((wolf) => wolf.id),
-    "face-off lines are generated in table order so later speakers can use earlier context"
-  );
-  assert.ok(
-    !firstAgent.speechInputs[0].context.includes("Earlier ally face-off line"),
-    "the first wolf opens without invented prior context"
-  );
-  assert.ok(
-    secondAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[0].name}`),
-    "the second wolf sees the first wolf's face-off line"
-  );
-  assert.ok(
-    thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[0].name}`) &&
-      thirdAgent.speechInputs[0].context.includes(`WOLF-INTRO ${wolves[1].name}`),
-    "later wolves see every prior face-off line"
-  );
-  assert.match(secondAgent.speechInputs[0].task, /different wolf-to-wolf angle|悪巧み/u);
-  assert.match(secondAgent.speechInputs[0].context, /support or contrast|支援または対比/u);
-  assert.match(secondAgent.speechInputs[0].context, /Do not repeat their wording|同じ言い回し/u);
-  assert.match(thirdAgent.speechInputs[0].context, /I am also a werewolf|俺も人狼だ/u);
+    assert.deepEqual(
+      speeches.map((event) => event.playerId),
+      [wolves[1].id, wolves[2].id, wolves[0].id],
+      "AI werewolf face-off order is shuffled instead of table order"
+    );
+    assert.deepEqual(
+      game.wolfHistory,
+      speeches.map((event) => `${event.playerName}: ${event.message}`)
+    );
+    assert.ok(
+      speeches.every((event) => {
+        const speaker = wolves.find((wolf) => wolf.id === event.playerId);
+        return Boolean(speaker && werewolfFaceoffLineOptionsForPlayer(speaker, baseConfig.language).includes(event.message));
+      })
+    );
+    for (const wolf of wolves) {
+      const agent = game.agents.get(wolf.id) as IntroAgent;
+      assert.equal(agent.speechInputs.length, 0, "fixed face-off lines do not build LLM prompts");
+    }
+  } finally {
+    Math.random = originalRandom;
+  }
 });
 
-test("first-day werewolf face-off compacts long generated lines for the story display", async () => {
-  class LongWerewolfIntroAgent extends IntroAgent {
-    override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
-      this.werewolfIntroCalls.push(input.player.id);
-      this.speechInputs.push(input);
-      return {
-        messages: [
-          "私が人狼です、仲間の距離取りは論理的に有効ですが、二人が同じ一般枠という事実自体が表に出ないよう、序盤で疑いを広げすぎる発言を黙って誘導しつつ、中盤では票の偏りも隠します"
-        ],
-        metadata: { suspects: [], trusts: [], claims: [] }
-      };
-    }
-  }
-
-  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 5 }) as OpeningTestableGame;
-  const players = setTable(game, [
-    { role: "Werewolf" },
-    { role: "Werewolf" },
-    { role: "Villager" },
-    { role: "Seer" },
-    { role: "Witch" },
-    { role: "Villager" }
-  ]);
-  game.round = 1;
-  for (const player of players) {
-    game.agents.set(player.id, new LongWerewolfIntroAgent(player.name));
-  }
-
-  const events = await collect(game.runWerewolfFaceoffPass());
-  const speech = events.find((event) => event.type === "player_speech");
-
-  assert.ok(speech, "a werewolf face-off speech is emitted");
-  assert.ok(speech.message.length <= 72, "face-off speech is capped to the Japanese display budget");
-  assert.match(speech.message, /\.\.\.$/, "long face-off speech is visibly compacted rather than overflowing the hero");
-});
-
-test("first-day werewolf face-off softens special-role fake-claim plans into situational options", async () => {
-  class SpecialRolePlanIntroAgent extends IntroAgent {
-    override async improviseWerewolfIntro(input: AgentSpeechInput): Promise<AgentSpeech> {
-      this.werewolfIntroCalls.push(input.player.id);
-      this.speechInputs.push(input);
-      const messages: Record<Role, string> = {
-        WolfBeauty: "俺が美女狼だ、明日は占い師っぽく立ち回って村の目を俺に集めよう！",
-        Werewolf: "私が人狼です。明日はあえて占い師を騙り、初日霊能結果の有無で村の前提を揺さぶります",
-        AlphaWolf: "俺がα人狼だ、明日からは占い師っぽく真っ直ぐ振る舞って村を引っ張るぜ！",
-        Seer: "",
-        Witch: "",
-        Guard: "",
-        Hunter: "",
-        Raven: "",
-        Idiot: "",
-        Elder: "",
-        Lover: "",
-        Jester: "",
-        Villager: ""
-      };
-      return {
-        messages: [messages[input.player.role] ?? `俺が${input.player.role}だ`],
-        metadata: { suspects: [], trusts: [], claims: [] }
-      };
-    }
-  }
-
-  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 5 }) as OpeningTestableGame;
-  const players = setTable(game, [
-    { role: "WolfBeauty" },
-    { role: "Werewolf" },
-    { role: "AlphaWolf" },
-    { role: "Villager" },
-    { role: "Seer" },
-    { role: "Villager" }
-  ]);
-  game.round = 1;
-  for (const player of players) {
-    game.agents.set(player.id, new SpecialRolePlanIntroAgent(player.name));
-  }
-
-  const events = await collect(game.runWerewolfFaceoffPass());
-  const messages = events.filter((event) => event.type === "player_speech").map((event) => event.message);
-
-  assert.equal(messages.length, 3);
-  assert.ok(messages.some((message) => message.includes("美女狼")));
-  assert.ok(messages.some((message) => message.includes("人狼")));
-  assert.ok(messages.some((message) => message.includes("α人狼")));
-  assert.ok(
-    messages.every((message) => /(状況次第|必要なら)/u.test(message)),
-    "special-role fake-claim plans are softened into situational options"
+test("fixed werewolf face-off lines avoid hard special-role fake-claim plans", () => {
+  const lines = characterProfiles.flatMap((profile) =>
+    werewolfFaceoffRoles.flatMap((role) =>
+      werewolfFaceoffLineOptionsForPlayer(
+        {
+          name: profile.nameJa,
+          role,
+          characterProfile: profile
+        },
+        "Japanese"
+      )
+    )
   );
-  assert.ok(
-    messages.every((message) => !/(明日は|占い師っぽく|霊能結果|真っ直ぐ振る舞|村を引っ張る)/u.test(message)),
-    "face-off output removes hard special-role fake-claim commitments"
-  );
-  assert.match(messages.join("\n"), /占い騙り/u);
-  assert.match(messages.join("\n"), /距離/u);
-  assert.match(messages.join("\n"), /票先/u);
+
+  assert.ok(lines.every((line) => !/(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|愚者|長老|共有)/u.test(line)));
+  assert.ok(lines.every((line) => !/(襲撃先|噛み先|明日は.*騙|CO|カミングアウト)/iu.test(line)));
 });
 
 test("first-day werewolf face-off lets the human werewolf speak with free text at the end", async () => {
@@ -2396,7 +2354,9 @@ test("first-day opening runs the werewolf face-off before dawn breaks", async ()
   }
 
   const events = await collect(game.runDay());
-  const faceoffIndex = events.findIndex((event) => event.type === "player_speech" && String(event.message).startsWith("WOLF-INTRO"));
+  const faceoffIndex = events.findIndex(
+    (event) => event.type === "player_speech" && event.phase === "werewolf_discussion" && event.data?.visibility === "werewolf"
+  );
   const dayBeginsIndex = events.findIndex((event) => event.type === "phase_changed" && /begins|始まりました/.test(String(event.message)));
 
   assert.ok(faceoffIndex >= 0, "the werewolf face-off runs on the first day's opening");
@@ -2404,7 +2364,7 @@ test("first-day opening runs the werewolf face-off before dawn breaks", async ()
   assert.ok(faceoffIndex < dayBeginsIndex, "the secret werewolf meeting precedes the public day");
 });
 
-test("day-1 werewolf face-off overlaps warm-up, then starts first real day speech", async () => {
+test("day-1 fixed werewolf face-off does not call face-off generation while warm-up runs", async () => {
   const faceoffGate = createDeferred<void>();
   const introGate = createDeferred<void>();
   const faceoffStarted = createDeferred<string>();
@@ -2439,23 +2399,35 @@ test("day-1 werewolf face-off overlaps warm-up, then starts first real day speec
   assert.equal(faceoffBanner.value?.phase, "werewolf_discussion");
   assert.equal(faceoffBanner.value?.type, "phase_changed");
 
-  const pendingFaceoffSpeech = iterator.next();
+  const firstFaceoffSpeech = await iterator.next();
+  assert.equal(firstFaceoffSpeech.value?.type, "player_speech");
+  assert.equal(firstFaceoffSpeech.value?.phase, "werewolf_discussion");
+  assert.ok(firstFaceoffSpeech.value?.playerId);
+
   const faceoffPlayerId = await Promise.race([faceoffStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
-  assert.equal(faceoffPlayerId, players[0].id, "the first face-off line is now waiting on the blocked wolf");
+  assert.equal(faceoffPlayerId, "timeout", "fixed face-off lines must not call improviseWerewolfIntro");
+  const firstFaceoffSpeaker = players.find((player) => player.id === firstFaceoffSpeech.value?.playerId);
+  assert.ok(firstFaceoffSpeaker);
+  assert.ok(werewolfFaceoffLineOptionsForPlayer(firstFaceoffSpeaker, baseConfig.language).includes(firstFaceoffSpeech.value.message));
 
   const introPlayerId = await Promise.race([introStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
-  assert.notEqual(introPlayerId, "timeout", "day warm-up generation must start while the face-off line is blocked");
+  assert.notEqual(introPlayerId, "timeout", "day warm-up generation still starts during the fixed face-off display");
   const earlySpeechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
   assert.equal(earlySpeechPlayerId, "timeout", "the first real day speech must wait until all warm-up lines are generated");
 
-  introGate.resolve();
-  const speechPlayerId = await Promise.race([speakStarted.promise, sleepWithAbort(100).then(() => "timeout")]);
-  assert.equal(speechPlayerId, players[0].id, "the first real day speech starts after warm-up generation finishes");
+  const secondFaceoffSpeech = await iterator.next();
+  assert.equal(secondFaceoffSpeech.value?.type, "player_speech");
+  assert.equal(secondFaceoffSpeech.value?.phase, "werewolf_discussion");
+  const dayBegins = await iterator.next();
+  assert.equal(dayBegins.value?.type, "phase_changed");
+  assert.equal(dayBegins.value?.phase, "day_discussion");
 
-  faceoffGate.resolve();
-  const faceoffSpeech = await pendingFaceoffSpeech;
-  assert.equal(faceoffSpeech.value?.type, "player_speech");
-  assert.equal(faceoffSpeech.value?.phase, "werewolf_discussion");
+  const pendingWarmupSpeech = iterator.next();
+  introGate.resolve();
+  const warmupSpeech = await pendingWarmupSpeech;
+  assert.equal(warmupSpeech.value?.type, "player_speech");
+  assert.equal(warmupSpeech.value?.phase, "day_discussion");
+  assert.equal(warmupSpeech.value?.data?.warmup, true);
   await iterator.return?.(undefined);
 });
 
