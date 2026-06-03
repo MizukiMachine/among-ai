@@ -25,6 +25,36 @@ function parseSse(text: string): SseFrame[] {
     });
 }
 
+async function readSseUntil(response: Response, predicate: (frame: SseFrame) => boolean): Promise<SseFrame[]> {
+  assert.ok(response.body);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+
+  try {
+    while (text.length < 100_000) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      text += decoder.decode(value, { stream: true });
+      const frameBoundary = text.lastIndexOf("\n\n");
+      if (frameBoundary === -1) {
+        continue;
+      }
+      const frames = parseSse(text.slice(0, frameBoundary + 2));
+      if (frames.some(predicate)) {
+        return frames;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  const frameBoundary = text.lastIndexOf("\n\n");
+  return frameBoundary === -1 ? [] : parseSse(text.slice(0, frameBoundary + 2));
+}
+
 test("stream options parse server-side spectator view and zero-speed smoke runs", () => {
   const options = parseStreamOptions(
     new URL("http://localhost/api/games/stream?players=9&speed=0&view=village&summary=llm&scenario=hunter_shot")
@@ -87,6 +117,24 @@ test("stream options default human camp preference to random", () => {
     "village"
   );
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanCamp=werewolf")).humanCampPreference, "random");
+});
+
+test("stream first snapshot honors the requested human camp", async () => {
+  const app = createApp();
+
+  for (const humanCamp of ["village", "werewolf"] as const) {
+    const response = await app.request(
+      `/api/games/stream?players=7&provider=demo&summary=deterministic&view=player&speed=0&human=p1&humanCamp=${humanCamp}`
+    );
+    const frames = await readSseUntil(response, (frame) => frame.event === "game");
+    const firstGameEvent = frames.find((frame) => frame.event === "game")?.data as GameEvent | undefined;
+    const human = firstGameEvent?.snapshot.players.find((player) => player.id === "p1");
+
+    assert.equal(response.status, 200);
+    assert.ok(firstGameEvent);
+    assert.ok(human);
+    assert.equal(human.camp, humanCamp);
+  }
 });
 
 test("client debug trace endpoint is inert unless persistent tracing is enabled", async () => {

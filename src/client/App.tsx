@@ -232,10 +232,10 @@ const streamConnectionErrorMessage = "ゲームストリームに接続できま
 const streamRateLimitErrorMessage = "生成リクエストが混み合っています。少し待ってから再開してください。";
 const initialPlayerCount = 7;
 const initialDebugScenario: DebugScenario = "none";
-const initialHumanEnabled = true;
+const initialHumanEnabled = false;
 const initialHumanPlayerId = "p1";
 const initialHumanCampPreference: HumanCampPreference = "random";
-const initialSpectatorMode: SpectatorMode = "player";
+const initialSpectatorMode: SpectatorMode = "omniscient";
 // How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
 // deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
 // Single source of truth — the CSS fade duration is set inline from this value, so the JS hold
@@ -1705,14 +1705,14 @@ export function App() {
       {
         key: "roles",
         getEl: () => roleDistributionRef.current,
-        title: "人狼陣営の目的",
-        body: "このゲームは、自分が人狼陣営として村人の全排除を目指すゲームです。画面上部の役職内訳では、仲間と村側役職の条件を確認できます。"
+        title: "役職内訳",
+        body: "画面上部のここで、今回の対局の役職構成を確認できます。各役職をクリックすると、勝利条件や能力などの詳しい説明が開きます。対局中でも何度でも開けます。"
       },
       {
         key: "roster",
         getEl: () => rosterListRef.current,
         title: "プレイヤー一覧",
-        body: "対局に参加しているメンバーの一覧です。人狼の仲間が公開発言でどう人間側を演じるか、性格やプロフィールも見ながら追えます。"
+        body: "対局に参加しているメンバーの一覧です。気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます。"
       },
       {
         key: "logs",
@@ -4273,13 +4273,23 @@ export function App() {
     const isLast = (tourStepIndex ?? 0) >= tourSteps.length - 1;
     const pad = 10;
     const rect = tourRect;
+    const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
     const spotlightStyle: CSSProperties | undefined = rect
-      ? {
-          left: `${rect.left - pad}px`,
-          top: `${rect.top - pad}px`,
-          width: `${rect.width + pad * 2}px`,
-          height: `${rect.height + pad * 2}px`
-        }
+      ? (() => {
+          const rawLeft = rect.left - pad;
+          const rawTop = rect.top - pad;
+          const rawRight = rect.right + pad;
+          const rawBottom = rect.bottom + pad;
+          const clampedLeft = `clamp(0px, ${rawLeft}px, 100vw)`;
+          const clampedTop = `clamp(0px, ${rawTop}px, 100vh)`;
+          return {
+            left: clampedLeft,
+            top: clampedTop,
+            width: `max(0px, calc(min(${rawRight}px, 100vw) - ${clampedLeft}))`,
+            height: `max(0px, calc(min(${rawBottom}px, 100vh) - ${clampedTop}))`
+          };
+        })()
       : undefined;
 
     // Place the callout beside the spotlight, picking the first side with room
@@ -4287,8 +4297,6 @@ export function App() {
     // screen; the chosen position is always clamped inside the viewport.
     const calloutMargin = 16;
     const gap = pad + 12;
-    const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
-    const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
     const calloutWidth = Math.min(420, viewportWidth - calloutMargin * 2);
     const calloutHeight = 260; // estimate used only for placement decisions
     const clampX = (x: number) => Math.min(Math.max(calloutMargin, x), viewportWidth - calloutWidth - calloutMargin);
