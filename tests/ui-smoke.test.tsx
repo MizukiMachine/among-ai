@@ -36,12 +36,11 @@ test("app shell renders spectator controls and role distribution", () => {
 
   assert.match(html, /among ai/);
   assert.match(html, /自分も参加してプレイ/);
+  assert.match(html, /全情報/);
+  assert.match(html, /人間視点/);
   assert.doesNotMatch(html, /プレイ目標/);
   assert.doesNotMatch(html, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
   assert.doesNotMatch(html, /仲間の演技を見ながら村人の全排除を狙います/);
-  assert.match(html, /人間陣営/);
-  assert.match(html, /狼陣営/);
-  assert.match(html, /ランダム/);
   assert.match(html, /story-run-controls/);
   assert.match(html, /戻る/);
   assert.match(html, /次へ/);
@@ -272,27 +271,15 @@ test("round summary mention thumbnails include summary board names", () => {
   assert.deepEqual(mentionedCharactersForEvent(event).map((mention) => mention.id), ["p12", "p4", "p5", "p13", "p8", "p10", "p9", "p11"]);
 });
 
-test("setup cast character names stay neutral before game start", () => {
+test("setup cast character names stay neutral when human setup is shown", () => {
   const html = renderToStaticMarkup(createElement(App));
-  const start = html.indexOf('class="setup-cast-grid selectable"');
-  const end = html.indexOf('class="field setup-field player-count-field"', start);
-  const castHtml = html.slice(start, end);
+  const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.ok(start >= 0);
-  assert.ok(end > start);
-  const castNames = [...castHtml.matchAll(/<button[^>]*>.*?<span>([^<]+)<\/span><\/button>/g)].map(([, name]) => name);
-  const castImages = [...castHtml.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => src);
-  assert.deepEqual(castNames, ["セナ", "ノゾミ", "アキオミ", "イオリ", "コハル", "シュウヘイ", "サクラコ"]);
-  assert.deepEqual(castImages, [
-    "/assets/characters/thumbs/p13_sena.webp",
-    "/assets/characters/thumbs/p14_nozomi.webp",
-    "/assets/characters/thumbs/p15_akiomi.webp",
-    "/assets/characters/thumbs/p9_iori.webp",
-    "/assets/characters/thumbs/p12_koharu.webp",
-    "/assets/characters/thumbs/p6_shuhei.webp",
-    "/assets/characters/thumbs/p10_sakurako.webp"
-  ]);
-  assert.doesNotMatch(castHtml, /character-name/);
+  assert.doesNotMatch(html, /class="setup-cast-grid selectable"/);
+  assert.match(source, /humanPlayerOptions\.map\(\(player\) => \(/);
+  assert.match(source, /src=\{getCharacterImage\(player\.id\)\}/);
+  assert.match(source, /<span>\{player\.name\}<\/span>/);
+  assert.doesNotMatch(source, /setup-cast-grid[\s\S]*character-name[\s\S]*player-count-field/);
 });
 
 test("story event meta labels are readable and omit visibility chips", () => {
@@ -974,8 +961,9 @@ test("setup exposes human camp preference choices", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /const initialHumanEnabled = true;/);
+  assert.match(source, /const initialHumanEnabled = false;/);
   assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
+  assert.match(source, /const initialSpectatorMode: SpectatorMode = "omniscient";/);
   assert.doesNotMatch(source, /className="field setup-field play-goal-field"/);
   assert.doesNotMatch(source, /className="setup-note play-goal-note"/);
   assert.doesNotMatch(source, /プレイ目標/);
@@ -1263,10 +1251,12 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /className="player-section-actions" ref=\{playerActionsRef\}/);
   assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
 
-  // The four ordered steps the player asked for.
-  assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "人狼陣営の目的"/);
-  assert.match(source, /人狼陣営として村人の全排除を目指すゲーム/);
+  // The four ordered steps stay neutral because the human player can be assigned either camp.
+  assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "役職内訳"/);
+  assert.match(source, /今回の対局の役職構成を確認できます/);
+  assert.doesNotMatch(source, /人狼陣営として村人の全排除を目指すゲーム/);
   assert.match(source, /getEl: \(\) => rosterListRef\.current,\s*\n\s*title: "プレイヤー一覧"/);
+  assert.match(source, /気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます/);
   assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
   assert.match(source, /getEl: \(\) => storyControlsRef\.current,\s*\n\s*title: "視点・BGM・進行"/);
 
