@@ -1052,14 +1052,19 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /renderHumanSpeechInputScene\(speechInputPrompt\)/);
   assert.match(source, /renderHumanInputPanel\(actionHumanInput\)/);
   assert.match(source, /function isOptionalWerewolfAlignmentInput/);
+  assert.match(source, /function isOptionalDiscussionInterruptInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
+  assert.match(source, /const optionalDiscussionInterruptSkipReady = Boolean\(availableSpeechInterruptInput\);/);
+  assert.match(source, /void submitHumanInput\(\{ decision: false \}\);/);
   assert.match(source, /void submitHumanInput\(\{ speech: "" \}\);/);
   assert.match(source, /humanInputAdvanceReady,/);
   assert.doesNotMatch(source, /resetImmediately/);
   assert.match(source, /if \(skipOptionalHumanInputOnStoryAdvance\(\)\) \{/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
-  assert.match(source, /request\.kind !== "speech_choice" \|\| !request\.nonBlocking \|\| request\.speechMode !== "werewolf_alignment"/);
+  assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "discussion_interrupt"/);
+  assert.match(source, /source\.addEventListener\("human_input_cancelled"/);
+  assert.match(source, /className="icon-button story-run-button story-interrupt-button"/);
   assert.match(source, /type:\s*"player_speech"/);
   assert.match(source, /localHumanEcho:\s*true/);
   assert.match(source, /function showLocalHumanSpeechEvent\(event: GameEvent\)/);
@@ -1116,8 +1121,15 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.doesNotMatch(source, /placeholder="理由"/);
   assert.match(source, /const storyBackDisabled = paused \|\| Boolean\(visibleHumanInput\)/);
   assert.match(source, /const storyNextDisabled =\s*paused \|\|\s*Boolean\(readyHumanInput\)/);
+  assert.match(source, /const unreadStoryAvailable = queuedEvents\.length > 0;/);
+  assert.match(source, /const storyProcessingBlocksAdvance =/);
+  assert.match(source, /waitingForSubmittedHumanInput && !unreadStoryAvailable/);
+  assert.match(source, /processingHudVisible && !unreadStoryAvailable && !humanInputAdvanceReady && !optionalDiscussionInterruptSkipReady/);
   assert.match(source, /const canRetreat = !paused && !visibleHumanInput/);
-  assert.match(source, /const canAdvance =\s*!paused && !readyHumanInput && !isBackKey && \(queuedRef\.current\.length > 0 \|\| canStartOpening \|\| humanInputAdvanceReady\);/s);
+  assert.match(
+    source,
+    /const canAdvance =[\s\S]*?!paused[\s\S]*?!readyHumanInput[\s\S]*?!isBackKey[\s\S]*?optionalDiscussionInterruptSkipReady\);/
+  );
   assert.match(source, /acknowledgeActiveHumanInput\(\);/);
   assert.doesNotMatch(source, /入力待ちあり/);
 });
@@ -1299,8 +1311,11 @@ test("returning players skip the tour without a startup generation gate", () => 
   assert.ok(startGameEnd > startGameStart);
   assert.doesNotMatch(source.slice(startGameStart, startGameEnd), /showProcessingHudNow\(\);/);
   assert.match(source, /eventsRef\.current\.length > 0 && queuedRef\.current\.length === 0/);
-  assert.match(source, /const storyWaitingForStream =\s*!setupMode && !paused && running/s);
-  assert.match(source, /const storyProcessingActive = storyWaitingForStream \|\| waitingForSubmittedHumanInput \|\| processingHudVisible;/);
+  assert.match(source, /const storyWaitingForStream =[\s\S]*?!setupMode[\s\S]*?!paused[\s\S]*?running[\s\S]*?!optionalDiscussionInterruptSkipReady;/);
+  assert.match(source, /const storyProcessingBlocksAdvance =[\s\S]*?storyWaitingForStream[\s\S]*?waitingForSubmittedHumanInput && !unreadStoryAvailable[\s\S]*?processingHudVisible && !unreadStoryAvailable/s);
+  assert.match(source, /storyProcessingBlocksAdvance \|\|/);
+  assert.match(source, /primaryActionLabel = primaryActionIsGameStart \? "ゲーム開始" : humanInputAdvanceReady \? "入力へ" : storyProcessingBlocksAdvance \? "処理中" : "次へ"/);
+  assert.match(source, /hideProcessingHudNow\(\);\s*\n\s*\}\);/);
   assert.match(source, /if \(!processingHudVisible\) \{\s*\n\s*return null;/);
   assert.match(source, /const title = "AIプレイヤーが考えています";/);
 

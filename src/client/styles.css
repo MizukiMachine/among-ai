@@ -4104,6 +4104,23 @@ input[type="range"] {
   min-width: 164px;
 }
 
+.story-controls .story-interrupt-button {
+  min-width: 104px;
+  border-color: rgba(103, 216, 223, 0.48);
+  background:
+    linear-gradient(180deg, rgba(23, 103, 115, 0.42), rgba(10, 17, 23, 0.24)),
+    var(--ship-panel-texture);
+  color: #f7fdff;
+}
+
+.story-controls .story-interrupt-button:hover:not(:disabled),
+.story-controls .story-interrupt-button:focus-visible {
+  border-color: rgba(103, 216, 223, 0.78);
+  box-shadow:
+    0 0 0 3px rgba(103, 216, 223, 0.16),
+    0 16px 30px rgba(0, 0, 0, 0.26);
+}
+
 .story-processing-hud {
   position: absolute;
   bottom: 178px;
