@@ -40,6 +40,7 @@ import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRul
 import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
 import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
 import { sample, shuffle } from "./random";
+import { werewolfFaceoffLineOptionsForPlayer } from "./werewolfFaceoffLines";
 import type {
   Agent,
   AgentBooleanInput,
@@ -628,85 +629,6 @@ function compactWerewolfFaceoffSpeech(speech: AgentSpeech, language: string): Ag
     ...speech,
     messages: compactMessages.length > 0 ? [compactMessages.join(" ")] : speech.messages
   };
-}
-
-function containsWerewolfFaceoffSpecialRolePlan(value: string, language: string): boolean {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (!compact) {
-    return false;
-  }
-  if (isJapaneseLanguage(language)) {
-    return (
-      /(占い師|占い|霊能|霊媒|騎士|狩人|魔女|ハンター|鴉|愚者|長老|共有)/u.test(compact) &&
-      /(騙|ふり|振る舞|っぽく|名乗|CO|カミングアウト|結果|白|黒|対抗)/iu.test(compact)
-    );
-  }
-  const lower = compact.toLowerCase();
-  return (
-    /\b(seer|medium|guard|knight|hunter|witch|raven|idiot|elder|oracle)\b/u.test(lower) &&
-    /\b(fake|claim|pretend|pose|act|result|counterclaim|co)\b/u.test(lower)
-  );
-}
-
-function werewolfFaceoffRoleConfirmationPrefix(player: Player, message: string, language: string): string {
-  const compact = message.replace(/\s+/g, " ").trim();
-  const roleName = roleLabel(player.role, language);
-  const roleIndex = compact.indexOf(roleName);
-  if (roleIndex >= 0) {
-    const afterRole = compact.slice(roleIndex + roleName.length);
-    const delimiterIndex = afterRole.search(/[。！？、,.!?]/u);
-    const end = delimiterIndex >= 0 ? roleIndex + roleName.length + delimiterIndex : roleIndex + roleName.length;
-    const candidate = compact.slice(0, end).trim();
-    if (candidate.length > 0 && candidate.length <= 42 && candidate.includes(roleName)) {
-      return stripJapaneseSpeechTerminalPeriod(candidate.replace(/[、,]$/u, ""), language);
-    }
-  }
-  return isJapaneseLanguage(language) ? `こちらは${player.name}、${roleName}だ` : `こちらは${player.name}、${roleName}だ`;
-}
-
-function werewolfFaceoffConditionalRoleJob(value: string, previousSpeakerCount: number, language: string): string {
-  if (isJapaneseLanguage(language)) {
-    const roleOption = /(占い師|占い|Seer)/iu.test(value) ? "占い騙り" : "役職騙り";
-    if (previousSpeakerCount === 0) {
-      return `${roleOption}は状況次第の選択肢に残し、まずは票の流れを見る`;
-    }
-    if (previousSpeakerCount === 1) {
-      return `その線は状況次第に残し、俺は距離を取って疑いを散らす`;
-    }
-    return `${roleOption}は状況次第で必要なら任せ、俺は反応を見て票先を絞る`;
-  }
-  const lower = value.toLowerCase();
-  const roleOption = lower.includes("seer") ? "占い騙り" : "役職騙り";
-  if (previousSpeakerCount === 0) {
-    return `${roleOption}は状況次第の選択肢に残し、まずは票の流れを見る`;
-  }
-  if (previousSpeakerCount === 1) {
-    return `その線は状況次第に残し、俺は距離を取って疑いを散らす`;
-  }
-  return `${roleOption}は状況次第で必要なら任せ、俺は反応を見て票先を絞る`;
-}
-
-function normalizeWerewolfFaceoffSpeech(
-  speech: AgentSpeech,
-  player: Player,
-  language: string,
-  previousSpeakerCount: number
-): AgentSpeech {
-  const compact = speech.messages.join(" ").replace(/\s+/g, " ").trim();
-  if (!containsWerewolfFaceoffSpecialRolePlan(compact, language)) {
-    return compactWerewolfFaceoffSpeech(speech, language);
-  }
-
-  const prefix = werewolfFaceoffRoleConfirmationPrefix(player, compact, language);
-  const job = werewolfFaceoffConditionalRoleJob(compact, previousSpeakerCount, language);
-  const separator = isJapaneseLanguage(language) ? "。" : ".";
-  return compactWerewolfFaceoffSpeech(
-    {
-      messages: [`${prefix}${separator}${job}`],
-      metadata: emptySpeechMetadata()
-    },
-    language
-  );
 }
 
 function dedupeSpeechCandidates(candidates: AgentSpeech[]): AgentSpeech[] {
@@ -3636,8 +3558,8 @@ export class WerewolfGame {
   // First-day opening: before the public day breaks, the werewolf team holds a brief private
   // face-to-face so a human werewolf learns who their allies are (and which special wolf each
   // one is). Secret to the werewolf camp (visibility "werewolf") — villagers never see it.
-  // AI wolves use fast single-call alignment lines, generated sequentially so each ally can react
-  // to the face-off lines already spoken. A human werewolf speaks last through the lightweight
+  // AI wolves use fixed character/role alignment lines, with both speaker order and line variant
+  // randomized each time. A human werewolf speaks last through the lightweight
   // werewolf-alignment input, so the player can answer in their own words after seeing the team.
   private async *runWerewolfFaceoffPass(): AsyncGenerator<GameEvent> {
     const werewolves = this.alivePlayers().filter((player) => player.camp === "werewolf");
@@ -3645,7 +3567,7 @@ export class WerewolfGame {
     if (werewolves.length <= 1) {
       return;
     }
-    const aiWerewolves = werewolves.filter((player) => !this.isHumanControlledPlayer(player));
+    const aiWerewolves = shuffle(werewolves.filter((player) => !this.isHumanControlledPlayer(player)));
     const humanWerewolf = werewolves.find((player) => this.isHumanControlledPlayer(player));
     if (aiWerewolves.length === 0 && !humanWerewolf) {
       return;
@@ -3659,34 +3581,11 @@ export class WerewolfGame {
     );
 
     const faceoffHistory: string[] = [];
-    const reportProgress = this.progressReporter("werewolf_discussion", this.text("Werewolf alignment", "人狼の意思合わせ"));
-    let started = 0;
-    let completed = 0;
-    const reportFaceoffProgress = () => {
-      try {
-        reportProgress?.({
-          total: aiWerewolves.length,
-          started,
-          completed,
-          active: Math.max(0, started - completed),
-          queued: Math.max(0, aiWerewolves.length - started),
-          concurrency: 1
-        });
-      } catch {
-        // Progress observers are best-effort and must not break game generation.
-      }
-    };
-    reportFaceoffProgress();
-
     for (const wolf of aiWerewolves) {
-      started += 1;
-      reportFaceoffProgress();
-      const speech = await this.safeWerewolfFaceoff(wolf, werewolves, faceoffHistory);
-      completed += 1;
+      const speech = this.fixedWerewolfFaceoffSpeech(wolf);
       const historyLine = this.formatWerewolfFaceoffHistory(wolf, speech);
       faceoffHistory.push(historyLine);
       this.wolfHistory.push(historyLine);
-      reportFaceoffProgress();
       for (const [index, message] of speech.messages.entries()) {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
       }
@@ -4366,109 +4265,30 @@ export class WerewolfGame {
     }
   }
 
-  // Generates one wolf's first-day alignment line: allies-only, so the wolf checks in with the team,
-  // owns their role, and previews their public act (no attack targets/plans yet). Like safeImproviseIntro
-  // this is a fast single call (no reasoning stage). Agents without improviseWerewolfIntro
-  // fall back to a plain role-owning line via the fallback agent.
-  private async safeWerewolfFaceoff(
-    player: Player,
-    werewolves: Player[],
-    previousFaceoffHistory: string[] = [],
-    abortSignal?: AbortSignal,
-    speculative = false
-  ): Promise<AgentSpeech> {
-    this.throwIfCancelled();
-    const agent = this.agents.get(player.id) ?? fallbackAgent;
-    const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
-    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
-    const faceoffRoleBrief = this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length);
-    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory, faceoffRoleBrief);
-    const task =
-      previousFaceoffHistory.length > 0
-        ? this.text(
-            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は、村側と同じ条件の状況次第の選択肢として残してください。",
-            "自分の役職は短く伝え、この顔合わせ内で先に話した仲間の発言があれば触れつつ、最初の発言と同じ宣言を繰り返さず、嘘を支える・距離を取る・反応を釣る・疑いを散らす・票を寄せるなど別角度の悪巧みを足してください。占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は、村側と同じ条件の状況次第の選択肢として残してください。"
-          )
-        : this.text(
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言ではなく、村側と同じ条件の状況次第の選択肢に留めてください。",
-            "人狼陣営の顔合わせを始め、自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの最初の欺き方を一つだけ短く置いてください。占い師・魔女・ハンター・鴉・愚者・長老の騙りは確定宣言ではなく、村側と同じ条件の状況次第の選択肢に留めてください。"
-          );
-    const input: AgentSpeechInput = {
-      player,
-      phase: this.phase,
-      task,
-      context: this.contextFor(player, contextLines),
-      uiContext: contextLines,
-      knownPlayers: this.players.map(({ id, name }) => ({ id, name })),
-      legalPlayers,
-      publicHistory: this.publicHistory,
-      privateHistory: player.memories,
-      abortSignal: requestAbort.signal
-    };
-    try {
-      const generate = agent.improviseWerewolfIntro
-        ? agent.improviseWerewolfIntro.bind(agent)
-        : agent.improviseIntro
-          ? agent.improviseIntro.bind(agent)
-          : agent.speak.bind(agent);
-      const speech = this.sanitizeSpeechForPhase(
-        normalizeWerewolfFaceoffSpeech(await generate(input), player, this.config.language, previousFaceoffHistory.length),
-        legalPlayers,
-        player
-      );
-      if (requestAbort.signal?.aborted) {
-        throw new Error("Werewolf face-off request cancelled.");
-      }
-      return speech;
-    } catch (error) {
-      if (this.abortSignal?.aborted || requestAbort.signal?.aborted) {
-        throw error;
-      }
-      if (!speculative) {
-        console.warn(`[faceoff] ${player.name}: ${error instanceof Error ? error.message : String(error)} — using fallback intro.`);
-      }
-      return this.sanitizeSpeechForPhase(
-        normalizeWerewolfFaceoffSpeech(
-          await fallbackAgent.improviseWerewolfIntro!(input),
-          player,
-          this.config.language,
-          previousFaceoffHistory.length
-        ),
-        legalPlayers,
-        player
-      );
-    } finally {
-      requestAbort.cleanup();
-    }
+  private fixedWerewolfFaceoffSpeech(player: Player): AgentSpeech {
+    return compactWerewolfFaceoffSpeech(
+      {
+        messages: [sample([...werewolfFaceoffLineOptionsForPlayer(player, this.config.language)])],
+        metadata: emptySpeechMetadata()
+      },
+      this.config.language
+    );
   }
 
   private formatWerewolfFaceoffHistory(player: Player, speech: AgentSpeech): string {
     return `${player.name}: ${speech.messages.join(" ")}`;
   }
 
-  private werewolfFaceoffRoleBrief(previousSpeakerCount: number): string {
-    if (previousSpeakerCount === 0) {
-      return this.text(
-        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い師・魔女・ハンター・鴉・愚者・長老の騙りは村側と同じ条件の状況次第の選択肢に留めてください。",
-        "あなたの枠: 最初の発言者。自分の役職を確認し、潜る・信用を取る・油断させるなど、チームの欺き方を一つだけ先に置いてください。狼の作戦を全部盛りにしない。占い師・魔女・ハンター・鴉・愚者・長老の騙りは村側と同じ条件の状況次第の選択肢に留めてください。"
-      );
-    }
-    if (previousSpeakerCount === 1) {
-      return this.text(
-        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは村側と同じ条件の状況次第に留めてください。",
-        "あなたの枠: 支援または対比。仲間がすでに騙す意気込みを置いています。同じ言い回しや名乗り直しの型を繰り返さず、役職は短く伝えてから、嘘を支える・距離を取る・反応を釣る、のどれで補完するかを言ってください。特殊役職騙りは村側と同じ条件の状況次第に留めてください。"
-      );
-    }
+  private werewolfFaceoffHumanPromptLine(): string {
     return this.text(
-      "あなたの枠: 圧力または票の調整。チームにはすでに騙す意気込みとカバー役があります。「俺も人狼だ／人間のフリで潜る」をもう一度言わず、役職は短く伝えたうえで、疑いを寄せる・票を狭める・誤誘導する・信じる相手を間違わせる、などを短く足してください。",
-      "あなたの枠: 圧力または票の調整。チームにはすでに騙す意気込みとカバー役があります。「俺も人狼だ／人間のフリで潜る」をもう一度言わず、役職は短く伝えたうえで、疑いを寄せる・票を狭める・誤誘導する・信じる相手を間違わせる、などを短く足してください。"
+      "Answer briefly after the fixed ally face-off lines. You may name your role and say how you will blend in, without attack targets or detailed plans.",
+      "固定の仲間発言に続いて短く発言してください。自分の役職や昼の潜り方は言ってよいですが、襲撃先や細かい作戦はまだ話しません。"
     );
   }
 
   private werewolfFaceoffContextLines(
     werewolves: Player[],
-    previousFaceoffHistory: string[] = [],
-    roleBrief = ""
+    previousFaceoffHistory: string[] = []
   ): string[] {
     const teamRoster = werewolves
       .map((wolf) => `${wolf.name}（${roleLabel(wolf.role, this.config.language)}）`)
@@ -4483,13 +4303,10 @@ export class WerewolfGame {
         `あなたの人狼陣営の仲間: ${teamRoster}。`
       ),
       this.text(
-        "Check in with your allies, make your role clear, and speak like wolves psyching each other up to deceive the village. The opener may set the main deceptive angle; later speakers should not repeat the same role-introduction or plan, and should instead add cover, distance, reaction bait, suspicion, or vote work. If you mention Seer/Witch/Hunter/Raven/Idiot/Elder fake claims here, phrase them as situational options under the same conditions as village claims, and do not discuss attack targets or detailed plans yet.",
-        "仲間と意思を合わせ、自分の役職が伝わるようにし、狼同士で村を騙す気持ちを高める口調で話してください。最初の発言者は欺き方の主軸を置き、後続は同じ名乗りや同じ作戦を繰り返さず、カバー・距離取り・反応釣り・疑い作り・票調整などを足します。ここで占い師・魔女・ハンター・鴉・愚者・長老の騙りに触れる場合は村側と同じ条件の状況次第の選択肢として言い、襲撃先や細かい作戦の相談はまだしません。"
+        "The ally lines in this opening are fixed character lines chosen at random. Use them only as the current team's private check-in; do not assume any other conversation.",
+        "この顔合わせの仲間発言は、キャラクター別の固定候補からランダムに選ばれたものです。ここに出た発言だけを今回の内緒の意思合わせとして扱い、それ以外の会話は想定しません。"
       )
     ];
-    if (roleBrief) {
-      lines.push(roleBrief);
-    }
     if (previousFaceoffHistory.length > 0) {
       lines.push(
         ...previousFaceoffHistory
@@ -4499,10 +4316,10 @@ export class WerewolfGame {
               `この顔合わせで先に出た仲間の発言: ${line}`,
               `この顔合わせで先に出た仲間の発言: ${line}`
             )
-          ),
+        ),
         this.text(
-          "上の行は、この顔合わせ内で先に出た仲間の発言だけです。それ以外の会話は想定しないでください。チーム内では村を騙す意気込みが進んでいます。特殊役職騙りを自分の確定役として言い直したり、名乗り直しの型からやり直したりしないでください。仲間の言葉に触れ、自分なりの別角度を短く足してください。",
-          "上の行は、この顔合わせ内で先に出た仲間の発言だけです。それ以外の会話は想定しないでください。チーム内では村を騙す意気込みが進んでいます。特殊役職騙りを自分の確定役として言い直したり、名乗り直しの型からやり直したりしないでください。仲間の言葉に触れ、自分なりの別角度を短く足してください。"
+          "The lines above are only the ally lines already spoken in this private face-off.",
+          "上の行は、この顔合わせ内で先に出た仲間の発言だけです。"
         )
       );
     }
@@ -4530,8 +4347,8 @@ export class WerewolfGame {
     }
 
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
-    const roleBrief = this.werewolfFaceoffRoleBrief(previousFaceoffHistory.length);
-    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory, roleBrief);
+    const humanPromptLine = this.werewolfFaceoffHumanPromptLine();
+    const contextLines = this.werewolfFaceoffContextLines(werewolves, previousFaceoffHistory);
     const visibleUiContext = [
       this.roleBreakdownUiLine(),
       contextLines[1],
@@ -4543,7 +4360,7 @@ export class WerewolfGame {
             `この顔合わせで先に出た仲間の発言: ${line}`
           )
         ),
-      roleBrief
+      humanPromptLine
     ].filter((line) => line.length > 0);
     const response = await handler.request({
       kind: "speech_choice",

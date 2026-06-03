@@ -113,6 +113,14 @@ function normalizeVisibleEventId(value: number | null | undefined): number | nul
   return typeof value === "number" && Number.isFinite(value) ? value : value === null ? null : undefined;
 }
 
+function withVisibleEventId<T extends HumanInputResponse>(
+  response: T,
+  value: number | null | undefined
+): T {
+  const visibleEventId = normalizeVisibleEventId(value);
+  return visibleEventId === undefined ? response : { ...response, visibleEventId };
+}
+
 function normalizeResponseForRequest(request: HumanInputRequest, response: HumanInputResponse): HumanInputResponse | null {
   if (request.kind === "speech_choice") {
     if (request.nonBlocking && request.speechMode === "discussion_interrupt" && response.decision === false) {
@@ -121,18 +129,18 @@ function normalizeResponseForRequest(request: HumanInputRequest, response: Human
 
     const speech = normalizeString(response.speech);
     if (speech) {
-      return { speech, visibleEventId: normalizeVisibleEventId(response.visibleEventId) };
+      return withVisibleEventId({ speech }, response.visibleEventId);
     }
 
     const choiceId = normalizeString(response.choiceId);
     if (!choiceId) {
       if (request.nonBlocking && request.speechMode === "werewolf_alignment" && request.options.length === 0) {
-        return { speech: DEFAULT_WEREWOLF_ALIGNMENT_SPEECH, visibleEventId: normalizeVisibleEventId(response.visibleEventId) };
+        return withVisibleEventId({ speech: DEFAULT_WEREWOLF_ALIGNMENT_SPEECH }, response.visibleEventId);
       }
       return null;
     }
     return request.options.some((option) => option.id === choiceId)
-      ? { choiceId, visibleEventId: normalizeVisibleEventId(response.visibleEventId) }
+      ? withVisibleEventId({ choiceId }, response.visibleEventId)
       : null;
   }
 
