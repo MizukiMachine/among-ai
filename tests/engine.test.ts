@@ -27,6 +27,7 @@ import type {
   PublicSpeechPlan,
   Role,
   SpeechGenerationDiagnostic,
+  SpeechMetadata,
   HumanInputHandler,
   HumanInputRequestPayload,
   TargetCandidate,
@@ -101,6 +102,27 @@ class PreferTargetAgent extends ScriptedAgent {
     return {
       targetId: target?.id ?? null,
       reason: `${this.name} preferred ${this.preferredTargetId}`
+    };
+  }
+}
+
+class ReasonKindTargetAgent extends ScriptedAgent {
+  constructor(
+    name: string,
+    private readonly preferredTargetId: string,
+    private readonly reasonKind: TargetDecision["reasonKind"]
+  ) {
+    super(name);
+  }
+
+  override async chooseTarget(input: AgentTargetInput): Promise<TargetDecision> {
+    this.targetInputs.push(input);
+    const preferred = input.candidates.find((candidate) => candidate.id === this.preferredTargetId);
+    const target = preferred ?? input.candidates[0] ?? null;
+    return {
+      targetId: target?.id ?? null,
+      reason: `${this.name} ${this.reasonKind} ${this.preferredTargetId}`,
+      reasonKind: this.reasonKind
     };
   }
 }
@@ -579,6 +601,7 @@ type TestableGame = WerewolfGame & {
   }): GameEvent;
   players: Player[];
   publicHistory: string[];
+  lastDiscussion: Array<{ playerId: string; playerName: string; message: string; metadata: SpeechMetadata }>;
   wolfHistory: string[];
   ruleState: RuleState;
   runDay(): AsyncGenerator<GameEvent>;
@@ -1229,6 +1252,184 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(game.publicHistory.some((line) => line.includes(expectedPublicVote) && !line.includes("scripted reason")));
   const summary = await game.emitRoundSummary();
   assert.ok(summary.message.includes("Votes:"));
+});
+
+test("human speech influence affects only a probabilistic subset of AI votes", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 15,
+    humanPlayerId: "p1",
+    language: "Japanese"
+  }) as TestableGame;
+  const players = setTable(
+    game,
+    Array.from({ length: 15 }, (_, index) => ({
+      role: (index === 1 ? "Werewolf" : "Villager") as Role,
+      targets: [index === 4 ? "p6" : "p5"]
+    }))
+  );
+  const human = players[0];
+  const suspect = players[3];
+  const trusted = players[4];
+  human.model = "human";
+  game.lastDiscussion = [
+    {
+      playerId: human.id,
+      playerName: human.name,
+      message: `${suspect.name}が怪しい。${trusted.name}は信頼できる`,
+      metadata: {
+        suspects: [{ targetId: suspect.id, targetName: suspect.name, reason: "怪しい", weight: 1 }],
+        trusts: [{ targetId: trusted.id, targetName: trusted.name, reason: "信頼できる", weight: 0.9 }],
+        claims: []
+      }
+    }
+  ];
+  game.publicHistory.push(`${human.name}: ${suspect.name}が怪しい。${trusted.name}は信頼できる`);
+
+  const events = await collect(game.runVoting());
+  const aiPlayers = players.slice(1);
+  const influenceModes = aiPlayers.map((player) => {
+    const agent = game.agents.get(player.id) as ScriptedAgent;
+    return agent.targetInputs[0]?.context.match(/人間プレイヤーの発言影響 - ([^:]+):/)?.[1] ?? "";
+  });
+  const aiVotes = events.filter((event) => event.type === "vote_cast" && event.playerId !== human.id);
+  const suspectVotes = aiVotes.filter((event) => event.targetId === suspect.id).length;
+  const trustedVotes = aiVotes.filter((event) => event.targetId === trusted.id).length;
+
+  assert.ok(influenceModes.includes("採用"), "at least one AI should fully adopt the human read");
+  assert.ok(influenceModes.includes("弱採用"), "at least one AI should only lean toward the human read");
+  assert.ok(influenceModes.includes("保留"), "at least one AI should avoid automatic agreement");
+  assert.ok(suspectVotes > 0, "some AI votes should move toward the human's suspect");
+  assert.ok(trustedVotes > 0, "some AI votes should remain independent instead of all following the human");
+  assert.ok(suspectVotes < aiVotes.length, "human influence should not make every AI vote the same way");
+});
+
+test("human speech influence does not override strong vote evidence", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 15,
+    humanPlayerId: "p1",
+    language: "Japanese"
+  }) as TestableGame;
+  const players = setTable(
+    game,
+    Array.from({ length: 15 }, (_, index) => ({
+      role: (index === 1 ? "Werewolf" : "Villager") as Role,
+      targets: ["p5"]
+    }))
+  );
+  const human = players[0];
+  const suspect = players[3];
+  const trusted = players[4];
+  const strongEvidenceVoter = players[10];
+  human.model = "human";
+  game.agents.set(strongEvidenceVoter.id, new ReasonKindTargetAgent(strongEvidenceVoter.name, trusted.id, "claim_reaction"));
+  game.lastDiscussion = [
+    {
+      playerId: human.id,
+      playerName: human.name,
+      message: `${suspect.name}が怪しい。${trusted.name}は信頼できる`,
+      metadata: {
+        suspects: [{ targetId: suspect.id, targetName: suspect.name, reason: "怪しい", weight: 1 }],
+        trusts: [{ targetId: trusted.id, targetName: trusted.name, reason: "信頼できる", weight: 0.9 }],
+        claims: []
+      }
+    }
+  ];
+
+  const events = await collect(game.runVoting());
+  const agent = game.agents.get(strongEvidenceVoter.id) as ReasonKindTargetAgent;
+  const influenceMode = agent.targetInputs[0]?.context.match(/人間プレイヤーの発言影響 - ([^:]+):/)?.[1] ?? "";
+  const vote = events.find((event) => event.type === "vote_cast" && event.playerId === strongEvidenceVoter.id);
+
+  assert.equal(influenceMode, "採用");
+  assert.equal(vote?.targetId, trusted.id);
+});
+
+test("human speech challenge mode avoids redirecting pressure onto the human player", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 6,
+    humanPlayerId: "p1",
+    language: "Japanese",
+    maxRounds: 8
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p4"] },
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+  const human = players[0];
+  const suspect = players[3];
+  const trusted = players[5];
+  const challengeVoter = players[5];
+  human.model = "human";
+  (game as unknown as { round: number }).round = 3;
+  game.lastDiscussion = [
+    {
+      playerId: human.id,
+      playerName: human.name,
+      message: `${suspect.name}が怪しい。${trusted.name}は信頼できる`,
+      metadata: {
+        suspects: [{ targetId: suspect.id, targetName: suspect.name, reason: "怪しい", weight: 1 }],
+        trusts: [{ targetId: trusted.id, targetName: trusted.name, reason: "信頼できる", weight: 0.9 }],
+        claims: []
+      }
+    }
+  ];
+
+  const events = await collect(game.runVoting());
+  const agent = game.agents.get(challengeVoter.id) as ScriptedAgent;
+  const influenceMode = agent.targetInputs[0]?.context.match(/人間プレイヤーの発言影響 - ([^:]+):/)?.[1] ?? "";
+  const vote = events.find((event) => event.type === "vote_cast" && event.playerId === challengeVoter.id);
+
+  assert.equal(influenceMode, "反論余地");
+  assert.notEqual(vote?.targetId, human.id);
+  assert.notEqual(vote?.targetId, suspect.id);
+});
+
+test("human trust without suspicion can still protect weakly trusted vote targets", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    playerCount: 15,
+    humanPlayerId: "p1",
+    language: "Japanese"
+  }) as TestableGame;
+  const players = setTable(
+    game,
+    Array.from({ length: 15 }, (_, index) => ({
+      role: (index === 1 ? "Werewolf" : "Villager") as Role,
+      targets: ["p5"]
+    }))
+  );
+  const human = players[0];
+  const trusted = players[4];
+  const adoptingVoter = players[1];
+  human.model = "human";
+  game.lastDiscussion = [
+    {
+      playerId: human.id,
+      playerName: human.name,
+      message: `${trusted.name}は信頼できる`,
+      metadata: {
+        suspects: [],
+        trusts: [{ targetId: trusted.id, targetName: trusted.name, reason: "信頼できる", weight: 0.9 }],
+        claims: []
+      }
+    }
+  ];
+
+  const events = await collect(game.runVoting());
+  const agent = game.agents.get(adoptingVoter.id) as ScriptedAgent;
+  const influenceMode = agent.targetInputs[0]?.context.match(/人間プレイヤーの発言影響 - ([^:]+):/)?.[1] ?? "";
+  const vote = events.find((event) => event.type === "vote_cast" && event.playerId === adoptingVoter.id);
+
+  assert.equal(influenceMode, "採用");
+  assert.notEqual(vote?.targetId, trusted.id);
+  assert.notEqual(vote?.targetId, human.id);
 });
 
 test("Raven mark adds a vote modifier to the next execution vote", async () => {
@@ -2961,10 +3162,10 @@ test("human free text reads influence later discussion and voting context", asyn
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
   const laterSpeaker = game.agents.get(players[3].id) as ScriptedAgent;
   const laterSpeechContext = laterSpeaker.speechInputs.find(
-    (input) => input.phase === "day_discussion" && input.context.includes("人間プレイヤーの発言影響 - 疑い")
+    (input) => input.phase === "day_discussion" && input.context.includes("人間プレイヤーの発言影響 - ")
   )?.context;
   const laterVoteContext = laterSpeaker.targetInputs.find(
-    (input) => input.phase === "voting" && input.context.includes("人間プレイヤーの発言影響 - 疑い")
+    (input) => input.phase === "voting" && input.context.includes("人間プレイヤーの発言影響 - ")
   )?.context;
 
   assert.deepEqual((humanSpeech?.data?.suspects as Array<{ targetId: string; weight: number }> | undefined)?.map((read) => read.targetId), [
@@ -3026,7 +3227,7 @@ test("human free text reads reserve an agreeing AI follow-up speaker", async () 
 
   assert.deepEqual(followUpSpeakers.slice(0, 2), [players[1].id, players[0].id]);
   assert.equal(agreeingAgent.speechInputs.length, 3);
-  assert.match(agreeingAgent.speechInputs[2].context, /人間プレイヤーの発言影響 - 疑い/);
+  assert.match(agreeingAgent.speechInputs[2].context, /人間プレイヤーの発言影響 - (採用|弱採用|保留|反論余地)/);
 });
 
 test("human Japanese free text keeps negated trust and vote mentions in the right direction", async () => {

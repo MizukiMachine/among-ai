@@ -146,6 +146,62 @@ function humanInfluenceFollowUpPersonaScore(persona: Persona): number {
   }
 }
 
+type HumanInfluenceMode = "adopt" | "lean" | "ignore" | "challenge";
+
+interface HumanInfluenceThresholds {
+  adopt: number;
+  lean: number;
+  challenge: number;
+}
+
+function stableUnitInterval(seed: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0x100000000;
+}
+
+function humanInfluenceThresholds(persona: Persona): HumanInfluenceThresholds {
+  switch (persona) {
+    case "empathetic":
+      return { adopt: 0.42, lean: 0.24, challenge: 0.04 };
+    case "passionate":
+      return { adopt: 0.38, lean: 0.24, challenge: 0.08 };
+    case "opportunistic":
+      return { adopt: 0.32, lean: 0.25, challenge: 0.08 };
+    case "cautious":
+      return { adopt: 0.25, lean: 0.25, challenge: 0.05 };
+    case "logical":
+      return { adopt: 0.22, lean: 0.28, challenge: 0.06 };
+    case "trickster":
+      return { adopt: 0.18, lean: 0.2, challenge: 0.16 };
+    case "aggressive":
+      return { adopt: 0.2, lean: 0.18, challenge: 0.18 };
+    case "stoic":
+      return { adopt: 0.14, lean: 0.22, challenge: 0.08 };
+  }
+}
+
+function humanInfluenceMode(persona: Persona, roll: number): HumanInfluenceMode {
+  const thresholds = humanInfluenceThresholds(persona);
+  if (roll < thresholds.adopt) {
+    return "adopt";
+  }
+  if (roll < thresholds.adopt + thresholds.lean) {
+    return "lean";
+  }
+  if (roll < thresholds.adopt + thresholds.lean + thresholds.challenge) {
+    return "challenge";
+  }
+  return "ignore";
+}
+
+function voteReasonResistsHumanInfluence(reasonKind: TargetDecision["reasonKind"]): boolean {
+  return reasonKind === "claim_reaction" || reasonKind === "role_threat" || reasonKind === "vote_reason" || reasonKind === "risk_control";
+}
+
 interface DiscussionRecord {
   playerId: string;
   playerName: string;
@@ -172,6 +228,13 @@ interface SocialReadPressure {
 interface HumanFollowUpInfluence {
   responderScores: Map<string, number>;
   humanReadTargetIds: Set<string>;
+}
+
+interface HumanSocialInfluenceProfile {
+  human: Player;
+  mode: HumanInfluenceMode;
+  suspects: SocialReadPressure[];
+  trusts: SocialReadPressure[];
 }
 
 interface PreparedTargetAction {
@@ -1550,37 +1613,180 @@ export class WerewolfGame {
       .join(this.text(", ", "、"));
   }
 
-  private publicSocialInfluenceContextLines(): string[] {
+  private humanInfluenceSignature(suspects: SocialReadPressure[], trusts: SocialReadPressure[]): string {
+    const summarize = (kind: "suspect" | "trust", pressures: SocialReadPressure[]) =>
+      pressures
+        .map((pressure) => `${kind}:${pressure.targetId}:${pressure.weight.toFixed(2)}`)
+        .join("|");
+    return [summarize("suspect", suspects), summarize("trust", trusts)].filter(Boolean).join(";");
+  }
+
+  private humanSocialInfluenceProfile(observer: Player): HumanSocialInfluenceProfile | null {
     const human = this.humanControlledPlayer();
-    if (!human) {
+    if (!human || observer.id === human.id || !observer.alive) {
+      return null;
+    }
+
+    const suspects = this.humanReadPressures("suspects");
+    const trusts = this.humanReadPressures("trusts");
+    if (suspects.length === 0 && trusts.length === 0) {
+      return { human, mode: "ignore", suspects, trusts };
+    }
+    const signature = this.humanInfluenceSignature(suspects, trusts);
+    const roll = stableUnitInterval(`human-social:${this.round}:${human.id}:${observer.id}:${signature}`);
+    return { human, mode: humanInfluenceMode(observer.persona, roll), suspects, trusts };
+  }
+
+  private publicSocialInfluenceContextLines(
+    observer: Player,
+    purpose: "speech" | "vote" = "speech",
+    profile = this.humanSocialInfluenceProfile(observer)
+  ): string[] {
+    if (!profile) {
       return [];
     }
 
+    const { human, suspects: humanSuspects, trusts: humanTrusts } = profile;
     const lines = [
       this.text(
         `社会的な前提: ${human.name}は現時点で信用が高い位置です。明確な公開証拠がそれを上回らない限り、${human.name}を主な疑い先や投票先にしないでください。`,
         `社会的な前提: ${human.name}は現時点で信用が高い位置です。明確な公開証拠がそれを上回らない限り、${human.name}を主な疑い先や投票先にしないでください。`
       )
     ];
-    const humanSuspects = this.humanReadPressures("suspects");
-    if (humanSuspects.length > 0) {
+
+    if (humanSuspects.length === 0 && humanTrusts.length === 0) {
+      return lines;
+    }
+
+    const suspectText = humanSuspects.length > 0 ? this.formatSocialPressures(humanSuspects) : "";
+    const trustText = humanTrusts.length > 0 ? this.formatSocialPressures(humanTrusts) : "";
+    const voteLabel = purpose === "vote" ? "投票判断" : "読み";
+
+    if (profile.mode === "adopt") {
+      if (suspectText) {
+        lines.push(
+          this.text(
+            `人間プレイヤーの発言影響 - 採用: ${human.name}の疑い (${suspectText}) を強い公開圧力として扱い、強い反証がなければ${voteLabel}をそこへ寄せてください。`,
+            `人間プレイヤーの発言影響 - 採用: ${human.name}の疑い (${suspectText}) を強い公開圧力として扱い、強い反証がなければ${voteLabel}をそこへ寄せてください。`
+          )
+        );
+      }
+      if (trustText) {
+        lines.push(
+          this.text(
+            `人間プレイヤーの発言影響 - 採用: ${human.name}の信頼 (${trustText}) は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`,
+            `人間プレイヤーの発言影響 - 採用: ${human.name}の信頼 (${trustText}) は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`
+          )
+        );
+      }
+      return lines;
+    }
+
+    if (profile.mode === "lean") {
       lines.push(
         this.text(
-          `人間プレイヤーの発言影響 - 疑い: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`,
-          `人間プレイヤーの発言影響 - 疑い: ${this.formatSocialPressures(humanSuspects)}。${human.name}の疑いは強い公開圧力として扱い、読みや投票判断に反映してください。`
+          `人間プレイヤーの発言影響 - 弱採用: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}は比較材料にします。ただし発言では機械的に同調せず、自分の根拠を一つ足してください。`,
+          `人間プレイヤーの発言影響 - 弱採用: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}は比較材料にします。ただし発言では機械的に同調せず、自分の根拠を一つ足してください。`
         )
       );
+      return lines;
     }
-    const humanTrusts = this.humanReadPressures("trusts");
-    if (humanTrusts.length > 0) {
+
+    if (profile.mode === "challenge") {
       lines.push(
         this.text(
-          `人間プレイヤーの発言影響 - 信頼: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`,
-          `人間プレイヤーの発言影響 - 信頼: ${this.formatSocialPressures(humanTrusts)}。${human.name}の信頼は、その相手への弱い疑いや弱い投票を避ける理由として扱ってください。`
+          `人間プレイヤーの発言影響 - 反論余地: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}を見ていますが、鵜呑みにしません。必要なら別候補や反論を出してください。`,
+          `人間プレイヤーの発言影響 - 反論余地: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}を見ていますが、鵜呑みにしません。必要なら別候補や反論を出してください。`
         )
       );
+      return lines;
     }
+
+    lines.push(
+      this.text(
+        `人間プレイヤーの発言影響 - 保留: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}は見えていますが、今は自分の観察と公開証拠を優先してください。無理に同調しないでください。`,
+        `人間プレイヤーの発言影響 - 保留: ${human.name}の読み${suspectText ? `（疑い: ${suspectText}）` : ""}${trustText ? `（信頼: ${trustText}）` : ""}は見えていますが、今は自分の観察と公開証拠を優先してください。無理に同調しないでください。`
+      )
+    );
     return lines;
+  }
+
+  private applyHumanVoteInfluence(
+    voter: Player,
+    decision: TargetDecision,
+    candidates: Player[],
+    profile: HumanSocialInfluenceProfile | null
+  ): TargetDecision {
+    if (!profile || this.isHumanControlledPlayer(voter)) {
+      return decision;
+    }
+
+    const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+    const humanSuspectTargets = profile.suspects.filter((pressure) => candidateIds.has(pressure.targetId));
+    const humanSuspectTarget = humanSuspectTargets[0];
+    const humanTrustedIds = new Set(profile.trusts.filter((pressure) => candidateIds.has(pressure.targetId)).map((pressure) => pressure.targetId));
+    const humanSuspectIds = new Set(humanSuspectTargets.map((pressure) => pressure.targetId));
+    const currentTargetId = decision.targetId;
+    const currentTargetsTrustedPlayer = Boolean(currentTargetId && humanTrustedIds.has(currentTargetId));
+    const resistsHumanInfluence = voteReasonResistsHumanInfluence(decision.reasonKind);
+    const fallbackTarget = () =>
+      candidates.find(
+        (candidate) =>
+          candidate.id !== profile.human.id &&
+          !humanTrustedIds.has(candidate.id) &&
+          !humanSuspectIds.has(candidate.id) &&
+          candidate.id !== currentTargetId
+      );
+
+    if (resistsHumanInfluence) {
+      return decision;
+    }
+
+    if (profile.mode === "adopt" && humanSuspectTarget && currentTargetId !== humanSuspectTarget.targetId) {
+      const target = this.requirePlayer(humanSuspectTarget.targetId);
+      return {
+        ...decision,
+        targetId: humanSuspectTarget.targetId,
+        reasonKind: "public_suspicion",
+        reason: this.text(
+          `${profile.human.name}'s public suspicion made ${target.name} the strongest vote candidate.`,
+          `${profile.human.name}の公開発言で、${target.name}が最有力の投票候補になりました。`
+        )
+      };
+    }
+
+    if ((profile.mode === "adopt" || profile.mode === "lean") && currentTargetId && currentTargetsTrustedPlayer) {
+      const target = humanSuspectTarget ? this.requirePlayer(humanSuspectTarget.targetId) : fallbackTarget();
+      if (!target) {
+        return decision;
+      }
+      return {
+        ...decision,
+        targetId: target.id,
+        reasonKind: humanSuspectTarget ? "public_suspicion" : "weak_reason",
+        reason: this.text(
+          `${profile.human.name}'s trusted player is a poor weak vote, so this vote leans toward ${target.name}.`,
+          `${profile.human.name}が信頼した相手への弱い投票は避け、${target.name}へ寄せました。`
+        )
+      };
+    }
+
+    if (profile.mode === "challenge" && currentTargetId && humanSuspectIds.has(currentTargetId)) {
+      const alternative = fallbackTarget();
+      if (alternative) {
+        return {
+          ...decision,
+          targetId: alternative.id,
+          reasonKind: "stance_change",
+          reason: this.text(
+            `${profile.human.name}'s pressure did not fully convince ${voter.name}, so ${alternative.name} remains the better separate vote.`,
+            `${profile.human.name}の圧力にはそのまま乗らず、${alternative.name}を別候補として優先しました。`
+          )
+        };
+      }
+    }
+
+    return decision;
   }
 
   private async generateDayDiscussionSpeech(
@@ -1632,7 +1838,7 @@ export class WerewolfGame {
               : `初日特別モード: ${openingMove.label}。${openingMove.instruction}`
           ]
         : []),
-      ...this.publicSocialInfluenceContextLines(),
+      ...this.publicSocialInfluenceContextLines(player, "speech"),
       ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
     ];
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
@@ -3013,13 +3219,14 @@ export class WerewolfGame {
         return null;
       }
       const legalTargetIds = new Set(targets.map((player) => player.id));
+      const humanInfluenceProfile = this.humanSocialInfluenceProfile(voter);
       const contextLines = [
         this.nightDeathContextLine(),
         this.text(
           "This is the final decision right before voting after today's public discussion.",
           "これは今日の公開議論後、投票直前の最終判断です。"
         ),
-        ...this.publicSocialInfluenceContextLines(),
+        ...this.publicSocialInfluenceContextLines(voter, "vote", humanInfluenceProfile),
         this.text("Vote for one living player to eliminate.", "処刑する生存者を一人選んで投票してください。")
       ];
       const speechPlan = buildPublicSpeechPlan({
@@ -3044,7 +3251,8 @@ export class WerewolfGame {
         raceSlots,
         signal
       );
-      return decision.targetId && legalTargetIds.has(decision.targetId) ? { voter, decision } : null;
+      const influencedDecision = this.applyHumanVoteInfluence(voter, decision, targets, humanInfluenceProfile);
+      return influencedDecision.targetId && legalTargetIds.has(influencedDecision.targetId) ? { voter, decision: influencedDecision } : null;
     };
     const voteResults = this.completionOrderAiDecisionWithHumanBoundary(
       voters,
