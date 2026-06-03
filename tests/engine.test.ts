@@ -2539,7 +2539,7 @@ test("day-1 warm-up excludes the human player", async () => {
   assert.equal(speakerIds.size, players.length - 1, "every AI player intros, the human is skipped");
 });
 
-test("human day interrupt mode skips day-1 warm-up before the first regular speech", async () => {
+test("human day interrupt mode keeps day-1 warm-up before opening optional interrupts", async () => {
   const optionalRequests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {
     async request(input) {
@@ -2568,6 +2568,7 @@ test("human day interrupt mode skips day-1 warm-up before the first regular spee
     { role: "Villager" },
     { role: "Villager" }
   ]);
+  game.round = 1;
   players[0].model = "human";
   for (const player of players.slice(1)) {
     game.agents.set(player.id, new IntroAgent(player.name));
@@ -2575,12 +2576,23 @@ test("human day interrupt mode skips day-1 warm-up before the first regular spee
 
   const events = await collect(game.runDay());
   const speeches = events.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+  const warmups = speeches.filter((event) => event.data?.warmup === true);
+  const firstRegular = speeches.find((event) => event.data?.discussionPass === 1);
 
   assert.ok(speeches.length > 0, "regular day discussion should still run");
-  assert.ok(!speeches.some((event) => event.data?.warmup === true), "human interrupt mode should not show warm-up speeches first");
-  assert.equal(speeches[0].data?.discussionPass, 1, "the first visible AI speech is regular discussion");
+  assert.equal(warmups.length, players.length - 1, "human interrupt mode still shows one warm-up speech for every AI player");
+  assert.ok(speeches.slice(0, warmups.length).every((event) => event.data?.warmup === true), "warm-up speeches come first");
+  assert.ok(firstRegular, "regular discussion starts after warm-up");
+  assert.ok(
+    warmups.every((event) => event.id < firstRegular.id),
+    "the first regular speech is published after every warm-up speech"
+  );
   assert.ok(optionalRequests.length > 0, "the optional interrupt opens after the first regular AI speech");
-  assert.equal(optionalRequests[0]?.revealAfterEventId, speeches[0].id);
+  assert.equal(optionalRequests[0]?.revealAfterEventId, firstRegular.id);
+  assert.ok(
+    optionalRequests[0]?.context.publicHistory.every((line) => !line.includes("INTRO ")),
+    "warm-up lines stay out of the optional interrupt context"
+  );
 });
 
 test("first-day opening keeps the human player last even when the human is p1", async () => {
@@ -3265,6 +3277,89 @@ test("optional human day interrupt stays open while the next AI speech race cont
   assert.equal(cancelledBeforeIteratorReturn, 0, "the optional interrupt must stay open when the next AI speech wins");
   assert.ok(cancelledOptionalRequestCount > 0, "closing the iterator should still clean up the open optional request");
   assert.equal(daySpeeches[1]?.message, "次のAI発言です。");
+});
+
+test("delayed human day interrupt keeps read AI context and regenerates unread remaining AI", async () => {
+  const optionalRequest = createDeferred<HumanInputRequestPayload>();
+  const optionalResponse = createDeferred<{ speech: string; visibleEventId: number | null }>();
+  let optionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Fallback blocking speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input) {
+      optionalRequestCount += 1;
+      if (optionalRequestCount === 1) {
+        optionalRequest.resolve(input);
+        return optionalResponse.promise;
+      }
+      return Promise.resolve(null);
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      language: "Japanese",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "読んだAI発言です。"));
+  const regeneratedAgent = new DelayedSpeechAgent(players[3].name, [60, 1], (input) =>
+    input.context.includes("人間の割り込みです") && input.context.includes("読んだAI発言です")
+      ? "人間発言と既読AI発言を踏まえます。"
+      : "古い未読生成です。"
+  );
+  game.agents.set(players[3].id, regeneratedAgent);
+
+  const iterator = game.runDay();
+  const events: GameEvent[] = [];
+  const aiSpeeches: GameEvent[] = [];
+  while (aiSpeeches.length < 2) {
+    const next = await iterator.next();
+    assert.equal(next.done, false);
+    events.push(next.value);
+    if (next.value.type === "player_speech" && next.value.phase === "day_discussion" && next.value.playerId !== players[2].id) {
+      aiSpeeches.push(next.value);
+    }
+  }
+
+  await optionalRequest.promise;
+  const pendingHuman = iterator.next();
+  optionalResponse.resolve({ speech: "人間の割り込みです。", visibleEventId: aiSpeeches[1].id });
+  const humanSpeech = await pendingHuman;
+  assert.equal(humanSpeech.value?.type, "player_speech");
+  assert.equal(humanSpeech.value?.playerId, players[2].id);
+
+  const rest = await collect(iterator);
+  const allEvents = [...events, humanSpeech.value, ...rest].filter((event): event is GameEvent => Boolean(event));
+  const daySpeeches = allEvents.filter((event) => event.type === "player_speech" && event.phase === "day_discussion");
+  const humanIndex = daySpeeches.findIndex((event) => event.playerId === players[2].id);
+  const postHumanSpeech = daySpeeches.find(
+    (event, index) => index > humanIndex && event.playerId === players[3].id
+  );
+
+  assert.ok(humanIndex > 0, "the human interrupt is emitted after visible AI context");
+  assert.equal(daySpeeches[humanIndex - 1]?.message, "読んだAI発言です。", "the AI speech the player already saw remains before the human");
+  assert.equal(postHumanSpeech?.message, "人間発言と既読AI発言を踏まえます。");
+  assert.doesNotMatch(regeneratedAgent.speechInputs[0]?.context ?? "", /人間の割り込みです/);
+  assert.match(regeneratedAgent.speechInputs[1]?.context ?? "", /人間の割り込みです/);
+  assert.match(regeneratedAgent.speechInputs[1]?.context ?? "", /読んだAI発言です/);
 });
 
 test("human speech choice can publish free text instead of a drafted option", async () => {

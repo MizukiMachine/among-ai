@@ -120,7 +120,8 @@ function humanInputResponseFromBody(value: unknown): { requestId: string; respon
       choiceId: typeof body.choiceId === "string" ? body.choiceId : undefined,
       targetId: body.targetId === null || typeof body.targetId === "string" ? body.targetId : undefined,
       reason: typeof body.reason === "string" ? body.reason : undefined,
-      decision: typeof body.decision === "boolean" ? body.decision : undefined
+      decision: typeof body.decision === "boolean" ? body.decision : undefined,
+      visibleEventId: typeof body.visibleEventId === "number" && Number.isFinite(body.visibleEventId) ? body.visibleEventId : null
     }
   };
 }
@@ -255,7 +256,8 @@ function traceHumanInputResponse(requestId: string, response: HumanInputResponse
     hasChoiceId: typeof response.choiceId === "string" && response.choiceId.trim().length > 0,
     hasTargetId: response.targetId !== undefined,
     hasReason: typeof response.reason === "string" && response.reason.trim().length > 0,
-    decision: typeof response.decision === "boolean" ? response.decision : null
+    decision: typeof response.decision === "boolean" ? response.decision : null,
+    visibleEventId: response.visibleEventId ?? null
   };
 }
 
