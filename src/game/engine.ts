@@ -1549,42 +1549,99 @@ export class WerewolfGame {
       }
     };
 
-    while (remainingAi.length > 0) {
-      const racers = speechRaceSlots(remainingAi, limit);
-      active = racers.length;
-      report();
+    type DayDiscussionSpeechResult = { player: Player; speech: AgentSpeech };
+    type AiRaceWinner = { player: Player; value: DayDiscussionSpeechResult };
+    type PendingHumanInterrupt = {
+      controller: AbortController;
+      promise: Promise<DayDiscussionSpeechResult | null>;
+    };
 
-      const winner = await this.firstFinishedSpeechRace(
-        racers,
-        (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, openingMoveByPlayerId, options)
-      );
-      const acceptedIndex = remainingAi.findIndex((player) => player.id === winner.player.id);
-      if (acceptedIndex !== -1) {
-        remainingAi.splice(acceptedIndex, 1);
-      }
-      accepted += 1;
-      active = 0;
-      report();
-      humanInterruptState.available = remainingAi.length > 0;
-      yield winner.value;
+    let pendingHumanInterrupt: PendingHumanInterrupt | null = null;
 
-      if (!human || !humanInterruptState.available || humanInterruptState.remaining <= 0) {
-        continue;
+    const cancelPendingHumanInterrupt = () => {
+      if (!pendingHumanInterrupt) {
+        return;
       }
+      const pending = pendingHumanInterrupt;
+      pendingHumanInterrupt = null;
+      pending.promise.catch(() => undefined);
+      pending.controller.abort();
+    };
 
-      const humanInterrupt = await this.requestHumanDayDiscussionInterrupt(
-        human,
-        discussionPass,
-        discussionPasses,
-        humanInterruptState.remaining,
-        this.abortSignal ?? new AbortController().signal
-      );
-      if (!humanInterrupt) {
-        continue;
+    try {
+      while (remainingAi.length > 0) {
+        if (human && humanInterruptState.available && humanInterruptState.remaining > 0 && !pendingHumanInterrupt) {
+          const controller = new AbortController();
+          pendingHumanInterrupt = {
+            controller,
+            promise: this.requestHumanDayDiscussionInterrupt(
+              human,
+              discussionPass,
+              discussionPasses,
+              humanInterruptState.remaining,
+              controller.signal
+            )
+          };
+        }
+
+        const racers = speechRaceSlots(remainingAi, limit);
+        active = racers.length;
+        report();
+        const aiRaceController = new AbortController();
+        const aiRace: Promise<AiRaceWinner> = this.firstFinishedSpeechRace<DayDiscussionSpeechResult>(
+          racers,
+          (player, options) => this.generateDayDiscussionSpeech(player, discussionPass, openingMoveByPlayerId, options),
+          aiRaceController.signal
+        );
+
+        let winner: AiRaceWinner;
+        if (pendingHumanInterrupt) {
+          const activeHumanInterrupt: PendingHumanInterrupt = pendingHumanInterrupt;
+          const outcome = await Promise.race<
+            | { kind: "ai"; result: AiRaceWinner }
+            | { kind: "human"; result: DayDiscussionSpeechResult | null }
+          >([
+            aiRace.then((result): { kind: "ai"; result: AiRaceWinner } => ({ kind: "ai", result })),
+            activeHumanInterrupt.promise.then(
+              (result): { kind: "human"; result: DayDiscussionSpeechResult | null } => ({ kind: "human", result })
+            )
+          ]);
+
+          if (outcome.kind === "human") {
+            if (pendingHumanInterrupt === activeHumanInterrupt) {
+              pendingHumanInterrupt = null;
+            }
+            if (outcome.result) {
+              aiRace.catch(() => undefined);
+              aiRaceController.abort();
+              active = 0;
+              report();
+              humanInterruptState.remaining -= 1;
+              humanInterruptState.available = false;
+              yield outcome.result;
+              continue;
+            }
+            winner = await aiRace;
+          } else {
+            cancelPendingHumanInterrupt();
+            winner = outcome.result;
+          }
+        } else {
+          winner = await aiRace;
+        }
+
+        const acceptedIndex = remainingAi.findIndex((player) => player.id === winner.player.id);
+        if (acceptedIndex !== -1) {
+          remainingAi.splice(acceptedIndex, 1);
+        }
+        accepted += 1;
+        active = 0;
+        report();
+        humanInterruptState.available = remainingAi.length > 0;
+        yield winner.value;
       }
-      humanInterruptState.remaining -= 1;
-      humanInterruptState.available = false;
-      yield humanInterrupt;
+    } finally {
+      cancelPendingHumanInterrupt();
     }
   }
 
