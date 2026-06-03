@@ -9,8 +9,23 @@ import {
   type SpectatorMode
 } from "../game/redaction";
 import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
-import type { DebugScenario, GameConfig, HumanCampPreference, HumanInputResponse, SpeechGenerationDiagnostic, SummaryMode } from "../game/types";
+import type {
+  DebugScenario,
+  GameConfig,
+  GenerationProgress,
+  HumanCampPreference,
+  HumanInputRequest,
+  HumanInputResponse,
+  SpeechGenerationDiagnostic,
+  SummaryMode
+} from "../game/types";
 import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
+import {
+  appendClientTrace,
+  createPersistentTraceLog,
+  isPersistentTraceEnabled,
+  writeTraceForKey
+} from "./traceLog";
 
 const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
@@ -20,6 +35,27 @@ let nextStreamLogId = 0;
 interface StreamOptions extends GameConfig {
   speed: number;
   view: SpectatorMode;
+}
+
+interface TraceableGameEvent {
+  id: number;
+  round: number;
+  phase: string;
+  type: string;
+  message: string;
+  playerId?: string;
+  targetId?: string;
+  data?: Record<string, unknown> & {
+    visibility?: unknown;
+    redacted?: unknown;
+  };
+  snapshot: {
+    round: number;
+    phase: string;
+    aliveCount: number;
+    winner?: unknown;
+    winnerCamp?: unknown;
+  };
 }
 
 function intParam(value: string | null, fallback: number, min: number, max: number): number {
@@ -141,6 +177,88 @@ function createStreamLogId(): string {
   return `stream-${nextStreamLogId}`;
 }
 
+function traceStreamOptions(options: StreamOptions): Record<string, unknown> {
+  return {
+    provider: options.provider,
+    model: options.model,
+    playerCount: options.playerCount,
+    language: options.language,
+    maxRounds: options.maxRounds,
+    summaryMode: options.summaryMode,
+    debugScenario: options.debugScenario,
+    humanPlayerId: options.humanPlayerId,
+    humanCampPreference: options.humanCampPreference,
+    prefetchConcurrency: options.prefetchConcurrency,
+    speed: options.speed,
+    view: options.view
+  };
+}
+
+function traceProgress(progress: GenerationProgress): Record<string, unknown> {
+  return {
+    round: progress.round,
+    phase: progress.phase,
+    task: progress.task,
+    label: progress.label,
+    total: progress.total,
+    started: progress.started,
+    completed: progress.completed,
+    active: progress.active,
+    queued: progress.queued,
+    concurrency: progress.concurrency,
+    pass: progress.pass,
+    passes: progress.passes,
+    redacted: progress.redacted === true
+  };
+}
+
+function traceEvent(event: TraceableGameEvent): Record<string, unknown> {
+  return {
+    id: event.id,
+    round: event.round,
+    phase: event.phase,
+    type: event.type,
+    playerId: event.playerId,
+    targetId: event.targetId,
+    messageLength: event.message.length,
+    visibility: event.data?.visibility,
+    redacted: event.data?.redacted === true,
+    snapshotRound: event.snapshot.round,
+    snapshotPhase: event.snapshot.phase,
+    aliveCount: event.snapshot.aliveCount,
+    winner: event.snapshot.winner,
+    winnerCamp: event.snapshot.winnerCamp ?? null
+  };
+}
+
+function traceHumanInputRequest(request: HumanInputRequest): Record<string, unknown> {
+  return {
+    id: request.id,
+    kind: request.kind,
+    speechMode: request.kind === "speech_choice" ? request.speechMode : undefined,
+    nonBlocking: request.nonBlocking === true,
+    playerId: request.playerId,
+    playerName: request.playerName,
+    phase: request.phase,
+    revealAfterEventId: request.revealAfterEventId ?? null,
+    optionCount: request.kind === "speech_choice" ? request.options.length : undefined,
+    candidateCount: request.kind === "target" ? request.candidates.length : undefined,
+    allowFreeText: request.kind === "speech_choice" ? request.allowFreeText === true : undefined,
+    allowSkip: request.kind === "target" ? request.allowSkip === true : undefined
+  };
+}
+
+function traceHumanInputResponse(requestId: string, response: HumanInputResponse): Record<string, unknown> {
+  return {
+    requestId,
+    hasSpeech: typeof response.speech === "string" && response.speech.trim().length > 0,
+    hasChoiceId: typeof response.choiceId === "string" && response.choiceId.trim().length > 0,
+    hasTargetId: response.targetId !== undefined,
+    hasReason: typeof response.reason === "string" && response.reason.trim().length > 0,
+    decision: typeof response.decision === "boolean" ? response.decision : null
+  };
+}
+
 function isRateLimitErrorMessage(message: string): boolean {
   return /(?:429|rate[_ -]?limit|\[1302\])/iu.test(message);
 }
@@ -243,6 +361,17 @@ export function createApp(): Hono {
     return c.json({ ok: true });
   });
 
+  app.post("/api/debug/client-log", async (c) => {
+    const result = appendClientTrace(await c.req.json().catch(() => null));
+    if (!result.enabled) {
+      return c.json({ ok: false, enabled: false });
+    }
+    if (!result.ok) {
+      return c.json({ ok: false, enabled: true, error: result.error }, 400);
+    }
+    return c.json({ ok: true, enabled: true, filePath: result.filePath });
+  });
+
   app.post("/api/games/:id/input", async (c) => {
     const sessionId = c.req.param("id");
     const parsed = humanInputResponseFromBody(await c.req.json().catch(() => null));
@@ -251,6 +380,11 @@ export function createApp(): Hono {
     }
 
     const submitted = submitHumanInput(sessionId, parsed.requestId, parsed.response);
+    writeTraceForKey(sessionId, "server.human_input_submit", {
+      ...traceHumanInputResponse(parsed.requestId, parsed.response),
+      ok: submitted.ok,
+      error: submitted.ok ? null : submitted.error
+    });
     if (!submitted.ok) {
       if (submitted.error === "invalid_input") {
         return c.json({ ok: false, error: submitted.error }, 400);
@@ -270,6 +404,8 @@ export function createApp(): Hono {
     let humanSession: HumanInputSession | null = null;
     const abortController = new AbortController();
     const streamLogId = createStreamLogId();
+    const traceLog = createPersistentTraceLog(streamLogId);
+    traceLog?.write("server.stream_requested", traceStreamOptions(options));
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -277,15 +413,18 @@ export function createApp(): Hono {
         let streamStatus: "completed" | "cancelled" | "error" = "completed";
         humanSession = config.humanPlayerId
           ? new HumanInputSession((request) => {
+              traceLog?.write("server.human_input", traceHumanInputRequest(request));
               controller.enqueue(sseFrame("human_input", request));
             }, (request) => {
               if (!cancelled && !abortController.signal.aborted) {
+                traceLog?.write("server.human_input_cancelled", { requestId: request.id });
                 controller.enqueue(sseFrame("human_input_cancelled", { requestId: request.id }));
               }
             })
           : null;
         if (humanSession) {
           registerHumanInputSession(humanSession);
+          traceLog?.rememberKey(humanSession.id);
         }
 
         const streamView = view === "player" && !config.humanPlayerId ? "village" : view;
@@ -301,20 +440,23 @@ export function createApp(): Hono {
                   : streamView === "village"
                     ? redactProgressForVillage(progress)
                     : progress;
+              traceLog?.write("server.progress", traceProgress(payload));
               controller.enqueue(sseFrame("progress", payload));
             }
           }
         });
-        controller.enqueue(
-          sseFrame("system", {
-            message: "stream_opened",
-            view: streamView,
-            gameId: humanSession?.id ?? null,
-            humanPlayerId: config.humanPlayerId ?? null,
-            prefetchConcurrency: config.prefetchConcurrency ?? null,
-            streamLogId
-          })
-        );
+        const systemPayload = {
+          message: "stream_opened",
+          view: streamView,
+          gameId: humanSession?.id ?? null,
+          humanPlayerId: config.humanPlayerId ?? null,
+          prefetchConcurrency: config.prefetchConcurrency ?? null,
+          streamLogId,
+          traceEnabled: isPersistentTraceEnabled(),
+          traceFile: traceLog?.filePath ?? null
+        };
+        traceLog?.write("server.system", systemPayload);
+        controller.enqueue(sseFrame("system", systemPayload));
 
         try {
           for await (const event of game.run()) {
@@ -328,14 +470,17 @@ export function createApp(): Hono {
                 : streamView === "village"
                   ? redactEventForVillage(event)
                   : event;
+            traceLog?.write("server.game", traceEvent(payload));
             controller.enqueue(sseFrame("game", payload));
           }
           if (!cancelled && !abortController.signal.aborted) {
+            traceLog?.write("server.done", { message: "game_complete" });
             controller.enqueue(sseFrame("done", { message: "game_complete" }));
           }
         } catch (error) {
           streamStatus = "error";
           const errorMessage = error instanceof Error ? error.message : String(error);
+          traceLog?.write("server.error", { message: streamErrorMessageForClient(errorMessage) });
           console.error(
             `[stream-error] ${JSON.stringify({
               streamId: streamLogId,
@@ -357,6 +502,7 @@ export function createApp(): Hono {
             unregisterHumanInputSession(humanSession.id);
             humanSession = null;
           }
+          traceLog?.close(cancelled || abortController.signal.aborted ? "cancelled" : streamStatus);
           try {
             controller.close();
           } catch {
@@ -367,6 +513,7 @@ export function createApp(): Hono {
       cancel() {
         cancelled = true;
         abortController.abort();
+        traceLog?.write("server.cancelled", { reason: "readable_stream_cancel" });
         if (humanSession) {
           unregisterHumanInputSession(humanSession.id);
           humanSession = null;
