@@ -1144,6 +1144,7 @@ export class WerewolfGame {
   private lastWerewolfDiscussion: DiscussionRecord[] = [];
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
+  private lastVoteEliminatedPlayerId: string | null = null;
   private lastNightDeathRecords: DeathRecord[] = [];
   private firstDayOpeningSpeechPrefetch: DayDiscussionSpeechPrefetch | null = null;
   private firstDayWarmupSpeechPrefetch: DayWarmupSpeechPrefetch | null = null;
@@ -2132,12 +2133,21 @@ export class WerewolfGame {
   }
 
   private async *runWerewolfDiscussion(werewolves: Player[]): AsyncGenerator<GameEvent> {
-    if (werewolves.length <= 1) {
+    const eliminatedAlly = this.lastVoteEliminatedWerewolf();
+    if (werewolves.length === 0 || (werewolves.length <= 1 && !eliminatedAlly)) {
       return;
     }
 
     this.phase = "werewolf_discussion";
     yield this.emit("phase_changed", this.text("The werewolves open a private discussion.", "人狼たちが内通を始めました。"));
+
+    if (eliminatedAlly) {
+      yield* this.runWerewolfEliminationReaction(werewolves, eliminatedAlly);
+      this.lastVoteEliminatedPlayerId = null;
+      if (werewolves.length <= 1) {
+        return;
+      }
+    }
 
     const speakerOrder = this.werewolfDiscussionSpeakerOrder(werewolves);
     const wolfSpeeches = this.completionOrderAiWithHumanBoundary(
@@ -2192,6 +2202,83 @@ export class WerewolfGame {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), wolf);
       }
     }
+  }
+
+  private async *runWerewolfEliminationReaction(werewolves: Player[], eliminatedAlly: Player): AsyncGenerator<GameEvent> {
+    const reactionHistory: string[] = [];
+    const speakerOrder = this.werewolfDiscussionSpeakerOrder(werewolves);
+
+    for (const [speakerIndex, wolf] of speakerOrder.entries()) {
+      const contextLines = this.werewolfEliminationReactionContextLines(werewolves, eliminatedAlly, reactionHistory);
+      const context = this.contextFor(wolf, contextLines);
+      const speech = await this.safeSpeak(
+        wolf,
+        this.text(
+          "React briefly to the ally who was eliminated by today's vote before moving on to the attack plan.",
+          "今日の投票で処刑された仲間に短く反応してから、次の襲撃相談へつなげてください。"
+        ),
+        context,
+        contextLines,
+        undefined,
+        { diagnosticPhase: "werewolf_discussion" }
+      );
+      const historyLine = this.formatWerewolfEliminationReactionHistory(wolf, speech, eliminatedAlly);
+      reactionHistory.push(historyLine);
+      this.wolfHistory.push(historyLine);
+      for (const [index, message] of speech.messages.entries()) {
+        yield this.emit(
+          "player_speech",
+          message,
+          speechEventData(speech, message, index, "werewolf", {
+            werewolfEliminationReaction: true,
+            reactionPass: 1,
+            reactionSpeakerIndex: speakerIndex + 1,
+            reactionSpeakerCount: speakerOrder.length,
+            eliminatedAllyId: eliminatedAlly.id,
+            eliminatedAllyName: eliminatedAlly.name,
+            eliminatedAllyRole: eliminatedAlly.role
+          }),
+          wolf
+        );
+      }
+    }
+  }
+
+  private werewolfEliminationReactionContextLines(werewolves: Player[], eliminatedAlly: Player, reactionHistory: string[]): string[] {
+    const survivors = werewolves.map((player) => `${player.name}（${roleLabel(player.role, this.config.language)}）`).join("、");
+    const lines = [
+      this.text(
+        `${eliminatedAlly.name} (${eliminatedAlly.role}) was eliminated by today's vote.`,
+        `${eliminatedAlly.name}（${roleLabel(eliminatedAlly.role, this.config.language)}）が今日の投票で処刑されました。`
+      ),
+      this.text(
+        `Living werewolves now in the night chat: ${werewolves.map((player) => player.name).join(", ")}.`,
+        `今夜の人狼相談に残っている仲間: ${survivors}。`
+      ),
+      this.text(
+        "Before choosing the night victim, acknowledge the lost ally once. Keep it short: frustration, resolve, a warning about exposed vote lines, or how the team must adjust. Do not reveal this in public tomorrow.",
+        "襲撃先を選ぶ前に、失った仲間へ一度だけ反応してください。悔しさ、立て直し、投票筋への警戒、明日の演技の調整のどれかを短く出します。明日の公開発言ではこの内通を漏らしません。"
+      )
+    ];
+    if (reactionHistory.length > 0) {
+      lines.push(
+        ...reactionHistory
+          .slice(-6)
+          .map((line) => this.text(`Earlier ally reaction: ${line}`, `先に出た仲間の反応: ${line}`)),
+        this.text(
+          "React to the ally lines above without repeating the same wording.",
+          "上の仲間の反応に少し触れつつ、同じ言い方を繰り返さないでください。"
+        )
+      );
+    }
+    return lines;
+  }
+
+  private formatWerewolfEliminationReactionHistory(player: Player, speech: AgentSpeech, eliminatedAlly: Player): string {
+    return this.text(
+      `${player.name} reacted to ${eliminatedAlly.name}'s vote elimination: ${speech.messages.join(" ")}`,
+      `${player.name}が${eliminatedAlly.name}の投票処刑に反応: ${speech.messages.join(" ")}`
+    );
   }
 
   private werewolfDiscussionSpeakerOrder(werewolves: Player[]): Player[] {
@@ -3204,6 +3291,7 @@ export class WerewolfGame {
 
   private async *runVoting(): AsyncGenerator<GameEvent> {
     this.phase = "voting";
+    this.lastVoteEliminatedPlayerId = null;
     yield this.emit("phase_changed", this.text("Voting begins.", "投票が始まりました。"));
 
     const votes: VoteRecord[] = [];
@@ -3341,6 +3429,7 @@ export class WerewolfGame {
       return;
     }
 
+    this.lastVoteEliminatedPlayerId = eliminated.camp === "werewolf" ? eliminated.id : null;
     yield* this.resolveDeaths([{ playerId: eliminated.id, cause: "vote" }]);
     this.ruleState = expireStatuses(this.ruleState, "round");
   }
@@ -4695,6 +4784,17 @@ export class WerewolfGame {
       ...override,
       witch
     };
+  }
+
+  private lastVoteEliminatedWerewolf(): Player | null {
+    if (!this.lastVoteEliminatedPlayerId) {
+      return null;
+    }
+    const player = this.players.find((candidate) => candidate.id === this.lastVoteEliminatedPlayerId);
+    if (!player || player.camp !== "werewolf" || player.alive) {
+      return null;
+    }
+    return player;
   }
 
   private roleBreakdown(): RoleBreakdownEntry[] {
