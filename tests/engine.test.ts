@@ -5055,7 +5055,7 @@ test("human werewolf is not protected from early death-shot targets", async () =
   assert.ok(events.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "hunter"));
 });
 
-test("human player is protected from early linked night deaths", async () => {
+test("early human night protection does not block lover linked deaths", async () => {
   const game = new WerewolfGame({
     ...baseConfig,
     humanPlayerId: "p3",
@@ -5073,10 +5073,57 @@ test("human player is protected from early linked night deaths", async () => {
 
   const events = await collect(game.runNight());
 
-  assert.equal(players[2].alive, true);
+  assert.equal(players[2].alive, false);
   assert.equal(players[3].alive, false);
-  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3"));
-  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p3" && event.data?.cause === "lover"));
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "werewolf"));
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "death" && event.targetId === "p3" && event.data?.cause === "lover" && event.data?.sourceId === "p4"
+    )
+  );
+});
+
+test("early human night protection does not block WolfBeauty linked deaths", async () => {
+  const game = new WerewolfGame({
+    ...baseConfig,
+    humanPlayerId: "p3",
+    prefetchConcurrency: 1
+  }) as TestableGame;
+  const players = setTable(game, [
+    { role: "WolfBeauty" },
+    { role: "Witch", decisions: [false], targets: ["p1"] },
+    { role: "Villager" },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  game.ruleState = applyStatusEffects(game.ruleState, [
+    {
+      playerId: players[0].id,
+      addStatuses: [{ kind: "charm_anchor", sourceId: players[0].id, targetId: players[2].id, duration: "game" }]
+    },
+    {
+      playerId: players[2].id,
+      addStatuses: [{ kind: "charmed", sourceId: players[0].id, duration: "game" }]
+    }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const events = await collect(game.runNight());
+
+  assert.equal(players[0].alive, false);
+  assert.equal(players[2].alive, false);
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p1" && event.data?.cause === "poison"));
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "death" &&
+        event.targetId === "p3" &&
+        event.data?.cause === "wolf_beauty_charm" &&
+        event.data?.sourceId === "p1"
+    )
+  );
 });
 
 test("LLM target decisions race duplicate requests and accept the fastest result", async () => {
