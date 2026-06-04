@@ -104,22 +104,22 @@ test("stream options lock generation concurrency to five", () => {
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15&prefetchConcurrency=50")).prefetchConcurrency, 5);
 });
 
-test("stream options accept a human player and player view", () => {
+test("stream options accept a human player and player view while ignoring role query", () => {
   const options = parseStreamOptions(
     new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&humanCamp=werewolf&humanRole=Witch&scenario=hunter_shot")
   );
 
   assert.equal(options.humanPlayerId, "p3");
   assert.equal(options.humanCampPreference, "werewolf");
-  assert.equal(options.humanRolePreference, "Witch");
+  assert.equal(options.humanRolePreference, null);
   assert.equal(options.view, "player");
   assert.equal(options.debugScenario, "none");
 });
 
-test("stream options ignore human role preference without a human player", () => {
-  const options = parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanRole=Witch"));
+test("stream options ignore human role preference query params", () => {
+  const options = parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&human=p3&humanRole=Witch"));
 
-  assert.equal(options.humanPlayerId, null);
+  assert.equal(options.humanPlayerId, "p3");
   assert.equal(options.humanRolePreference, null);
 });
 

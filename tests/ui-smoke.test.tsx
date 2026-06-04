@@ -743,7 +743,7 @@ test("story run controls switch between pause, resume, and reset", () => {
   assert.match(source, /function resetToInitialSetup\(\)/);
   assert.match(source, /setPlayerCount\(initialPlayerCount\);/);
   assert.match(source, /setHumanEnabled\(initialHumanEnabled\);/);
-  assert.match(source, /setHumanRolePreference\(initialHumanRolePreference\);/);
+  assert.doesNotMatch(source, /setHumanRolePreference\(initialHumanRolePreference\);/);
   assert.match(source, /onClick=\{resetToInitialSetup\}/);
   assert.doesNotMatch(source, /onClick=\{\(\) => startGame\(\{ revealFirstEvent: true \}\)\}/);
 });
@@ -805,7 +805,7 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.info-bar\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*auto/s);
   assert.equal(displayRoleLabel("AlphaWolf", "Japanese"), "α人狼");
   assert.match(source, /function headerRoleLabel\(role: Role, language: string\): string/);
-  assert.match(source, /function renderHeaderCampRatio\(count: number, language: string, fixedHumanRole: Role \| null = null\): ReactNode/);
+  assert.match(source, /function renderHeaderCampRatio\(count: number, language: string\): ReactNode/);
   assert.match(source, /<header className="topbar">/);
   assert.match(source, /className="header-role-distribution"/);
   assert.match(source, /className="header-camp-ratio"/);
@@ -1049,17 +1049,17 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /ゲーム開始を押すと対局を開始します。/);
   assert.match(source, /className="scene-placeholder setup-confirmed-summary"[\s\S]*renderSetupConfirmedActions\(\)/);
   assert.match(source, /summary: "deterministic"/);
-  assert.match(source, /params\.set\("humanRole", humanRolePreference\)/);
+  assert.doesNotMatch(source, /params\.set\("humanRole"/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*const nextEvents = \[event\];[^}]*eventsRef\.current = nextEvents;[^}]*setEvents\(nextEvents\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
-test("setup exposes human camp and role preference choices", () => {
+test("setup exposes human camp choices without role preference choices", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /const initialHumanEnabled = false;/);
   assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
-  assert.match(source, /const initialHumanRolePreference: HumanRolePreference = "random";/);
+  assert.doesNotMatch(source, /initialHumanRolePreference/);
   assert.match(source, /const initialSpectatorMode: SpectatorMode = "omniscient";/);
   assert.doesNotMatch(source, /className="field setup-field play-goal-field"/);
   assert.doesNotMatch(source, /className="setup-note play-goal-note"/);
@@ -1072,15 +1072,15 @@ test("setup exposes human camp and role preference choices", () => {
   assert.match(source, /label: "ランダム"/);
   assert.match(source, /params\.set\("humanCamp", humanCampPreference\)/);
   assert.match(source, /className="segments human-camp-options"/);
-  assert.match(source, /<span>操作プレイヤーの役職<\/span>/);
-  assert.match(source, /<option value="random">ランダム（陣営設定）<\/option>/);
-  assert.match(source, /headerRoleOrder\.map\(\(role\) =>/);
-  assert.match(source, /createRolesWithFixedHumanRole\(normalizedCount, fixedHumanRole\)/);
+  assert.doesNotMatch(source, /操作プレイヤーの役職/);
+  assert.doesNotMatch(source, /ランダム（陣営設定）/);
+  assert.doesNotMatch(source, /humanRolePreference/);
+  assert.doesNotMatch(source, /className="human-role-field"/);
+  assert.doesNotMatch(source, /createRolesWithFixedHumanRole/);
   assert.doesNotMatch(css, /\.play-goal-field/);
   assert.doesNotMatch(css, /\.play-goal-note/);
   assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(css, /\.human-role-field\s*\{[^}]*width:\s*min\(100%,\s*520px\)/s);
-  assert.match(css, /\.human-role-field select\s*\{[^}]*min-height:\s*44px/s);
+  assert.doesNotMatch(css, /\.human-role-field/);
   assert.match(css, /\.participant-mode\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.participant-mode button\s*\{[^}]*width:\s*100%[^}]*white-space:\s*normal/s);
   assert.match(
