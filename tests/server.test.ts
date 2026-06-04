@@ -85,6 +85,14 @@ test("stream options default to LLM provider and LLM summaries", () => {
   assert.notEqual(options.model, "demo");
 });
 
+test("stream options use numeric defaults when params are omitted", () => {
+  const options = parseStreamOptions(new URL("http://localhost/api/games/stream"));
+
+  assert.equal(options.playerCount, 7);
+  assert.equal(options.maxRounds, 8);
+  assert.equal(options.speed, 650);
+});
+
 test("stream options accept player counts up to 15", () => {
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=15")).playerCount, 15);
   assert.equal(parseStreamOptions(new URL("http://localhost/api/games/stream?players=16")).playerCount, 15);

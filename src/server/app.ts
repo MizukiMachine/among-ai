@@ -60,6 +60,9 @@ interface TraceableGameEvent {
 }
 
 function intParam(value: string | null, fallback: number, min: number, max: number): number {
+  if (value === null || value.trim() === "") {
+    return fallback;
+  }
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return fallback;
