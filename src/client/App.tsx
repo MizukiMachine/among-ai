@@ -3864,16 +3864,22 @@ export function App() {
     );
   }
 
-  function renderMentionedCharacterStrip(items: MentionedCharacterItem[], eventId: number | string) {
+  function renderMentionedCharacterStrip(
+    items: MentionedCharacterItem[],
+    eventId: number | string,
+    placement: "inline" | "round-summary" = "inline"
+  ) {
     if (items.length === 0) {
       return null;
     }
 
     const shownItems = items.slice(0, maxMentionedCharacterCards);
     const overflowCount = items.length - shownItems.length;
+    const stripClassName =
+      placement === "round-summary" ? "mentioned-character-strip round-summary-mentions" : "mentioned-character-strip";
 
     return (
-      <div className="mentioned-character-strip" aria-label="発言に出てきたキャラクター">
+      <div className={stripClassName} aria-label="発言に出てきたキャラクター">
         {shownItems.map((item, index) => (
           <span
             className="mentioned-character-card"
@@ -4851,7 +4857,13 @@ export function App() {
                         </div>
                         {speechInputPrompt ? renderHumanSpeechInputScene(speechInputPrompt) : currentEvent ? renderStoryBody(currentEvent, hidden) : null}
                         {!speechInputPrompt && currentEvent && currentEvent.type !== "game_ended" ? renderEventDetails(currentEvent, hidden) : null}
-                        {!speechInputPrompt && currentEvent ? renderMentionedCharacterStrip(mentionedCharacters, currentEvent.id) : null}
+                        {!speechInputPrompt && currentEvent
+                          ? renderMentionedCharacterStrip(
+                              mentionedCharacters,
+                              currentEvent.id,
+                              currentEvent.type === "round_summary" ? "round-summary" : "inline"
+                            )
+                          : null}
                       </div>
                       {renderHumanInputPanel(actionHumanInput)}
                       {renderPendingHumanInputNotice()}
