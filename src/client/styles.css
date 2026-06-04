@@ -3757,7 +3757,6 @@ input[type="range"] {
 
 .participant-field > span,
 .participant-field .human-camp-field,
-.participant-field .human-role-field,
 .participant-field .setup-cast-preview {
   grid-column: 1;
 }
@@ -3799,26 +3798,10 @@ input[type="range"] {
   gap: 8px;
 }
 
-.human-role-field {
-  display: grid;
-  width: min(100%, 520px);
-  gap: 8px;
-}
-
-.setup-card .human-camp-field > span,
-.setup-card .human-role-field > span {
+.setup-card .human-camp-field > span {
   color: rgba(255, 255, 255, 0.86);
   font-size: 16px;
   font-weight: 820;
-}
-
-.human-role-field select {
-  width: 100%;
-  min-height: 44px;
-  border-radius: 6px;
-  padding: 9px 12px;
-  font-size: 14px;
-  font-weight: 780;
 }
 
 .human-camp-options {
@@ -5927,7 +5910,7 @@ input[type="range"] {
   }
 
   .participant-field > span,
-  .participant-field .human-role-field,
+  .participant-field .human-camp-field,
   .participant-field .setup-cast-preview {
     grid-column: 1;
   }
@@ -5945,10 +5928,6 @@ input[type="range"] {
   }
 
   .human-camp-field {
-    width: 100%;
-  }
-
-  .human-role-field {
     width: 100%;
   }
 

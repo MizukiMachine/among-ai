@@ -48,7 +48,6 @@ import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabe
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
   createRoles,
-  createRolesWithFixedHumanRole,
   maxSupportedPlayers,
   minimumPlayerCountForScenario as minimumSupportedPlayerCountForScenario,
   minSupportedPlayers,
@@ -245,8 +244,6 @@ const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = false;
 const initialHumanPlayerId = "p1";
 const initialHumanCampPreference: HumanCampPreference = "random";
-type HumanRolePreference = Role | "random";
-const initialHumanRolePreference: HumanRolePreference = "random";
 const initialSpectatorMode: SpectatorMode = "omniscient";
 // How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
 // deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
@@ -1218,10 +1215,10 @@ const headerRoleOrder = [
   "Jester"
 ] as const satisfies readonly Role[];
 
-export function getRoleDistributionItems(count: number, fixedHumanRole: Role | null = null): Array<[Role, number]> {
+export function getRoleDistributionItems(count: number): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const counts = new Map<Role, number>();
-  const roles = fixedHumanRole ? createRolesWithFixedHumanRole(normalizedCount, fixedHumanRole) : createRoles(normalizedCount);
+  const roles = createRoles(normalizedCount);
   for (const role of roles) {
     counts.set(role, (counts.get(role) ?? 0) + 1);
   }
@@ -1239,8 +1236,8 @@ function runModeClass(count: number): string {
   return "mode-standard";
 }
 
-function getCampRatioCounts(count: number, fixedHumanRole: Role | null = null): { villagers: number; werewolves: number } {
-  const roleCounts = getRoleDistributionItems(count, fixedHumanRole);
+function getCampRatioCounts(count: number): { villagers: number; werewolves: number } {
+  const roleCounts = getRoleDistributionItems(count);
   const werewolves = roleCounts
     .filter(([role]) => role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty")
     .reduce((total, [, roleCount]) => total + roleCount, 0);
@@ -1249,8 +1246,8 @@ function getCampRatioCounts(count: number, fixedHumanRole: Role | null = null): 
   return { villagers, werewolves };
 }
 
-function getCampRatioText(count: number, language: string, fixedHumanRole: Role | null = null): string {
-  const { villagers, werewolves } = getCampRatioCounts(count, fixedHumanRole);
+function getCampRatioText(count: number, language: string): string {
+  const { villagers, werewolves } = getCampRatioCounts(count);
 
   if (isJapaneseLanguage(language)) {
     return `人間側${villagers} / 狼陣営${werewolves}`;
@@ -1258,8 +1255,8 @@ function getCampRatioText(count: number, language: string, fixedHumanRole: Role 
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
 
-function renderHeaderCampRatio(count: number, language: string, fixedHumanRole: Role | null = null): ReactNode {
-  return getCampRatioText(count, language, fixedHumanRole);
+function renderHeaderCampRatio(count: number, language: string): ReactNode {
+  return getCampRatioText(count, language);
 }
 
 interface RoleRuleCopy {
@@ -1598,7 +1595,6 @@ export function App() {
   const [humanEnabled, setHumanEnabled] = useState(initialHumanEnabled);
   const [humanPlayerId, setHumanPlayerId] = useState(initialHumanPlayerId);
   const [humanCampPreference, setHumanCampPreference] = useState<HumanCampPreference>(initialHumanCampPreference);
-  const [humanRolePreference, setHumanRolePreference] = useState<HumanRolePreference>(initialHumanRolePreference);
   const [settingsConfirmed, setSettingsConfirmed] = useState(false);
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -1762,11 +1758,10 @@ export function App() {
   const latestVoteResult = useMemo(() => events.filter(voteResultHasVisibleData).at(-1), [events]);
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
-  const fixedHumanRole = humanEnabled && humanRolePreference !== "random" ? humanRolePreference : null;
   const largeRunMode = effectivePlayerCount >= 13;
   const roleDistributionItems = useMemo(
-    () => getRoleDistributionItems(effectivePlayerCount, fixedHumanRole),
-    [effectivePlayerCount, fixedHumanRole]
+    () => getRoleDistributionItems(effectivePlayerCount),
+    [effectivePlayerCount]
   );
   const bgmOptions = useMemo(
     () => getAdoptedBgmAssets(audioManifest),
@@ -2262,14 +2257,6 @@ export function App() {
     setHumanCampPreference(preference);
   }
 
-  function updateHumanRolePreference(preference: HumanRolePreference) {
-    playSetupConfirmSfx();
-    if (!humanEnabled) {
-      updateHumanEnabled(true, { playSound: false });
-    }
-    setHumanRolePreference(preference);
-  }
-
   function commitPendingHumanInputs(nextInputs: PendingHumanInputEntry[]) {
     pendingHumanInputsRef.current = nextInputs;
     setPendingHumanInputsState(nextInputs);
@@ -2466,7 +2453,6 @@ export function App() {
     setHumanEnabled(initialHumanEnabled);
     setHumanPlayerId(initialHumanPlayerId);
     setHumanCampPreference(initialHumanCampPreference);
-    setHumanRolePreference(initialHumanRolePreference);
     setSpectatorMode(initialSpectatorMode);
   }
 
@@ -2529,9 +2515,6 @@ export function App() {
     if (humanEnabled) {
       params.set("human", humanPlayerId);
       params.set("humanCamp", humanCampPreference);
-      if (humanRolePreference !== "random") {
-        params.set("humanRole", humanRolePreference);
-      }
     }
 
     const source = new EventSource(`/api/games/stream?${params.toString()}`);
@@ -4011,7 +3994,7 @@ export function App() {
         <div className="header-role-summary">
           <span>役職内訳</span>
           <strong className="header-camp-ratio">
-            {renderHeaderCampRatio(effectivePlayerCount, language, fixedHumanRole)}
+            {renderHeaderCampRatio(effectivePlayerCount, language)}
           </strong>
         </div>
         <div className="header-role-list" role="list">
@@ -4144,24 +4127,6 @@ export function App() {
                   ))}
                 </div>
               </div>
-            ) : null}
-
-            {humanEnabled ? (
-              <label className="human-role-field">
-                <span>操作プレイヤーの役職</span>
-                <select
-                  aria-label="操作プレイヤーの役職"
-                  onChange={(event) => updateHumanRolePreference(event.currentTarget.value === "random" ? "random" : (event.currentTarget.value as Role))}
-                  value={humanRolePreference}
-                >
-                  <option value="random">ランダム（陣営設定）</option>
-                  {headerRoleOrder.map((role) => (
-                    <option key={role} value={role}>
-                      {displayRoleLabel(role, language)}
-                    </option>
-                  ))}
-                </select>
-              </label>
             ) : null}
 
             {humanEnabled ? (

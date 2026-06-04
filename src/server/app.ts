@@ -8,7 +8,7 @@ import {
   redactProgressForVillage,
   type SpectatorMode
 } from "../game/redaction";
-import { isRole, maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
+import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
 import type {
   DebugScenario,
   GameConfig,
@@ -16,7 +16,6 @@ import type {
   HumanCampPreference,
   HumanInputRequest,
   HumanInputResponse,
-  Role,
   SpeechGenerationDiagnostic,
   SummaryMode
 } from "../game/types";
@@ -93,10 +92,6 @@ function humanCampPreferenceParam(value: string | null): HumanCampPreference {
   return "random";
 }
 
-function humanRolePreferenceParam(value: string | null): Role | null {
-  return isRole(value) ? value : null;
-}
-
 function humanPlayerParam(value: string | null, playerCount: number): string | null {
   if (!value || value === "false" || value === "none") {
     return null;
@@ -149,9 +144,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
   const humanCampPreference = humanPlayerId
     ? humanCampPreferenceParam(url.searchParams.get("humanCamp") ?? url.searchParams.get("humanCampPreference"))
     : "random";
-  const humanRolePreference = humanPlayerId
-    ? humanRolePreferenceParam(url.searchParams.get("humanRole") ?? url.searchParams.get("humanRolePreference"))
-    : null;
+  const humanRolePreference = null;
   const debugScenario = humanPlayerId ? "none" : debugScenarioParam(url.searchParams.get("scenario"));
   return {
     provider,
