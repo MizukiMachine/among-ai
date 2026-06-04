@@ -4128,7 +4128,7 @@ export function App() {
 
             {humanEnabled ? (
               <div className="human-camp-field">
-                <span>陣営</span>
+                <span>陣営（人間陣営の方が難易度が高くなります）</span>
                 <div className="segments human-camp-options" role="group" aria-label="陣営">
                   {humanCampPreferenceOptions.map((option) => (
                     <button
@@ -4194,7 +4194,7 @@ export function App() {
           </div>
 
           <div className="field setup-field player-count-field">
-            <span>人数（多いほど難易度が高くなります）</span>
+            <span>人数（認知不可が高くなるため、人数が多いほど難易度が高くなります）</span>
             {scenarioMinimumPlayerCount > minPlayerCount ? (
               <span className="field-desc">このシナリオは{scenarioMinimumPlayerCount}人以上で実行します</span>
             ) : null}
