@@ -78,24 +78,16 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 // Startup never triggers this by itself; it only applies after play has reached a
 // generated scene or after submitted human input is waiting on a streamed response.
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
-// "Seen the tour" is persisted across sessions. Returning players skip the tour
-// without inserting a separate startup generation gate.
-const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";
+// "Seen the tour" is scoped to this page load so a hard reload shows the guide
+// again, while later matches in the same loaded app skip it without a startup gate.
+let uiTourSeenThisPageLoad = false;
 
 function hasSeenUiTour(): boolean {
-  try {
-    return typeof window !== "undefined" && window.localStorage.getItem(UI_TOUR_SEEN_KEY) === "1";
-  } catch {
-    return false;
-  }
+  return uiTourSeenThisPageLoad;
 }
 
 function markUiTourSeen(): void {
-  try {
-    window.localStorage.setItem(UI_TOUR_SEEN_KEY, "1");
-  } catch {
-    // localStorage can be unavailable (private mode / SSR); the tour simply repeats.
-  }
+  uiTourSeenThisPageLoad = true;
 }
 
 function isBlockingHumanInput(request: HumanInputRequest | null): request is HumanInputRequest {
@@ -1657,6 +1649,7 @@ export function App() {
   // UI guided-tour anchors (spotlight targets) + launch bookkeeping.
   const rosterListRef = useRef<HTMLDivElement | null>(null);
   const playerActionsRef = useRef<HTMLDivElement | null>(null);
+  const speechInterruptButtonRef = useRef<HTMLButtonElement | null>(null);
   const storyControlsRef = useRef<HTMLDivElement | null>(null);
   const tourCalloutRef = useRef<HTMLDivElement | null>(null);
   const tourLaunchedRef = useRef(false);
@@ -1849,6 +1842,16 @@ export function App() {
         body: "これまでの会話の履歴は「会話ログ」、各日の投票結果は「投票結果」のボタンから、いつでも振り返れます。"
       },
       {
+        key: "speech",
+        getEl: () => speechInterruptButtonRef.current ?? storyControlsRef.current,
+        title: "発言",
+        body: [
+          "議論が進むと発言できるようになり、「発言」ボタンが現れます",
+          "自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",
+          "発言しない時は「次へ」で進めます"
+        ]
+      },
+      {
         key: "controls",
         getEl: () => storyControlsRef.current,
         title: "視点・BGM・進行",
@@ -1859,6 +1862,8 @@ export function App() {
   );
   const tourActive = tourStepIndex !== null;
   const activeTourStep = tourStepIndex !== null ? tourSteps[tourStepIndex] ?? null : null;
+  const tourSpeechButtonPreview = tourActive && activeTourStep?.key === "speech" && !availableSpeechInterruptInput;
+  const showSpeechInterruptButton = Boolean(availableSpeechInterruptInput || tourSpeechButtonPreview);
 
   function finishTour() {
     setTourStepIndex(null);
@@ -1878,9 +1883,9 @@ export function App() {
     });
   }
 
-  // Once per match, as soon as the opening board is on screen (setup placeholder gone,
-  // first event revealed), run the guided tour the first time ever and remember it.
-  // Returning players skip the tour without adding a startup wait.
+  // Once per page load, as soon as the opening board is on screen (setup
+  // placeholder gone, first event revealed), run the guided tour and remember it
+  // only in memory. A hard reload resets that memory and shows the tour again.
   useEffect(() => {
     if (tourLaunchedRef.current || tourStepIndex !== null) {
       return;
@@ -1895,8 +1900,8 @@ export function App() {
     if (hasSeenUiTour()) {
       return;
     }
-    // "Seen" is persisted only once the tour has actually been shown and then closed
-    // (see the effect below), so refreshing mid-tour does not permanently skip it.
+    // "Seen" is stored only once the tour has actually been shown and then closed
+    // (see the effect below), so refreshing mid-tour starts onboarding again.
     // Start from the top so the spotlight overlays the canonical board layout.
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0 });
@@ -1904,8 +1909,9 @@ export function App() {
     setTourStepIndex(0);
   }, [events.length, tourStepIndex]);
 
-  // Persist "seen" only after the tour has been shown and then closed (whether the
-  // player skipped it or stepped to the end), so a mid-tour refresh keeps onboarding.
+  // Remember "seen" only after the tour has been shown and then closed (whether
+  // the player skipped it or stepped to the end), so a mid-tour refresh keeps
+  // onboarding.
   useEffect(() => {
     if (tourStepIndex !== null) {
       tourWasActiveRef.current = true;
@@ -4512,7 +4518,7 @@ export function App() {
     const calloutMargin = 16;
     const gap = pad + 12;
     const calloutWidth = Math.min(420, viewportWidth - calloutMargin * 2);
-    const calloutHeight = 260; // estimate used only for placement decisions
+    const calloutHeight = 320; // estimate used only for placement decisions
     const clampX = (x: number) => Math.min(Math.max(calloutMargin, x), viewportWidth - calloutWidth - calloutMargin);
     const clampY = (y: number) => Math.min(Math.max(calloutMargin, y), viewportHeight - calloutHeight - calloutMargin);
     let calloutStyle: CSSProperties;
@@ -4557,7 +4563,15 @@ export function App() {
             <button className="ui-tour-skip" onClick={finishTour} type="button">スキップ</button>
           </div>
           <h2>{activeTourStep.title}</h2>
-          <p>{activeTourStep.body}</p>
+          {Array.isArray(activeTourStep.body) ? (
+            <ul className="ui-tour-body-list">
+              {activeTourStep.body.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>{activeTourStep.body}</p>
+          )}
           <div className="ui-tour-actions">
             <button
               className="ui-tour-back"
@@ -4904,12 +4918,15 @@ export function App() {
                             </span>
                             <ChevronRight className="story-next-chevron" size={20} />
                           </button>
-                          {availableSpeechInterruptInput ? (
+                          {showSpeechInterruptButton ? (
                             <button
                               className="icon-button story-run-button story-interrupt-button"
-                              disabled={paused || humanSubmitting}
-                              onClick={openSpeechInterruptInput}
-                              title="昼議論に発言を挟む"
+                              ref={speechInterruptButtonRef}
+                              aria-disabled={tourSpeechButtonPreview ? true : undefined}
+                              disabled={availableSpeechInterruptInput ? paused || humanSubmitting : false}
+                              onClick={availableSpeechInterruptInput ? openSpeechInterruptInput : undefined}
+                              tabIndex={tourSpeechButtonPreview ? -1 : undefined}
+                              title={tourSpeechButtonPreview ? "議論が進むと発言できます" : "昼議論に発言を挟む"}
                               type="button"
                             >
                               <MessageCircle size={18} />

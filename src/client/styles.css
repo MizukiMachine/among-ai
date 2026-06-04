@@ -3767,21 +3767,23 @@ input[type="range"] {
 
 .participant-mode {
   width: min(100%, 520px);
-  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
 .participant-mode button {
   display: inline-flex;
+  width: 100%;
   min-height: 46px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border-radius: 6px;
-  padding: 9px 12px;
+  padding: 9px 10px;
   font-size: 14px;
   line-height: 1.15;
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
 }
 
 .participant-mode button svg {
@@ -5929,14 +5931,13 @@ input[type="range"] {
 
   .participant-mode {
     width: 100%;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .participant-mode button {
     min-height: 40px;
     padding: 8px 6px;
     font-size: 12px;
-    white-space: nowrap;
     line-height: 1.15;
   }
 
@@ -6230,6 +6231,20 @@ input[type="range"] {
   font-size: 18px;
   line-height: 1.64;
   color: #d6e2e9;
+}
+
+.ui-tour-body-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding-left: 1.25em;
+  color: #d6e2e9;
+  font-size: 18px;
+  line-height: 1.64;
+}
+
+.ui-tour-body-list li {
+  padding-left: 0.1em;
 }
 
 .ui-tour-actions {
