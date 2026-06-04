@@ -1188,6 +1188,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
+  assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?submitHumanInput\(\{ decision: false \}\)[\s\S]*?発言せず次へ/s);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
