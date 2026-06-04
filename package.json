@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.25.0",
+  "engines": {
+    "node": ">=22.12.0 <23",
+    "pnpm": ">=10.25.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch src/server/index.ts",
@@ -20,7 +24,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.2.1",
     "hono": "^4.10.7",
-    "llm-hedge": "file:../llm-hedge",
+    "llm-hedge": "0.2.0",
     "lucide-react": "^0.561.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

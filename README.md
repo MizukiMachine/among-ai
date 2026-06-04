@@ -42,26 +42,58 @@ Browser UI
       -> Redaction and human input sessions
 ```
 
+## Render Web Service へのデプロイ
+
+このアプリは SSE ストリームと人間入力セッションを同じ Node.js プロセスで扱うため、
+Render では Static Site ではなく Web Service としてデプロイする。
+
+リポジトリ直下の `render.yaml` を使って Blueprint から作成できる。手動作成する場合は
+次の設定にする:
+
+```text
+Service type: Web Service
+Runtime: Node
+Build Command: corepack enable && pnpm install --frozen-lockfile && pnpm build
+Start Command: pnpm start
+Health Check Path: /api/health
+```
+
+環境変数は Render の Environment で設定する:
+
+```text
+NODE_VERSION=22.22.3
+ZAI_API_KEY=...
+ZAI_MODEL=glm-5-turbo
+ZAI_BASE_URL=https://api.z.ai/api/anthropic
+ZAI_TIMEOUT_MS=120000
+```
+
+人間参加モードは `src/server/humanSessions.ts` のインメモリセッションを使うため、
+Render では `numInstances: 1` の単一インスタンス運用を前提にする。複数インスタンスへ
+水平スケールする場合は、セッション状態を Render Key Value などの外部ストアへ移す必要がある。
+Free インスタンスはアイドル時にスリープするため、対局用途では有料インスタンスを使う。
+
 ## LLM実行レイヤー (llm-hedge)
 
 LLM呼び出しのキュー・レース・リトライ・タイムアウト・キャンセルは、外部ライブラリ
 [`llm-hedge`](https://github.com/MizukiMachine/llm-hedge)（npm公開）に切り出してある。
-このリポジトリには同梱せず、`package.json` の `"llm-hedge": "file:../llm-hedge"` で
-隣接する [`../llm-hedge`](https://github.com/MizukiMachine/llm-hedge) を参照する。
+Render などの外部ビルド環境で解決できるように、このリポジトリでは npm 公開版の
+`llm-hedge` を依存として参照する。
 
 `llm-hedge` を変更したいときは、**唯一の正である `../llm-hedge` リポジトリの `src/` だけを編集**する
-（among-ai 内に実体コピーは無い）。`file:` リンクはビルド成果物 `dist/` を参照するので、
-変更を among-ai に反映するにはライブラリ側でビルドが要る:
+（among-ai 内に実体コピーは無い）。変更を among-ai に反映するには、ライブラリ側でビルドと公開を行い、
+among-ai 側の依存バージョンを更新する:
 
 ```bash
 cd ../llm-hedge
-pnpm build          # tsc で src/ -> dist/ を再生成
-# among-ai 側は file: リンク経由で dist/ を見ているので即反映される
+pnpm build
+npm publish
+cd ../among-ai
+pnpm add llm-hedge@<published-version>
 ```
 
 > 生TSではなくビルド成果物（＝npmで配布する実物）を消費しているため、ローカルで
-> 公開パッケージをそのまま dogfood できる。配布・CI 向けには `../llm-hedge` で
-> `npm publish`（バージョンを上げてから）。
+> 公開パッケージをそのまま dogfood できる。
 
 ## 関連ドキュメント
 
