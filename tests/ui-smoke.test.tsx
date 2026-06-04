@@ -492,6 +492,7 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*padding-bottom:\s*18px;/s);
   assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*absolute/s);
   assert.match(css, /\.story-hero\.round_summary \.story-copy\s*\{[^}]*grid-template-columns:\s*minmax\(520px,\s*900px\) minmax\(184px,\s*224px\)/s);
+  assert.match(css, /\.story-hero\.round_summary \.story-copy\s*\{[^}]*overflow-y:\s*auto[^}]*scrollbar-gutter:\s*stable/s);
   assert.match(css, /\.story-hero\.round_summary \.round-summary-mentions\s*\{[^}]*display:\s*grid[^}]*grid-column:\s*2[^}]*grid-row:\s*3[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.story-hero\.round_summary \.round-summary-mentions \.mentioned-character-thumb\s*\{[^}]*width:\s*96px[^}]*height:\s*112px/s);
   assert.match(css, /@media \(max-width: 1599px\) and \(min-width: 1181px\)[\s\S]*\.story-hero\.round_summary \.story-copy\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(176px,\s*196px\)/s);
@@ -786,7 +787,7 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /\.story-copy\s*\{[^}]*max-height:\s*calc\(100% - 170px\)/s);
   assert.match(css, /\.story-copy\s*\{[^}]*overflow:\s*visible/s);
   assert.match(css, /\.story-copy > p\s*\{[^}]*-webkit-line-clamp:\s*5/s);
-  assert.doesNotMatch(css, /\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.doesNotMatch(css, /(^|\n)\.story-copy\s*\{[^}]*overflow-y:\s*auto/s);
   assert.doesNotMatch(css, /\.story-copy::-webkit-scrollbar/);
   assert.match(css, /\.setup-grid\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-controls\s*\{[^}]*position:\s*absolute/s);

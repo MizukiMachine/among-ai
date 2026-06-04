@@ -2953,7 +2953,10 @@ input[type="range"] {
   grid-template-columns: minmax(520px, 900px) minmax(184px, 224px);
   align-items: start;
   column-gap: 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-bottom: 12px;
+  scrollbar-gutter: stable;
 }
 
 .story-hero.round_summary .event-meta,
