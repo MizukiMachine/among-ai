@@ -3115,7 +3115,7 @@ input[type="range"] {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
 }
 
 .human-speech-submit-row .icon-button {

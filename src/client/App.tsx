@@ -3229,6 +3229,17 @@ export function App() {
         <div className="human-speech-submit-row">
           <p className="human-choice-hint">{speechHint}</p>
           <span className="human-speech-count">{humanSpeech.length}/240</span>
+          {isDiscussionInterrupt ? (
+            <button
+              className="icon-button human-speech-skip-button"
+              disabled={humanSubmitting}
+              onClick={() => submitHumanInput({ decision: false })}
+              type="button"
+            >
+              <X size={18} />
+              <span>発言せず次へ</span>
+            </button>
+          ) : null}
           <button
             className="icon-button primary"
             disabled={humanSubmitting || !canSubmitHumanSpeech}
