@@ -24,8 +24,8 @@ importers:
         specifier: ^4.10.7
         version: 4.12.18
       llm-hedge:
-        specifier: file:../llm-hedge
-        version: file:../llm-hedge(@anthropic-ai/sdk@0.96.0)
+        specifier: 0.2.0
+        version: 0.2.0(@anthropic-ai/sdk@0.96.0)
       lucide-react:
         specifier: ^0.561.0
         version: 0.561.0(react@19.2.6)
@@ -1088,8 +1088,8 @@ packages:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
 
-  llm-hedge@file:../llm-hedge:
-    resolution: {directory: ../llm-hedge, type: directory}
+  llm-hedge@0.2.0:
+    resolution: {integrity: sha512-ZP/Dm1WWKFrPwxJ/ddf6n8de/0mOtAgus3JFe1Ftshm+IkOfAXV5bmgo7ilI8pNGTld9rLyBgHaHoDq5OdlrmA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@anthropic-ai/sdk': '>=0.96.0'
@@ -2288,7 +2288,7 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  llm-hedge@file:../llm-hedge(@anthropic-ai/sdk@0.96.0):
+  llm-hedge@0.2.0(@anthropic-ai/sdk@0.96.0):
     dependencies:
       '@anthropic-ai/sdk': 0.96.0
 

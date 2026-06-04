@@ -13,10 +13,12 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const port = Number(process.env.PORT ?? 8787);
+const hostname = process.env.HOST ?? "0.0.0.0";
 
 serve({
   fetch: app.fetch,
+  hostname,
   port
 });
 
-console.log(`among ai API listening on http://localhost:${port}`);
+console.log(`among ai API listening on http://${hostname}:${port}`);
