@@ -183,6 +183,79 @@ function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) |
   return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
 }
 
+function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, language: string): string[] {
+  const deception = secret?.werewolfDeception;
+  if (!deception?.claimedRole) {
+    return [
+      "- 公開上の偽装方針: まだ固定していません。人間側として自然に振る舞い、占い師騙りを含む嘘を投票・対抗・疑い作りに積極的に使います。"
+    ];
+  }
+
+  const role = roleLabel(deception.claimedRole, language);
+  const lines = [
+    `- 公開上の偽装方針: ${deception.publiclyClaimed ? `あなたは${role}を主張しています` : `あなたは${role}を主張する予定です`}。`,
+    "- この偽装は人狼側の秘密です。公開発言では嘘だと認めず、人狼仲間や夜相談にも触れません。"
+  ];
+  if (deception.claimedRole === "Seer") {
+    lines.push(
+      deception.publiclyClaimed
+        ? "- 占い師騙りは継続します。二日目以降は毎昼、偽の占い結果を本物の結果として短く出します。"
+        : "- まだ公開で占い師主張が通っていないなら、今日の昼発言で占い師として出ます。"
+    );
+    if (deception.fakeSeerResults && deception.fakeSeerResults.length > 0) {
+      lines.push(
+        "- 公開で通す偽の占い結果:",
+        ...deception.fakeSeerResults.map((result) => {
+          const round = result.round ? `第${result.round}ラウンド: ` : "";
+          return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+        })
+      );
+    }
+    if (deception.currentFakeSeerResult) {
+      const result = deception.currentFakeSeerResult;
+      lines.push(
+        `- 今日必ず出す偽結果: ${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。対象名と判定を明示し、過去の偽結果と矛盾させません。`
+      );
+    }
+  }
+  return lines;
+}
+
+function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language: string): string[] {
+  const disclosure = secret?.seerDisclosure;
+  if (!disclosure) {
+    return [];
+  }
+
+  const lines = [
+    disclosure.publiclyClaimed
+      ? `- 公開CO状態: あなたは占い師として名乗っています${disclosure.claimRound ? `（第${disclosure.claimRound}ラウンド）` : ""}。以後も占い師主張を継続し、結果を矛盾させません。`
+      : "- 公開CO状態: まだ占い師として名乗っていません。今日COするなら、持っている占い結果を対象名と判定つきで明確に出します。"
+  ];
+
+  if (disclosure.announcedResults && disclosure.announcedResults.length > 0) {
+    lines.push(
+      "- 公開済みの占い結果:",
+      ...disclosure.announcedResults.map((result) => {
+        const round = result.round ? `第${result.round}ラウンド: ` : "";
+        return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+      })
+    );
+  }
+
+  if (disclosure.currentResultsToPublish && disclosure.currentResultsToPublish.length > 0) {
+    lines.push(
+      "- 今日公開する占い結果:",
+      ...disclosure.currentResultsToPublish.map((result) => {
+        const round = result.round ? `第${result.round}ラウンド: ` : "";
+        return `  - ${round}${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。公開発言で対象名と判定を明示する。`;
+      })
+    );
+  }
+
+  return lines;
+}
+
 function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
   if (isWerewolfRole(role)) {
     const allies = secret?.werewolfAllies ?? [];
@@ -195,12 +268,13 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
-        : ["  - なし"])
+        : ["  - なし"]),
+      ...formatWerewolfDeceptionJa(secret, language)
     ];
   }
 
   if (role === "Seer") {
-    return formatSeerResultsJa(secret?.seerResults ?? [], language);
+    return [...formatSeerResultsJa(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
   }
 
   if (role === "Witch") {
@@ -234,12 +308,13 @@ function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefine
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
-        : ["  - なし"])
+        : ["  - なし"]),
+      ...formatWerewolfDeceptionJa(secret, language)
     ];
   }
 
   if (role === "Seer") {
-    return formatSeerResults(secret?.seerResults ?? [], language);
+    return [...formatSeerResults(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
   }
 
   if (role === "Witch") {
@@ -329,7 +404,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時";
     const common = werewolfRole
       ? [
-          `人狼側の役職騙り方針: ${claimRoles}は、${claimCondition}だけ短く騙ってよい。`,
+          `人狼側の役職騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}に短く騙る。`,
+          "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
           "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
           "仲間、夜の相談、襲撃情報は漏らさない。騙る時も村側と同じ条件で、票・対抗・自分への疑いを動かす理由に結びつける。"
         ]
@@ -375,7 +451,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時だけ";
   const common = werewolfRole
     ? [
-        `人狼の騙り方針: ${claimRoles}は、${claimCondition}短く騙ってよい。`,
+        `人狼の騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}短く騙る。`,
+        "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
         "騎士は通常の騙り対象にしない。護衛先は作らない。",
         "仲間、人狼だけの相談、襲撃情報は絶対に漏らさない。役職を騙る時は、村側の名乗りと同じ条件を使う。"
       ]
