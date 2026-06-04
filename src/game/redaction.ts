@@ -9,9 +9,9 @@ export interface VillagePlayerSnapshot extends Omit<PlayerSnapshot, "camp" | "ro
 }
 
 export interface VillageGameSnapshot extends Omit<GameSnapshot, "players" | "villageCount" | "werewolfCount"> {
-  players: VillagePlayerSnapshot[];
-  villageCount: null;
-  werewolfCount: null;
+  players: Array<VillagePlayerSnapshot | PlayerSnapshot>;
+  villageCount: number | null;
+  werewolfCount: number | null;
 }
 
 export interface VillageGameEvent extends Omit<GameEvent, "data" | "role" | "snapshot"> {
@@ -30,8 +30,8 @@ export interface PlayerViewPlayerSnapshot extends Omit<PlayerSnapshot, "camp" | 
 
 export interface PlayerViewGameSnapshot extends Omit<GameSnapshot, "players" | "villageCount" | "werewolfCount"> {
   players: PlayerViewPlayerSnapshot[];
-  villageCount: null;
-  werewolfCount: null;
+  villageCount: number | null;
+  werewolfCount: number | null;
 }
 
 export interface PlayerViewGameEvent extends Omit<GameEvent, "data" | "role" | "snapshot"> {
@@ -68,6 +68,9 @@ export function eventVisibility(event: GameEvent): EventVisibility {
 }
 
 export function redactSnapshotForVillage(snapshot: GameSnapshot): VillageGameSnapshot {
+  if (snapshot.phase === "ended") {
+    return snapshot;
+  }
   return {
     ...snapshot,
     werewolfCount: null,
@@ -86,6 +89,9 @@ export function redactSnapshotForVillage(snapshot: GameSnapshot): VillageGameSna
 }
 
 export function redactSnapshotForPlayer(snapshot: GameSnapshot, playerId: string): PlayerViewGameSnapshot {
+  if (snapshot.phase === "ended") {
+    return snapshot;
+  }
   // A werewolf-camp viewer knows their fellow werewolves' identities — they are revealed at
   // the first-day face-off and share the night chat. A Lover viewer likewise learns their
   // partner at the lover face-off. The UI still gates when those real roles are displayed.

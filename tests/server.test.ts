@@ -469,8 +469,13 @@ test("village stream payload is redacted on the server before SSE delivery", asy
     assert.equal(event.data?.targetRole, undefined);
     assert.equal(event.data?.visibleTo, undefined);
     assert.equal(event.data?.result, undefined);
-    assert.ok(event.snapshot.players.every((player) => String(player.role) === "Hidden"));
-    assert.ok(event.snapshot.players.every((player) => String(player.camp) === "hidden"));
+    if (event.snapshot.phase === "ended") {
+      assert.ok(event.snapshot.players.some((player) => String(player.role) !== "Hidden"));
+      assert.ok(event.snapshot.players.some((player) => String(player.camp) !== "hidden"));
+    } else {
+      assert.ok(event.snapshot.players.every((player) => String(player.role) === "Hidden"));
+      assert.ok(event.snapshot.players.every((player) => String(player.camp) === "hidden"));
+    }
   }
 });
 
