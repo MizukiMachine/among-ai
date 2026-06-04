@@ -1083,7 +1083,7 @@ function demoFirstDayOpeningMoveSpeech(
       return "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる";
     }
     if (move.kind === "wolf_fake_role_claim") {
-      return "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい";
+      return "私は占い師です。初日は結果がないので、今日は投票理由を薄くする人を見ます";
     }
     if (move.kind === "state_vote_criteria") {
       return "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にします";
@@ -1113,7 +1113,7 @@ function demoFirstDayOpeningMoveSpeech(
     return "俺は人間側として村を守る。理由を出さずに様子見する人は投票候補に入れる";
   }
   if (move.kind === "wolf_fake_role_claim") {
-    return "私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい";
+    return "私は占い師です。初日は結果がないので、今日は投票理由を薄くする人を見ます";
   }
   if (move.kind === "state_vote_criteria") {
     return "今日は理由の具体性と、質問にちゃんと答えたかを投票基準にします";
@@ -1145,6 +1145,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
     situations.includes("first_day") &&
     !situations.includes("seer_claim") &&
     !situations.includes("black_result");
+  const firstDayNoSeerResults = input.phase === "day_discussion" && situations.includes("first_day");
   const openingFirstDay = firstDaySoft && input.publicHistory.length === 0;
   const plannedOpeningMove = input.speechPlan?.opensFirstDay === true && Boolean(input.speechPlan.firstDayOpeningMove);
   const reasonPool = demoSpeechReasonPool(input, situations, language, openingFirstDay);
@@ -1197,7 +1198,7 @@ function buildDemoSpeech(input: AgentSpeechInput, language: string): AgentSpeech
   if (input.player.role === "Seer" && seerResult) {
     const [targetId, camp] = seerResult;
     const name = targetName(targetId, input.knownPlayers);
-    const shouldClaim = input.phase === "day_discussion";
+    const shouldClaim = input.phase === "day_discussion" && !firstDayNoSeerResults;
     if (shouldClaim) {
       metadata.claims.push({
         type: "role_claim",

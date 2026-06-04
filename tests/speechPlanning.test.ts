@@ -340,7 +340,7 @@ test("first-day opening moves can satisfy special opening review rules", () => {
   });
   const wolfFakeRole = reviewSpeechAgainstPlan(
     {
-      messages: ["私は占い師です。黒結果が出るまでは結果を伏せます。今日は誰がその条件を嫌がるか見たい"],
+      messages: ["私は占い師です。初日は結果がないので、今日は投票理由を薄くする人を見ます"],
       metadata
     },
     wolfFakeRolePlan,

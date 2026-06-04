@@ -99,6 +99,8 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
     ...baseInput,
     player: player("Seer")
   });
+  assert.match(seerContext, /初日昼には占い結果はありません/);
+  assert.match(seerContext, /本物の占い師も、占い師騙りも/);
   assert.match(seerContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
   assert.match(seerContext, /騎士は通常絶対に名乗らない/);
   assert.doesNotMatch(seerContext, /占い師など|役職など/);
@@ -107,6 +109,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
     ...baseInput,
     player: player("Werewolf")
   });
+  assert.match(werewolfContext, /初日昼には占い結果はありません/);
   assert.match(werewolfContext, /人狼側の役職騙り方針/);
   assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
   assert.match(werewolfContext, /占い師騙りを優先候補/);
@@ -117,6 +120,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
     ...baseInput,
     player: player("Jester")
   });
+  assert.match(jesterContext, /初日昼には占い結果はありません/);
   assert.match(jesterContext, /道化師の役職騙り方針/);
   assert.match(jesterContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
   assert.match(jesterContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
@@ -283,7 +287,7 @@ test("werewolf public deception context persists fake Seer claim and current fak
     alivePlayers,
     deadPlayers: [],
     publicHistory: [
-      "Ada: 私は占い師です。黒結果が出るまでは伏せます。",
+      "Ada: 私は占い師です。初日は結果がないので、投票理由を見ます。",
       "第1ラウンド投票: Byron -> Curie。"
     ],
     privateHistory: [],
@@ -525,6 +529,7 @@ test("first-day public speech context stays simple even when a speech plan exist
   assert.match(context, /役職/);
   assert.match(context, /これまでの会話/);
   assert.match(context, /まだありません/);
+  assert.match(context, /初日昼には占い結果はありません/);
   assert.match(context, /見えていない発言、反応、矛盾、役職主張を事実として作らない/);
   assert.doesNotMatch(context, /議題スケジューラ/);
   assert.doesNotMatch(context, /人狼陣営は初日昼の演技が見せ場/);
@@ -552,6 +557,7 @@ test("first-day public speech context stays simple even when a speech plan exist
     })
   });
   assert.match(wolfContext, /公開の場では、人狼であること、仲間、夜の相談は漏らさない/);
+  assert.match(wolfContext, /初日昼には占い結果はありません/);
   assert.match(wolfContext, /人狼側の役職騙り方針/);
   assert.match(wolfContext, /占い師騙りを優先候補/);
   assert.match(wolfContext, /二日目以降は毎昼、偽の占い結果/);

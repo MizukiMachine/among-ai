@@ -3874,8 +3874,8 @@ export class WerewolfGame {
   private werewolfDeceptionFallbackSpeech(task: WerewolfDeceptionTask): AgentSpeech {
     if (!task.result) {
       const message = this.text(
-        "私は占い師です。黒結果が出るまでは伏せますが、今日は投票理由の薄い人を見ます",
-        "私は占い師です。黒結果が出るまでは伏せますが、今日は投票理由の薄い人を見ます"
+        "私は占い師です。初日は結果がないので、今日は投票理由の薄い人を見ます",
+        "私は占い師です。初日は結果がないので、今日は投票理由の薄い人を見ます"
       );
       return {
         messages: [message],
@@ -3905,6 +3905,9 @@ export class WerewolfGame {
     if (hasSeerClaim) {
       state = this.ensureWerewolfSeerDeceptionState(player, true);
       metadata = this.upsertSeerClaimMetadata(metadata);
+    }
+    if (this.round <= 1) {
+      return metadata === speech.metadata ? speech : { ...speech, metadata };
     }
     if (!state || state.claimedRole !== "Seer") {
       return metadata === speech.metadata ? speech : { ...speech, metadata };
@@ -4004,7 +4007,7 @@ export class WerewolfGame {
   }
 
   private prepareTrueSeerDisclosureTask(player: Player): SeerDisclosureTask | null {
-    if (this.phase !== "day_discussion" || player.role !== "Seer" || !player.alive || this.isHumanControlledPlayer(player)) {
+    if (this.phase !== "day_discussion" || this.round <= 1 || player.role !== "Seer" || !player.alive || this.isHumanControlledPlayer(player)) {
       return null;
     }
     const results = this.trueSeerResults(player);
@@ -4119,11 +4122,13 @@ export class WerewolfGame {
       metadata = this.upsertSeerClaimMetadata(metadata);
     }
 
-    for (const result of this.trueSeerResults(player)) {
-      if (this.speechMentionsCampResult(text, result) && (hasSeerClaim || /占い|判定|結果/u.test(text))) {
-        state = state ?? this.ensureSeerDisclosureState(player, hasSeerClaim);
-        state.announcedResultIds.add(result.targetId);
-        metadata = this.upsertSeerClaimMetadata(metadata, result);
+    if (this.round > 1) {
+      for (const result of this.trueSeerResults(player)) {
+        if (this.speechMentionsCampResult(text, result) && (hasSeerClaim || /占い|判定|結果/u.test(text))) {
+          state = state ?? this.ensureSeerDisclosureState(player, hasSeerClaim);
+          state.announcedResultIds.add(result.targetId);
+          metadata = this.upsertSeerClaimMetadata(metadata, result);
+        }
       }
     }
 
@@ -5029,6 +5034,11 @@ export class WerewolfGame {
         ...diagnostic
       });
     };
+    const publishesInvalidFirstDaySeerResult = (candidate: AgentSpeech) =>
+      diagnosticPhase === "day_discussion" &&
+      diagnosticRound <= 1 &&
+      textHasCampResultEvidence(candidate.messages.join(" ")) &&
+      /占い|判定|結果/u.test(candidate.messages.join(" "));
     emitSpeechAttemptDiagnostic({ kind: "speech_started" });
     try {
       attempts += 1;
@@ -5100,6 +5110,51 @@ export class WerewolfGame {
         const fallback = this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers, player);
         const fallbackReview = reviewJapaneseOutput(fallback.messages.join(" "), this.config.language);
         emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: fallbackReview.ok });
+        return fallback;
+      }
+
+      if (publishesInvalidFirstDaySeerResult(speech)) {
+        const issues = ["first-day Seer result is not allowed"];
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_review_rejected",
+          attempts,
+          issues,
+          revisionHint: this.text(
+            "First day has no Seer results. Rewrite without any target name plus alignment result.",
+            "初日昼には占い結果はありません。対象名と判定を出さない短い発言に直してください。"
+          )
+        });
+        attempts += 1;
+        const retryInput: AgentSpeechInput = {
+          ...input,
+          context: [
+            input.context,
+            "",
+            this.text(
+              "First day has no Seer results. Do not state any target name with a village/werewolf result.",
+              "初日昼には占い結果はありません。本物の占い師も占い師騙りも、対象名と判定を出しません。結果なしの短い発言だけにしてください。"
+            )
+          ].join("\n")
+        };
+        const retrySpeech = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers, player);
+        if (requestAbortSignal?.aborted) {
+          throw new Error("Speech request cancelled.");
+        }
+        const retryOutputReview = reviewJapaneseOutput(retrySpeech.messages.join(" "), this.config.language);
+        if (retryOutputReview.ok && !publishesInvalidFirstDaySeerResult(retrySpeech)) {
+          emitSpeechAttemptDiagnostic({ kind: "speech_retry_accepted", attempts, issues: [] });
+          emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
+          return retrySpeech;
+        }
+
+        emitSpeechAttemptDiagnostic({
+          kind: "speech_retry_rejected",
+          attempts,
+          issues: retryOutputReview.ok ? issues : [...issues, ...retryOutputReview.issues],
+          styleIssues: retryOutputReview.issues
+        });
+        const fallback = this.sanitizeSpeechForPhase(buildSimpleFallbackSpeech(input, this.config.language), legalPlayers, player);
+        emitSpeechAttemptDiagnostic({ kind: "speech_completed", attempts, retried: true, reviewOk: true });
         return fallback;
       }
 
@@ -5556,18 +5611,46 @@ export class WerewolfGame {
     return this.alivePlayers().filter((candidate) => candidate.id !== player.id);
   }
 
+  private sanitizeClaimForPhase(claim: ClaimMetadata): ClaimMetadata | null {
+    const firstDayPublicDecision = (this.phase === "day_discussion" || this.phase === "voting") && this.round <= 1;
+    if (!firstDayPublicDecision || (claim.role !== "Seer" && claim.type !== "seer_result")) {
+      return claim;
+    }
+
+    const hasResultPayload = Boolean(claim.result || claim.camp || claim.targetId || claim.targetName || claim.type === "seer_result");
+    if (!hasResultPayload) {
+      return claim;
+    }
+    if (!claim.role) {
+      return null;
+    }
+
+    const { result: _result, targetId: _targetId, targetName: _targetName, camp: _camp, ...rest } = claim;
+    const note =
+      claim.note && !textHasCampResultEvidence(claim.note)
+        ? claim.note
+        : this.text("Seer claim without a first-day result", "初日は結果なしの占い師主張");
+    return {
+      ...rest,
+      type: "role_claim",
+      role: "Seer",
+      note
+    };
+  }
+
   private sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): AgentSpeech {
     const legalIds = new Set(legalPlayers.map((candidate) => candidate.id));
     const speechText = speech.messages.join(" ");
+    const claims = speech.metadata.claims
+      .map((claim) => this.sanitizeClaimForPhase(claim))
+      .filter((claim): claim is ClaimMetadata => Boolean(claim));
     return {
       ...speech,
       metadata: {
         ...speech.metadata,
         suspects: speech.metadata.suspects.filter((read) => legalIds.has(read.targetId)),
         trusts: speech.metadata.trusts.filter((read) => legalIds.has(read.targetId)),
-        claims: speech.metadata.claims.filter((claim) =>
-          claimMetadataVisibleInSpeech(claim, speechText, this.config.language, legalPlayers, speaker)
-        )
+        claims: claims.filter((claim) => claimMetadataVisibleInSpeech(claim, speechText, this.config.language, legalPlayers, speaker))
       }
     };
   }
