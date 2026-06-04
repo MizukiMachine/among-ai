@@ -159,7 +159,6 @@ test("setup controls share the ui confirmation sound and bgm starts from Orbital
   assert.match(source, /const startId = getDefaultBgmId\(audioManifest\);/);
   assert.match(source, /controller\.playBgmPlaylist\(bgmRotationIds, selectedBgmId\)/);
   assert.doesNotMatch(source, /nextBgmStartIndexRef/);
-  // BGM rotation must not persist across reloads (the only localStorage use is the
-  // one-time UI-tour flag, which is unrelated to audio).
+  // BGM rotation must not persist across reloads.
   assert.doesNotMatch(source, /localStorage\.[gs]etItem\([^)]*bgm/i);
 });

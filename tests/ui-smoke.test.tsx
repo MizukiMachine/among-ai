@@ -1059,6 +1059,12 @@ test("setup exposes human camp and role preference choices", () => {
   assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.human-role-field\s*\{[^}]*width:\s*min\(100%,\s*520px\)/s);
   assert.match(css, /\.human-role-field select\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(css, /\.participant-mode\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.participant-mode button\s*\{[^}]*width:\s*100%[^}]*white-space:\s*normal/s);
+  assert.match(
+    css,
+    /@media \(max-width: 760px\)[\s\S]*\.participant-mode\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s
+  );
 });
 
 test("human input waits behind unread story events with a visible notice", () => {
@@ -1332,18 +1338,27 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // already existed; roster list / log+vote actions / story controls are added).
   assert.match(source, /const rosterListRef = useRef<HTMLDivElement \| null>\(null\)/);
   assert.match(source, /const playerActionsRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(source, /const speechInterruptButtonRef = useRef<HTMLButtonElement \| null>\(null\)/);
   assert.match(source, /const storyControlsRef = useRef<HTMLDivElement \| null>\(null\)/);
   assert.match(source, /className="player-list-scroll" ref=\{rosterListRef\}/);
   assert.match(source, /className="player-section-actions" ref=\{playerActionsRef\}/);
+  assert.match(source, /className="icon-button story-run-button story-interrupt-button"\s*\n\s*ref=\{speechInterruptButtonRef\}/);
   assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
 
-  // The four ordered steps stay neutral because the human player can be assigned either camp.
+  // The ordered steps stay neutral because the human player can be assigned either camp.
   assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "役職内訳"/);
   assert.match(source, /今回の対局の役職構成を確認できます/);
   assert.doesNotMatch(source, /人狼陣営として村人の全排除を目指すゲーム/);
   assert.match(source, /getEl: \(\) => rosterListRef\.current,\s*\n\s*title: "プレイヤー一覧"/);
   assert.match(source, /気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます/);
   assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
+  assert.match(source, /getEl: \(\) => speechInterruptButtonRef\.current \?\? storyControlsRef\.current,\s*\n\s*title: "発言"/);
+  assert.match(source, /body: \[\s*"議論が進むと発言できるようになり、「発言」ボタンが現れます",\s*"自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",\s*"発言しない時は「次へ」で進めます"\s*\]/);
+  assert.match(source, /Array\.isArray\(activeTourStep\.body\) \? \(\s*<ul className="ui-tour-body-list">/);
+  assert.match(source, /<li key=\{item\}>\{item\}<\/li>/);
+  assert.match(source, /const tourSpeechButtonPreview = tourActive && activeTourStep\?\.key === "speech" && !availableSpeechInterruptInput;/);
+  assert.match(source, /const showSpeechInterruptButton = Boolean\(availableSpeechInterruptInput \|\| tourSpeechButtonPreview\);/);
+  assert.match(source, /\{showSpeechInterruptButton \? \(\s*<button[\s\S]*?className="icon-button story-run-button story-interrupt-button"[\s\S]*?aria-disabled=\{tourSpeechButtonPreview \? true : undefined\}[\s\S]*?disabled=\{availableSpeechInterruptInput \? paused \|\| humanSubmitting : false\}[\s\S]*?onClick=\{availableSpeechInterruptInput \? openSpeechInterruptInput : undefined\}[\s\S]*?tabIndex=\{tourSpeechButtonPreview \? -1 : undefined\}/);
   assert.match(source, /getEl: \(\) => storyControlsRef\.current,\s*\n\s*title: "視点・BGM・進行"/);
 
   // Launches once per match after the opening board is revealed; reset on new game.
@@ -1364,24 +1379,30 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
   assert.match(css, /\.ui-tour-callout p\s*\{[^}]*font-size:\s*18px;/s);
+  assert.match(css, /\.ui-tour-body-list\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(source, /const calloutWidth = Math\.min\(420, viewportWidth - calloutMargin \* 2\);/);
 });
 
-test("returning players skip the tour without a startup generation gate", () => {
+test("hard reload resets the tour without a startup generation gate", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  // "Seen the tour" is persisted across sessions and read with a safe fallback.
-  assert.match(source, /const UI_TOUR_SEEN_KEY = "among-ai:ui-tour-seen";/);
+  // "Seen the tour" is scoped to one page load. Hard reloads reset the in-memory
+  // flag, so onboarding appears again without relying on localStorage.
+  assert.match(source, /let uiTourSeenThisPageLoad = false;/);
   assert.match(source, /function hasSeenUiTour\(\): boolean/);
-  assert.match(source, /window\.localStorage\.getItem\(UI_TOUR_SEEN_KEY\) === "1"/);
+  assert.match(source, /return uiTourSeenThisPageLoad;/);
   assert.match(source, /function markUiTourSeen\(\): void/);
-  assert.match(source, /window\.localStorage\.setItem\(UI_TOUR_SEEN_KEY, "1"\)/);
+  assert.match(source, /uiTourSeenThisPageLoad = true;/);
+  assert.doesNotMatch(source, /UI_TOUR_SEEN_KEY/);
+  assert.doesNotMatch(source, /localStorage\.getItem/);
+  assert.doesNotMatch(source, /localStorage\.setItem/);
 
-  // First match runs the tour; later matches skip it without adding a wait gate.
+  // First match in a page load runs the tour; later matches skip it without
+  // adding a wait gate.
   assert.match(source, /if \(hasSeenUiTour\(\)\) \{\s*\n\s*return;\s*\n\s*\}/);
-  // "Seen" is persisted only after the tour is shown and then closed (skip or finish),
-  // so a mid-tour refresh keeps onboarding instead of permanently skipping it.
+  // "Seen" is marked only after the tour is shown and then closed (skip or
+  // finish), so a mid-tour hard reload starts onboarding again.
   assert.match(source, /tourWasActiveRef\.current = false;\s*\n\s*markUiTourSeen\(\);/);
   assert.doesNotMatch(source, /return;\s*\n\s*\}\s*\n\s*markUiTourSeen\(\);/);
 
