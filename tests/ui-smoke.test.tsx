@@ -66,7 +66,7 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /モデル名/);
   assert.doesNotMatch(html, /要約方法/);
   assert.doesNotMatch(html, /insight-grid/);
-  assert.match(html, /人数（多いほど難易度が高くなります）/);
+  assert.match(html, /人数（認知不可が高くなるため、人数が多いほど難易度が高くなります）/);
   assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
 });
 
@@ -1065,6 +1065,7 @@ test("setup exposes human camp and role preference choices", () => {
   assert.doesNotMatch(source, /プレイ目標/);
   assert.doesNotMatch(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
   assert.doesNotMatch(source, /仲間の演技を見ながら村人の全排除を狙います/);
+  assert.match(source, /陣営（人間陣営の方が難易度が高くなります）/);
   assert.match(source, /label: "人間陣営"/);
   assert.match(source, /label: "狼陣営"/);
   assert.match(source, /label: "ランダム"/);
