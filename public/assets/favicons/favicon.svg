@@ -1,44 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="among ai">
   <title>among ai</title>
   <defs>
-    <linearGradient id="panel" x1="8" y1="5" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+    <linearGradient id="bg" x1="8" y1="4" x2="58" y2="62" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#121826"/>
-      <stop offset="0.52" stop-color="#091118"/>
       <stop offset="1" stop-color="#040a0f"/>
     </linearGradient>
-    <linearGradient id="cyan" x1="12" y1="10" x2="52" y2="55" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#aafff7"/>
-      <stop offset="0.52" stop-color="#67d8df"/>
-      <stop offset="1" stop-color="#2fc581"/>
-    </linearGradient>
-    <linearGradient id="metal" x1="21" y1="10" x2="44" y2="51" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f2f6f7"/>
-      <stop offset="0.45" stop-color="#7f929b"/>
-      <stop offset="1" stop-color="#1b252c"/>
-    </linearGradient>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#67d8df" flood-opacity="0.55"/>
-      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#020617" flood-opacity="0.5"/>
+    <filter id="cyan-glow" x="-24%" y="-24%" width="148%" height="148%">
+      <feDropShadow dx="0" dy="0" stdDeviation="1.5" flood-color="#67d8df" flood-opacity="0.55"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="mark-shadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="1" dy="2" stdDeviation="0.7" flood-color="#000000" flood-opacity="0.55"/>
     </filter>
   </defs>
-  <rect x="3" y="3" width="58" height="58" rx="14" fill="url(#panel)"/>
+  <rect x="2" y="2" width="60" height="60" rx="10" fill="url(#bg)"/>
   <path
-    d="M32 4.5 54.5 17.5v28.8L32 59.5 9.5 46.3V17.5Z"
-    fill="#0b1218"
-    stroke="url(#cyan)"
-    stroke-width="2.5"
-    filter="url(#glow)"
-  />
-  <path d="M15 27.5h8v8.8h-8zM41 27.5h8v8.8h-8z" fill="#111b23" stroke="#67d8df" stroke-width="1.6"/>
-  <circle cx="19" cy="32" r="3.1" fill="#2fc581"/>
-  <circle cx="45" cy="32" r="3.1" fill="#2fc581"/>
-  <path
-    d="M18 48 29.5 15h5L46 48h-8.2L32 29.5 26.2 48Z"
-    fill="#05090d"
-    stroke="url(#metal)"
+    d="M32 4.5 56 18v28L32 59.5 8 46V18Z"
+    fill="#071018"
+    stroke="#67d8df"
     stroke-linejoin="round"
-    stroke-width="3.6"
+    stroke-width="3.8"
+    filter="url(#cyan-glow)"
   />
-  <path d="M32 31.8 27.5 48h9Z" fill="#05090d" stroke="#67d8df" stroke-linejoin="round" stroke-width="1.4"/>
-  <path d="M24 50.8h16" stroke="#e3a64f" stroke-width="2.2" stroke-linecap="round"/>
+  <path
+    d="M32 9 51 20v24L32 55 13 44V20Z"
+    fill="none"
+    stroke="#aafff7"
+    stroke-linejoin="round"
+    stroke-opacity="0.6"
+    stroke-width="1.4"
+  />
+  <circle cx="16" cy="32" r="5.4" fill="#2fc581" fill-opacity="0.28"/>
+  <circle cx="48" cy="32" r="5.4" fill="#2fc581" fill-opacity="0.28"/>
+  <circle cx="16" cy="32" r="3.2" fill="#2fc581"/>
+  <circle cx="48" cy="32" r="3.2" fill="#2fc581"/>
+  <path
+    d="M10.5 55 25.9 8h12.2l15.4 47H40.8l-3.4-9.6H26.6L23.2 55Z"
+    fill="#03080c"
+    stroke="#03080c"
+    stroke-linejoin="round"
+    stroke-width="5.2"
+    filter="url(#mark-shadow)"
+  />
+  <path
+    d="M10.5 55 25.9 8h12.2l15.4 47H40.8l-3.4-9.6H26.6L23.2 55Z"
+    fill="#ffffff"
+    stroke="#aafff7"
+    stroke-linejoin="round"
+    stroke-width="0.95"
+  />
+  <path d="M32 22.2 27.8 39.2h8.4Z" fill="#03080c" stroke="#67d8df" stroke-linejoin="round" stroke-width="0.8"/>
+  <path d="M26 49.7h12" stroke="#e3a64f" stroke-linecap="round" stroke-width="2.2"/>
 </svg>
