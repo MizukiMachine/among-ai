@@ -205,8 +205,8 @@ export const firstDayOpeningMoveKinds = [
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
 export const firstDayWerewolfOpeningMoveKinds = [
-  "wolf_human_side_claim",
-  "wolf_fake_role_claim"
+  "wolf_fake_role_claim",
+  "wolf_human_side_claim"
 ] as const satisfies readonly FirstDayOpeningMoveKind[];
 
 export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: string): FirstDayOpeningMove {
@@ -244,8 +244,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "人狼の偽役職アピール" : "人狼の偽役職アピール",
       instruction: japanese
-        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを村側と同じ条件で名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
-        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師、魔女、ハンター、鴉、愚者、長老のどれかを村側と同じ条件で名乗って場を揺らす。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。必要なら魔女、ハンター、鴉、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
+        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。必要なら魔女、ハンター、鴉、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。結果を作り込みすぎず、投票・対抗・自分への疑いを動かす理由につなげる。"
     },
     state_vote_criteria: {
       kind,

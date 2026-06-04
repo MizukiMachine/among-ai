@@ -4,6 +4,7 @@ import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoun
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
 import {
   textHasCampResultEvidence,
+  textHasSeerClaimEvidence,
   textHasSpeakerAnyRoleClaimEvidence,
   textHasSpeakerRoleClaimEvidence
 } from "./daySituations";
@@ -41,7 +42,7 @@ import { roleCamp } from "./rules/roles";
 import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses, playerStatuses } from "./rules/state";
 import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
 import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
-import { sample, shuffle } from "./random";
+import { sample, shuffle, weightedChance } from "./random";
 import { werewolfFaceoffLineOptionsForPlayer } from "./werewolfFaceoffLines";
 import type {
   Agent,
@@ -67,6 +68,7 @@ import type {
   Player,
   PublicSpeechPlan,
   Role,
+  SeerClaimResult,
   SpeechGenerationDiagnostic,
   SpeechMetadata,
   SummaryMode,
@@ -268,6 +270,8 @@ interface HumanDayDiscussionRollbackSnapshot {
   lastDiscussionLength: number;
   remainingAi: Player[];
   accepted: number;
+  werewolfDeceptions: Map<string, WerewolfDeceptionState>;
+  seerDisclosures: Map<string, SeerDisclosureState>;
 }
 
 interface PreparedTargetAction {
@@ -288,6 +292,32 @@ interface WerewolfAttackResolution {
 type PreparedWitchAction =
   | { kind: "save"; witch: Player; target: Player }
   | { kind: "poison"; witch: Player; target: Player; reason: string };
+
+type FakeSeerResult = SeerClaimResult & { announced?: boolean };
+
+interface WerewolfDeceptionState {
+  claimedRole: Role;
+  plannedSinceRound: number;
+  publiclyClaimed: boolean;
+  claimRound?: number;
+  fakeSeerResults: FakeSeerResult[];
+}
+
+interface WerewolfDeceptionTask {
+  kind: "claim_seer" | "publish_fake_seer_result";
+  result?: FakeSeerResult;
+}
+
+interface SeerDisclosureState {
+  publiclyClaimed: boolean;
+  claimRound?: number;
+  announcedResultIds: Set<string>;
+}
+
+interface SeerDisclosureTask {
+  kind: "claim_seer_with_results" | "publish_seer_results";
+  results: SeerClaimResult[];
+}
 
 interface WerewolfGameOptions {
   humanInput?: HumanInputHandler;
@@ -1109,6 +1139,8 @@ export class WerewolfGame {
   private lastVoteModifiers: VoteModifier[] = [];
   private lastVoteEliminatedPlayerId: string | null = null;
   private lastNightDeathRecords: DeathRecord[] = [];
+  private readonly werewolfDeceptions = new Map<string, WerewolfDeceptionState>();
+  private readonly seerDisclosures = new Map<string, SeerDisclosureState>();
   private firstDayOpeningSpeechPrefetch: DayDiscussionSpeechPrefetch | null = null;
   private firstDayWarmupSpeechPrefetch: DayWarmupSpeechPrefetch | null = null;
 
@@ -1517,7 +1549,9 @@ export class WerewolfGame {
       publicHistoryLength: this.publicHistory.length,
       lastDiscussionLength: this.lastDiscussion.length,
       remainingAi: [...remainingAi],
-      accepted
+      accepted,
+      werewolfDeceptions: this.cloneWerewolfDeceptions(),
+      seerDisclosures: this.cloneSeerDisclosures()
     });
 
     const restoreRollbackSnapshot = (snapshot: HumanDayDiscussionRollbackSnapshot) => {
@@ -1525,6 +1559,8 @@ export class WerewolfGame {
       this.lastDiscussion.length = snapshot.lastDiscussionLength;
       remainingAi = [...snapshot.remainingAi];
       accepted = snapshot.accepted;
+      this.restoreWerewolfDeceptions(snapshot.werewolfDeceptions);
+      this.restoreSeerDisclosures(snapshot.seerDisclosures);
     };
 
     const recordRollbackPoint = (pending: PendingHumanDayDiscussionInterrupt, speech: AgentSpeech) => {
@@ -2079,8 +2115,14 @@ export class WerewolfGame {
     openingMoveByPlayerId: Map<string, FirstDayOpeningMoveKind>,
     options: SpeculativeRunOptions = {}
   ): Promise<{ player: Player; speech: AgentSpeech }> {
+    const generationRound = this.round;
+    const generationPhase = this.phase;
     const openingMoveKind = discussionPass === 1 ? openingMoveByPlayerId.get(player.id) : undefined;
     const openingMove = openingMoveKind ? firstDayOpeningMove(openingMoveKind, this.config.language) : undefined;
+    this.ensureWerewolfOpeningDeceptionPlan(player, openingMoveKind);
+    const deceptionTask = this.prepareWerewolfDeceptionTask(player);
+    const seerDisclosureTask = this.prepareTrueSeerDisclosureTask(player);
+    const secretOverride = this.seerDisclosureSecretOverride(seerDisclosureTask, player);
     const contextLines = [
       this.nightDeathContextLine(),
       this.text(
@@ -2097,7 +2139,7 @@ export class WerewolfGame {
             "2巡後に必要な人だけが行う追加発言です。"
           ),
       discussionPass === 1
-        ? this.round === 1
+        ? generationRound === 1
           ? this.text(
               "1巡目: まだ昼の発言はありません。投票理由の残し方、役職主張の扱い、進め方、答えやすい名指し質問など、自分の初期意見を一つ出してください。見えていない反応や矛盾は作らないでください。",
               "1巡目: まだ昼の発言はありません。投票理由の残し方、役職主張の扱い、進め方、答えやすい名指し質問など、自分の初期意見を一つ出してください。見えていない反応や矛盾は作らないでください。"
@@ -2115,6 +2157,8 @@ export class WerewolfGame {
               "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。",
               "追加発言: 見えている一番強い疑い・主張・人間プレイヤー発の強い読みのどれかに触れ、投票前の読みを一つだけ出してください。"
             ),
+      ...this.seerDisclosureTaskLines(seerDisclosureTask),
+      ...this.werewolfDeceptionTaskLines(deceptionTask),
       ...(openingMove
         ? [
             this.isJapanese()
@@ -2127,8 +2171,8 @@ export class WerewolfGame {
     ];
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
     const speechPlan = buildPublicSpeechPlan({
-      phase: this.phase,
-      round: this.round,
+      phase: generationPhase,
+      round: generationRound,
       discussionPass,
       players: this.players,
       lastNightDeaths: this.lastNightDeathRecords,
@@ -2139,9 +2183,9 @@ export class WerewolfGame {
       previousVotes: this.lastVotes,
       firstDayOpeningMove: openingMove
     });
-    const context = this.contextFor(player, contextLines, {}, speechPlan);
-    const diagnosticRound = this.round;
-    const diagnosticPhase = this.phase;
+    const context = this.contextForAt(player, generationPhase, generationRound, contextLines, secretOverride, speechPlan);
+    const diagnosticRound = generationRound;
+    const diagnosticPhase = generationPhase;
     const speech = await this.safeSpeak(
       player,
       discussionPass <= regularDayDiscussionPasses
@@ -2152,6 +2196,50 @@ export class WerewolfGame {
       options.signal,
       { suppressMemorySideEffects: Boolean(options.speculative), speechPlan, diagnosticRound, diagnosticPhase }
     );
+    if (
+      seerDisclosureTask &&
+      !this.isHumanControlledPlayer(player) &&
+      !this.speechSatisfiesTrueSeerDisclosureTask(player, speech, seerDisclosureTask)
+    ) {
+      const retryContextLines = [...contextLines, this.seerDisclosureRetryLine(seerDisclosureTask)];
+      const retryContext = this.contextForAt(player, generationPhase, generationRound, retryContextLines, secretOverride, speechPlan);
+      const retrySpeech = await this.safeSpeak(
+        player,
+        discussionPass <= regularDayDiscussionPasses
+          ? this.text("Make a public day discussion statement.", "昼議論で発言してください。")
+          : this.text("Make a short public follow-up statement.", "短い追加発言をしてください。"),
+        retryContext,
+        retryContextLines,
+        options.signal,
+        { suppressMemorySideEffects: Boolean(options.speculative), speechPlan, diagnosticRound, diagnosticPhase }
+      );
+      return {
+        player,
+        speech: this.speechSatisfiesTrueSeerDisclosureTask(player, retrySpeech, seerDisclosureTask)
+          ? retrySpeech
+          : this.seerDisclosureFallbackSpeech(seerDisclosureTask)
+      };
+    }
+    if (deceptionTask && !this.isHumanControlledPlayer(player) && !this.speechSatisfiesWerewolfDeceptionTask(player, speech, deceptionTask)) {
+      const retryContextLines = [...contextLines, this.werewolfDeceptionRetryLine(deceptionTask)];
+      const retryContext = this.contextForAt(player, generationPhase, generationRound, retryContextLines, secretOverride, speechPlan);
+      const retrySpeech = await this.safeSpeak(
+        player,
+        discussionPass <= regularDayDiscussionPasses
+          ? this.text("Make a public day discussion statement.", "昼議論で発言してください。")
+          : this.text("Make a short public follow-up statement.", "短い追加発言をしてください。"),
+        retryContext,
+        retryContextLines,
+        options.signal,
+        { suppressMemorySideEffects: Boolean(options.speculative), speechPlan, diagnosticRound, diagnosticPhase }
+      );
+      return {
+        player,
+        speech: this.speechSatisfiesWerewolfDeceptionTask(player, retrySpeech, deceptionTask)
+          ? retrySpeech
+          : this.werewolfDeceptionFallbackSpeech(deceptionTask)
+      };
+    }
     return { player, speech };
   }
 
@@ -3315,7 +3403,10 @@ export class WerewolfGame {
     }
 
     const publishSpeech = (player: Player, speech: AgentSpeech, discussionPass: number, discussionPasses: number): GameEvent[] => {
-      const publicSpeech = this.applyHumanSpeechInfluence(player, speech);
+      const publicSpeech = this.applyWerewolfDeceptionToPublicSpeech(
+        player,
+        this.applyTrueSeerDisclosureToPublicSpeech(player, this.applyHumanSpeechInfluence(player, speech))
+      );
       this.publicHistory.push(this.formatSpeechHistory(player, publicSpeech));
       this.lastDiscussion.push({
         playerId: player.id,
@@ -3493,6 +3584,524 @@ export class WerewolfGame {
     return deathNames.length > 0
       ? this.text(`Last night, ${deathNames.join(", ")} died.`, `昨夜、${deathNames.join(", ")}が死亡しました。`)
       : this.text("No one died last night.", "昨夜は誰も死亡しませんでした。");
+  }
+
+  private cloneWerewolfDeceptionState(state: WerewolfDeceptionState): WerewolfDeceptionState {
+    return {
+      claimedRole: state.claimedRole,
+      plannedSinceRound: state.plannedSinceRound,
+      publiclyClaimed: state.publiclyClaimed,
+      claimRound: state.claimRound,
+      fakeSeerResults: state.fakeSeerResults.map((result) => ({ ...result }))
+    };
+  }
+
+  private cloneWerewolfDeceptions(): Map<string, WerewolfDeceptionState> {
+    return new Map([...this.werewolfDeceptions.entries()].map(([playerId, state]) => [playerId, this.cloneWerewolfDeceptionState(state)]));
+  }
+
+  private restoreWerewolfDeceptions(snapshot: Map<string, WerewolfDeceptionState>): void {
+    this.werewolfDeceptions.clear();
+    for (const [playerId, state] of snapshot) {
+      this.werewolfDeceptions.set(playerId, this.cloneWerewolfDeceptionState(state));
+    }
+  }
+
+  private cloneSeerDisclosureState(state: SeerDisclosureState): SeerDisclosureState {
+    return {
+      publiclyClaimed: state.publiclyClaimed,
+      claimRound: state.claimRound,
+      announcedResultIds: new Set(state.announcedResultIds)
+    };
+  }
+
+  private cloneSeerDisclosures(): Map<string, SeerDisclosureState> {
+    return new Map([...this.seerDisclosures.entries()].map(([playerId, state]) => [playerId, this.cloneSeerDisclosureState(state)]));
+  }
+
+  private restoreSeerDisclosures(snapshot: Map<string, SeerDisclosureState>): void {
+    this.seerDisclosures.clear();
+    for (const [playerId, state] of snapshot) {
+      this.seerDisclosures.set(playerId, this.cloneSeerDisclosureState(state));
+    }
+  }
+
+  private ensureWerewolfOpeningDeceptionPlan(player: Player, openingMoveKind: FirstDayOpeningMoveKind | undefined): void {
+    if (player.camp !== "werewolf" || openingMoveKind !== "wolf_fake_role_claim") {
+      return;
+    }
+    this.ensureWerewolfSeerDeceptionState(player, false);
+  }
+
+  private ensureWerewolfSeerDeceptionState(player: Player, publiclyClaimed: boolean): WerewolfDeceptionState {
+    const existing = this.werewolfDeceptions.get(player.id);
+    if (existing) {
+      if (publiclyClaimed && !existing.publiclyClaimed) {
+        existing.publiclyClaimed = true;
+        existing.claimRound = this.round;
+      }
+      return existing;
+    }
+    const state: WerewolfDeceptionState = {
+      claimedRole: "Seer",
+      plannedSinceRound: this.round,
+      publiclyClaimed,
+      ...(publiclyClaimed ? { claimRound: this.round } : {}),
+      fakeSeerResults: []
+    };
+    this.werewolfDeceptions.set(player.id, state);
+    return state;
+  }
+
+  private fakeSeerResultTarget(player: Player, state: WerewolfDeceptionState): Player | null {
+    const usedTargetIds = new Set(state.fakeSeerResults.map((result) => result.targetId));
+    const livingVillageCandidates = this.alivePlayers().filter(
+      (candidate) => candidate.id !== player.id && candidate.camp !== "werewolf" && !usedTargetIds.has(candidate.id)
+    );
+    if (livingVillageCandidates.length > 0) {
+      return sample(livingVillageCandidates);
+    }
+    const anyVillageCandidate = this.players.filter(
+      (candidate) => candidate.id !== player.id && candidate.camp !== "werewolf" && !usedTargetIds.has(candidate.id)
+    );
+    if (anyVillageCandidate.length > 0) {
+      return sample(anyVillageCandidate);
+    }
+    const fallback = this.alivePlayers().filter((candidate) => candidate.id !== player.id && !usedTargetIds.has(candidate.id));
+    return fallback.length > 0 ? sample(fallback) : null;
+  }
+
+  private ensureFakeSeerResultForRound(player: Player, state: WerewolfDeceptionState, force: boolean): FakeSeerResult | undefined {
+    const existing = state.fakeSeerResults.find((result) => result.round === this.round);
+    if (existing) {
+      return existing;
+    }
+    const claimRound = state.claimRound ?? state.plannedSinceRound;
+    if (!force && this.round <= claimRound) {
+      return undefined;
+    }
+    const target = this.fakeSeerResultTarget(player, state);
+    if (!target) {
+      return undefined;
+    }
+    const camp: Camp = target.camp === "werewolf" ? "village" : weightedChance(0.72) ? "werewolf" : "village";
+    const result: FakeSeerResult = {
+      targetId: target.id,
+      targetName: target.name,
+      camp,
+      round: this.round,
+      announced: false
+    };
+    state.fakeSeerResults.push(result);
+    return result;
+  }
+
+  private prepareWerewolfDeceptionTask(player: Player): WerewolfDeceptionTask | null {
+    if (this.phase !== "day_discussion" || player.camp !== "werewolf") {
+      return null;
+    }
+    const state = this.werewolfDeceptions.get(player.id);
+    if (!state || state.claimedRole !== "Seer") {
+      return null;
+    }
+    if (!state.publiclyClaimed) {
+      const result = this.round > state.plannedSinceRound ? this.ensureFakeSeerResultForRound(player, state, true) : undefined;
+      return { kind: "claim_seer", result };
+    }
+    const result = this.ensureFakeSeerResultForRound(player, state, false);
+    return result && !result.announced ? { kind: "publish_fake_seer_result", result } : null;
+  }
+
+  private werewolfDeceptionTaskLines(task: WerewolfDeceptionTask | null): string[] {
+    if (!task) {
+      return [];
+    }
+    if (!task.result) {
+      return [
+        this.text(
+          "Secret werewolf deception task: claim Seer in today's public speech. Do not reveal that this is a lie, your allies, or wolf chat.",
+          "秘密の人狼偽装タスク: 今日の公開発言で占い師として名乗る。これが嘘であること、人狼仲間、夜相談は絶対に出さない。"
+        )
+      ];
+    }
+    const resultLine = `${task.result.targetName} (${task.result.targetId}) は${this.campText(task.result.camp)}判定`;
+    const action =
+      task.kind === "claim_seer"
+        ? "占い師として名乗り、そのまま偽結果を出す"
+        : "占い師主張を継続し、今日の偽結果を出す";
+    return [
+      this.text(
+        `Secret werewolf deception task: ${action}. Fake result to publish as real: ${resultLine}. Do not reveal this is fake.`,
+        `秘密の人狼偽装タスク: ${action}。本物の結果として公開する偽結果: ${resultLine}。嘘だとは絶対に言わない。`
+      )
+    ];
+  }
+
+  private seerClaimOtherPlayerNames(player: Player, target?: TargetCandidate): string[] {
+    const exempt = new Set([player.name, target?.name].filter((name): name is string => Boolean(name)));
+    return this.players.map((candidate) => candidate.name).filter((name) => !exempt.has(name));
+  }
+
+  private speechHasOwnSeerClaim(player: Player, text: string): boolean {
+    return textHasSpeakerRoleClaimEvidence(text, "Seer", this.config.language, player.name, this.seerClaimOtherPlayerNames(player));
+  }
+
+  private speechMentionsCampResult(text: string, result: SeerClaimResult): boolean {
+    const targetTokens = [result.targetName, result.targetId].filter((value): value is string => Boolean(value));
+    if (targetTokens.length === 0) {
+      return false;
+    }
+    const targetPattern = `(?:${targetTokens
+      .map((token) => (/^p\d+$/i.test(token) ? `${escapeRegExp(token)}(?!\\d)` : escapeRegExp(token)))
+      .join("|")})`;
+    const campPattern =
+      result.camp === "werewolf"
+        ? "(?:黒|人狼|狼陣営|狼側|狼)(?:判定|結果)|(?:黒|狼陣営|狼側)です|黒"
+        : "(?:白|人間側|人間|村側|村人)(?:判定|結果)|(?:白|人間側|村側)です|白";
+    return new RegExp(
+      `(?:${targetPattern}[^。！？!?\\n]{0,36}(?:${campPattern})|(?:${campPattern})[^。！？!?\\n]{0,36}${targetPattern})`,
+      "u"
+    ).test(text);
+  }
+
+  private inferVisibleSeerResult(player: Player, text: string): SeerClaimResult | null {
+    for (const target of this.players.filter((candidate) => candidate.id !== player.id)) {
+      const werewolfResult: SeerClaimResult = {
+        targetId: target.id,
+        targetName: target.name,
+        camp: "werewolf",
+        round: this.round
+      };
+      if (this.speechMentionsCampResult(text, werewolfResult)) {
+        return werewolfResult;
+      }
+      const villageResult: SeerClaimResult = {
+        targetId: target.id,
+        targetName: target.name,
+        camp: "village",
+        round: this.round
+      };
+      if (this.speechMentionsCampResult(text, villageResult)) {
+        return villageResult;
+      }
+    }
+    return null;
+  }
+
+  private upsertSeerClaimMetadata(metadata: SpeechMetadata, result?: SeerClaimResult): SpeechMetadata {
+    const claims = [...metadata.claims];
+    const existingIndex = claims.findIndex((claim) => claim.type === "role_claim" && claim.role === "Seer");
+    const note = result ? `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定` : "占い師主張";
+    if (existingIndex >= 0) {
+      const existing = claims[existingIndex];
+      claims[existingIndex] = {
+        ...existing,
+        result: existing.result ?? result,
+        note: existing.note ?? note
+      };
+    } else {
+      claims.push({
+        type: "role_claim",
+        role: "Seer",
+        ...(result ? { result } : {}),
+        note
+      });
+    }
+    return { ...metadata, claims };
+  }
+
+  private addFakeResultToState(state: WerewolfDeceptionState, result: SeerClaimResult, announced: boolean): void {
+    const existing = state.fakeSeerResults.find((candidate) => candidate.targetId === result.targetId && candidate.round === result.round);
+    if (existing) {
+      existing.camp = result.camp;
+      existing.announced = existing.announced || announced;
+      return;
+    }
+    state.fakeSeerResults.push({ ...result, announced });
+  }
+
+  private speechSatisfiesWerewolfDeceptionTask(player: Player, speech: AgentSpeech, task: WerewolfDeceptionTask | null): boolean {
+    if (!task) {
+      return true;
+    }
+    const text = speech.messages.join(" ");
+    if (task.result) {
+      const resultVisible = this.speechMentionsCampResult(text, task.result);
+      return task.kind === "claim_seer" ? this.speechHasOwnSeerClaim(player, text) && resultVisible : resultVisible;
+    }
+    return this.speechHasOwnSeerClaim(player, text);
+  }
+
+  private werewolfDeceptionRetryLine(task: WerewolfDeceptionTask): string {
+    if (!task.result) {
+      return this.text(
+        "The previous draft did not complete the werewolf deception task. Rewrite as a public line where you claim Seer. Do not explain the plan.",
+        "前の発言案では人狼の偽装タスクが未達成です。公開発言として占い師を名乗る短い発言に直してください。作戦説明はしません。"
+      );
+    }
+    return this.text(
+      `The previous draft did not publish the required fake Seer result. Rewrite as a public Seer line with this result: ${task.result.targetName} is ${task.result.camp}.`,
+      `前の発言案では必要な偽占い結果が出ていません。公開の占い師発言として、${task.result.targetName}は${this.campText(task.result.camp)}判定だと短く出してください。`
+    );
+  }
+
+  private werewolfDeceptionFallbackSpeech(task: WerewolfDeceptionTask): AgentSpeech {
+    if (!task.result) {
+      const message = this.text(
+        "私は占い師です。黒結果が出るまでは伏せますが、今日は投票理由の薄い人を見ます",
+        "私は占い師です。黒結果が出るまでは伏せますが、今日は投票理由の薄い人を見ます"
+      );
+      return {
+        messages: [message],
+        metadata: this.upsertSeerClaimMetadata(emptySpeechMetadata())
+      };
+    }
+    const message = this.text(
+      `占い師として結果を出します。${task.result.targetName}は${this.campText(task.result.camp)}判定です`,
+      `占い師として結果を出します。${task.result.targetName}は${this.campText(task.result.camp)}判定です`
+    );
+    return {
+      messages: [stripJapaneseSpeechTerminalPeriod(message, this.config.language)],
+      metadata: this.upsertSeerClaimMetadata(emptySpeechMetadata(), task.result)
+    };
+  }
+
+  private applyWerewolfDeceptionToPublicSpeech(player: Player, speech: AgentSpeech): AgentSpeech {
+    if (player.camp !== "werewolf") {
+      return speech;
+    }
+    const text = speech.messages.join(" ");
+    const hasSeerClaim =
+      speech.metadata.claims.some((claim) => claim.type === "role_claim" && claim.role === "Seer") ||
+      this.speechHasOwnSeerClaim(player, text);
+    let state = this.werewolfDeceptions.get(player.id);
+    let metadata = speech.metadata;
+    if (hasSeerClaim) {
+      state = this.ensureWerewolfSeerDeceptionState(player, true);
+      metadata = this.upsertSeerClaimMetadata(metadata);
+    }
+    if (!state || state.claimedRole !== "Seer") {
+      return metadata === speech.metadata ? speech : { ...speech, metadata };
+    }
+
+    const inferredResult = this.inferVisibleSeerResult(player, text);
+    if (inferredResult && (hasSeerClaim || /占い|判定/u.test(text))) {
+      this.addFakeResultToState(state, inferredResult, true);
+      metadata = this.upsertSeerClaimMetadata(metadata, inferredResult);
+    }
+    for (const result of state.fakeSeerResults) {
+      if (this.speechMentionsCampResult(text, result)) {
+        result.announced = true;
+        metadata = this.upsertSeerClaimMetadata(metadata, result);
+      }
+    }
+    return metadata === speech.metadata ? speech : { ...speech, metadata };
+  }
+
+  private trueSeerResults(player: Player): SeerClaimResult[] {
+    return Object.entries(player.seerResults)
+      .map(([targetId, camp]) => {
+        const target = this.requirePlayer(targetId);
+        return {
+          targetId,
+          targetName: target.name,
+          camp,
+          round: player.seerResultRounds[targetId]
+        };
+      })
+      .sort((left, right) => (left.round ?? 0) - (right.round ?? 0) || left.targetId.localeCompare(right.targetId));
+  }
+
+  private ensureSeerDisclosureState(player: Player, publiclyClaimed: boolean): SeerDisclosureState {
+    const existing = this.seerDisclosures.get(player.id);
+    if (existing) {
+      if (publiclyClaimed && !existing.publiclyClaimed) {
+        existing.publiclyClaimed = true;
+        existing.claimRound = this.round;
+      }
+      return existing;
+    }
+    const state: SeerDisclosureState = {
+      publiclyClaimed,
+      ...(publiclyClaimed ? { claimRound: this.round } : {}),
+      announcedResultIds: new Set()
+    };
+    this.seerDisclosures.set(player.id, state);
+    return state;
+  }
+
+  private visibleOtherSeerClaimExists(player: Player): boolean {
+    const speakerPrefix = new RegExp(`^\\s*${escapeRegExp(player.name)}\\s*:`, "u");
+    return (
+      this.lastDiscussion.some(
+        (record) =>
+          record.playerId !== player.id && record.metadata.claims.some((claim) => claim.type === "role_claim" && claim.role === "Seer")
+      ) ||
+      this.publicHistory.some((line) => !speakerPrefix.test(line) && textHasSeerClaimEvidence(line))
+    );
+  }
+
+  private trueSeerDisclosureThreshold(player: Player): number {
+    switch (player.persona) {
+      case "aggressive":
+      case "passionate":
+        return 0.95;
+      case "logical":
+        return 0.92;
+      case "opportunistic":
+      case "empathetic":
+        return 0.9;
+      case "trickster":
+        return 0.88;
+      case "cautious":
+        return 0.82;
+      case "stoic":
+        return 0.86;
+    }
+  }
+
+  private shouldTrueSeerDisclose(player: Player, results: SeerClaimResult[]): boolean {
+    if (results.length === 0) {
+      return false;
+    }
+    if (results.some((result) => result.camp === "werewolf")) {
+      return true;
+    }
+    if (this.visibleOtherSeerClaimExists(player)) {
+      return true;
+    }
+    if (results.length >= 2 || this.round >= 3) {
+      return true;
+    }
+    const seed = `${player.id}:${this.round}:true-seer-disclosure:${results.map((result) => `${result.targetId}:${result.camp}`).join(",")}`;
+    return stableUnitInterval(seed) < this.trueSeerDisclosureThreshold(player);
+  }
+
+  private prepareTrueSeerDisclosureTask(player: Player): SeerDisclosureTask | null {
+    if (this.phase !== "day_discussion" || player.role !== "Seer" || !player.alive || this.isHumanControlledPlayer(player)) {
+      return null;
+    }
+    const results = this.trueSeerResults(player);
+    if (results.length === 0) {
+      return null;
+    }
+    const state = this.seerDisclosures.get(player.id);
+    if (state?.publiclyClaimed) {
+      const unannounced = results.filter((result) => !state.announcedResultIds.has(result.targetId));
+      return unannounced.length > 0 ? { kind: "publish_seer_results", results: unannounced } : null;
+    }
+    return this.shouldTrueSeerDisclose(player, results) ? { kind: "claim_seer_with_results", results } : null;
+  }
+
+  private seerDisclosureTaskLines(task: SeerDisclosureTask | null): string[] {
+    if (!task) {
+      return [];
+    }
+    const resultLine = task.results.map((result) => `${result.targetName} (${result.targetId}) は${this.campText(result.camp)}判定`).join("、");
+    if (task.kind === "claim_seer_with_results") {
+      return [
+        this.text(
+          `True Seer disclosure task: claim Seer in today's public speech and publish these real results: ${resultLine}.`,
+          `真占い師公開タスク: 今日の公開発言で占い師として名乗り、本物の占い結果を出す。公開する結果: ${resultLine}。`
+        )
+      ];
+    }
+    return [
+      this.text(
+        `True Seer disclosure task: continue your Seer claim and publish these not-yet-public real results: ${resultLine}.`,
+        `真占い師公開タスク: 占い師主張を継続し、まだ公開していない本物の占い結果を出す。公開する結果: ${resultLine}。`
+      )
+    ];
+  }
+
+  private seerDisclosureSecretOverride(task: SeerDisclosureTask | null, player: Player): RoleSecretContext {
+    if (!task) {
+      return {};
+    }
+    const state = this.seerDisclosures.get(player.id);
+    return {
+      seerDisclosure: {
+        publiclyClaimed: state?.publiclyClaimed ?? false,
+        claimRound: state?.claimRound,
+        currentResultsToPublish: task.results.map((result) => ({
+          targetId: result.targetId,
+          targetName: result.targetName ?? result.targetId,
+          camp: result.camp,
+          round: result.round
+        }))
+      }
+    };
+  }
+
+  private speechSatisfiesTrueSeerDisclosureTask(player: Player, speech: AgentSpeech, task: SeerDisclosureTask | null): boolean {
+    if (!task) {
+      return true;
+    }
+    const text = speech.messages.join(" ");
+    const resultsVisible = task.results.every((result) => this.speechMentionsCampResult(text, result));
+    return task.kind === "claim_seer_with_results" ? this.speechHasOwnSeerClaim(player, text) && resultsVisible : resultsVisible;
+  }
+
+  private seerDisclosureRetryLine(task: SeerDisclosureTask): string {
+    const resultLine = task.results.map((result) => `${result.targetName}は${this.campText(result.camp)}判定`).join("、");
+    if (task.kind === "claim_seer_with_results") {
+      return this.text(
+        `The previous draft did not complete the real Seer disclosure task. Rewrite as a public line where you claim Seer and state: ${resultLine}.`,
+        `前の発言案では真占い師の公開タスクが未達成です。公開発言として占い師を名乗り、${resultLine}だと短く出してください。`
+      );
+    }
+    return this.text(
+      `The previous draft did not publish the required real Seer result. Rewrite as a public Seer update with: ${resultLine}.`,
+      `前の発言案では必要な真占い結果が出ていません。公開の占い師発言として、${resultLine}だと短く出してください。`
+    );
+  }
+
+  private seerResultSpeechList(results: SeerClaimResult[]): string {
+    return results.map((result) => `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定`).join("、");
+  }
+
+  private seerDisclosureFallbackSpeech(task: SeerDisclosureTask): AgentSpeech {
+    const resultText = this.seerResultSpeechList(task.results);
+    const message =
+      task.kind === "claim_seer_with_results"
+        ? this.text(
+            `ここで占い師を名乗ります。${resultText}です`,
+            `ここで占い師を名乗ります。${resultText}です`
+          )
+        : this.text(
+            `占い師として結果を更新します。${resultText}です`,
+            `占い師として結果を更新します。${resultText}です`
+          );
+    return {
+      messages: [stripJapaneseSpeechTerminalPeriod(message, this.config.language)],
+      metadata: task.results.reduce((metadata, result) => this.upsertSeerClaimMetadata(metadata, result), this.upsertSeerClaimMetadata(emptySpeechMetadata()))
+    };
+  }
+
+  private applyTrueSeerDisclosureToPublicSpeech(player: Player, speech: AgentSpeech): AgentSpeech {
+    if (player.role !== "Seer") {
+      return speech;
+    }
+    const text = speech.messages.join(" ");
+    const hasSeerClaim =
+      speech.metadata.claims.some((claim) => claim.type === "role_claim" && claim.role === "Seer") ||
+      this.speechHasOwnSeerClaim(player, text);
+    let state = this.seerDisclosures.get(player.id);
+    let metadata = speech.metadata;
+    if (hasSeerClaim) {
+      state = this.ensureSeerDisclosureState(player, true);
+      metadata = this.upsertSeerClaimMetadata(metadata);
+    }
+
+    for (const result of this.trueSeerResults(player)) {
+      if (this.speechMentionsCampResult(text, result) && (hasSeerClaim || /占い|判定|結果/u.test(text))) {
+        state = state ?? this.ensureSeerDisclosureState(player, hasSeerClaim);
+        state.announcedResultIds.add(result.targetId);
+        metadata = this.upsertSeerClaimMetadata(metadata, result);
+      }
+    }
+
+    return metadata === speech.metadata ? speech : { ...speech, metadata };
   }
 
   private firstDayOpeningMoveAssignments(speakers: Player[]): Map<string, FirstDayOpeningMoveKind> {
@@ -5255,10 +5864,21 @@ export class WerewolfGame {
     secretOverride: RoleSecretContext = {},
     speechPlan?: PublicSpeechPlan
   ): string {
+    return this.contextForAt(player, this.phase, this.round, extra, secretOverride, speechPlan);
+  }
+
+  private contextForAt(
+    player: Player,
+    phase: Phase,
+    round: number,
+    extra: string[] = [],
+    secretOverride: RoleSecretContext = {},
+    speechPlan?: PublicSpeechPlan
+  ): string {
     return buildBaseContext({
       player,
-      phase: this.phase,
-      round: this.round,
+      phase,
+      round,
       roleBreakdown: this.roleBreakdown(),
       alivePlayers: this.alivePlayers().map(({ id, name }) => ({ id, name })),
       deadPlayers: this.players
@@ -5267,31 +5887,63 @@ export class WerewolfGame {
       publicHistory: this.publicHistory,
       privateHistory: player.memories,
       language: this.config.language,
-      secret: this.secretContextFor(player, secretOverride),
+      secret: this.secretContextFor(player, secretOverride, round),
       speechPlan,
       extra
     });
   }
 
-  private secretContextFor(player: Player, override: RoleSecretContext = {}): RoleSecretContext {
+  private secretContextFor(player: Player, override: RoleSecretContext = {}, round = this.round): RoleSecretContext {
     const base: RoleSecretContext = {};
 
     if (player.camp === "werewolf") {
       base.werewolfAllies = this.players
         .filter((candidate) => candidate.camp === "werewolf")
         .map(({ id, name, role, alive }) => ({ id, name, role, alive }));
+      const deception = this.werewolfDeceptions.get(player.id);
+      if (deception) {
+        const currentFakeSeerResult = deception.fakeSeerResults.find((result) => result.round === round && !result.announced);
+        base.werewolfDeception = {
+          claimedRole: deception.claimedRole,
+          plannedSinceRound: deception.plannedSinceRound,
+          publiclyClaimed: deception.publiclyClaimed,
+          claimRound: deception.claimRound,
+          fakeSeerResults: deception.fakeSeerResults.map(({ targetId, targetName, camp, round }) => ({
+            targetId,
+            targetName: targetName ?? targetId,
+            camp,
+            round
+          })),
+          ...(currentFakeSeerResult
+            ? {
+                currentFakeSeerResult: {
+                  targetId: currentFakeSeerResult.targetId,
+                  targetName: currentFakeSeerResult.targetName ?? currentFakeSeerResult.targetId,
+                  camp: currentFakeSeerResult.camp,
+                  round: currentFakeSeerResult.round
+                }
+              }
+            : {})
+        };
+      }
     }
 
     if (player.role === "Seer") {
-      base.seerResults = Object.entries(player.seerResults).map(([targetId, camp]) => {
-        const target = this.requirePlayer(targetId);
-        return {
-          targetId,
-          targetName: target.name,
-          camp,
-          round: player.seerResultRounds[targetId]
+      const seerResults = this.trueSeerResults(player).map((result) => ({
+        targetId: result.targetId,
+        targetName: result.targetName ?? result.targetId,
+        camp: result.camp,
+        round: result.round
+      }));
+      base.seerResults = seerResults;
+      const disclosure = this.seerDisclosures.get(player.id);
+      if (disclosure) {
+        base.seerDisclosure = {
+          publiclyClaimed: disclosure.publiclyClaimed,
+          claimRound: disclosure.claimRound,
+          announcedResults: seerResults.filter((result) => disclosure.announcedResultIds.has(result.targetId))
         };
-      });
+      }
     }
 
     if (player.role === "Witch") {
@@ -5314,11 +5966,16 @@ export class WerewolfGame {
     }
 
     const witch = base.witch && override.witch ? { ...base.witch, ...override.witch } : (override.witch ?? base.witch);
+    const seerDisclosure =
+      base.seerDisclosure && override.seerDisclosure
+        ? { ...base.seerDisclosure, ...override.seerDisclosure }
+        : (override.seerDisclosure ?? base.seerDisclosure);
 
     return {
       ...base,
       ...override,
-      witch
+      witch,
+      seerDisclosure
     };
   }
 

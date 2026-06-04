@@ -34,6 +34,7 @@ import type {
   Player,
   PublicSpeechPlan,
   Role,
+  SeerClaimResult,
   SpeechGenerationDiagnostic,
   SpeechMetadata,
   HumanInputHandler,
@@ -1785,9 +1786,10 @@ test("every first-day first-pass speaker receives a distinct opening move prompt
     assert.ok(kind && allowedKinds.has(kind), `expected an opening move for ${player.id}`);
     assert.doesNotMatch(agent.speechInputs[0].context, /初日特別モード/);
     // The second pass no longer carries an opening move.
-    assert.equal(agent.speechInputs[1].speechPlan?.firstDayOpeningMove, undefined);
+    assert.equal(agent.speechInputs.at(-1)?.speechPlan?.firstDayOpeningMove, undefined);
     assignedKinds.push(kind as string);
   }
+  assert.equal((game.agents.get(players[1].id) as ScriptedAgent).speechInputs[0].speechPlan?.firstDayOpeningMove?.kind, "wolf_fake_role_claim");
 
   // With as many distinct moves as speakers, the table covers varied topics.
   assert.equal(new Set(assignedKinds).size, players.length);
@@ -1812,6 +1814,164 @@ test("later day first-pass speakers do not receive opening move prompts", async 
     assert.equal(agent.speechInputs[0].speechPlan?.firstDayOpeningMove, undefined);
     assert.doesNotMatch(agent.speechInputs[0].context, /初日特別モード/);
   }
+});
+
+test("werewolf Seer fake claim persists and forces later fake results", async () => {
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Werewolf",
+      targets: ["p2"],
+      speeches: [
+        { messages: ["私は占い師です。黒結果が出るまでは伏せます"], metadata: emptyMetadata },
+        { messages: ["今日は投票前に理由を見ます"], metadata: emptyMetadata },
+        { messages: ["投票理由の薄い人を候補に入れます"], metadata: emptyMetadata }
+      ]
+    },
+    { role: "Villager", targets: ["p3"], speeches: [{ messages: ["投票理由を確認します"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["占い主張は一旦見ます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["今日は理由の薄さで見ます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["投票前に発言を比べます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["便乗だけは避けたいです"], metadata: emptyMetadata }] }
+  ]);
+  const wolf = players[0];
+  (game as unknown as { round: number }).round = 1;
+
+  await collect(game.runDay());
+
+  for (const player of players) {
+    player.alive = true;
+  }
+  game.ruleState = createInitialRuleState(game.players);
+  game.lastDiscussion = [];
+  (game as unknown as { round: number }).round = 2;
+  const secondDayWolfAgent = new ScriptedAgent(wolf.name, ["p2"], [], [
+    { messages: ["今日はまだ様子を見ます"], metadata: emptyMetadata },
+    { messages: ["今日はまだ様子を見ます"], metadata: emptyMetadata }
+  ]);
+  game.agents.set(wolf.id, secondDayWolfAgent);
+
+  const secondDayEvents = await collect(game.runDay());
+  const fakeResultEvents = secondDayEvents.filter(
+    (event) => event.type === "player_speech" && event.playerId === wolf.id && /占い師として結果を出します。.+判定です/.test(event.message)
+  );
+  const fakeResultEvent = fakeResultEvents[0];
+
+  assert.equal(fakeResultEvents.length, 1);
+  assert.ok(fakeResultEvent);
+  assert.match(secondDayWolfAgent.speechInputs[0].context, /公開上の偽装方針/);
+  assert.match(secondDayWolfAgent.speechInputs[0].context, /秘密の人狼偽装タスク/);
+  assert.match(secondDayWolfAgent.speechInputs[0].context, /今日必ず出す偽結果/);
+  assert.match(secondDayWolfAgent.speechInputs[1].context, /前の発言案では必要な偽占い結果が出ていません/);
+  const claims = fakeResultEvent.data?.claims as Array<{ role?: Role; result?: { targetId?: string; camp?: Camp } }> | undefined;
+  assert.ok(claims?.some((claim) => claim.role === "Seer" && claim.result?.targetId && claim.result?.camp));
+});
+
+test("werewolf fake Seer result detection requires result wording and exact player ids", () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const detector = game as unknown as {
+    speechMentionsCampResult(text: string, result: SeerClaimResult): boolean;
+  };
+  const result: SeerClaimResult = {
+    targetId: "p1",
+    targetName: "Ada",
+    camp: "werewolf",
+    round: 2
+  };
+
+  assert.equal(detector.speechMentionsCampResult("占い師として結果を出します。Adaは狼陣営判定です", result), true);
+  assert.equal(detector.speechMentionsCampResult("占い師として結果を出します。p1は黒です", result), true);
+  assert.equal(detector.speechMentionsCampResult("占い師として結果を出します。p10は狼陣営判定です", result), false);
+  assert.equal(detector.speechMentionsCampResult("Adaは狼を探す姿勢があるので今日は残します", result), false);
+});
+
+test("true Seer result task retries and falls back to public CO when ignored", async () => {
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Seer",
+      speeches: [
+        { messages: ["今日は投票理由を見ます"], metadata: emptyMetadata },
+        { messages: ["まだ焦らずに発言を比べます"], metadata: emptyMetadata }
+      ]
+    },
+    { role: "Werewolf", targets: ["p1"], speeches: [{ messages: ["投票理由を確認します"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["占い師の条件を見ます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["今日は発言の薄さを見ます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["投票前に整理します"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["便乗には注意します"], metadata: emptyMetadata }] }
+  ]);
+  const seer = players[0];
+  seer.seerResults = { p2: "werewolf" };
+  seer.seerResultRounds = { p2: 1 };
+  (game as unknown as { round: number }).round = 2;
+
+  const events = await collect(game.runDay());
+  const seerAgent = game.agents.get(seer.id) as ScriptedAgent;
+  const seerSpeech = events.find(
+    (event) =>
+      event.type === "player_speech" &&
+      event.playerId === seer.id &&
+      /ここで占い師を名乗ります。.+(?:人狼|狼陣営)判定です/.test(event.message)
+  );
+
+  assert.ok(seerSpeech);
+  assert.match(seerAgent.speechInputs[0].context, /真占い師公開タスク/);
+  assert.match(seerAgent.speechInputs[0].context, /今日公開する占い結果/);
+  assert.match(seerAgent.speechInputs[1].context, /前の発言案では真占い師の公開タスクが未達成/);
+  const claims = seerSpeech.data?.claims as Array<{ role?: Role; result?: { targetId?: string; camp?: Camp } }> | undefined;
+  assert.ok(claims?.some((claim) => claim.role === "Seer" && claim.result?.targetId === "p2" && claim.result.camp === "werewolf"));
+  const disclosure = (game as unknown as { seerDisclosures: Map<string, { publiclyClaimed: boolean; announcedResultIds: Set<string> }> })
+    .seerDisclosures.get(seer.id);
+  assert.equal(disclosure?.publiclyClaimed, true);
+  assert.equal(disclosure?.announcedResultIds.has("p2"), true);
+});
+
+test("true Seer public claim persists and forces later unannounced real results", async () => {
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 1 }) as TestableGame;
+  const players = setTable(game, [
+    {
+      role: "Seer",
+      speeches: [
+        { messages: ["今日は投票理由を見ます"], metadata: emptyMetadata },
+        { messages: ["まだ結果更新は置きます"], metadata: emptyMetadata }
+      ]
+    },
+    { role: "Werewolf", targets: ["p1"], speeches: [{ messages: ["投票理由を確認します"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["占い主張は見ます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["今日は発言を比べます"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["投票前に整理します"], metadata: emptyMetadata }] },
+    { role: "Villager", targets: ["p2"], speeches: [{ messages: ["便乗には注意します"], metadata: emptyMetadata }] }
+  ]);
+  const seer = players[0];
+  seer.seerResults = { p2: "werewolf", p3: "village" };
+  seer.seerResultRounds = { p2: 1, p3: 2 };
+  game.publicHistory.push("Ada: ここで占い師を名乗ります。Byronは人狼判定です");
+  (game as unknown as { seerDisclosures: Map<string, { publiclyClaimed: boolean; claimRound: number; announcedResultIds: Set<string> }> })
+    .seerDisclosures.set(seer.id, {
+      publiclyClaimed: true,
+      claimRound: 2,
+      announcedResultIds: new Set(["p2"])
+    });
+  (game as unknown as { round: number }).round = 3;
+
+  const secondEvents = await collect(game.runDay());
+  const seerAgent = game.agents.get(seer.id) as ScriptedAgent;
+  const updateSpeech = secondEvents.find(
+    (event) => event.type === "player_speech" && event.playerId === seer.id && /占い師として結果を更新します。.+人間側判定です/.test(event.message)
+  );
+
+  assert.ok(updateSpeech);
+  assert.match(seerAgent.speechInputs[0].context, /公開CO状態/);
+  assert.match(seerAgent.speechInputs[0].context, /あなたは占い師として名乗っています/);
+  assert.match(seerAgent.speechInputs[0].context, /今日公開する占い結果/);
+  assert.match(seerAgent.speechInputs[1].context, /前の発言案では必要な真占い結果が出ていません/);
+  const disclosure = (game as unknown as { seerDisclosures: Map<string, { announcedResultIds: Set<string> }> }).seerDisclosures.get(seer.id);
+  assert.equal(disclosure?.announcedResultIds.has("p2"), true);
+  assert.equal(disclosure?.announcedResultIds.has("p3"), true);
 });
 
 test("day discussion context includes structured public knowledge after night deaths", async () => {
@@ -3572,6 +3732,158 @@ test("delayed human day interrupt keeps read AI context and regenerates unread r
   assert.doesNotMatch(regeneratedAgent.speechInputs[0]?.context ?? "", /人間の割り込みです/);
   assert.match(regeneratedAgent.speechInputs[1]?.context ?? "", /人間の割り込みです/);
   assert.match(regeneratedAgent.speechInputs[1]?.context ?? "", /読んだAI発言です/);
+});
+
+test("human day interrupt rollback restores werewolf deception state", async () => {
+  const optionalRequest = createDeferred<HumanInputRequestPayload>();
+  const optionalResponse = createDeferred<{ speech: string; visibleEventId: number | null }>();
+  let optionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Fallback blocking speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input) {
+      optionalRequestCount += 1;
+      if (optionalRequestCount === 1) {
+        optionalRequest.resolve(input);
+        return optionalResponse.promise;
+      }
+      return Promise.resolve(null);
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      language: "Japanese",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
+  game.agents.set(
+    players[1].id,
+    new DelayedSpeechAgent(players[1].name, [1], () => `私は占い師です。${players[3].name}は狼陣営判定です`)
+  );
+  game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [60, 1], () => "残りのAI発言です。"));
+
+  const iterator = game.runDay();
+  const events: GameEvent[] = [];
+  const aiSpeeches: GameEvent[] = [];
+  while (aiSpeeches.length < 2) {
+    const next = await iterator.next();
+    assert.equal(next.done, false);
+    events.push(next.value);
+    if (next.value.type === "player_speech" && next.value.phase === "day_discussion" && next.value.playerId !== players[2].id) {
+      aiSpeeches.push(next.value);
+    }
+  }
+
+  assert.equal(aiSpeeches[1]?.playerId, players[1].id);
+  const deceptionsBeforeRollback = (game as unknown as { werewolfDeceptions: Map<string, { publiclyClaimed?: boolean }> }).werewolfDeceptions;
+  assert.equal(deceptionsBeforeRollback.get(players[1].id)?.publiclyClaimed, true);
+
+  await optionalRequest.promise;
+  const pendingHuman = iterator.next();
+  optionalResponse.resolve({ speech: "人間の割り込みです。", visibleEventId: aiSpeeches[0].id });
+  const humanSpeech = await pendingHuman;
+
+  assert.equal(humanSpeech.value?.type, "player_speech");
+  assert.equal(humanSpeech.value?.playerId, players[2].id);
+  const deceptionsAfterRollback = (game as unknown as { werewolfDeceptions: Map<string, { publiclyClaimed?: boolean }> }).werewolfDeceptions;
+  assert.equal(deceptionsAfterRollback.has(players[1].id), false);
+
+  await collect(iterator);
+});
+
+test("human day interrupt rollback restores true Seer disclosure state", async () => {
+  const optionalRequest = createDeferred<HumanInputRequestPayload>();
+  const optionalResponse = createDeferred<{ speech: string; visibleEventId: number | null }>();
+  let optionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Fallback blocking speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input) {
+      optionalRequestCount += 1;
+      if (optionalRequestCount === 1) {
+        optionalRequest.resolve(input);
+        return optionalResponse.promise;
+      }
+      return Promise.resolve(null);
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      language: "Japanese",
+      prefetchConcurrency: 1
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  players[2].model = "human";
+  players[1].seerResults = { p4: "village" };
+  players[1].seerResultRounds = { p4: 1 };
+  game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
+  game.agents.set(
+    players[1].id,
+    new DelayedSpeechAgent(players[1].name, [1], () => `ここで占い師を名乗ります。${players[3].name}は人間側判定です`)
+  );
+  game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [60, 1], () => "残りのAI発言です。"));
+
+  const iterator = game.runDay();
+  const events: GameEvent[] = [];
+  const aiSpeeches: GameEvent[] = [];
+  while (aiSpeeches.length < 2) {
+    const next = await iterator.next();
+    assert.equal(next.done, false);
+    events.push(next.value);
+    if (next.value.type === "player_speech" && next.value.phase === "day_discussion" && next.value.playerId !== players[2].id) {
+      aiSpeeches.push(next.value);
+    }
+  }
+
+  assert.equal(aiSpeeches[1]?.playerId, players[1].id);
+  const disclosuresBeforeRollback = (game as unknown as { seerDisclosures: Map<string, { publiclyClaimed?: boolean }> }).seerDisclosures;
+  assert.equal(disclosuresBeforeRollback.get(players[1].id)?.publiclyClaimed, true);
+
+  await optionalRequest.promise;
+  const pendingHuman = iterator.next();
+  optionalResponse.resolve({ speech: "人間の割り込みです。", visibleEventId: aiSpeeches[0].id });
+  const humanSpeech = await pendingHuman;
+
+  assert.equal(humanSpeech.value?.type, "player_speech");
+  assert.equal(humanSpeech.value?.playerId, players[2].id);
+  const disclosuresAfterRollback = (game as unknown as { seerDisclosures: Map<string, { publiclyClaimed?: boolean }> }).seerDisclosures;
+  assert.equal(disclosuresAfterRollback.has(players[1].id), false);
+
+  await collect(iterator);
 });
 
 test("human speech choice can publish free text instead of a drafted option", async () => {

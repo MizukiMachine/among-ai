@@ -17,6 +17,22 @@ export interface WitchPrivateState {
   attackedTarget?: TargetCandidate | null;
 }
 
+export interface WerewolfPublicDeceptionContext {
+  claimedRole?: Role;
+  plannedSinceRound?: number;
+  publiclyClaimed?: boolean;
+  claimRound?: number;
+  fakeSeerResults?: SeerPrivateResult[];
+  currentFakeSeerResult?: SeerPrivateResult;
+}
+
+export interface SeerPublicDisclosureContext {
+  publiclyClaimed?: boolean;
+  claimRound?: number;
+  announcedResults?: SeerPrivateResult[];
+  currentResultsToPublish?: SeerPrivateResult[];
+}
+
 export interface RoleBreakdownEntry {
   role: Role;
   count: number;
@@ -24,6 +40,8 @@ export interface RoleBreakdownEntry {
 
 export interface RoleSecretContext {
   werewolfAllies?: Array<TargetCandidate & { alive?: boolean; role?: Role }>;
+  werewolfDeception?: WerewolfPublicDeceptionContext;
+  seerDisclosure?: SeerPublicDisclosureContext;
   loverPartner?: TargetCandidate & { alive?: boolean };
   seerResults?: SeerPrivateResult[];
   witch?: WitchPrivateState;

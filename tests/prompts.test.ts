@@ -73,7 +73,7 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   assert.match(promptMaterials.roles.Guard.publicSpeechGuidanceJa.join("\n"), /通常絶対に名乗らない/);
   assert.match(
     promptMaterials.roles.Werewolf.publicSpeechGuidanceJa.join("\n"),
-    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+    /占い師騙りを優先[\s\S]*二日目以降も偽結果を継続/
   );
   assert.match(
     promptMaterials.roles.Jester.publicSpeechGuidanceJa.join("\n"),
@@ -108,7 +108,8 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(werewolfContext, /人狼側の役職騙り方針/);
   assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
-  assert.match(werewolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(werewolfContext, /占い師騙りを優先候補/);
+  assert.match(werewolfContext, /二日目以降は毎昼、偽の占い結果/);
   assert.match(werewolfContext, /騎士は通常の騙り対象にしない/);
 
   const jesterContext = buildPromptContext({
@@ -267,6 +268,73 @@ test("role breakdown is public counts only while werewolf ally roles stay secret
   });
 
   assert.match(wolfContext, /Sena \(p13\): α人狼 生存/);
+});
+
+test("werewolf public deception context persists fake Seer claim and current fake result", () => {
+  const context = buildPromptContext({
+    player: player("Werewolf"),
+    phase: "day_discussion",
+    round: 2,
+    roleBreakdown: [{ role: "Werewolf", count: 1 }],
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: [
+      "Ada: 私は占い師です。黒結果が出るまでは伏せます。",
+      "第1ラウンド投票: Byron -> Curie。"
+    ],
+    privateHistory: [],
+    language: "Japanese",
+    secret: {
+      werewolfAllies: [{ id: "p1", name: "Ada", role: "Werewolf", alive: true }],
+      werewolfDeception: {
+        claimedRole: "Seer",
+        plannedSinceRound: 1,
+        publiclyClaimed: true,
+        claimRound: 1,
+        fakeSeerResults: [{ targetId: "p2", targetName: "Byron", camp: "werewolf", round: 2 }],
+        currentFakeSeerResult: { targetId: "p2", targetName: "Byron", camp: "werewolf", round: 2 }
+      }
+    }
+  });
+
+  assert.match(context, /公開上の偽装方針/);
+  assert.match(context, /あなたは占い師を主張しています/);
+  assert.match(context, /二日目以降は毎昼、偽の占い結果/);
+  assert.match(context, /今日必ず出す偽結果: Byron \(p2\) は狼陣営判定/);
+  assert.match(context, /嘘だと認めず/);
+});
+
+test("Seer disclosure context persists public claim and current real result", () => {
+  const context = buildPromptContext({
+    player: player("Seer"),
+    phase: "day_discussion",
+    round: 3,
+    roleBreakdown: [{ role: "Seer", count: 1 }],
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Ada: ここで占い師を名乗ります。Byronは人狼判定です。"],
+    privateHistory: [],
+    language: "Japanese",
+    secret: {
+      seerResults: [
+        { targetId: "p2", targetName: "Byron", camp: "werewolf", round: 2 },
+        { targetId: "p3", targetName: "Curie", camp: "village", round: 3 }
+      ],
+      seerDisclosure: {
+        publiclyClaimed: true,
+        claimRound: 2,
+        announcedResults: [{ targetId: "p2", targetName: "Byron", camp: "werewolf", round: 2 }],
+        currentResultsToPublish: [{ targetId: "p3", targetName: "Curie", camp: "village", round: 3 }]
+      }
+    }
+  });
+
+  assert.match(context, /公開CO状態/);
+  assert.match(context, /あなたは占い師として名乗っています/);
+  assert.match(context, /公開済みの占い結果/);
+  assert.match(context, /Byron \(p2\) => 狼陣営判定/);
+  assert.match(context, /今日公開する占い結果/);
+  assert.match(context, /Curie \(p3\) は人間側判定/);
 });
 
 test("werewolf private discussion uses private wolf guidance without public speech instructions", () => {
@@ -456,7 +524,8 @@ test("first-day public speech context stays simple even when a speech plan exist
   });
   assert.match(wolfContext, /公開の場では、人狼であること、仲間、夜の相談は漏らさない/);
   assert.match(wolfContext, /人狼側の役職騙り方針/);
-  assert.match(wolfContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
+  assert.match(wolfContext, /占い師騙りを優先候補/);
+  assert.match(wolfContext, /二日目以降は毎昼、偽の占い結果/);
   assert.doesNotMatch(wolfContext, /三分の二以上|初日特別モード|偽役職アピール/);
 
   assert.doesNotMatch(context, /暫定読み/);
