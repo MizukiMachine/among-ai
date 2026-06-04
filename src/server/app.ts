@@ -30,6 +30,7 @@ import {
 
 const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
+const defaultMaxRounds = 3;
 const fixedGenerationConcurrency = 5;
 let nextStreamLogId = 0;
 
@@ -157,7 +158,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     model: requestedModel || process.env.ZAI_MODEL || process.env.OPENAI_MODEL || defaultLlmModel,
     playerCount,
     language: url.searchParams.get("language") || defaultLanguage,
-    maxRounds: intParam(url.searchParams.get("maxRounds"), 8, 3, 15),
+    maxRounds: intParam(url.searchParams.get("maxRounds"), defaultMaxRounds, 3, 15),
     summaryMode: requestedSummaryMode ? summaryModeParam(requestedSummaryMode) : provider === "llm" ? "llm" : "deterministic",
     debugScenario,
     humanPlayerId,

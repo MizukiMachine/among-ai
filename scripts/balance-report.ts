@@ -6,7 +6,7 @@ function positiveInt(value: string | undefined, fallback: number): number {
 }
 
 const runs = positiveInt(process.env.RUNS, 20);
-const maxRounds = positiveInt(process.env.MAX_ROUNDS, 8);
+const maxRounds = positiveInt(process.env.MAX_ROUNDS, 3);
 const seed = process.env.SEED ?? "among-ai-balance";
 const report = await runBalanceReport({ runs, maxRounds, seed });
 

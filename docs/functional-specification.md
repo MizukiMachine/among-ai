@@ -404,7 +404,7 @@ AIプレイヤーの発言には以下のメタデータが付与される:
 | `provider` | string | demo / llm | llm |
 | `model` | string | 任意 | `ZAI_MODEL` / `OPENAI_MODEL` / glm-5-turbo |
 | `language` | string | Japanese / English | Japanese |
-| `maxRounds` | number | 3-15 | 8 |
+| `maxRounds` | number | 3-15 | 3 |
 | `summary` | string | deterministic / llm | llm（provider=demo時はdeterministic） |
 | `scenario` | string | none / guard_success / hunter_shot | none |
 | `speed` | number | 0-3000 | 650 |
