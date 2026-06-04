@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
+import { DEFAULT_LOVER_ALIGNMENT_SPEECH, DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
 import type { HumanInputHandler, HumanInputRequest, HumanInputRequestPayload, HumanInputResponse } from "../game/types";
 
 interface PendingHumanInput {
@@ -136,6 +136,9 @@ function normalizeResponseForRequest(request: HumanInputRequest, response: Human
     if (!choiceId) {
       if (request.nonBlocking && request.speechMode === "werewolf_alignment" && request.options.length === 0) {
         return withVisibleEventId({ speech: DEFAULT_WEREWOLF_ALIGNMENT_SPEECH }, response.visibleEventId);
+      }
+      if (request.nonBlocking && request.speechMode === "lover_alignment" && request.options.length === 0) {
+        return withVisibleEventId({ speech: DEFAULT_LOVER_ALIGNMENT_SPEECH }, response.visibleEventId);
       }
       return null;
     }

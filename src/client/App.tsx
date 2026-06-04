@@ -43,11 +43,12 @@ import {
 } from "./audioAssets";
 import { createGameAudioController, type GameAudioController } from "./audioController";
 import { ORIGINAL_TO_SLOT_ID, characterNames, characterProfiles } from "../game/characters";
-import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
+import { DEFAULT_LOVER_ALIGNMENT_SPEECH, DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, personaLabel, phaseLabel, roleLabel as displayRoleLabel } from "../game/i18n";
 import { isSecretEvent, redactedMessage, type SpectatorMode } from "../game/redaction";
 import {
   createRoles,
+  createRolesWithFixedHumanRole,
   maxSupportedPlayers,
   minimumPlayerCountForScenario as minimumSupportedPlayerCountForScenario,
   minSupportedPlayers,
@@ -107,6 +108,22 @@ function isOptionalWerewolfAlignmentInput(request: HumanInputRequest | null): re
   return Boolean(
     request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "werewolf_alignment"
   );
+}
+
+function isOptionalLoverAlignmentInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+  speechMode: "lover_alignment";
+} {
+  return Boolean(
+    request && request.nonBlocking && request.kind === "speech_choice" && request.speechMode === "lover_alignment"
+  );
+}
+
+function isOptionalFaceoffAlignmentInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+  speechMode: "werewolf_alignment" | "lover_alignment";
+} {
+  return isOptionalWerewolfAlignmentInput(request) || isOptionalLoverAlignmentInput(request);
 }
 
 function isOptionalDiscussionInterruptInput(request: HumanInputRequest | null): request is HumanInputRequest & {
@@ -235,6 +252,8 @@ const initialDebugScenario: DebugScenario = "none";
 const initialHumanEnabled = false;
 const initialHumanPlayerId = "p1";
 const initialHumanCampPreference: HumanCampPreference = "random";
+type HumanRolePreference = Role | "random";
+const initialHumanRolePreference: HumanRolePreference = "random";
 const initialSpectatorMode: SpectatorMode = "omniscient";
 // How long the modal spotlight lingers when a werewolf ally is unveiled at the face-off. Kept
 // deliberately slow: it is a dramatic beat, and the hold also masks round-1 generation latency.
@@ -630,6 +649,9 @@ export function eventPhaseMetaLabel(phase: Phase, language = defaultLanguage): s
     if (phase === "werewolf_discussion") {
       return "人狼相談フェーズ";
     }
+    if (phase === "lover_discussion") {
+      return "恋人相談フェーズ";
+    }
     if (phase === "guard_action") {
       return "護衛決定フェーズ";
     }
@@ -749,7 +771,14 @@ export function stageLightMoodForEvent(event: GameEvent | undefined, hidden = fa
   if (event.type === "vote_cast" || event.type === "vote_result" || event.phase === "voting") {
     return "vote";
   }
-  if (event.phase === "night" || event.phase === "werewolf_discussion" || event.phase === "guard_action" || event.phase === "seer_action" || event.phase === "witch_action") {
+  if (
+    event.phase === "night" ||
+    event.phase === "werewolf_discussion" ||
+    event.phase === "lover_discussion" ||
+    event.phase === "guard_action" ||
+    event.phase === "seer_action" ||
+    event.phase === "witch_action"
+  ) {
     return "night";
   }
   if (event.phase === "setup") {
@@ -809,9 +838,9 @@ function renderStageBackdrop(
 function roleDisplay(player: PlayerSnapshot, mode: SpectatorMode, language: string, revealed = true): string {
   const role = String(player.role);
   // In player mode the snapshot is already redacted server-side: only the viewer's own role
-  // and (for a werewolf viewer) their allies' roles arrive non-Hidden. Allies are present from
-  // the first event, but the story only "introduces" each one when they name their role at the
-  // werewolf face-off, so `revealed` gates the flip from 不明 to the real role until we have
+  // and (for secret-team viewers) allied werewolf / lover partner roles arrive non-Hidden. Those
+  // players are present from the first event, but the story only "introduces" each one when they
+  // name their role at the face-off, so `revealed` gates the flip from 不明 to the real role until we have
   // played past that self-naming speech (see `revealedRoleIds`).
   const roleVisible = mode === "omniscient" || (mode === "player" && role !== "Hidden" && revealed);
   if (!roleVisible || role === "Hidden") {
@@ -832,11 +861,11 @@ function roleChipClass(player: PlayerSnapshot, mode: SpectatorMode, revealed = t
   return roleVisible ? roleClassName(role) : "role-hidden";
 }
 
-// The speaker id of a werewolf face-off line — the moment a wolf names their role to the team —
+// The speaker id of a secret face-off line — the moment a wolf/lover names their role to the team —
 // or undefined for any other event. Drives both the roster reveal gate (`revealedRoleIds`) and
 // its one-shot focus animation (`revealingRoleId`).
 function faceoffSpeakerId(event: GameEvent): string | undefined {
-  if (event.type === "player_speech" && event.phase === "werewolf_discussion") {
+  if (event.type === "player_speech" && (event.phase === "werewolf_discussion" || event.phase === "lover_discussion")) {
     return event.playerId;
   }
   return undefined;
@@ -1196,10 +1225,11 @@ const headerRoleOrder = [
   "Jester"
 ] as const satisfies readonly Role[];
 
-export function getRoleDistributionItems(count: number): Array<[Role, number]> {
+export function getRoleDistributionItems(count: number, fixedHumanRole: Role | null = null): Array<[Role, number]> {
   const normalizedCount = normalizePlayerCount(count);
   const counts = new Map<Role, number>();
-  for (const role of createRoles(normalizedCount)) {
+  const roles = fixedHumanRole ? createRolesWithFixedHumanRole(normalizedCount, fixedHumanRole) : createRoles(normalizedCount);
+  for (const role of roles) {
     counts.set(role, (counts.get(role) ?? 0) + 1);
   }
 
@@ -1216,8 +1246,8 @@ function runModeClass(count: number): string {
   return "mode-standard";
 }
 
-function getCampRatioCounts(count: number): { villagers: number; werewolves: number } {
-  const roleCounts = getRoleDistributionItems(count);
+function getCampRatioCounts(count: number, fixedHumanRole: Role | null = null): { villagers: number; werewolves: number } {
+  const roleCounts = getRoleDistributionItems(count, fixedHumanRole);
   const werewolves = roleCounts
     .filter(([role]) => role === "Werewolf" || role === "AlphaWolf" || role === "WolfBeauty")
     .reduce((total, [, roleCount]) => total + roleCount, 0);
@@ -1226,8 +1256,8 @@ function getCampRatioCounts(count: number): { villagers: number; werewolves: num
   return { villagers, werewolves };
 }
 
-function getCampRatioText(count: number, language: string): string {
-  const { villagers, werewolves } = getCampRatioCounts(count);
+function getCampRatioText(count: number, language: string, fixedHumanRole: Role | null = null): string {
+  const { villagers, werewolves } = getCampRatioCounts(count, fixedHumanRole);
 
   if (isJapaneseLanguage(language)) {
     return `人間側${villagers} / 狼陣営${werewolves}`;
@@ -1235,8 +1265,8 @@ function getCampRatioText(count: number, language: string): string {
   return `Village ${villagers} / Werewolf ${werewolves}`;
 }
 
-function renderHeaderCampRatio(count: number, language: string): ReactNode {
-  return getCampRatioText(count, language);
+function renderHeaderCampRatio(count: number, language: string, fixedHumanRole: Role | null = null): ReactNode {
+  return getCampRatioText(count, language, fixedHumanRole);
 }
 
 interface RoleRuleCopy {
@@ -1278,9 +1308,9 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
   },
   Witch: {
     goal: "人間側として全人狼を排除",
-    ability: "救命薬と毒薬を各1回使える",
-    timing: "夜の魔女フェーズ",
-    note: "薬の使いどころで人数差が変わる"
+    ability: "夜の魔女フェーズで、救命薬と毒薬をゲーム中各1回だけ使える。同じ夜に両方使える",
+    timing: "人狼の襲撃先を確認した夜。救命薬は襲撃がある時、毒薬は残っていれば使用可",
+    note: "救命薬はその夜の襲撃対象を救う薬。毒薬は選んだ生存者1人を死亡させる薬。使用は任意"
   },
   Guard: {
     goal: "人間側として全人狼を排除",
@@ -1467,6 +1497,7 @@ export function App() {
   const [humanEnabled, setHumanEnabled] = useState(initialHumanEnabled);
   const [humanPlayerId, setHumanPlayerId] = useState(initialHumanPlayerId);
   const [humanCampPreference, setHumanCampPreference] = useState<HumanCampPreference>(initialHumanCampPreference);
+  const [humanRolePreference, setHumanRolePreference] = useState<HumanRolePreference>(initialHumanRolePreference);
   const [settingsConfirmed, setSettingsConfirmed] = useState(false);
   const language = defaultLanguage;
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -1629,10 +1660,11 @@ export function App() {
   const latestVoteResult = useMemo(() => events.filter(voteResultHasVisibleData).at(-1), [events]);
   const scenarioMinimumPlayerCount = minimumPlayerCountForScenario(debugScenario);
   const effectivePlayerCount = effectivePlayerCountForScenario(playerCount, debugScenario);
+  const fixedHumanRole = humanEnabled && humanRolePreference !== "random" ? humanRolePreference : null;
   const largeRunMode = effectivePlayerCount >= 13;
   const roleDistributionItems = useMemo(
-    () => getRoleDistributionItems(effectivePlayerCount),
-    [effectivePlayerCount]
+    () => getRoleDistributionItems(effectivePlayerCount, fixedHumanRole),
+    [effectivePlayerCount, fixedHumanRole]
   );
   const bgmOptions = useMemo(
     () => getAdoptedBgmAssets(audioManifest),
@@ -2098,6 +2130,14 @@ export function App() {
     setHumanCampPreference(preference);
   }
 
+  function updateHumanRolePreference(preference: HumanRolePreference) {
+    playSetupConfirmSfx();
+    if (!humanEnabled) {
+      updateHumanEnabled(true, { playSound: false });
+    }
+    setHumanRolePreference(preference);
+  }
+
   function commitPendingHumanInputs(nextInputs: PendingHumanInputEntry[]) {
     pendingHumanInputsRef.current = nextInputs;
     setPendingHumanInputsState(nextInputs);
@@ -2294,6 +2334,7 @@ export function App() {
     setHumanEnabled(initialHumanEnabled);
     setHumanPlayerId(initialHumanPlayerId);
     setHumanCampPreference(initialHumanCampPreference);
+    setHumanRolePreference(initialHumanRolePreference);
     setSpectatorMode(initialSpectatorMode);
   }
 
@@ -2356,6 +2397,9 @@ export function App() {
     if (humanEnabled) {
       params.set("human", humanPlayerId);
       params.set("humanCamp", humanCampPreference);
+      if (humanRolePreference !== "random") {
+        params.set("humanRole", humanRolePreference);
+      }
     }
 
     const source = new EventSource(`/api/games/stream?${params.toString()}`);
@@ -2607,7 +2651,7 @@ export function App() {
       void submitHumanInput({ decision: false });
       return true;
     }
-    if (!isOptionalWerewolfAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
+    if (!isOptionalFaceoffAlignmentInput(visibleHumanInput) || humanSpeech.trim().length > 0) {
       return false;
     }
     void submitHumanInput({ speech: "" });
@@ -2915,12 +2959,16 @@ export function App() {
     if (
       request.kind !== "speech_choice" ||
       !request.nonBlocking ||
-      (request.speechMode !== "werewolf_alignment" && request.speechMode !== "discussion_interrupt")
+      (request.speechMode !== "werewolf_alignment" && request.speechMode !== "lover_alignment" && request.speechMode !== "discussion_interrupt")
     ) {
       return null;
     }
     const fallbackMessage =
-      request.speechMode === "werewolf_alignment" ? displayMessageText(DEFAULT_WEREWOLF_ALIGNMENT_SPEECH) : null;
+      request.speechMode === "werewolf_alignment"
+        ? displayMessageText(DEFAULT_WEREWOLF_ALIGNMENT_SPEECH)
+        : request.speechMode === "lover_alignment"
+          ? displayMessageText(DEFAULT_LOVER_ALIGNMENT_SPEECH)
+          : null;
     const message = humanSpeechEchoMessage(payload.speech) ?? fallbackMessage;
     const eventSnapshot = snapshot ?? currentEvent?.snapshot;
     if (!message || !eventSnapshot) {
@@ -2938,6 +2986,7 @@ export function App() {
       role: request.role,
       data: {
         ...(request.phase === "werewolf_discussion" ? { visibility: "werewolf" as const } : {}),
+        ...(request.phase === "lover_discussion" ? { visibility: "lover" as const } : {}),
         localHumanEcho: true,
         speech: message,
         speechIndex: 0,
@@ -3030,28 +3079,46 @@ export function App() {
     }
 
     const isWerewolfAlignment = prompt.speechMode === "werewolf_alignment";
+    const isLoverAlignment = prompt.speechMode === "lover_alignment";
+    const isFaceoffAlignment = isWerewolfAlignment || isLoverAlignment;
     const isDiscussionInterrupt = prompt.speechMode === "discussion_interrupt";
-    const canSubmitHumanSpeech = isWerewolfAlignment || humanSpeech.trim().length > 0;
+    const canSubmitHumanSpeech = isFaceoffAlignment || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfAlignment
       ? "未入力なら既定の意思合わせ発言で進みます"
-      : isDiscussionInterrupt
-        ? "今の流れに短く発言を挟めます"
-        : "候補から選ぶか、自由に発言を入力してください";
+      : isLoverAlignment
+        ? "未入力なら既定の恋人発言で進みます"
+        : isDiscussionInterrupt
+          ? "今の流れに短く発言を挟めます"
+          : "候補から選ぶか、自由に発言を入力してください";
     const speechPlaceholder = isWerewolfAlignment
       ? "例: 昼は人間側の顔で信用を取りに行く"
-      : isDiscussionInterrupt
-        ? "例: その読みなら、私はシオンよりガクの理由の薄さを見たい"
-      : "発言を入力";
-    const speechPromptTitle = isWerewolfAlignment ? "挨拶を入力しましょう" : isDiscussionInterrupt ? "発言を挟む" : null;
+      : isLoverAlignment
+        ? "例: 昼は距離を取りつつ二人で生き残ろう"
+        : isDiscussionInterrupt
+          ? "例: その読みなら、私はシオンよりガクの理由の薄さを見たい"
+          : "発言を入力";
+    const speechPromptTitle = isWerewolfAlignment
+      ? "挨拶を入力しましょう"
+      : isLoverAlignment
+        ? "相方に返答しましょう"
+        : isDiscussionInterrupt
+          ? "発言を挟む"
+          : null;
     const speechAriaLabel = isWerewolfAlignment
       ? "人狼意思合わせ発言の入力"
-      : isDiscussionInterrupt
-        ? "昼議論に挟む発言"
-        : "自由入力の発言";
-    const speechSubmitLabel = isWerewolfAlignment ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む") : "発言する";
+      : isLoverAlignment
+        ? "恋人顔合わせ発言の入力"
+        : isDiscussionInterrupt
+          ? "昼議論に挟む発言"
+          : "自由入力の発言";
+    const speechSubmitLabel = isWerewolfAlignment
+      ? (humanSpeech.trim().length > 0 ? "意思合わせで話す" : "既定文で進む")
+      : isLoverAlignment
+        ? (humanSpeech.trim().length > 0 ? "恋人に話す" : "既定文で進む")
+        : "発言する";
 
     return (
-      <section className={`human-speech-composer ${isWerewolfAlignment ? "werewolf-alignment" : ""}`} aria-label="発言入力">
+      <section className={`human-speech-composer ${isFaceoffAlignment ? "werewolf-alignment" : ""}`} aria-label="発言入力">
         {speechPromptTitle ? <p className="human-speech-prompt-title">{speechPromptTitle}</p> : null}
         <textarea
           aria-label={speechAriaLabel}
@@ -3617,6 +3684,8 @@ export function App() {
     const title =
       pendingHumanInputNotice.kind === "speech_choice" && pendingHumanInputNotice.speechMode === "werewolf_alignment"
         ? "あなたの意思合わせが近づいています"
+        : pendingHumanInputNotice.kind === "speech_choice" && pendingHumanInputNotice.speechMode === "lover_alignment"
+          ? "あなたの恋人顔合わせが近づいています"
         : pendingHumanInputNotice.kind === "speech_choice"
           ? "あなたの発言が近づいています"
           : "あなたの意思決定が近づいています";
@@ -3787,7 +3856,7 @@ export function App() {
         <div className="header-role-summary">
           <span>役職内訳</span>
           <strong className="header-camp-ratio">
-            {renderHeaderCampRatio(effectivePlayerCount, language)}
+            {renderHeaderCampRatio(effectivePlayerCount, language, fixedHumanRole)}
           </strong>
         </div>
         <div className="header-role-list" role="list">
@@ -3920,6 +3989,24 @@ export function App() {
                   ))}
                 </div>
               </div>
+            ) : null}
+
+            {humanEnabled ? (
+              <label className="human-role-field">
+                <span>操作プレイヤーの役職</span>
+                <select
+                  aria-label="操作プレイヤーの役職"
+                  onChange={(event) => updateHumanRolePreference(event.currentTarget.value === "random" ? "random" : (event.currentTarget.value as Role))}
+                  value={humanRolePreference}
+                >
+                  <option value="random">ランダム（陣営設定）</option>
+                  {headerRoleOrder.map((role) => (
+                    <option key={role} value={role}>
+                      {displayRoleLabel(role, language)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : null}
 
             {humanEnabled ? (

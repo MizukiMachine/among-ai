@@ -115,7 +115,7 @@ function formatWitchState(witch: WitchPrivateState | undefined): string[] {
     ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
     : "この判断では見えていません";
   return [
-    `- 救済薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
+    `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
     `- 毒薬: ${witch.poisonPotion ? "残っています" : "ありません"}。`,
     `- 魔女に見えている襲撃先: ${attacked}。`
   ];
@@ -130,7 +130,7 @@ function formatWitchStateJa(witch: WitchPrivateState | undefined): string[] {
     ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
     : "この判断では見えていません";
   return [
-    `- 救済薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
+    `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
     `- 毒薬: ${witch.poisonPotion ? "残っています" : "ありません"}。`,
     `- 魔女に見えている襲撃先: ${attacked}。`
   ];

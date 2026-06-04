@@ -1,17 +1,20 @@
-export type Role =
-  | "Werewolf"
-  | "AlphaWolf"
-  | "WolfBeauty"
-  | "Seer"
-  | "Witch"
-  | "Guard"
-  | "Hunter"
-  | "Raven"
-  | "Idiot"
-  | "Elder"
-  | "Lover"
-  | "Jester"
-  | "Villager";
+export const roleValues = [
+  "Werewolf",
+  "AlphaWolf",
+  "WolfBeauty",
+  "Seer",
+  "Witch",
+  "Guard",
+  "Hunter",
+  "Raven",
+  "Idiot",
+  "Elder",
+  "Lover",
+  "Jester",
+  "Villager"
+] as const;
+
+export type Role = (typeof roleValues)[number];
 export type Camp = "werewolf" | "village";
 export type CampId = Camp | "neutral" | "lover";
 export type HumanCampPreference = Camp | "random";
@@ -29,6 +32,7 @@ export type Phase =
   | "setup"
   | "night"
   | "werewolf_discussion"
+  | "lover_discussion"
   | "guard_action"
   | "seer_action"
   | "witch_action"
@@ -50,7 +54,7 @@ export type GameEventType =
   | "game_ended"
   | "system";
 
-export type EventVisibility = "public" | "private" | "werewolf";
+export type EventVisibility = "public" | "private" | "werewolf" | "lover";
 export type SummaryMode = "deterministic" | "llm";
 export type DebugScenario = "none" | "guard_success" | "hunter_shot";
 export type HumanInputKind = "speech_choice" | "target" | "boolean";
@@ -282,6 +286,7 @@ export interface GameConfig {
   debugScenario?: DebugScenario;
   humanPlayerId?: string | null;
   humanCampPreference?: HumanCampPreference;
+  humanRolePreference?: Role | null;
   prefetchConcurrency?: number;
 }
 
@@ -444,7 +449,7 @@ export interface SpeechChoiceOption {
 
 export interface HumanSpeechChoiceInputRequest extends HumanInputRequestBase {
   kind: "speech_choice";
-  speechMode?: "discussion" | "discussion_interrupt" | "werewolf_alignment";
+  speechMode?: "discussion" | "discussion_interrupt" | "werewolf_alignment" | "lover_alignment";
   task: string;
   options: SpeechChoiceOption[];
   allowFreeText?: boolean;

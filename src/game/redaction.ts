@@ -44,18 +44,18 @@ export interface PlayerViewGameEvent extends Omit<GameEvent, "data" | "role" | "
 }
 
 export function isVisibility(value: unknown): value is EventVisibility {
-  return value === "public" || value === "private" || value === "werewolf";
+  return value === "public" || value === "private" || value === "werewolf" || value === "lover";
 }
 
 export function isSecretEvent(event: GameEvent): boolean {
   const visibility = event.data?.visibility;
-  if (visibility === "private" || visibility === "werewolf") {
+  if (visibility === "private" || visibility === "werewolf" || visibility === "lover") {
     return true;
   }
   return (
     event.type === "private_info" ||
     event.type === "night_action" ||
-    (event.type === "player_speech" && event.phase === "werewolf_discussion")
+    (event.type === "player_speech" && (event.phase === "werewolf_discussion" || event.phase === "lover_discussion"))
   );
 }
 
@@ -87,15 +87,17 @@ export function redactSnapshotForVillage(snapshot: GameSnapshot): VillageGameSna
 
 export function redactSnapshotForPlayer(snapshot: GameSnapshot, playerId: string): PlayerViewGameSnapshot {
   // A werewolf-camp viewer knows their fellow werewolves' identities — they are revealed at
-  // the first-day face-off and share the night chat — so the roster shows allied werewolves'
-  // real role and camp instead of hiding them. Village-camp viewers see only themselves.
-  const viewerIsWerewolf = snapshot.players.find((player) => player.id === playerId)?.camp === "werewolf";
+  // the first-day face-off and share the night chat. A Lover viewer likewise learns their
+  // partner at the lover face-off. The UI still gates when those real roles are displayed.
+  const viewer = snapshot.players.find((player) => player.id === playerId);
+  const viewerIsWerewolf = viewer?.camp === "werewolf";
+  const viewerIsLover = viewer?.role === "Lover";
   return {
     ...snapshot,
     werewolfCount: null,
     villageCount: null,
     players: snapshot.players.map((player) => {
-      if (player.id === playerId || (viewerIsWerewolf && player.camp === "werewolf")) {
+      if (player.id === playerId || (viewerIsWerewolf && player.camp === "werewolf") || (viewerIsLover && player.role === "Lover")) {
         return player;
       }
       return {
@@ -153,11 +155,23 @@ export function redactEventForVillage(event: GameEvent): VillageGameEvent {
   return redactedEvent;
 }
 
+function dataVisibleToPlayer(data: GameEvent["data"], playerId: string): boolean {
+  if (data?.visibleTo === playerId) {
+    return true;
+  }
+  const visibleTo = data?.visibleTo;
+  if (Array.isArray(visibleTo) && visibleTo.includes(playerId)) {
+    return true;
+  }
+  const loverIds = data?.loverIds;
+  return Array.isArray(loverIds) && loverIds.includes(playerId);
+}
+
 function isEventVisibleToPlayer(event: GameEvent, playerId: string): boolean {
   if (!isSecretEvent(event)) {
     return true;
   }
-  if (event.data?.visibleTo === playerId) {
+  if (dataVisibleToPlayer(event.data, playerId)) {
     return true;
   }
   // Werewolf-visibility events (e.g. the night discussion) are shared across the whole werewolf team,
@@ -167,6 +181,9 @@ function isEventVisibleToPlayer(event: GameEvent, playerId: string): boolean {
     if (viewer?.camp === "werewolf") {
       return true;
     }
+  }
+  if (eventVisibility(event) === "lover") {
+    return false;
   }
   return event.playerId === playerId && (event.data?.visibility === "private" || event.data?.visibility === "werewolf");
 }
@@ -218,6 +235,7 @@ function redactEventDataForPlayer(event: GameEvent, playerId: string): PlayerVie
 
   const publicData: Record<string, unknown> = { ...(event.data ?? {}) };
   delete publicData.visibleTo;
+  delete publicData.loverIds;
   redactPublicVoteData(event.type, publicData);
   if (!secret) {
     delete publicData.targetRole;
@@ -248,7 +266,12 @@ export function redactEventForPlayer(event: GameEvent, playerId: string): Player
 }
 
 function isSecretProgress(progress: GenerationProgress): boolean {
-  return progress.task === "werewolf_discussion" || progress.task === "werewolf_attack_vote" || progress.phase === "werewolf_discussion";
+  return (
+    progress.task === "werewolf_discussion" ||
+    progress.task === "werewolf_attack_vote" ||
+    progress.phase === "werewolf_discussion" ||
+    progress.phase === "lover_discussion"
+  );
 }
 
 export function redactProgressForVillage(progress: GenerationProgress): GenerationProgress {

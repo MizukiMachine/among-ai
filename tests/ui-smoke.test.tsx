@@ -288,6 +288,7 @@ test("story event meta labels are readable and omit visibility chips", () => {
   assert.equal(eventRoundLabel(1, "Japanese"), "ラウンド1");
   assert.equal(eventRoundLabel(2, "English"), "Round 2");
   assert.equal(eventPhaseMetaLabel("werewolf_discussion", "Japanese"), "人狼相談フェーズ");
+  assert.equal(eventPhaseMetaLabel("lover_discussion", "Japanese"), "恋人相談フェーズ");
   assert.equal(eventPhaseMetaLabel("guard_action", "Japanese"), "護衛決定フェーズ");
   assert.equal(eventPhaseMetaLabel("seer_action", "Japanese"), "占い決定フェーズ");
   assert.equal(eventPhaseMetaLabel("day_discussion", "Japanese"), "昼議論");
@@ -653,6 +654,7 @@ test("story run controls switch between pause, resume, and reset", () => {
   assert.match(source, /function resetToInitialSetup\(\)/);
   assert.match(source, /setPlayerCount\(initialPlayerCount\);/);
   assert.match(source, /setHumanEnabled\(initialHumanEnabled\);/);
+  assert.match(source, /setHumanRolePreference\(initialHumanRolePreference\);/);
   assert.match(source, /onClick=\{resetToInitialSetup\}/);
   assert.doesNotMatch(source, /onClick=\{\(\) => startGame\(\{ revealFirstEvent: true \}\)\}/);
 });
@@ -714,7 +716,7 @@ test("story controls stay stable as history grows", () => {
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.info-bar\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*auto/s);
   assert.equal(displayRoleLabel("AlphaWolf", "Japanese"), "α人狼");
   assert.match(source, /function headerRoleLabel\(role: Role, language: string\): string/);
-  assert.match(source, /function renderHeaderCampRatio\(count: number, language: string\): ReactNode/);
+  assert.match(source, /function renderHeaderCampRatio\(count: number, language: string, fixedHumanRole: Role \| null = null\): ReactNode/);
   assert.match(source, /<header className="topbar">/);
   assert.match(source, /className="header-role-distribution"/);
   assert.match(source, /className="header-camp-ratio"/);
@@ -760,6 +762,9 @@ test("header role rule popover follows the selected chip", () => {
   assert.match(source, /window\.addEventListener\("orientationchange", scheduleRoleRuleReposition\)/);
   assert.match(source, /function roleRuleText\(text: string\): string \{\s*return text\.replace\(/s);
   assert.match(source, /<dd>\{roleRuleText\(selectedRule\.ability\)\}<\/dd>/);
+  assert.match(source, /夜の魔女フェーズで、救命薬と毒薬をゲーム中各1回だけ使える。同じ夜に両方使える/);
+  assert.match(source, /人狼の襲撃先を確認した夜。救命薬は襲撃がある時、毒薬は残っていれば使用可/);
+  assert.match(source, /救命薬はその夜の襲撃対象を救う薬。毒薬は選んだ生存者1人を死亡させる薬。使用は任意/);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*top:\s*var\(--role-rule-top/s);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*left:\s*var\(--role-rule-left/s);
   assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*calc\(100vw - 40px\)\)/s);
@@ -857,7 +862,7 @@ test("player roster hides persona and emphasizes role labels", () => {
   assert.match(source, /const visibleRoleLabel = player[\s\S]*publicRole[\s\S]*displayRoleLabel\(publicRole, language\)[\s\S]*roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   // The face-off self-naming speech is what flips an ally from 不明 to their role.
   assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
-  assert.match(source, /event\.type === "player_speech" && event\.phase === "werewolf_discussion"/);
+  assert.match(source, /event\.type === "player_speech" && \(event\.phase === "werewolf_discussion" \|\| event\.phase === "lover_discussion"\)/);
   assert.match(source, /function personaClassName\(persona: PlayerSnapshot\["persona"\] \| string \| undefined\): string/);
   assert.doesNotMatch(source, /className=\{`persona-pill \$\{personaClassName\(player\.persona\)\}`\}/);
   assert.match(css, /\.player-avatar\s*\{[^}]*width:\s*92px[^}]*height:\s*92px/s);
@@ -954,15 +959,17 @@ test("game start begins generation after settings are confirmed", () => {
   assert.match(source, /ゲーム開始を押すと対局を開始します。/);
   assert.match(source, /className="scene-placeholder setup-confirmed-summary"[\s\S]*renderSetupConfirmedActions\(\)/);
   assert.match(source, /summary: "deterministic"/);
+  assert.match(source, /params\.set\("humanRole", humanRolePreference\)/);
   assert.match(source, /if \(revealFirstEventRef\.current\)\s*\{[^}]*const nextEvents = \[event\];[^}]*eventsRef\.current = nextEvents;[^}]*setEvents\(nextEvents\)[^}]*setSnapshot\(event\.snapshot\)[^}]*return;/s);
 });
 
-test("setup exposes human camp preference choices", () => {
+test("setup exposes human camp and role preference choices", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /const initialHumanEnabled = false;/);
   assert.match(source, /const initialHumanCampPreference: HumanCampPreference = "random";/);
+  assert.match(source, /const initialHumanRolePreference: HumanRolePreference = "random";/);
   assert.match(source, /const initialSpectatorMode: SpectatorMode = "omniscient";/);
   assert.doesNotMatch(source, /className="field setup-field play-goal-field"/);
   assert.doesNotMatch(source, /className="setup-note play-goal-note"/);
@@ -974,9 +981,15 @@ test("setup exposes human camp preference choices", () => {
   assert.match(source, /label: "ランダム"/);
   assert.match(source, /params\.set\("humanCamp", humanCampPreference\)/);
   assert.match(source, /className="segments human-camp-options"/);
+  assert.match(source, /<span>操作プレイヤーの役職<\/span>/);
+  assert.match(source, /<option value="random">ランダム（陣営設定）<\/option>/);
+  assert.match(source, /headerRoleOrder\.map\(\(role\) =>/);
+  assert.match(source, /createRolesWithFixedHumanRole\(normalizedCount, fixedHumanRole\)/);
   assert.doesNotMatch(css, /\.play-goal-field/);
   assert.doesNotMatch(css, /\.play-goal-note/);
   assert.match(css, /\.human-camp-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.human-role-field\s*\{[^}]*width:\s*min\(100%,\s*520px\)/s);
+  assert.match(css, /\.human-role-field select\s*\{[^}]*min-height:\s*44px/s);
 });
 
 test("human input waits behind unread story events with a visible notice", () => {
@@ -1026,6 +1039,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submitHumanInput\(\{ targetId: null \}\)/);
   assert.match(source, /const \[humanSpeech, setHumanSpeech\] = useState\(""\);/);
   assert.match(source, /speechMode === "werewolf_alignment"/);
+  assert.match(source, /speechMode === "lover_alignment"/);
   assert.match(source, /function renderHumanSpeechInputScene\(prompt: HumanSpeechInputRequest \| null\)/);
   assert.doesNotMatch(source, /function renderHumanContext/);
   assert.doesNotMatch(source, /renderHumanContextLines/);
@@ -1043,6 +1057,8 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /renderHumanSpeechInputScene\(speechInputPrompt\)/);
   assert.match(source, /renderHumanInputPanel\(actionHumanInput\)/);
   assert.match(source, /function isOptionalWerewolfAlignmentInput/);
+  assert.match(source, /function isOptionalLoverAlignmentInput/);
+  assert.match(source, /function isOptionalFaceoffAlignmentInput/);
   assert.match(source, /function isOptionalDiscussionInterruptInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
@@ -1057,7 +1073,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /if \(skipOptionalHumanInputOnStoryAdvance\(\)\) \{/);
   assert.doesNotMatch(source, /revealNextStoryEventOnArrivalRef/);
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
-  assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "discussion_interrupt"/);
+  assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "lover_alignment" && request\.speechMode !== "discussion_interrupt"/);
   assert.match(source, /source\.addEventListener\("human_input_cancelled"/);
   assert.match(source, /const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest \| null>\(null\);/);
   assert.match(source, /function discardUnreadStoryBeforeHumanInterrupt\(request: HumanInputRequest\)/);
@@ -1098,7 +1114,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.doesNotMatch(source, /const allowFreeText = prompt\.allowFreeText !== false;/);
   assert.doesNotMatch(source, /"この場面では候補から選んでください"/);
   assert.doesNotMatch(source, /"候補から選択"/);
-  assert.match(source, /const canSubmitHumanSpeech = isWerewolfAlignment \|\| humanSpeech\.trim\(\)\.length > 0;/);
+  assert.match(source, /const canSubmitHumanSpeech = isFaceoffAlignment \|\| humanSpeech\.trim\(\)\.length > 0;/);
   assert.match(source, /humanSpeech\.trim\(\)\.length > 0 \? "意思合わせで話す" : "既定文で進む"/);
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting\}/);
