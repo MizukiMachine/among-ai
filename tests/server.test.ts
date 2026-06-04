@@ -98,13 +98,21 @@ test("stream options lock generation concurrency to five", () => {
 
 test("stream options accept a human player and player view", () => {
   const options = parseStreamOptions(
-    new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&humanCamp=werewolf&scenario=hunter_shot")
+    new URL("http://localhost/api/games/stream?players=7&human=p3&view=player&humanCamp=werewolf&humanRole=Witch&scenario=hunter_shot")
   );
 
   assert.equal(options.humanPlayerId, "p3");
   assert.equal(options.humanCampPreference, "werewolf");
+  assert.equal(options.humanRolePreference, "Witch");
   assert.equal(options.view, "player");
   assert.equal(options.debugScenario, "none");
+});
+
+test("stream options ignore human role preference without a human player", () => {
+  const options = parseStreamOptions(new URL("http://localhost/api/games/stream?players=7&humanRole=Witch"));
+
+  assert.equal(options.humanPlayerId, null);
+  assert.equal(options.humanRolePreference, null);
 });
 
 test("stream options default human camp preference to random", () => {
@@ -349,6 +357,30 @@ test("optional werewolf alignment input fills empty speech with a minimal line",
   assert.ok(requestId);
   assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
   assert.deepEqual(await alignmentPromise, { speech: "あいつら絶対騙してやる" });
+  session.close();
+});
+
+test("optional lover alignment input fills empty speech with a minimal line", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const alignmentPromise = session.request({
+    kind: "speech_choice",
+    speechMode: "lover_alignment",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "lover_discussion",
+    role: "Lover",
+    task: "恋人顔合わせをしてください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: []
+  });
+
+  assert.ok(requestId);
+  assert.deepEqual(session.submit(requestId, { speech: "" }), { ok: true });
+  assert.deepEqual(await alignmentPromise, { speech: "相方を確認したよ。昼は自然に合わせて生き残ろう" });
   session.close();
 });
 

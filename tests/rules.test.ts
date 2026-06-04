@@ -3,7 +3,7 @@ import test from "node:test";
 import { createDeathResolutionEffects, createLinkedDeathRecords, createNightDeathRecords } from "../src/game/rules/deaths";
 import { resolveVoteElimination } from "../src/game/rules/elimination";
 import { createNightActionPlan } from "../src/game/rules/night";
-import { createRoles, normalizePlayerCount } from "../src/game/rules/presets";
+import { createRoles, createRolesWithFixedHumanRole, normalizePlayerCount } from "../src/game/rules/presets";
 import { getRoleDefinition, roleCamp, roleDeathTriggers } from "../src/game/rules/roles";
 import {
   addVictoryClaims,
@@ -84,6 +84,22 @@ test("15 player role preset compresses every advanced role into the supported ma
   assert.equal(roles.filter((role) => role === "Lover").length, 2);
   assert.equal(roles.filter((role) => role === "Jester").length, 1);
   assert.equal(roles.filter((role) => role === "Villager").length, 1);
+});
+
+test("fixed human role presets replace fill roles and preserve required partners", () => {
+  const guardRoles = createRolesWithFixedHumanRole(6, "Guard");
+  assert.equal(guardRoles.length, 6);
+  assert.equal(guardRoles.filter((role) => role === "Guard").length, 1);
+  assert.equal(guardRoles.filter((role) => role === "Villager").length, 2);
+
+  const alphaRoles = createRolesWithFixedHumanRole(6, "AlphaWolf");
+  assert.equal(alphaRoles.length, 6);
+  assert.equal(alphaRoles.filter((role) => roleCamp(role) === "werewolf").length, 1);
+  assert.equal(alphaRoles.filter((role) => role === "AlphaWolf").length, 1);
+
+  const loverRoles = createRolesWithFixedHumanRole(6, "Lover");
+  assert.equal(loverRoles.length, 6);
+  assert.equal(loverRoles.filter((role) => role === "Lover").length, 2);
 });
 
 test("night action plan is priority ordered and deduplicates team actions", () => {

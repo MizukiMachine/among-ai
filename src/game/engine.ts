@@ -8,9 +8,10 @@ import {
   textHasSpeakerRoleClaimEvidence
 } from "./daySituations";
 import { buildHumanInputContext, HumanInputAgent } from "./humanAgent";
-import { defaultWerewolfAlignmentSpeechForPlayer } from "./humanInputDefaults";
+import { defaultLoverAlignmentSpeechForPlayer, defaultWerewolfAlignmentSpeechForPlayer } from "./humanInputDefaults";
 import { campLabel, defaultLanguage, isJapaneseLanguage, roleLabel } from "./i18n";
 import { reviewJapaneseOutput, stripJapaneseSpeechTerminalPeriod } from "./japaneseStyle";
+import { loverFaceoffLineOptionsForPlayer } from "./loverFaceoffLines";
 import { buildBaseContext, type RoleBreakdownEntry, type RoleSecretContext } from "./prompts";
 import {
   buildPublicSpeechPlan,
@@ -31,6 +32,7 @@ import type { DeathRecord, RuleState } from "./rules/types";
 import { createNightActionPlan } from "./rules/night";
 import {
   createRoles,
+  createRolesWithFixedHumanRole,
   createScenarioRoles,
   minimumPlayerCountForScenario,
   normalizePlayerCount
@@ -675,9 +677,10 @@ function createMatchRoles(
   playerCount: number,
   humanPlayerId: string | null,
   humanInputAvailable: boolean,
-  humanCampPreference: HumanCampPreference = "random"
+  humanCampPreference: HumanCampPreference = "random",
+  humanRolePreference: Role | null = null
 ): Role[] {
-  const roles = createRoles(playerCount);
+  const roles = humanRolePreference ? createRolesWithFixedHumanRole(playerCount, humanRolePreference) : createRoles(playerCount);
   if (!humanInputAvailable || !humanPlayerId) {
     return shuffle(roles);
   }
@@ -687,7 +690,16 @@ function createMatchRoles(
     return shuffle(roles);
   }
 
+  if (humanRolePreference) {
+    return assignSpecificHumanRole(roles, humanIndex, humanRolePreference);
+  }
   return assignHumanRole(roles, humanIndex, humanCampPreference);
+}
+
+function assignSpecificHumanRole(roles: Role[], humanIndex: number, humanRole: Role): Role[] {
+  const remainingRoles = removeOneRole(roles, humanRole);
+  const shuffledRemaining = shuffle(remainingRoles);
+  return [...shuffledRemaining.slice(0, humanIndex), humanRole, ...shuffledRemaining.slice(humanIndex)];
 }
 
 function assignHumanRole(roles: Role[], humanIndex: number, campPreference: HumanCampPreference): Role[] {
@@ -1065,6 +1077,7 @@ export class WerewolfGame {
   private humanChoiceAgent: Agent | null = null;
   private readonly publicHistory: string[] = [];
   private readonly wolfHistory: string[] = [];
+  private readonly loverHistory: string[] = [];
   private readonly config: GameConfig;
   private readonly abortSignal?: AbortSignal;
   private readonly onProgress?: (progress: GenerationProgress) => void;
@@ -1140,6 +1153,7 @@ export class WerewolfGame {
       debugScenario,
       humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount),
       humanCampPreference: normalizeHumanCampPreference(config.humanCampPreference),
+      humanRolePreference: config.humanRolePreference ?? null,
       prefetchConcurrency
     };
 
@@ -1177,7 +1191,8 @@ export class WerewolfGame {
             this.config.playerCount,
             this.config.humanPlayerId ?? null,
             Boolean(this.humanInput),
-            this.config.humanCampPreference
+            this.config.humanCampPreference,
+            this.config.humanRolePreference ?? null
           )
         : createScenarioRoles(activeDebugScenario, this.config.playerCount);
     const createAgent = createAgentFactory({
@@ -2983,11 +2998,14 @@ export class WerewolfGame {
     }
   }
 
-  private async prepareWitchAction(killTarget: Player | null): Promise<PreparedWitchAction | null> {
+  private async prepareWitchActions(killTarget: Player | null): Promise<PreparedWitchAction[]> {
     const witch = this.alivePlayers().find((player) => player.role === "Witch");
     if (!witch || !canUseAbilities(this.ruleState, witch.id)) {
-      return null;
+      return [];
     }
+
+    const actions: PreparedWitchAction[] = [];
+    let savedTarget: Player | null = null;
 
     if (killTarget && this.witchState.savePotion) {
       const contextLines = [
@@ -2995,7 +3013,7 @@ export class WerewolfGame {
           `${killTarget.name}が今夜人狼に襲撃されます。`,
           `${killTarget.name}が今夜人狼に襲撃されます。`
         ),
-        this.text("一度だけ使える蘇生薬を使うか判断してください。", "一度だけ使える蘇生薬を使うか判断してください。")
+        this.text("一度だけ使える救命薬を使うか判断してください。", "一度だけ使える救命薬を使うか判断してください。")
       ];
       const save = await this.withPhase("witch_action", () => {
         const context = this.contextFor(witch, contextLines, {
@@ -3007,26 +3025,32 @@ export class WerewolfGame {
         });
         return this.raceDecide(
           witch,
-          this.text(`${killTarget.name}に蘇生薬を使いますか？`, `${killTarget.name}に蘇生薬を使いますか？`),
+          this.text(`${killTarget.name}に救命薬を使いますか？`, `${killTarget.name}に救命薬を使いますか？`),
           context,
           contextLines
         );
       });
       if (save) {
-        return { kind: "save", witch, target: killTarget };
+        actions.push({ kind: "save", witch, target: killTarget });
+        savedTarget = killTarget;
       }
     }
 
     if (this.witchState.poisonPotion) {
       const poisonTargets = this.alivePlayers().filter(
-        (player) => player.id !== witch.id && !this.isProtectedHumanNightDeathTarget(player)
+        (player) => player.id !== witch.id && player.id !== savedTarget?.id && !this.isProtectedHumanNightDeathTarget(player)
       );
       if (poisonTargets.length === 0) {
-        return null;
+        return actions;
       }
       const legalPoisonTargetIds = new Set(poisonTargets.map((player) => player.id));
       const contextLines = [
-        this.text("今夜、一度だけ使える毒薬を使うか、見送るか選べます。", "今夜、一度だけ使える毒薬を使うか、見送るか選べます。"),
+        savedTarget
+          ? this.text(
+              `${savedTarget.name}に救命薬を使う選択済みです。毒薬も同じ夜に使えます。`,
+              `${savedTarget.name}に救命薬を使う選択済みです。毒薬も同じ夜に使えます。`
+            )
+          : this.text("今夜、一度だけ使える毒薬を使うか、見送るか選べます。", "今夜、一度だけ使える毒薬を使うか、見送るか選べます。"),
         killTarget
           ? this.text(`人狼の襲撃先は${killTarget.name}です。`, `人狼の襲撃先は${killTarget.name}です。`)
           : this.text("人狼の襲撃先は不明です。", "人狼の襲撃先は不明です。")
@@ -3034,7 +3058,7 @@ export class WerewolfGame {
       const decision = await this.withPhase("witch_action", () => {
         const context = this.contextFor(witch, contextLines, {
           witch: {
-            savePotion: this.witchState.savePotion,
+            savePotion: this.witchState.savePotion && !savedTarget,
             poisonPotion: this.witchState.poisonPotion,
             attackedTarget: killTarget ? { id: killTarget.id, name: killTarget.name } : null
           }
@@ -3043,72 +3067,80 @@ export class WerewolfGame {
       });
       if (decision.targetId && legalPoisonTargetIds.has(decision.targetId)) {
         const target = this.requirePlayer(decision.targetId);
-        return { kind: "poison", witch, target, reason: decision.reason };
+        actions.push({ kind: "poison", witch, target, reason: decision.reason });
       }
     }
 
-    return null;
+    return actions;
   }
 
-  private applyWitchAction(prepared: PreparedWitchAction | null): { savedTarget: string | null; events: GameEvent[] } {
-    if (!prepared || !prepared.witch.alive || prepared.witch.role !== "Witch" || !canUseAbilities(this.ruleState, prepared.witch.id)) {
+  private applyWitchActions(prepared: PreparedWitchAction[]): { savedTarget: string | null; events: GameEvent[] } {
+    const witch = prepared[0]?.witch;
+    if (!witch || !witch.alive || witch.role !== "Witch" || !canUseAbilities(this.ruleState, witch.id)) {
       return { savedTarget: null, events: [] };
     }
 
     this.phase = "witch_action";
-    if (prepared.kind === "save") {
-      if (!prepared.target.alive || !this.witchState.savePotion) {
-        return { savedTarget: null, events: [] };
+    let savedTarget: string | null = null;
+    const events: GameEvent[] = [];
+
+    for (const action of prepared) {
+      if (!action.witch.alive || action.witch.role !== "Witch" || !canUseAbilities(this.ruleState, action.witch.id)) {
+        continue;
       }
-      this.witchState.savePotion = false;
-      this.witchState.savedTargetId = prepared.target.id;
-      prepared.witch.memories.push(
-        this.text(`Round ${this.round}: saved ${prepared.target.name}.`, `第${this.round}ラウンド: ${prepared.target.name}を救いました。`)
-      );
-      return {
-        savedTarget: prepared.target.id,
-        events: [
+
+      if (action.kind === "save") {
+        if (!action.target.alive || !this.witchState.savePotion) {
+          continue;
+        }
+        this.witchState.savePotion = false;
+        this.witchState.savedTargetId = action.target.id;
+        savedTarget = action.target.id;
+        action.witch.memories.push(
+          this.text(`Round ${this.round}: saved ${action.target.name}.`, `第${this.round}ラウンド: ${action.target.name}を救いました。`)
+        );
+        events.push(
           this.emit(
             "night_action",
-            this.text(`${prepared.witch.name} used the save potion.`, `${prepared.witch.name}が蘇生薬を使いました。`),
-            { visibility: "private", action: "witch_save", savedTargetId: prepared.target.id, savedTargetName: prepared.target.name },
-            prepared.witch,
-            prepared.target
+            this.text(`${action.witch.name} used the save potion.`, `${action.witch.name}が救命薬を使いました。`),
+            { visibility: "private", action: "witch_save", savedTargetId: action.target.id, savedTargetName: action.target.name },
+            action.witch,
+            action.target
           )
-        ]
-      };
-    }
+        );
+        continue;
+      }
 
-    if (!prepared.target.alive || !this.witchState.poisonPotion) {
-      return { savedTarget: null, events: [] };
-    }
-    this.witchState.poisonPotion = false;
-    this.witchState.poisonTargetId = prepared.target.id;
-    prepared.witch.memories.push(
-      this.text(`Round ${this.round}: poisoned ${prepared.target.name}.`, `第${this.round}ラウンド: ${prepared.target.name}に毒薬を使いました。`)
-    );
-    return {
-      savedTarget: null,
-      events: [
+      if (!action.target.alive || !this.witchState.poisonPotion) {
+        continue;
+      }
+      this.witchState.poisonPotion = false;
+      this.witchState.poisonTargetId = action.target.id;
+      action.witch.memories.push(
+        this.text(`Round ${this.round}: poisoned ${action.target.name}.`, `第${this.round}ラウンド: ${action.target.name}に毒薬を使いました。`)
+      );
+      events.push(
         this.emit(
           "night_action",
-          this.text(`${prepared.witch.name} used the poison potion.`, `${prepared.witch.name}が毒薬を使いました。`),
+          this.text(`${action.witch.name} used the poison potion.`, `${action.witch.name}が毒薬を使いました。`),
           {
             visibility: "private",
             action: "witch_poison",
-            poisonTargetId: prepared.target.id,
-            poisonTargetName: prepared.target.name,
-            reason: prepared.reason
+            poisonTargetId: action.target.id,
+            poisonTargetName: action.target.name,
+            reason: action.reason
           },
-          prepared.witch,
-          prepared.target
+          action.witch,
+          action.target
         )
-      ]
-    };
+      );
+    }
+
+    return { savedTarget, events };
   }
 
   private async *runWitchAction(killTarget: Player | null): AsyncGenerator<GameEvent, string | null> {
-    const result = this.applyWitchAction(await this.prepareWitchAction(killTarget));
+    const result = this.applyWitchActions(await this.prepareWitchActions(killTarget));
     for (const event of result.events) {
       yield event;
     }
@@ -3250,15 +3282,15 @@ export class WerewolfGame {
     const speakers = this.daySpeakerOrder();
     const firstDayOpeningMoveByPlayerId = warmupPrefetch?.openingMoveByPlayerId ?? this.firstDayOpeningMoveAssignments(speakers);
 
-    // Before the public day breaks, the werewolf team meets privately so a human werewolf
-    // learns who their allies are. Always runs on the first day's opening, independent of
-    // agenda scheduling; a lone wolf (or an all-human wolf team) is a no-op. While this
-    // face-off is displayed, the day-zero warm-up lines are generated first; only after
-    // those finish does the first real public day line begin prefetching.
+    // Before the public day breaks, secret teams meet privately so human special-role players
+    // learn their allies. The werewolf face-off runs first, followed by the lover face-off.
+    // While these face-offs are displayed, the day-zero warm-up lines are generated first;
+    // only after those finish does the first real public day line begin prefetching.
     let faceoffCompleted = !isOpeningLlmRound;
     if (isOpeningLlmRound) {
       try {
         yield* this.runWerewolfFaceoffPass();
+        yield* this.runLoverFaceoffPass();
         faceoffCompleted = true;
       } finally {
         if (!faceoffCompleted) {
@@ -3598,6 +3630,77 @@ export class WerewolfGame {
       this.wolfHistory.push(historyLine);
       for (const [index, message] of speech.messages.entries()) {
         yield this.emit("player_speech", message, speechEventData(speech, message, index, "werewolf"), humanWerewolf);
+      }
+    }
+  }
+
+  private aliveLoverPairs(): Array<[Player, Player]> {
+    const pairs: Array<[Player, Player]> = [];
+    const seen = new Set<string>();
+    for (const lover of this.alivePlayers()) {
+      if (seen.has(lover.id)) {
+        continue;
+      }
+      const partnerStatus = playerStatuses(this.ruleState, lover.id, "lover").find((status) => status.targetId);
+      if (!partnerStatus?.targetId || seen.has(partnerStatus.targetId)) {
+        continue;
+      }
+      const partner = this.players.find((candidate) => candidate.id === partnerStatus.targetId && candidate.alive);
+      if (!partner) {
+        continue;
+      }
+      pairs.push([lover, partner]);
+      seen.add(lover.id);
+      seen.add(partner.id);
+    }
+    return pairs;
+  }
+
+  // First-day opening: after the werewolf team face-off, each lover pair gets the same
+  // private fixed-line reveal so a human Lover sees exactly who their partner is.
+  private async *runLoverFaceoffPass(): AsyncGenerator<GameEvent> {
+    for (const lovers of this.aliveLoverPairs()) {
+      const loverIds = lovers.map((lover) => lover.id);
+      const aiLovers = shuffle(lovers.filter((player) => !this.isHumanControlledPlayer(player)));
+      const humanLover = lovers.find((player) => this.isHumanControlledPlayer(player));
+      if (aiLovers.length === 0 && !humanLover) {
+        continue;
+      }
+
+      this.phase = "lover_discussion";
+      yield this.emit(
+        "phase_changed",
+        this.text("Before dawn, the lovers recognize each other in private.", "夜明け前、恋人たちが互いを確認します。"),
+        { visibility: "lover", loverIds }
+      );
+
+      const faceoffHistory: string[] = [];
+      for (const lover of aiLovers) {
+        const partner = lovers.find((candidate) => candidate.id !== lover.id);
+        if (!partner) {
+          continue;
+        }
+        const speech = this.fixedLoverFaceoffSpeech(lover, partner);
+        const historyLine = this.formatLoverFaceoffHistory(lover, speech);
+        faceoffHistory.push(historyLine);
+        this.loverHistory.push(historyLine);
+        for (const [index, message] of speech.messages.entries()) {
+          yield this.emit("player_speech", message, speechEventData(speech, message, index, "lover", { loverIds }), lover);
+        }
+      }
+
+      if (humanLover) {
+        const partner = lovers.find((candidate) => candidate.id !== humanLover.id);
+        if (!partner) {
+          continue;
+        }
+        const speech = await this.humanLoverFaceoffSpeech(humanLover, partner, lovers, faceoffHistory);
+        const historyLine = this.formatLoverFaceoffHistory(humanLover, speech);
+        faceoffHistory.push(historyLine);
+        this.loverHistory.push(historyLine);
+        for (const [index, message] of speech.messages.entries()) {
+          yield this.emit("player_speech", message, speechEventData(speech, message, index, "lover", { loverIds }), humanLover);
+        }
       }
     }
   }
@@ -4275,7 +4378,21 @@ export class WerewolfGame {
     );
   }
 
+  private fixedLoverFaceoffSpeech(player: Player, partner: Player): AgentSpeech {
+    return compactWerewolfFaceoffSpeech(
+      {
+        messages: [sample([...loverFaceoffLineOptionsForPlayer(player, partner, this.config.language)])],
+        metadata: emptySpeechMetadata()
+      },
+      this.config.language
+    );
+  }
+
   private formatWerewolfFaceoffHistory(player: Player, speech: AgentSpeech): string {
+    return `${player.name}: ${speech.messages.join(" ")}`;
+  }
+
+  private formatLoverFaceoffHistory(player: Player, speech: AgentSpeech): string {
     return `${player.name}: ${speech.messages.join(" ")}`;
   }
 
@@ -4283,6 +4400,13 @@ export class WerewolfGame {
     return this.text(
       "Answer briefly after the fixed ally face-off lines. You may name your role and say how you will blend in, without attack targets or detailed plans.",
       "固定の仲間発言に続いて短く発言してください。自分の役職や昼の潜り方は言ってよいですが、襲撃先や細かい作戦はまだ話しません。"
+    );
+  }
+
+  private loverFaceoffHumanPromptLine(): string {
+    return this.text(
+      "Answer briefly after the fixed partner face-off line. You may name your partner and say how you will both survive, without detailed vote plans.",
+      "固定の相方発言に続いて短く発言してください。相方の名前や二人生存の方針は言ってよいですが、細かい投票計画はまだ話しません。"
     );
   }
 
@@ -4330,6 +4454,51 @@ export class WerewolfGame {
     return compactWerewolfFaceoffSpeech(
       {
         messages: [defaultWerewolfAlignmentSpeechForPlayer(player, this.config.language)],
+        metadata: emptySpeechMetadata()
+      },
+      this.config.language
+    );
+  }
+
+  private loverFaceoffContextLines(
+    lovers: Player[],
+    previousFaceoffHistory: string[] = []
+  ): string[] {
+    const pairRoster = lovers.map((lover) => lover.name).join("、");
+    const lines = [
+      this.text(
+        "This is a private, lovers-only face-off before the first day opens. The crew already knows each other; this is not a first-meeting introduction.",
+        "ここは初日が始まる前、恋人同士だけの内緒の顔合わせです。クルー同士はすでに知り合いであり、初対面の自己紹介ではありません。"
+      ),
+      this.text(`Your lover pair: ${lovers.map((lover) => lover.name).join(", ")}.`, `あなたの恋人ペア: ${pairRoster}。`),
+      this.text(
+        "The partner lines in this opening are fixed character lines chosen at random. Use them only as the current lovers' private check-in; do not assume any other conversation.",
+        "この顔合わせの相方発言は、キャラクター別の固定候補からランダムに選ばれたものです。ここに出た発言だけを今回の内緒の確認として扱い、それ以外の会話は想定しません。"
+      )
+    ];
+    if (previousFaceoffHistory.length > 0) {
+      lines.push(
+        ...previousFaceoffHistory
+          .slice(-4)
+          .map((line) =>
+            this.text(
+              `Earlier partner face-off line from this same opening meeting: ${line}`,
+              `この恋人顔合わせで先に出た相方の発言: ${line}`
+            )
+          ),
+        this.text(
+          "The lines above are only the partner lines already spoken in this private face-off.",
+          "上の行は、この恋人顔合わせ内で先に出た相方の発言だけです。"
+        )
+      );
+    }
+    return lines;
+  }
+
+  private defaultHumanLoverFaceoffSpeech(player: Player, partner: Player): AgentSpeech {
+    return compactWerewolfFaceoffSpeech(
+      {
+        messages: [defaultLoverAlignmentSpeechForPlayer(player, partner, this.config.language)],
         metadata: emptySpeechMetadata()
       },
       this.config.language
@@ -4385,6 +4554,58 @@ export class WerewolfGame {
 
     const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
     return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanWerewolfFaceoffSpeech(player);
+  }
+
+  private async humanLoverFaceoffSpeech(
+    player: Player,
+    partner: Player,
+    lovers: Player[],
+    previousFaceoffHistory: string[]
+  ): Promise<AgentSpeech> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return this.defaultHumanLoverFaceoffSpeech(player, partner);
+    }
+
+    const legalPlayers = [{ id: partner.id, name: partner.name }];
+    const humanPromptLine = this.loverFaceoffHumanPromptLine();
+    const contextLines = this.loverFaceoffContextLines(lovers, previousFaceoffHistory);
+    const visibleUiContext = [
+      this.roleBreakdownUiLine(),
+      contextLines[1],
+      ...previousFaceoffHistory
+        .slice(-2)
+        .map((line) =>
+          this.text(
+            `Earlier partner face-off line from this same opening meeting: ${line}`,
+            `この恋人顔合わせで先に出た相方の発言: ${line}`
+          )
+        ),
+      humanPromptLine
+    ].filter((line) => line.length > 0);
+    const response = await handler.request({
+      kind: "speech_choice",
+      speechMode: "lover_alignment",
+      nonBlocking: true,
+      playerId: player.id,
+      playerName: player.name,
+      phase: this.phase,
+      role: player.role,
+      task: this.text(
+        "Speak at the end of the private lover face-off.",
+        "恋人同士の顔合わせの最後に発言してください。"
+      ),
+      context: buildHumanInputContext({
+        uiContext: visibleUiContext,
+        publicHistory: this.publicHistory,
+        privateHistory: this.humanVisiblePrivateHistory(player)
+      }),
+      allowFreeText: true,
+      options: []
+    });
+
+    const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
+    return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanLoverFaceoffSpeech(player, partner);
   }
 
   // Public discussion keeps tempo by drafting in-character candidate lines before the player acts.

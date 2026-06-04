@@ -199,7 +199,7 @@ test("prompt builder only exposes secrets visible to each role", () => {
 
   const witch = contextFor("Witch");
   assert.match(witch, /SecretVictim/);
-  assert.match(witch, /救済薬: 残っています/);
+  assert.match(witch, /救命薬: 残っています/);
   assert.doesNotMatch(witch, /SecretWolf/);
   assert.doesNotMatch(witch, /SecretCheck/);
 
@@ -215,7 +215,7 @@ test("prompt builder only exposes secrets visible to each role", () => {
   assert.doesNotMatch(villager, /SecretCheck/);
   assert.doesNotMatch(villager, /SecretVictim/);
   assert.doesNotMatch(villager, /SecretLover/);
-  assert.doesNotMatch(villager, /救済薬/);
+  assert.doesNotMatch(villager, /救命薬/);
 });
 
 test("role breakdown is public counts only while werewolf ally roles stay secret", () => {

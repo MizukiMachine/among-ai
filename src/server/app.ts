@@ -8,7 +8,7 @@ import {
   redactProgressForVillage,
   type SpectatorMode
 } from "../game/redaction";
-import { maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
+import { isRole, maxSupportedPlayers, minSupportedPlayers } from "../game/rules/presets";
 import type {
   DebugScenario,
   GameConfig,
@@ -16,6 +16,7 @@ import type {
   HumanCampPreference,
   HumanInputRequest,
   HumanInputResponse,
+  Role,
   SpeechGenerationDiagnostic,
   SummaryMode
 } from "../game/types";
@@ -88,6 +89,10 @@ function humanCampPreferenceParam(value: string | null): HumanCampPreference {
   return "random";
 }
 
+function humanRolePreferenceParam(value: string | null): Role | null {
+  return isRole(value) ? value : null;
+}
+
 function humanPlayerParam(value: string | null, playerCount: number): string | null {
   if (!value || value === "false" || value === "none") {
     return null;
@@ -140,6 +145,9 @@ export function parseStreamOptions(url: URL): StreamOptions {
   const humanCampPreference = humanPlayerId
     ? humanCampPreferenceParam(url.searchParams.get("humanCamp") ?? url.searchParams.get("humanCampPreference"))
     : "random";
+  const humanRolePreference = humanPlayerId
+    ? humanRolePreferenceParam(url.searchParams.get("humanRole") ?? url.searchParams.get("humanRolePreference"))
+    : null;
   const debugScenario = humanPlayerId ? "none" : debugScenarioParam(url.searchParams.get("scenario"));
   return {
     provider,
@@ -151,6 +159,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     debugScenario,
     humanPlayerId,
     humanCampPreference,
+    humanRolePreference,
     prefetchConcurrency: fixedGenerationConcurrency,
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
@@ -168,6 +177,7 @@ function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
     debugScenario: options.debugScenario,
     humanPlayerId: options.humanPlayerId,
     humanCampPreference: options.humanCampPreference,
+    humanRolePreference: options.humanRolePreference,
     prefetchConcurrency: options.prefetchConcurrency
   };
 }
@@ -192,6 +202,7 @@ function traceStreamOptions(options: StreamOptions): Record<string, unknown> {
     debugScenario: options.debugScenario,
     humanPlayerId: options.humanPlayerId,
     humanCampPreference: options.humanCampPreference,
+    humanRolePreference: options.humanRolePreference,
     prefetchConcurrency: options.prefetchConcurrency,
     speed: options.speed,
     view: options.view

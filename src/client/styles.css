@@ -3633,6 +3633,7 @@ input[type="range"] {
 
 .participant-field > span,
 .participant-field .human-camp-field,
+.participant-field .human-role-field,
 .participant-field .setup-cast-preview {
   grid-column: 1;
 }
@@ -3672,10 +3673,26 @@ input[type="range"] {
   gap: 8px;
 }
 
-.setup-card .human-camp-field > span {
+.human-role-field {
+  display: grid;
+  width: min(100%, 520px);
+  gap: 8px;
+}
+
+.setup-card .human-camp-field > span,
+.setup-card .human-role-field > span {
   color: rgba(255, 255, 255, 0.86);
   font-size: 16px;
   font-weight: 820;
+}
+
+.human-role-field select {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 780;
 }
 
 .human-camp-options {
@@ -3733,8 +3750,8 @@ input[type="range"] {
   isolation: isolate;
   overflow: hidden;
   min-width: 0;
-  height: 116px;
-  min-height: 116px;
+  height: 96px;
+  min-height: 96px;
   align-items: center;
   justify-items: center;
   gap: 6px;
@@ -3773,8 +3790,8 @@ input[type="range"] {
 }
 
 .setup-cast-grid img {
-  width: 80px;
-  height: 82px;
+  width: 68px;
+  height: 68px;
   border-radius: 6px;
   object-fit: cover;
   object-position: top center;
@@ -3784,7 +3801,7 @@ input[type="range"] {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 850;
   line-height: 1.05;
   text-overflow: ellipsis;
@@ -5744,6 +5761,7 @@ input[type="range"] {
   }
 
   .participant-field > span,
+  .participant-field .human-role-field,
   .participant-field .setup-cast-preview {
     grid-column: 1;
   }
@@ -5762,6 +5780,10 @@ input[type="range"] {
   }
 
   .human-camp-field {
+    width: 100%;
+  }
+
+  .human-role-field {
     width: 100%;
   }
 

@@ -5,10 +5,16 @@ import { AnthropicAgent, DemoAgent, summarizeRoundWithLlm } from "../src/game/ag
 import { characterNames, characterProfiles } from "../src/game/characters";
 import { WerewolfGame } from "../src/game/engine";
 import { HumanInputAgent } from "../src/game/humanAgent";
-import { DEFAULT_WEREWOLF_ALIGNMENT_SPEECH, defaultWerewolfAlignmentSpeechForPlayer } from "../src/game/humanInputDefaults";
+import {
+  DEFAULT_LOVER_ALIGNMENT_SPEECH,
+  DEFAULT_WEREWOLF_ALIGNMENT_SPEECH,
+  defaultLoverAlignmentSpeechForPlayer,
+  defaultWerewolfAlignmentSpeechForPlayer
+} from "../src/game/humanInputDefaults";
 import { roleLabel } from "../src/game/i18n";
+import { loverFaceoffLineOptionsForPlayer } from "../src/game/loverFaceoffLines";
 import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer } from "../src/game/redaction";
-import { createRoles, maxSupportedPlayers } from "../src/game/rules/presets";
+import { createRoles, createRolesWithFixedHumanRole, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
 import type { RuleState } from "../src/game/rules/types";
@@ -828,6 +834,28 @@ test("default werewolf alignment lines match each character voice", () => {
   assert.ok(lines.some((line) => /冗談だけど本気/.test(line)), "イオリ should keep the trickster voice");
 });
 
+test("default lover alignment lines match each character voice", () => {
+  const partner = { name: "相方" };
+  const lines = characterProfiles.map((profile) =>
+    defaultLoverAlignmentSpeechForPlayer(
+      {
+        name: profile.nameJa,
+        role: "Lover",
+        persona: profile.persona,
+        characterProfile: profile
+      },
+      partner,
+      "Japanese"
+    )
+  );
+
+  assert.equal(lines.length, characterProfiles.length);
+  assert.equal(new Set(lines).size, characterProfiles.length);
+  assert.ok(lines.every((line) => line.includes(partner.name)));
+  assert.ok(lines.every((line) => /(相方|二人|生存|距離|残)/u.test(line)));
+  assert.ok(lines.every((line) => line !== DEFAULT_LOVER_ALIGNMENT_SPEECH));
+});
+
 test("fixed werewolf face-off lines cover every character and wolf role", () => {
   const allLines: string[] = [];
 
@@ -851,6 +879,31 @@ test("fixed werewolf face-off lines cover every character and wolf role", () => 
   }
 
   assert.equal(new Set(allLines).size, characterProfiles.length * werewolfFaceoffRoles.length * 3);
+});
+
+test("fixed lover face-off lines cover every character with two partner variants", () => {
+  const partner = { name: "相方" };
+  const allLines: string[] = [];
+
+  for (const profile of characterProfiles) {
+    const lines = loverFaceoffLineOptionsForPlayer(
+      {
+        name: profile.nameJa,
+        characterProfile: profile
+      },
+      partner,
+      "Japanese"
+    );
+
+    assert.equal(lines.length, 2, `${profile.nameJa} should have two lover face-off variants`);
+    assert.equal(new Set(lines).size, 2, `${profile.nameJa} lover variants should be distinct`);
+    assert.ok(lines.every((line) => line.includes("恋人") || line.includes("相方")));
+    assert.ok(lines.every((line) => line.includes(partner.name)));
+    assert.ok(lines.every((line) => line.length <= 72), `${profile.nameJa} lover variants fit the face-off display`);
+    allLines.push(...lines);
+  }
+
+  assert.equal(new Set(allLines).size, characterProfiles.length * 2);
 });
 
 test("configured human player keeps the normal shuffled role distribution", () => {
@@ -951,6 +1004,43 @@ test("human camp preference pins the human player to the requested camp", () => 
         "camp preference must not change the table's role distribution"
       );
     }
+  }
+});
+
+test("human role preference pins the human player to the requested role", () => {
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "speech_choice") {
+        return { choiceId: input.options[0]?.id ?? "0" };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null };
+      }
+      return { decision: false };
+    }
+  };
+
+  for (const humanRolePreference of ["Guard", "AlphaWolf", "Lover"] as const) {
+    const game = new WerewolfGame(
+      {
+        ...baseConfig,
+        playerCount: 6,
+        humanPlayerId: "p3",
+        humanCampPreference: humanRolePreference === "AlphaWolf" ? "village" : "werewolf",
+        humanRolePreference
+      },
+      { humanInput }
+    ) as TestableGame;
+    const human = game.players.find((player) => player.id === "p3");
+
+    assert.ok(human);
+    assert.equal(human.role, humanRolePreference);
+    assert.equal(human.camp, roleCamp(humanRolePreference));
+    assert.deepEqual(
+      game.players.map((player) => player.role).sort(),
+      createRolesWithFixedHumanRole(6, humanRolePreference).sort(),
+      "role preference adjusts the table only enough to include the fixed human role"
+    );
   }
 });
 
@@ -2137,6 +2227,7 @@ type OpeningTestableGame = TestableGame & {
   round: number;
   lastNightDeaths: string[];
   runFirstDayWarmupPass(): AsyncGenerator<GameEvent>;
+  runLoverFaceoffPass(): AsyncGenerator<GameEvent>;
   runWerewolfFaceoffPass(): AsyncGenerator<GameEvent>;
 };
 
@@ -2320,6 +2411,120 @@ test("first-day werewolf face-off lets the human werewolf speak with free text a
   assert.ok(game.wolfHistory.some((line) => line.includes(humanSpeech.message)));
 });
 
+test("first-day lover face-off: paired lovers use fixed partner lines, secret to the pair", async () => {
+  const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Lover" },
+    { role: "Villager" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runLoverFaceoffPass());
+  const speeches = events.filter((event) => event.type === "player_speech");
+  const lovers = [players[0], players[2]];
+
+  assert.deepEqual(
+    new Set(speeches.map((event) => event.playerId)),
+    new Set(lovers.map((player) => player.id)),
+    "both lovers introduce themselves, and unrelated players do not"
+  );
+  for (const event of speeches) {
+    const speaker = lovers.find((lover) => lover.id === event.playerId);
+    const partner = lovers.find((lover) => lover.id !== event.playerId);
+    assert.ok(speaker && partner);
+    assert.ok(
+      loverFaceoffLineOptionsForPlayer(speaker, partner, baseConfig.language).includes(event.message),
+      `${speaker.name} should speak one fixed lover face-off line naming ${partner.name}`
+    );
+  }
+
+  assert.ok(speeches.every((event) => event.data?.visibility === "lover"), "lover lines are lover-visibility");
+  assert.ok(
+    speeches.every((event) => Array.isArray(event.data?.loverIds) && lovers.every((lover) => (event.data?.loverIds as string[]).includes(lover.id))),
+    "lover lines carry the pair ids"
+  );
+  const phaseChange = events.find((event) => event.type === "phase_changed");
+  assert.ok(phaseChange && phaseChange.data?.visibility === "lover", "the opening banner is secret to the pair");
+
+  const outsider = players[1];
+  for (const event of speeches) {
+    const outsiderView = redactEventForPlayer(event, outsider.id);
+    assert.equal(outsiderView.message, redactEventForVillage(event).message);
+    assert.notEqual(outsiderView.message, event.message, "non-partners must not see the lover face-off");
+    for (const lover of lovers) {
+      const loverView = redactEventForPlayer(event, lover.id);
+      assert.equal(loverView.message, event.message, "either lover sees the private pair face-off");
+      assert.equal(loverView.snapshot.players.find((player) => player.id === lovers.find((candidate) => candidate.id !== lover.id)?.id)?.role, "Lover");
+    }
+  }
+
+  for (const player of players) {
+    const agent = game.agents.get(player.id) as IntroAgent;
+    assert.equal(agent.speakCalls.length, 0, "fixed lover face-off lines should not call speak()");
+  }
+});
+
+test("first-day lover face-off lets the human lover speak with free text at the end", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "speech_choice") {
+        return { speech: "  相方確認。昼は距離を取る  " };
+      }
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "人間プレイヤーの判断です。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  players[0].model = "human";
+
+  const events = await collect(game.runLoverFaceoffPass());
+  const speeches = events.filter((event) => event.type === "player_speech");
+  const speakerIds = new Set(speeches.map((event) => event.playerId));
+  const humanSpeech = speeches.find((event) => event.playerId === players[0].id);
+  const request = requests.find((entry) => entry.kind === "speech_choice");
+
+  assert.ok(request && request.kind === "speech_choice");
+  assert.equal(request.phase, "lover_discussion");
+  assert.equal(request.speechMode, "lover_alignment");
+  assert.equal(request.nonBlocking, true);
+  assert.equal(request.allowFreeText, true);
+  assert.equal(request.options.length, 0);
+  assert.ok(request.context.notes.some((line) => line.includes("あなたの恋人ペア")));
+  assert.ok(request.context.notes.some((line) => line.includes("この恋人顔合わせで先に出た相方の発言")));
+  assert.equal(speakerIds.has(players[0].id), true, "the human lover speaks from their submitted face-off input");
+  assert.ok(speakerIds.has(players[1].id), "the AI partner still introduces itself so the human learns the pair");
+  assert.equal(speakerIds.size, 2, "the AI partner and human input line are both emitted");
+  assert.ok(humanSpeech);
+  assert.equal(humanSpeech.message, "相方確認。昼は距離を取る");
+  assert.equal(humanSpeech.data?.visibility, "lover");
+});
+
 test("first-day werewolf face-off is a no-op for a lone wolf", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -2362,6 +2567,37 @@ test("first-day opening runs the werewolf face-off before dawn breaks", async ()
   assert.ok(faceoffIndex >= 0, "the werewolf face-off runs on the first day's opening");
   assert.ok(dayBeginsIndex >= 0, "the public day still opens");
   assert.ok(faceoffIndex < dayBeginsIndex, "the secret werewolf meeting precedes the public day");
+});
+
+test("first-day opening runs the lover face-off after the werewolf face-off and before dawn breaks", async () => {
+  const game = new WerewolfGame({ ...baseConfig, provider: "llm", model: "scripted", prefetchConcurrency: 5 }) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+
+  const events = await collect(game.runDay());
+  const werewolfFaceoffIndex = events.findIndex(
+    (event) => event.type === "player_speech" && event.phase === "werewolf_discussion" && event.data?.visibility === "werewolf"
+  );
+  const loverFaceoffIndex = events.findIndex(
+    (event) => event.type === "player_speech" && event.phase === "lover_discussion" && event.data?.visibility === "lover"
+  );
+  const dayBeginsIndex = events.findIndex((event) => event.type === "phase_changed" && event.phase === "day_discussion");
+
+  assert.ok(werewolfFaceoffIndex >= 0, "the werewolf face-off runs on the first day's opening");
+  assert.ok(loverFaceoffIndex >= 0, "the lover face-off runs on the first day's opening");
+  assert.ok(dayBeginsIndex >= 0, "the public day still opens");
+  assert.ok(werewolfFaceoffIndex < loverFaceoffIndex, "the lover face-off follows the werewolf face-off");
+  assert.ok(loverFaceoffIndex < dayBeginsIndex, "the lover face-off precedes the public day");
 });
 
 test("day-1 fixed werewolf face-off does not call face-off generation while warm-up runs", async () => {
@@ -4571,6 +4807,7 @@ test("LLM boolean decisions race duplicate requests and accept the fastest resul
   ]);
   const agent = new DelayedBooleanRaceAgent(players[0].name, "boolean-racer", [80, 5, 80, 80, 80], [false, true, false, false, false]);
   game.agents.set(players[0].id, agent);
+  game.witchState.poisonPotion = false;
 
   const events = await collect(game.runWitchAction(players[2]));
 
@@ -4768,7 +5005,7 @@ test("werewolf attack vote explains tied top votes and the random victim", async
 test("witch save potion prevents the werewolf kill and consumes explicit engine state", async () => {
   const game = createGame();
   const players = setTable(game, [
-    { role: "Witch", decisions: [true] },
+    { role: "Witch", decisions: [true], targets: [null] },
     { role: "Werewolf" },
     { role: "Villager" },
     { role: "Villager" },
@@ -4778,10 +5015,41 @@ test("witch save potion prevents the werewolf kill and consumes explicit engine 
 
   const events = await collect(game.runWitchAction(players[2]));
 
+  assert.equal(events.length, 1);
   assert.equal(events[0]?.type, "night_action");
+  assert.equal(events[0]?.data?.action, "witch_save");
   assert.equal(game.witchState.savePotion, false);
   assert.equal(game.witchState.savedTargetId, "p3");
   assert.equal(game.witchState.poisonPotion, true);
+  assert.equal(game.witchState.poisonTargetId, null);
+});
+
+test("witch can use save and poison potions on the same night", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Witch", decisions: [true], targets: ["p4"] },
+    { role: "Werewolf", targets: ["p3"] },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const events = await collect(game.runNight());
+  const witchActions = events.filter((event) => event.type === "night_action" && event.playerId === "p1");
+  const witchAgent = game.agents.get(players[0].id) as ScriptedAgent;
+
+  assert.deepEqual(
+    witchActions.map((event) => event.data?.action),
+    ["witch_save", "witch_poison"]
+  );
+  assert.equal(players[2].alive, true);
+  assert.equal(players[3].alive, false);
+  assert.equal(game.witchState.savePotion, false);
+  assert.equal(game.witchState.poisonPotion, false);
+  assert.equal(game.witchState.savedTargetId, "p3");
+  assert.equal(game.witchState.poisonTargetId, "p4");
+  assert.ok(witchAgent.targetInputs[0]?.candidates.every((candidate) => candidate.id !== "p3"));
 });
 
 test("witch poison uses engine state and does not mark target memories", async () => {
@@ -5036,6 +5304,78 @@ test("werewolf discussion speech is shared with every werewolf-camp viewer", () 
   assert.equal(villagerSnapshot.players.find((player) => player.id === "p3")?.role, "Villager");
   assert.equal(villagerSnapshot.players.find((player) => player.id === "p1")?.role, "Hidden");
   assert.equal(villagerSnapshot.players.find((player) => player.id === "p2")?.role, "Hidden");
+});
+
+test("lover discussion speech is shared only with the paired lovers", () => {
+  const snapshot = {
+    round: 1,
+    phase: "lover_discussion" as const,
+    winner: null,
+    players: [
+      {
+        id: "p1",
+        name: "シオン",
+        role: "Lover" as const,
+        camp: "village" as const,
+        persona: "cautious" as const,
+        alive: true,
+        model: "human",
+        memoryCount: 0
+      },
+      {
+        id: "p2",
+        name: "ガク",
+        role: "Lover" as const,
+        camp: "village" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p3",
+        name: "アカネ",
+        role: "Villager" as const,
+        camp: "village" as const,
+        persona: "logical" as const,
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 3,
+    werewolfCount: 0,
+    villageCount: 3
+  };
+  const event: GameEvent = {
+    id: 1,
+    createdAt: "2026-05-21T00:00:00.000Z",
+    round: 1,
+    phase: "lover_discussion",
+    type: "player_speech",
+    message: "シオンとガクだけに見える恋人確認。",
+    playerId: "p2",
+    playerName: "ガク",
+    role: "Lover",
+    data: { visibility: "lover", loverIds: ["p1", "p2"], speech: "相方確認。" },
+    snapshot
+  };
+
+  const firstLoverView = redactEventForPlayer(event, "p1");
+  assert.equal(firstLoverView.message, event.message);
+  assert.equal(firstLoverView.playerName, "ガク");
+  assert.equal(firstLoverView.data.speech, "相方確認。");
+
+  const secondLoverView = redactEventForPlayer(event, "p2");
+  assert.equal(secondLoverView.message, event.message);
+
+  const outsiderView = redactEventForPlayer(event, "p3");
+  assert.equal(outsiderView.data.redacted, true);
+  assert.equal(outsiderView.playerName, undefined);
+
+  const loverSnapshot = redactSnapshotForPlayer(snapshot, "p1");
+  assert.equal(loverSnapshot.players.find((player) => player.id === "p2")?.role, "Lover");
+  assert.equal(loverSnapshot.players.find((player) => player.id === "p3")?.role, "Hidden");
 });
 
 test("player and village views expose vote targets without vote reasons", () => {

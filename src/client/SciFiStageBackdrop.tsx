@@ -12,7 +12,15 @@ interface SciFiStageBackdropProps {
 }
 
 function stageToneForEvent(phase: Phase | undefined, eventType: GameEventType | undefined, secret: boolean | undefined): StageTone {
-  if (secret || phase === "werewolf_discussion" || phase === "night" || phase === "guard_action" || phase === "seer_action" || phase === "witch_action") {
+  if (
+    secret ||
+    phase === "werewolf_discussion" ||
+    phase === "lover_discussion" ||
+    phase === "night" ||
+    phase === "guard_action" ||
+    phase === "seer_action" ||
+    phase === "witch_action"
+  ) {
     return eventType === "death" ? "danger" : "night";
   }
   if (eventType === "death" || eventType === "warning") {
