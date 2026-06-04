@@ -91,7 +91,8 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
     deadPlayers: [],
     publicHistory: [],
     privateHistory: [],
-    language: "Japanese"
+    language: "Japanese",
+    lastNightDeaths: []
   };
 
   const seerContext = buildPromptContext({
@@ -138,6 +139,7 @@ function contextFor(role: Role) {
     round: 2,
     alivePlayers,
     deadPlayers: [{ id: "p8", name: "Edison", role: "Seer" }],
+    lastNightDeaths: [{ playerId: "p8", playerName: "Edison", publicCauseLabel: null }],
     publicHistory: ["Byron: 投票前に時系列を見たいです。"],
     privateHistory: ["第1ラウンド: Curieへ投票。"],
     language: "Japanese",
@@ -241,6 +243,7 @@ test("role breakdown is public counts only while werewolf ally roles stay secret
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     secret: {
       werewolfAllies: [{ id: "p13", name: "Sena", role: "AlphaWolf" }]
     }
@@ -262,6 +265,7 @@ test("role breakdown is public counts only while werewolf ally roles stay secret
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     secret: {
       werewolfAllies: [{ id: "p13", name: "Sena", role: "AlphaWolf", alive: true }]
     }
@@ -284,6 +288,7 @@ test("werewolf public deception context persists fake Seer claim and current fak
     ],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     secret: {
       werewolfAllies: [{ id: "p1", name: "Ada", role: "Werewolf", alive: true }],
       werewolfDeception: {
@@ -315,6 +320,7 @@ test("Seer disclosure context persists public claim and current real result", ()
     publicHistory: ["Ada: ここで占い師を名乗ります。Byronは人狼判定です。"],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     secret: {
       seerResults: [
         { targetId: "p2", targetName: "Byron", camp: "werewolf", round: 2 },
@@ -347,6 +353,7 @@ test("werewolf private discussion uses private wolf guidance without public spee
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     secret: {
       werewolfAllies: [
         { id: "p1", name: "Ada", role: "Werewolf", alive: true },
@@ -401,6 +408,7 @@ test("Japanese public speech prompts keep only persona, role, and conversation c
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     extra: [
       "昨夜は誰も死亡しませんでした。",
       "公開上の事実: 昨日の投票は同数でした。",
@@ -441,22 +449,36 @@ test("Japanese output review rejects Chinese vocabulary in displayed speech", ()
 });
 
 test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {
+  const votingAlivePlayers = [
+    { id: "p1", name: "Ada" },
+    { id: "p3", name: "Curie" }
+  ];
+  const speechPlan = buildPublicSpeechPlan({
+    phase: "voting",
+    round: 2,
+    players: [player("Werewolf", "p1", "Ada"), player("Villager", "p2", "Byron"), player("Seer", "p3", "Curie")],
+    lastNightDeaths: [{ playerId: "p2", cause: "werewolf" }],
+    legalPlayers: [{ id: "p3", name: "Curie" }],
+    language: "Japanese"
+  });
   const target = buildTargetSystemPrompt({
     player: player("Werewolf"),
     phase: "voting",
     language: "Japanese",
-    legalPlayers: alivePlayers,
+    legalPlayers: votingAlivePlayers,
     allowSkip: false
   });
   const context = buildPromptContext({
     player: player("Werewolf"),
     phase: "voting",
     round: 2,
-    alivePlayers,
-    deadPlayers: [],
-    publicHistory: ["Byron: 投票理由がまだ弱いので、もう一度聞きたいです。"],
+    alivePlayers: votingAlivePlayers,
+    deadPlayers: [{ id: "p2", name: "Byron" }],
+    publicHistory: ["Curie: 投票理由がまだ弱いので、もう一度聞きたいです。"],
     privateHistory: ["第1ラウンド: Curieへ投票。理由: 発言が変わったため。"],
-    language: "Japanese"
+    language: "Japanese",
+    lastNightDeaths: speechPlan.lastNightDeaths,
+    speechPlan
   });
   const generatedPrompt = `${target}\n${context}`;
 
@@ -464,6 +486,11 @@ test("Japanese voting target prompts keep private reasons separate from English 
   assert.match(target, /選択理由はコード側/);
   assert.match(context, /投票理由の前提/);
   assert.match(context, /投票判断の方針/);
+  assert.match(context, /現在の参加者ステータス/);
+  assert.match(context, /生存中: Ada \(p1\), Curie \(p3\)/);
+  assert.match(context, /死亡済み: Byron \(p2\)/);
+  assert.match(context, /昨夜死亡: Byron \(p2\)/);
+  assert.match(context, /投票できる相手: Curie \(p3\)/);
   assert.doesNotMatch(generatedPrompt, /Role strategy|Phase guidance|Prompt mode|Information boundary|internal decision|Action:|Legal targets:/i);
   assert.doesNotMatch(generatedPrompt, /\b(strategy|pressure|record|history|slot)\b/i);
   assert.doesNotMatch(generatedPrompt, /on record|answers pressure|claim pressure|current suspicion, trust, pressure/i);
@@ -490,6 +517,7 @@ test("first-day public speech context stays simple even when a speech plan exist
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     speechPlan
   });
 
@@ -511,6 +539,7 @@ test("first-day public speech context stays simple even when a speech plan exist
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     speechPlan: buildPublicSpeechPlan({
       phase: "day_discussion",
       round: 1,
@@ -535,6 +564,28 @@ test("first-day public speech context stays simple even when a speech plan exist
   assert.doesNotMatch(context, /名乗るかどうかの判断を出す/);
   assert.doesNotMatch(context, /Recent public discussion/);
   assert.doesNotMatch(context, /2日目以降の昼/);
+});
+
+test("later-day public speech context pins current roster status without full speech plan text", () => {
+  const context = buildPromptContext({
+    player: player("Villager", "p1", "Ada"),
+    phase: "day_discussion",
+    round: 2,
+    alivePlayers: [{ id: "p1", name: "Ada" }, { id: "p3", name: "Curie" }],
+    deadPlayers: [{ id: "p2", name: "Byron" }],
+    publicHistory: [],
+    privateHistory: [],
+    language: "Japanese",
+    lastNightDeaths: [{ playerId: "p2", playerName: "Byron", publicCauseLabel: null }]
+  });
+
+  assert.match(context, /現在の参加者ステータス/);
+  assert.match(context, /生存中: Ada \(p1\), Curie \(p3\)/);
+  assert.match(context, /死亡済み: Byron \(p2\)/);
+  assert.match(context, /昨夜死亡: Byron \(p2\)/);
+  assert.match(context, /疑い・信頼・投票候補として扱えるのは生存中の人物だけ/);
+  assert.match(context, /生存者: Ada \(p1\), Curie \(p3\)/);
+  assert.doesNotMatch(context, /公開知識|公開上の死因|死因候補を並べるだけで終わらず/);
 });
 
 test("first-day claim-policy agenda is filtered from simple public speech context", () => {
@@ -578,6 +629,7 @@ test("first-day claim-policy agenda is filtered from simple public speech contex
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     extra: [agendaLine],
     speechPlan
   });
@@ -611,6 +663,7 @@ test("first-day opening mode is not injected into the public speech prompt", () 
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     speechPlan
   });
 
@@ -643,6 +696,7 @@ test("first-day follow-up context does not reset visible speech to empty", () =>
     publicHistory: ["ノゾミ: 今は役職方針を伏せて、投票理由を見ます"],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     speechPlan
   });
 
@@ -672,7 +726,8 @@ test("public speech context marks the speaker's own prior lines as self", () => 
       "シュウヘイ: そこ。短く見る"
     ],
     privateHistory: [],
-    language: "Japanese"
+    language: "Japanese",
+    lastNightDeaths: []
   });
 
   assert.match(context, /自分（ガク）: コハルのタイミングが気になる/);
@@ -696,7 +751,8 @@ test("character voice context uses compact profile fields without sample-line fa
     deadPlayers: [],
     publicHistory: [],
     privateHistory: [],
-    language: "Japanese"
+    language: "Japanese",
+    lastNightDeaths: []
   });
 
   assert.match(context, /性別: 女/);
@@ -717,6 +773,7 @@ test("day situation prompts cover no-death, Seer claim, black result, and pre-vo
     publicHistory: ["Ada: 占い師として出ます。Byronは人狼判定です。 主張: Adaが占い師を主張: Byronは人狼判定 R1"],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [],
     extra: ["昨夜は誰も死亡しませんでした。", "これは投票直前の最終判断です。"]
   });
 
@@ -747,6 +804,7 @@ test("no-death situation uses current round context, not stale public history", 
     publicHistory: ["1日目の昼が始まりました", "昨夜は誰も死亡しませんでした", "Ada: 死体なしの理由はまだ決めつけません。"],
     privateHistory: [],
     language: "Japanese",
+    lastNightDeaths: [{ playerId: "p4", playerName: "Darwin", publicCauseLabel: null }],
     extra: ["昨夜、Darwinが死亡しました。"]
   });
 

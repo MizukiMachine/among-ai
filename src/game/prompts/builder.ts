@@ -568,6 +568,44 @@ function publicSpeechHistoryLines(lines: string[], player: Player, language: str
   return recentLines(lines.map((line) => selfAwarePublicHistoryLine(line, player, language)), count);
 }
 
+function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[] {
+  const { phase, round, language = defaultLanguage, alivePlayers, deadPlayers, lastNightDeaths: publicLastNightDeaths } = options;
+  if ((phase !== "day_discussion" && phase !== "voting") || round <= 1) {
+    return [];
+  }
+
+  const japanese = isJapaneseLanguage(language);
+  const lastNightDeaths =
+    publicLastNightDeaths.length > 0
+      ? publicLastNightDeaths.map((death) => `${death.playerName} (${death.playerId})`).join(", ")
+      : japanese
+        ? "なし"
+        : "none";
+  const deadPlayerList =
+    deadPlayers.length > 0
+      ? deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")
+      : japanese
+        ? "なし"
+        : "none";
+  if (japanese) {
+    return [
+      "現在の参加者ステータス:",
+      `- 生存中: ${formatPlayers(alivePlayers, language)}。`,
+      `- 死亡済み: ${deadPlayerList}。`,
+      `- 昨夜死亡: ${lastNightDeaths}。`,
+      "- 今日の疑い・信頼・投票候補として扱えるのは生存中の人物だけです。死亡済みの人物は、経緯や死亡からの推理としてだけ触れます。"
+    ];
+  }
+
+  return [
+    "Current participant status:",
+    `- Alive: ${formatPlayers(alivePlayers, language)}.`,
+    `- Dead: ${deadPlayerList}.`,
+    `- Last night's deaths: ${lastNightDeaths}.`,
+    "- Only alive participants can be treated as current suspicion, trust, or vote-candidate targets. Dead participants are context for events and inferences only."
+  ];
+}
+
 function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): string {
   const {
     player,
@@ -586,6 +624,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
   const recentPublicHistory = publicHistory.length > 0 ? publicSpeechHistoryLines(publicHistory, player, language, 24) : ["- まだありません。"];
   const visibleSituation = publicSpeechSituationLines(extra);
   const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : ["- なし。"];
+  const rosterStatus = publicDayRosterStatusLines(options);
 
   if (japanese) {
     return [
@@ -601,6 +640,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
       ...roleBreakdownLines(roleBreakdown, language),
+      ...rosterStatus,
       `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
       deadPlayers.length > 0
         ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
@@ -631,6 +671,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "現在の状況:",
     `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
     ...roleBreakdownLines(roleBreakdown, language),
+    ...rosterStatus,
     `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
       ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
@@ -667,6 +708,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const profile = getRolePromptProfile(player.role);
   const japanese = isJapaneseLanguage(language);
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
+  const rosterStatus = publicDayRosterStatusLines(options);
   if (mode === "public_speech") {
     return buildSimplePublicSpeechContext(options);
   }
@@ -714,6 +756,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       : []),
     "",
     ...roleBreakdownLines(roleBreakdown, language),
+    ...rosterStatus,
     japanese ? `生存者: ${formatPlayers(alivePlayers, language)}。` : `生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
       ? japanese
@@ -772,6 +815,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
   const profile = getRolePromptProfile(player.role);
   const targetDecision = promptMaterials.languageStyles.japanese.targetDecision;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
+  const rosterStatus = publicDayRosterStatusLines(options);
   const lines = [
     `あなたは${player.name}です。`,
     `役職: ${roleLabel(player.role, language)}。`,
@@ -793,6 +837,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     ...personaDetails[player.persona].speechStyle.map((s) => `- ${s}`),
     "",
     ...roleBreakdownLines(roleBreakdown, language),
+    ...rosterStatus,
     `生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
       ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
@@ -828,20 +873,7 @@ export function buildInternalDecisionPrompt(options: Omit<BuildPromptContextOpti
   return buildPromptContext({ ...options, mode: "internal_decision" });
 }
 
-export function buildBaseContext(options: {
-  player: Player;
-  phase: Phase;
-  round: number;
-  roleBreakdown?: RoleBreakdownEntry[];
-  alivePlayers: TargetCandidate[];
-  deadPlayers: Array<TargetCandidate & { role?: Role }>;
-  publicHistory: string[];
-  privateHistory: string[];
-  language?: string;
-  secret?: RoleSecretContext;
-  speechPlan?: BuildPromptContextOptions["speechPlan"];
-  extra?: string[];
-}): string {
+export function buildBaseContext(options: BuildPromptContextOptions): string {
   return buildPromptContext(options);
 }
 

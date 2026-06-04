@@ -1,4 +1,4 @@
-import type { Camp, Persona, Phase, Player, PublicSpeechPlan, Role, TargetCandidate } from "../types";
+import type { Camp, Persona, Phase, Player, PublicNightDeathInfo, PublicSpeechPlan, Role, TargetCandidate } from "../types";
 import { promptMaterials } from "./materials";
 
 export type PromptMode = "public_speech" | "internal_decision";
@@ -72,6 +72,7 @@ export interface BuildPromptContextOptions {
   privateHistory: string[];
   language?: string;
   secret?: RoleSecretContext;
+  lastNightDeaths: PublicNightDeathInfo[];
   speechPlan?: PublicSpeechPlan;
   extra?: string[];
 }
