@@ -13,7 +13,7 @@ import {
 } from "../src/game/humanInputDefaults";
 import { roleLabel } from "../src/game/i18n";
 import { loverFaceoffLineOptionsForPlayer } from "../src/game/loverFaceoffLines";
-import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer } from "../src/game/redaction";
+import { redactEventForPlayer, redactEventForVillage, redactSnapshotForPlayer, redactSnapshotForVillage } from "../src/game/redaction";
 import { createRoles, createRolesWithFixedHumanRole, maxSupportedPlayers } from "../src/game/rules/presets";
 import { roleCamp } from "../src/game/rules/roles";
 import { applyStatusEffects, createInitialRuleState } from "../src/game/rules/state";
@@ -596,6 +596,8 @@ type TestableGame = WerewolfGame & {
     camp: Camp;
     winnerCamp: CampId;
     winnerIds: string[];
+    winnerCamps?: CampId[];
+    winnerGroups?: Array<{ camp: CampId; winnerIds: string[]; winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }> }>;
     winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
     reason: string;
   } | null;
@@ -604,6 +606,8 @@ type TestableGame = WerewolfGame & {
     camp: Camp;
     winnerCamp?: CampId;
     winnerIds?: string[];
+    winnerCamps?: CampId[];
+    winnerGroups?: Array<{ camp: CampId; winnerIds: string[]; winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }> }>;
     winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
     reason: string;
   }): GameEvent;
@@ -5378,6 +5382,59 @@ test("lover discussion speech is shared only with the paired lovers", () => {
   assert.equal(loverSnapshot.players.find((player) => player.id === "p3")?.role, "Hidden");
 });
 
+test("ended snapshots reveal every role in village and player views", () => {
+  const snapshot: GameSnapshot = {
+    round: 2,
+    phase: "ended",
+    winner: "village",
+    winnerCamp: "lover",
+    winnerIds: ["p1", "p2", "p4"],
+    winnerCamps: ["neutral", "lover"],
+    winnerGroups: [
+      { camp: "neutral", winnerIds: ["p4"], winnerRoles: [{ playerId: "p4", playerName: "マヒロ", role: "Jester" }] },
+      { camp: "lover", winnerIds: ["p1", "p2"] }
+    ],
+    players: [
+      {
+        id: "p1",
+        name: "シオン",
+        role: "Lover",
+        camp: "village",
+        persona: "cautious",
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p2",
+        name: "ガク",
+        role: "Lover",
+        camp: "village",
+        persona: "logical",
+        alive: true,
+        model: "demo",
+        memoryCount: 0
+      },
+      {
+        id: "p4",
+        name: "マヒロ",
+        role: "Jester",
+        camp: "village",
+        persona: "trickster",
+        alive: false,
+        model: "demo",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 2,
+    werewolfCount: 0,
+    villageCount: 2
+  };
+
+  assert.deepEqual(redactSnapshotForVillage(snapshot).players.map((player) => player.role), ["Lover", "Lover", "Jester"]);
+  assert.deepEqual(redactSnapshotForPlayer(snapshot, "p1").players.map((player) => player.role), ["Lover", "Lover", "Jester"]);
+});
+
 test("player and village views expose vote targets without vote reasons", () => {
   const snapshot = {
     round: 1,
@@ -5718,6 +5775,40 @@ test("Jester vote death ends as neutral winner while keeping winner fallback com
   assert.equal(ended.snapshot.winner, "village");
   assert.equal(ended.snapshot.winnerCamp, "neutral");
   assert.deepEqual(ended.snapshot.winnerIds, ["p4"]);
+});
+
+test("Jester vote death and living lovers are both exposed as winners", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "Lover", targets: ["p4"] },
+    { role: "Lover", targets: ["p4"] },
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Jester", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+
+  await collect(game.runVoting());
+  const result = game.checkVictory();
+
+  assert.equal(players[3].alive, false);
+  assert.equal(result?.winnerCamp, "lover");
+  assert.deepEqual(result?.winnerCamps, ["neutral", "lover"]);
+  assert.deepEqual(result?.winnerIds, ["p4", "p1", "p2"]);
+  assert.deepEqual(result?.winnerGroups, [
+    {
+      camp: "neutral",
+      winnerIds: ["p4"],
+      winnerRoles: [{ playerId: "p4", playerName: players[3].name, role: "Jester" }]
+    },
+    { camp: "lover", winnerIds: ["p1", "p2"] }
+  ]);
+
+  const ended = game.finishGame(result!);
+  assert.match(ended.message, /Jester/);
+  assert.match(ended.message, /lover/);
+  assert.deepEqual(ended.data?.winnerCamps, ["neutral", "lover"]);
+  assert.deepEqual(ended.snapshot.winnerGroups, result?.winnerGroups);
 });
 
 test("guard success debug scenario forces an observable protected night", async () => {

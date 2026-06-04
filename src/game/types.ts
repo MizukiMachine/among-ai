@@ -193,12 +193,26 @@ export interface PlayerSnapshot {
   };
 }
 
+export interface WinnerRoleSummary {
+  playerId: string;
+  playerName: string;
+  role: Role;
+}
+
+export interface WinnerGroup {
+  camp: CampId;
+  winnerIds: string[];
+  winnerRoles?: WinnerRoleSummary[];
+}
+
 export interface GameSnapshot {
   round: number;
   phase: Phase;
   winner: Camp | null;
   winnerCamp?: CampId | null;
   winnerIds?: string[];
+  winnerCamps?: CampId[];
+  winnerGroups?: WinnerGroup[];
   players: PlayerSnapshot[];
   aliveCount: number;
   werewolfCount: number;

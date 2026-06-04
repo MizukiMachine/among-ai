@@ -106,6 +106,13 @@ test("winner label appears only when a winner exists", () => {
   assert.equal(winnerLabelForRoster(null, "Japanese"), null);
   assert.equal(winnerLabelForRoster("village", "Japanese"), "勝者: 人間側");
   assert.equal(winnerLabelForRoster("werewolf", "Japanese"), "勝者: 狼陣営");
+  assert.equal(
+    winnerLabelForRoster("lover", "Japanese", [
+      { camp: "neutral", winnerIds: ["p4"], winnerRoles: [{ playerId: "p4", playerName: "マヒロ", role: "Jester" }] },
+      { camp: "lover", winnerIds: ["p1", "p2"] }
+    ]),
+    "勝者: 恋人陣営・道化師陣営"
+  );
 });
 
 test("personal game-end outcome calls out unmet win conditions", () => {
@@ -168,6 +175,55 @@ test("personal game-end outcome calls out unmet win conditions", () => {
   assert.equal(winOutcome?.status, "won");
   assert.equal(winOutcome?.title, "勝利条件達成");
   assert.equal(winOutcome?.message, "あなたは勝利条件を満たしました。");
+
+  const sharedWinSnapshot: GameSnapshot = {
+    ...snapshot,
+    winnerCamp: "lover",
+    winnerIds: ["p1", "p2", "p4"],
+    winnerCamps: ["neutral", "lover"],
+    winnerGroups: [
+      { camp: "neutral", winnerIds: ["p4"], winnerRoles: [{ playerId: "p4", playerName: "マヒロ", role: "Jester" }] },
+      { camp: "lover", winnerIds: ["p1", "p2"] }
+    ],
+    players: [
+      { ...snapshot.players[0], id: "p1", role: "Lover", camp: "village", alive: true },
+      { ...snapshot.players[1], id: "p2", role: "Lover", camp: "village", alive: true },
+      {
+        id: "p4",
+        name: "マヒロ",
+        role: "Jester",
+        camp: "village",
+        persona: "trickster",
+        alive: false,
+        model: "scripted",
+        memoryCount: 0
+      },
+      {
+        id: "p5",
+        name: "ナギサ",
+        role: "Villager",
+        camp: "village",
+        persona: "empathetic",
+        alive: true,
+        model: "human",
+        memoryCount: 0
+      }
+    ],
+    aliveCount: 3,
+    werewolfCount: 0,
+    villageCount: 3
+  };
+
+  const loverOutcome = personalVictoryOutcomeForSnapshot(sharedWinSnapshot, "p1", "Japanese");
+  assert.equal(loverOutcome?.status, "won");
+  assert.equal(loverOutcome?.winnerCamp, "lover");
+  const jesterOutcome = personalVictoryOutcomeForSnapshot(sharedWinSnapshot, "p4", "Japanese");
+  assert.equal(jesterOutcome?.status, "won");
+  assert.equal(jesterOutcome?.winnerCamp, "neutral");
+  assert.match(jesterOutcome?.detail ?? "", /道化師陣営として勝利/);
+  const missedOutcome = personalVictoryOutcomeForSnapshot(sharedWinSnapshot, "p5", "Japanese");
+  assert.equal(missedOutcome?.status, "lost");
+  assert.match(missedOutcome?.detail ?? "", /勝利陣営は恋人陣営・道化師陣営、あなたの陣営は人間側です。/);
 });
 
 test("game-end screen has a personal loss presentation", () => {
@@ -855,11 +911,12 @@ test("player roster hides persona and emphasizes role labels", () => {
   // has been "revealed" in the story: the viewer's own role plus, for a werewolf, each ally after
   // they name themselves at the face-off (see revealedRoleIds). Public victory-condition role
   // reveals override the redacted snapshot because the role has become story-visible information.
+  // Ended snapshots reveal every role.
   assert.match(source, /const roleVisible = mode === "omniscient" \|\| \(mode === "player" && role !== "Hidden" && revealed\);/);
   assert.match(source, /const revealed = revealedRoleIds\.has\(player\.id\);/);
   assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
-  assert.match(source, /const roleLabel = publicRole \? displayRoleLabel\(publicRole, language\) : roleDisplay\(player, spectatorMode, language, revealed\);/);
-  assert.match(source, /const visibleRoleLabel = player[\s\S]*publicRole[\s\S]*displayRoleLabel\(publicRole, language\)[\s\S]*roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
+  assert.match(source, /const roleLabel = endRolesRevealed[\s\S]*displayRoleLabel\(player\.role, language\)[\s\S]*publicRole[\s\S]*roleDisplay\(player, spectatorMode, language, revealed\);/);
+  assert.match(source, /const visibleRoleLabel = player[\s\S]*endRolesRevealed[\s\S]*displayRoleLabel\(player\.role, language\)[\s\S]*publicRole[\s\S]*roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   // The face-off self-naming speech is what flips an ally from 不明 to their role.
   assert.match(source, /function faceoffSpeakerId\(event: GameEvent\): string \| undefined/);
   assert.match(source, /event\.type === "player_speech" && \(event\.phase === "werewolf_discussion" \|\| event\.phase === "lover_discussion"\)/);
@@ -1239,7 +1296,7 @@ test("neutral victory role reveal is public and animated", () => {
   assert.match(source, /const publicRoleReveals = useMemo\(\(\) => \{/);
   assert.match(source, /const publicRole = publicRoleReveals\.get\(player\.id\);/);
   assert.match(source, /\.dead-player\[data-player-id="\$\{id\}"\]/);
-  assert.match(source, /className=\{`dead-role-chip \$\{roleClassName\(deadRole\)\} \$\{revealing \? "role-reveal" : ""\}`\}/);
+  assert.match(source, /className=\{`dead-role-chip \$\{roleClassName\(deadRole\)\} \$\{revealing \|\| endRolesRevealed \? "role-reveal" : ""\}`\}/);
   assert.match(source, /detail-chip role-reveal-info/);
   assert.match(source, /eventAction\(event\) === "neutral_victory_claim"/);
   assert.match(css, /\.story-hero\.neutral-victory \.hero-character\s*\{/);

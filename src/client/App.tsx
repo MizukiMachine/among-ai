@@ -67,7 +67,8 @@ import type {
   Phase,
   PlayerReadMetadata,
   PlayerSnapshot,
-  Role
+  Role,
+  WinnerGroup
 } from "../game/types";
 
 const BASE_URL = import.meta.env?.BASE_URL ?? "/";
@@ -1409,11 +1410,16 @@ export function storyRunControlState(gameStarted: boolean, paused: boolean): {
   };
 }
 
-export function winnerLabelForRoster(winner: string | null | undefined, language = defaultLanguage): string | null {
-  if (!winner) {
+export function winnerLabelForRoster(
+  winner: string | null | undefined,
+  language = defaultLanguage,
+  winnerGroups: WinnerGroup[] = []
+): string | null {
+  const label = winnerGroupsLabel(winnerGroups, language, campIdFromValue(winner ?? null)) ?? (winner ? campLabel(winner, language) : null);
+  if (!label) {
     return null;
   }
-  return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${campLabel(winner, language)}`;
+  return `${isJapaneseLanguage(language) ? "勝者" : "Winner"}: ${label}`;
 }
 
 function campIdFromValue(value: string | null | undefined): CampId | null {
@@ -1421,6 +1427,82 @@ function campIdFromValue(value: string | null | undefined): CampId | null {
     return value;
   }
   return null;
+}
+
+function normalizeWinnerGroups(value: unknown): WinnerGroup[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    const camp = typeof record.camp === "string" ? campIdFromValue(record.camp) : null;
+    const winnerIds = Array.isArray(record.winnerIds) ? record.winnerIds.filter((id): id is string => typeof id === "string") : [];
+    if (!camp) {
+      return [];
+    }
+    const winnerRoles = Array.isArray(record.winnerRoles)
+      ? record.winnerRoles.flatMap((roleEntry) => {
+          if (!roleEntry || typeof roleEntry !== "object") {
+            return [];
+          }
+          const roleRecord = roleEntry as Record<string, unknown>;
+          const role = typeof roleRecord.role === "string" && roleRecord.role in roleClass ? (roleRecord.role as Role) : null;
+          const playerId = typeof roleRecord.playerId === "string" ? roleRecord.playerId : "";
+          const playerName = typeof roleRecord.playerName === "string" ? roleRecord.playerName : "";
+          return role && playerId ? [{ playerId, playerName, role }] : [];
+        })
+      : undefined;
+    return [
+      {
+        camp,
+        winnerIds,
+        ...(winnerRoles?.length ? { winnerRoles } : {})
+      }
+    ];
+  });
+}
+
+function winnerGroupsForSnapshot(snapshot: GameSnapshot | null | undefined): WinnerGroup[] {
+  const explicitGroups = normalizeWinnerGroups(snapshot?.winnerGroups);
+  if (explicitGroups.length > 0) {
+    return explicitGroups;
+  }
+  const winnerCamp = campIdFromValue(snapshot?.winnerCamp ?? snapshot?.winner ?? null);
+  return winnerCamp ? [{ camp: winnerCamp, winnerIds: snapshot?.winnerIds ?? [] }] : [];
+}
+
+function winnerGroupsForEvent(event: GameEvent): WinnerGroup[] {
+  const eventGroups = normalizeWinnerGroups(event.data?.winnerGroups);
+  return eventGroups.length > 0 ? eventGroups : winnerGroupsForSnapshot(event.snapshot);
+}
+
+function winnerGroupLabel(group: WinnerGroup, language = defaultLanguage): string {
+  if (group.camp === "neutral" && group.winnerRoles?.length) {
+    const roleLabels = [...new Set(group.winnerRoles.map((winner) => displayRoleLabel(winner.role, language)))];
+    const labels = isJapaneseLanguage(language) ? roleLabels.map((label) => `${label}陣営`) : roleLabels;
+    return labels.join(
+      isJapaneseLanguage(language) ? "・" : " + "
+    );
+  }
+  return campLabel(group.camp, language);
+}
+
+function orderedWinnerGroups(groups: WinnerGroup[], primaryCamp: CampId | null = null): WinnerGroup[] {
+  if (!primaryCamp) {
+    return groups;
+  }
+  const primary = groups.find((group) => group.camp === primaryCamp);
+  return primary ? [primary, ...groups.filter((group) => group !== primary)] : groups;
+}
+
+function winnerGroupsLabel(groups: WinnerGroup[], language = defaultLanguage, primaryCamp: CampId | null = null): string | null {
+  if (groups.length === 0) {
+    return null;
+  }
+  return orderedWinnerGroups(groups, primaryCamp).map((group) => winnerGroupLabel(group, language)).join(isJapaneseLanguage(language) ? "・" : " + ");
 }
 
 function playerObjectiveCamp(player: PlayerSnapshot): CampId | null {
@@ -1451,26 +1533,38 @@ export function personalVictoryOutcomeForSnapshot(
   playerId: string | null | undefined,
   language = defaultLanguage
 ): PersonalVictoryOutcome | null {
-  const winnerCamp = campIdFromValue(snapshot?.winnerCamp ?? snapshot?.winner ?? null);
+  const winnerGroups = winnerGroupsForSnapshot(snapshot);
+  const declaredWinnerCamp = campIdFromValue(snapshot?.winnerCamp ?? snapshot?.winner ?? null);
+  const representativeWinnerCamp = declaredWinnerCamp ?? winnerGroups[0]?.camp;
   const player = playerId ? snapshot?.players.find((candidate) => candidate.id === playerId) : undefined;
   const playerCamp = player ? playerObjectiveCamp(player) : null;
-  if (!winnerCamp || !playerCamp || !player) {
+  if (!representativeWinnerCamp || !playerCamp || !player) {
     return null;
   }
 
-  const winnerIds = new Set(snapshot?.winnerIds ?? []);
+  const fulfilledGroup = winnerGroups.find((group) => {
+    if (group.camp !== playerCamp) {
+      return false;
+    }
+    return !requiresPersonalWinnerId(playerCamp) || group.winnerIds.includes(player.id);
+  });
+  const fallbackWinnerIds = new Set(snapshot?.winnerIds ?? []);
   const fulfilled =
-    winnerCamp === playerCamp &&
-    (!requiresPersonalWinnerId(playerCamp) || winnerIds.has(player.id));
+    Boolean(fulfilledGroup) ||
+    (winnerGroups.length === 0 &&
+      representativeWinnerCamp === playerCamp &&
+      (!requiresPersonalWinnerId(playerCamp) || fallbackWinnerIds.has(player.id)));
+  const outcomeWinnerCamp = fulfilledGroup?.camp ?? representativeWinnerCamp;
   const playerCampLabel = campLabel(playerCamp, language);
-  const winnerCampLabel = campLabel(winnerCamp, language);
+  const winnerCampLabel = winnerGroupsLabel(winnerGroups, language, representativeWinnerCamp) ?? campLabel(representativeWinnerCamp, language);
+  const personalWinnerLabel = fulfilledGroup ? winnerGroupLabel(fulfilledGroup, language) : campLabel(representativeWinnerCamp, language);
   const japanese = isJapaneseLanguage(language);
 
   if (!fulfilled) {
     return {
       status: "lost",
       playerCamp,
-      winnerCamp,
+      winnerCamp: outcomeWinnerCamp,
       title: japanese ? "勝利条件未達成" : "Win condition missed",
       message: japanese ? "あなたは勝利条件を満たせませんでした。" : "You did not meet your win condition.",
       detail: japanese
@@ -1482,12 +1576,12 @@ export function personalVictoryOutcomeForSnapshot(
   return {
     status: "won",
     playerCamp,
-    winnerCamp,
+    winnerCamp: outcomeWinnerCamp,
     title: japanese ? "勝利条件達成" : "Win condition met",
     message: japanese ? "あなたは勝利条件を満たしました。" : "You met your win condition.",
     detail: japanese
-      ? `あなたの陣営は${winnerCampLabel}として勝利しました。`
-      : `Your camp won as ${winnerCampLabel}.`
+      ? `あなたの陣営は${personalWinnerLabel}として勝利しました。`
+      : `Your camp won as ${personalWinnerLabel}.`
   };
 }
 
@@ -1677,7 +1771,9 @@ export function App() {
   );
   const activeSpeakerImage = currentEvent ? getCharacterPortrait(currentEvent.playerId) : null;
   const gameStarted = running || sourceDone || events.length > 0 || queuedEvents.length > 0 || snapshot !== null;
-  const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language);
+  const endRolesRevealed = snapshot?.phase === "ended";
+  const snapshotWinnerGroups = winnerGroupsForSnapshot(snapshot);
+  const winnerRosterText = winnerLabelForRoster(snapshot?.winnerCamp ?? snapshot?.winner, language, snapshotWinnerGroups);
   const pendingHumanInputEntry = pendingHumanInputs[0] ?? null;
   const pendingHumanInput = pendingHumanInputEntry?.request ?? null;
   const pendingHumanInputRevealAfterEventId = pendingHumanInputEntry?.revealAfterEventId ?? null;
@@ -3486,14 +3582,20 @@ export function App() {
   }
 
   function renderGameEndOutcome(event: GameEvent, hidden: boolean) {
-    const winnerCamp =
+    const winnerGroups = winnerGroupsForEvent(event);
+    const declaredWinnerCamp =
       campIdFromValue(dataString(event, "winnerCamp")) ??
       campIdFromValue(event.snapshot.winnerCamp ?? event.snapshot.winner ?? null);
+    const winnerCamp = declaredWinnerCamp ?? winnerGroups[0]?.camp ?? null;
+    const winnerLabel = winnerGroupsLabel(winnerGroups, language, winnerCamp);
+    const winnerCampDisplayLabel = winnerLabel ?? (winnerCamp ? campLabel(winnerCamp, language) : null);
     const outcome = personalVictoryOutcomeForSnapshot(event.snapshot, humanEnabled ? humanPlayerId : null, language);
     const resultClass = outcome?.status ?? "spectator";
     const title =
       outcome?.title ??
-      (winnerCamp
+      (winnerLabel
+        ? `${winnerLabel}${isJapaneseLanguage(language) ? "の勝利" : " wins"}`
+        : winnerCamp
         ? `${campLabel(winnerCamp, language)}${isJapaneseLanguage(language) ? "の勝利" : " wins"}`
         : isJapaneseLanguage(language)
           ? "対局終了"
@@ -3512,12 +3614,12 @@ export function App() {
           <p className="game-end-main">{message}</p>
           {detail ? <p className="game-end-detail">{detail}</p> : null}
         </div>
-        {winnerCamp || outcome ? (
+        {winnerCampDisplayLabel || outcome ? (
           <div className="game-end-camps" aria-label="勝敗内訳">
-            {winnerCamp ? (
+            {winnerCampDisplayLabel ? (
               <span>
                 <small>勝利陣営</small>
-                <strong>{campLabel(winnerCamp, language)}</strong>
+                <strong>{winnerCampDisplayLabel}</strong>
               </span>
             ) : null}
             {outcome ? (
@@ -4258,11 +4360,19 @@ export function App() {
     const publicRole = player ? publicRoleReveals.get(player.id) : undefined;
     const profileRevealed = player ? revealedRoleIds.has(player.id) : false;
     const visibleRoleLabel = player
-      ? publicRole
+      ? endRolesRevealed
+        ? displayRoleLabel(player.role, language)
+        : publicRole
         ? displayRoleLabel(publicRole, language)
         : roleDisplay(player, spectatorMode, language, profileRevealed)
       : displayRoleLabel("Hidden", language);
-    const visibleRoleClass = publicRole ? roleClassName(publicRole) : player ? roleChipClass(player, spectatorMode, profileRevealed) : "role-hidden";
+    const visibleRoleClass = player && endRolesRevealed
+      ? roleClassName(player.role)
+      : publicRole
+        ? roleClassName(publicRole)
+        : player
+          ? roleChipClass(player, spectatorMode, profileRevealed)
+          : "role-hidden";
     const readHistory = characterReadHistoryForEvents(events, selectedCharacterId, spectatorMode);
 
     return (
@@ -4526,16 +4636,25 @@ export function App() {
                   const humanPlayer = isHumanPlayer(player.id);
                   const revealed = revealedRoleIds.has(player.id);
                   const revealing = revealingRoleId === player.id;
+                  const endReveal = endRolesRevealed && !revealing;
                   const publicRole = publicRoleReveals.get(player.id);
-                  const roleLabel = publicRole ? displayRoleLabel(publicRole, language) : roleDisplay(player, spectatorMode, language, revealed);
-                  const roleClass = publicRole ? roleClassName(publicRole) : roleChipClass(player, spectatorMode, revealed);
+                  const roleLabel = endRolesRevealed
+                    ? displayRoleLabel(player.role, language)
+                    : publicRole
+                      ? displayRoleLabel(publicRole, language)
+                      : roleDisplay(player, spectatorMode, language, revealed);
+                  const roleClass = endRolesRevealed
+                    ? roleClassName(player.role)
+                    : publicRole
+                      ? roleClassName(publicRole)
+                      : roleChipClass(player, spectatorMode, revealed);
                   const knownWerewolf = knownWerewolfIds.has(player.id);
                   const showKnownWerewolfBadge = knownWerewolf && !humanPlayer;
                   return (
                     <button
                       aria-label={`${player.name}の公開プロフィールを表示${showKnownWerewolfBadge ? "、判明した人狼陣営" : ""}`}
                       data-player-id={player.id}
-                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${knownWerewolf ? "known-werewolf" : ""} ${revealing ? "revealing-role" : ""}`}
+                      className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${knownWerewolf ? "known-werewolf" : ""} ${revealing ? "revealing-role" : ""} ${endReveal ? "end-role-reveal" : ""}`}
                       key={player.id}
                       onClick={(event) => openCharacterProfile(player.id, event.currentTarget)}
                       title={`${player.name}の公開プロフィールを表示`}
@@ -4561,7 +4680,7 @@ export function App() {
                         <div className="player-name-row">
                           <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                         </div>
-                        <span aria-label={roleLabel} className={`role-chip ${roleClass} ${revealing ? "role-reveal" : ""}`} title={roleLabel}>
+                        <span aria-label={roleLabel} className={`role-chip ${roleClass} ${revealing || endRolesRevealed ? "role-reveal" : ""}`} title={roleLabel}>
                           {roleLabel}
                         </span>
                       </div>
@@ -4593,11 +4712,14 @@ export function App() {
                     // roles); everyone else stays hidden unless we are watching omniscient.
                     const publicRole = publicRoleReveals.get(player.id);
                     const revealing = revealingRoleId === player.id;
-                    const deadRole = publicRole ?? (spectatorMode === "omniscient" || revealedRoleIds.has(player.id) ? player.role : "Hidden");
+                    const endReveal = endRolesRevealed && !revealing;
+                    const deadRole = endRolesRevealed
+                      ? player.role
+                      : publicRole ?? (spectatorMode === "omniscient" || revealedRoleIds.has(player.id) ? player.role : "Hidden");
                     const deadRoleLabel = displayRoleLabel(deadRole, language);
                     return (
                       <div
-                        className={`dead-player ${humanPlayer ? "human-player" : ""} ${revealing ? "revealing-role" : ""}`}
+                        className={`dead-player ${humanPlayer ? "human-player" : ""} ${revealing ? "revealing-role" : ""} ${endReveal ? "end-role-reveal" : ""}`}
                         data-player-id={player.id}
                         key={player.id}
                       >
@@ -4622,7 +4744,7 @@ export function App() {
                             <strong><CharacterName playerId={player.id}>{player.name}</CharacterName></strong>
                             {humanPlayer ? renderHumanPlayerBadge() : null}
                           </div>
-                          <span className={`dead-role-chip ${roleClassName(deadRole)} ${revealing ? "role-reveal" : ""}`}>{deadRoleLabel}</span>
+                          <span className={`dead-role-chip ${roleClassName(deadRole)} ${revealing || endRolesRevealed ? "role-reveal" : ""}`}>{deadRoleLabel}</span>
                         </div>
                       </div>
                     );
