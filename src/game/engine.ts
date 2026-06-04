@@ -19,6 +19,7 @@ import {
   firstDayOpeningMove,
   firstDayOpeningMoveKinds,
   firstDayWerewolfOpeningMoveKinds,
+  publicNightDeathInfos,
   renderPublicSpeechDiversityContext
 } from "./speechPlanning";
 import {
@@ -5888,6 +5889,7 @@ export class WerewolfGame {
       privateHistory: player.memories,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride, round),
+      lastNightDeaths: publicNightDeathInfos(this.lastNightDeathRecords, this.players),
       speechPlan,
       extra
     });

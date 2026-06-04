@@ -345,8 +345,12 @@ function publicNightDeathInfo(death: DeathRecord, players: Player[]): PublicNigh
   };
 }
 
+export function publicNightDeathInfos(deaths: DeathRecord[], players: Player[]): PublicNightDeathInfo[] {
+  return deaths.map((death) => publicNightDeathInfo(death, players));
+}
+
 export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): PublicSpeechPlan {
-  const deaths = input.lastNightDeaths.map((death) => publicNightDeathInfo(death, input.players));
+  const deaths = publicNightDeathInfos(input.lastNightDeaths, input.players);
   const intents: SpeechIntent[] = [];
 
   // The opening turn of the game (round 1, first pass) has no public statements,

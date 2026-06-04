@@ -1974,7 +1974,7 @@ test("true Seer public claim persists and forces later unannounced real results"
   assert.equal(disclosure?.announcedResultIds.has("p3"), true);
 });
 
-test("day discussion context includes structured public knowledge after night deaths", async () => {
+test("day discussion context includes authoritative current roster status after night deaths", async () => {
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [
     { role: "Werewolf", targets: ["p2"] },
@@ -1985,6 +1985,7 @@ test("day discussion context includes structured public knowledge after night de
     { role: "Villager" }
   ]);
 
+  (game as unknown as { round: number }).round = 2;
   await collect(game.runNight());
   await collect(game.runDay());
 
@@ -1993,6 +1994,11 @@ test("day discussion context includes structured public knowledge after night de
   assert.ok(dayInput);
   assert.equal(dayInput.speechPlan?.requiresForwardMove, true);
   assert.match(dayInput.context, /現在の状況/);
+  assert.match(dayInput.context, /現在の参加者ステータス/);
+  assert.match(dayInput.context, new RegExp(`生存中: .*${players[0].name}`));
+  assert.match(dayInput.context, new RegExp(`死亡済み: ${players[1].name}`));
+  assert.match(dayInput.context, new RegExp(`昨夜死亡: ${players[1].name}`));
+  assert.match(dayInput.context, /疑い・信頼・投票候補として扱えるのは生存中の人物だけ/);
   assert.match(dayInput.context, new RegExp(`死亡者: ${players[1].name}`));
   assert.doesNotMatch(dayInput.context, /公開知識|公開上の死因|魔女の毒薬|死因候補を並べるだけで終わらず/);
 });
@@ -2012,6 +2018,7 @@ test("speech diagnostics record single simple public speech completion", async (
     { role: "Villager" }
   ]);
 
+  (game as unknown as { round: number }).round = 2;
   await collect(game.runNight());
 
   const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
