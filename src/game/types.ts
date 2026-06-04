@@ -213,6 +213,7 @@ export interface GameSnapshot {
   winnerIds?: string[];
   winnerCamps?: CampId[];
   winnerGroups?: WinnerGroup[];
+  personalLossPlayerId?: string | null;
   players: PlayerSnapshot[];
   aliveCount: number;
   werewolfCount: number;

@@ -1514,7 +1514,7 @@ function requiresPersonalWinnerId(camp: CampId): boolean {
 export interface PersonalVictoryOutcome {
   status: "won" | "lost";
   playerCamp: CampId;
-  winnerCamp: CampId;
+  winnerCamp: CampId | null;
   title: string;
   message: string;
   detail: string;
@@ -1530,7 +1530,24 @@ export function personalVictoryOutcomeForSnapshot(
   const representativeWinnerCamp = declaredWinnerCamp ?? winnerGroups[0]?.camp;
   const player = playerId ? snapshot?.players.find((candidate) => candidate.id === playerId) : undefined;
   const playerCamp = player ? playerObjectiveCamp(player) : null;
-  if (!representativeWinnerCamp || !playerCamp || !player) {
+  if (!playerCamp || !player) {
+    return null;
+  }
+  const japanese = isJapaneseLanguage(language);
+  const playerCampLabel = campLabel(playerCamp, language);
+
+  if (snapshot?.personalLossPlayerId === player.id) {
+    return {
+      status: "lost",
+      playerCamp,
+      winnerCamp: null,
+      title: japanese ? "勝利条件未達成" : "Win condition missed",
+      message: japanese ? "あなたは勝利条件を満たせませんでした。" : "You did not meet your win condition.",
+      detail: japanese ? `あなたの陣営は${playerCampLabel}です。` : `Your camp: ${playerCampLabel}.`
+    };
+  }
+
+  if (!representativeWinnerCamp) {
     return null;
   }
 
@@ -1547,10 +1564,8 @@ export function personalVictoryOutcomeForSnapshot(
       representativeWinnerCamp === playerCamp &&
       (!requiresPersonalWinnerId(playerCamp) || fallbackWinnerIds.has(player.id)));
   const outcomeWinnerCamp = fulfilledGroup?.camp ?? representativeWinnerCamp;
-  const playerCampLabel = campLabel(playerCamp, language);
   const winnerCampLabel = winnerGroupsLabel(winnerGroups, language, representativeWinnerCamp) ?? campLabel(representativeWinnerCamp, language);
   const personalWinnerLabel = fulfilledGroup ? winnerGroupLabel(fulfilledGroup, language) : campLabel(representativeWinnerCamp, language);
-  const japanese = isJapaneseLanguage(language);
 
   if (!fulfilled) {
     return {

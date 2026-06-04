@@ -604,12 +604,13 @@ type TestableGame = WerewolfGame & {
   } | null;
   emitRoundSummary(): Promise<GameEvent>;
   finishGame(result: {
-    camp: Camp;
-    winnerCamp?: CampId;
+    camp: Camp | null;
+    winnerCamp?: CampId | null;
     winnerIds?: string[];
     winnerCamps?: CampId[];
     winnerGroups?: Array<{ camp: CampId; winnerIds: string[]; winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }> }>;
     winnerRoles?: Array<{ playerId: string; playerName: string; role: Role }>;
+    personalLossPlayerId?: string;
     reason: string;
   }): GameEvent;
   players: Player[];
@@ -5088,6 +5089,61 @@ test("early human night protection does not block lover linked deaths", async ()
         event.type === "death" && event.targetId === "p3" && event.data?.cause === "lover" && event.data?.sourceId === "p4"
     )
   );
+});
+
+test("human Lover death ends the run as a personal unmet win condition", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      requests.push(input);
+      if (input.kind === "target") {
+        return {
+          targetId: input.candidates.find((candidate) => candidate.id === "p4")?.id ?? input.candidates[0]?.id ?? null,
+          reason: "人間プレイヤーの判断です。"
+        };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "相方を守る前提で、今日は票を合わせます。" };
+      }
+      return { decision: false };
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p3", language: "Japanese", prefetchConcurrency: 1 },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Lover", targets: ["p4"] },
+    { role: "Lover", targets: ["p1"] },
+    { role: "Villager", targets: ["p4"] },
+    { role: "Villager", targets: ["p4"] }
+  ]);
+  game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "Japanese"));
+  players[2].model = "human";
+
+  const events = await collect(game.run());
+  const humanDeathIndex = events.findIndex((event) => event.type === "death" && event.targetId === players[2].id);
+  const endedIndex = events.findIndex((event) => event.type === "game_ended");
+  const ended = events[endedIndex];
+
+  assert.ok(requests.some((request) => request.kind === "target"), "the human Lover still participates before dying");
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === players[3].id));
+  assert.ok(humanDeathIndex >= 0, "the human Lover dies through the lover link");
+  assert.ok(endedIndex > humanDeathIndex, "the run ends after the human Lover death");
+  assert.equal(ended?.data?.winner, null);
+  assert.equal(ended?.data?.winnerCamp, null);
+  assert.deepEqual(ended?.data?.winnerIds, []);
+  assert.equal(ended?.data?.outcome, "personal_loss");
+  assert.equal(ended?.data?.personalLossPlayerId, players[2].id);
+  assert.match(String(ended?.data?.reason ?? ""), /恋人陣営の勝利条件/);
+  assert.doesNotMatch(ended?.message ?? "", /勝利です/);
+  assert.equal(ended?.snapshot.winner, null);
+  assert.equal(ended?.snapshot.winnerCamp, null);
+  assert.equal(ended?.snapshot.personalLossPlayerId, players[2].id);
+  assert.equal(ended?.snapshot.players.find((player) => player.id === players[2].id)?.alive, false);
+  assert.equal(events.some((event, index) => index > humanDeathIndex && event.phase === "night"), false);
 });
 
 test("early human night protection does not block WolfBeauty linked deaths", async () => {
