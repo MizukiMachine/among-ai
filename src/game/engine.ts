@@ -358,12 +358,13 @@ interface DayWarmupSpeechPrefetch {
 }
 
 interface VictoryResult {
-  camp: Camp;
-  winnerCamp?: CampId;
+  camp: Camp | null;
+  winnerCamp?: CampId | null;
   winnerIds?: string[];
   winnerCamps?: CampId[];
   winnerGroups?: WinnerGroup[];
   winnerRoles?: WinnerRoleSummary[];
+  personalLossPlayerId?: string;
   reason: string;
 }
 
@@ -1139,6 +1140,7 @@ export class WerewolfGame {
   private winnerIds: string[] = [];
   private winnerCamps: CampId[] = [];
   private winnerGroups: WinnerGroup[] = [];
+  private personalLossPlayerId: string | null = null;
   private lastNightDeaths: string[] = [];
   private lastDiscussion: DiscussionRecord[] = [];
   private lastWerewolfDiscussion: DiscussionRecord[] = [];
@@ -2379,6 +2381,14 @@ export class WerewolfGame {
         yield this.finishGame(dayWinner);
         return;
       }
+      const dayPersonalLoss = this.checkHumanPersonalLoss();
+      if (dayPersonalLoss) {
+        this.lastNightDeaths = [];
+        this.lastNightDeathRecords = [];
+        yield await this.emitRoundSummary();
+        yield this.finishGame(dayPersonalLoss);
+        return;
+      }
 
       yield* this.runNight();
       this.throwIfCancelled();
@@ -2387,6 +2397,11 @@ export class WerewolfGame {
       const nightWinner = this.checkVictory();
       if (nightWinner) {
         yield this.finishGame(nightWinner);
+        return;
+      }
+      const nightPersonalLoss = this.checkHumanPersonalLoss();
+      if (nightPersonalLoss) {
+        yield this.finishGame(nightPersonalLoss);
         return;
       }
     }
@@ -4762,8 +4777,11 @@ export class WerewolfGame {
       return result.winnerGroups;
     }
     const camp = result.winnerCamp ?? result.camp;
+    if (!camp) {
+      return [];
+    }
     const winnerIds =
-      result.winnerIds ?? this.alivePlayers().filter((player) => player.camp === result.camp).map((player) => player.id);
+      result.winnerIds ?? this.alivePlayers().filter((player) => player.camp === camp).map((player) => player.id);
     return [
       {
         camp,
@@ -4784,6 +4802,26 @@ export class WerewolfGame {
       winnerCamps: [loverResult.camp],
       winnerGroups: [{ camp: loverResult.camp, winnerIds: loverResult.winnerIds }],
       reason: this.text("Both lovers are alive at game end.", "ゲーム終了時点で恋人2人とも生存しています。")
+    };
+  }
+
+  private checkHumanPersonalLoss(): VictoryResult | null {
+    const human = this.players.find((player) => this.isHumanControlledPlayer(player));
+    if (!human || human.alive || human.role !== "Lover") {
+      return null;
+    }
+
+    return {
+      camp: null,
+      winnerCamp: null,
+      winnerIds: [],
+      winnerCamps: [],
+      winnerGroups: [],
+      personalLossPlayerId: human.id,
+      reason: this.text(
+        "The human Lover died, so the lover win condition can no longer be met.",
+        "人間プレイヤーの恋人が死亡したため、恋人陣営の勝利条件は満たせなくなりました。"
+      )
     };
   }
 
@@ -4863,19 +4901,26 @@ export class WerewolfGame {
 
   private finishGame(result: VictoryResult): GameEvent {
     this.winner = result.camp;
-    this.winnerCamp = result.winnerCamp ?? result.camp;
+    this.winnerCamp = result.winnerCamp ?? result.camp ?? null;
     this.winnerGroups = this.resultWinnerGroups(result);
     this.winnerCamps = result.winnerCamps ?? [...new Set(this.winnerGroups.map((group) => group.camp))];
     this.winnerIds = result.winnerIds ?? this.winnerGroups.flatMap((group) => group.winnerIds);
+    this.personalLossPlayerId = result.personalLossPlayerId ?? null;
     this.phase = "ended";
     const winnerText = this.formatWinnerGroups(this.winnerGroups, this.winnerCamp);
-    return this.emit("game_ended", this.text(`${winnerText} wins. ${result.reason}`, `${winnerText}の勝利です。${result.reason}`), {
+    const message = winnerText
+      ? this.text(`${winnerText} wins. ${result.reason}`, `${winnerText}の勝利です。${result.reason}`)
+      : result.reason;
+    return this.emit("game_ended", message, {
       winner: result.camp,
       winnerCamp: this.winnerCamp,
       winnerIds: this.winnerIds,
       winnerCamps: this.winnerCamps,
       winnerGroups: this.winnerGroups,
       ...(result.winnerRoles ? { winnerRoles: result.winnerRoles } : {}),
+      ...(result.personalLossPlayerId
+        ? { outcome: "personal_loss", personalLossPlayerId: result.personalLossPlayerId }
+        : {}),
       reason: result.reason
     });
   }
@@ -6339,6 +6384,7 @@ export class WerewolfGame {
       winnerIds: this.winnerIds,
       winnerCamps: this.winnerCamps,
       winnerGroups: this.winnerGroups,
+      personalLossPlayerId: this.personalLossPlayerId,
       aliveCount: this.alivePlayers().length,
       werewolfCount: this.countAlive("werewolf"),
       villageCount: this.countAlive("village"),
