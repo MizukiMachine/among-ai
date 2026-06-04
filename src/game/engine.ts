@@ -4484,7 +4484,7 @@ export class WerewolfGame {
     const deaths = createLinkedDeathRecords(eligibleInitialDeaths, this.ruleState, {
       isAlive: (playerId) => {
         const player = this.requirePlayer(playerId);
-        return player.alive && !blockedTargetIds.has(playerId) && !this.isProtectedHumanNightDeathTarget(player);
+        return player.alive && !blockedTargetIds.has(playerId);
       }
     });
     const blocked = new Set([...blockedTargetIds, ...deaths.map((death) => death.playerId)]);
