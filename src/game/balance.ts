@@ -70,7 +70,7 @@ export async function runBalanceReport(options: BalanceReportOptions = {}): Prom
     options.playerCounts ??
     Array.from({ length: maxSupportedPlayers - minSupportedPlayers + 1 }, (_, index) => minSupportedPlayers + index);
   const runs = Math.max(1, Math.floor(options.runs ?? 20));
-  const maxRounds = Math.max(3, Math.floor(options.maxRounds ?? 8));
+  const maxRounds = Math.max(3, Math.floor(options.maxRounds ?? 3));
   const seed = options.seed ?? "among-ai-balance";
   const buckets: BalanceBucket[] = [];
 
