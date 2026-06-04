@@ -6226,13 +6226,6 @@ input[type="range"] {
   color: #f2f7fa;
 }
 
-.ui-tour-callout p {
-  margin: 0 0 16px;
-  font-size: 18px;
-  line-height: 1.64;
-  color: #d6e2e9;
-}
-
 .ui-tour-body-list {
   display: grid;
   gap: 8px;
