@@ -1921,6 +1921,9 @@ export function App() {
     if (events.length === 0) {
       return;
     }
+    if (events.at(-1)?.type === "game_ended") {
+      return;
+    }
     tourLaunchedRef.current = true;
     if (hasSeenUiTour()) {
       return;
@@ -2713,6 +2716,14 @@ export function App() {
 
   function startOpeningScene() {
     if (!settingsConfirmed || running || sourceRef.current || events.length > 0 || queuedRef.current.length > 0 || snapshot !== null) {
+      return;
+    }
+    playBgmRotationFromStart();
+    startGame({ revealFirstEvent: true });
+  }
+
+  function restartGame() {
+    if (running || sourceRef.current) {
       return;
     }
     playBgmRotationFromStart();
@@ -3621,6 +3632,7 @@ export function App() {
     const winnerCampDisplayLabel = winnerLabel ?? (winnerCamp ? campLabel(winnerCamp, language) : null);
     const outcome = personalVictoryOutcomeForSnapshot(event.snapshot, humanEnabled ? humanPlayerId : null, language);
     const resultClass = outcome?.status ?? "spectator";
+    const spectatorMessage = eventMessageForSpectator(event, spectatorMode);
     const title =
       outcome?.title ??
       (winnerLabel
@@ -3630,8 +3642,9 @@ export function App() {
         : isJapaneseLanguage(language)
           ? "対局終了"
           : "Game ended");
-    const message = outcome?.message ?? eventMessageForSpectator(event, spectatorMode);
+    const message = outcome?.message ?? spectatorMessage;
     const detail = outcome?.detail;
+    const reason = !hidden && spectatorMessage !== message ? formatMessage(spectatorMessage) : null;
 
     return (
       <section className={`game-end-result ${resultClass}`} role="status" aria-live="polite">
@@ -3644,7 +3657,17 @@ export function App() {
           <p className="game-end-main">{message}</p>
           {detail ? <p className="game-end-detail">{detail}</p> : null}
         </div>
-        {winnerCampDisplayLabel || outcome ? (
+        <div className="game-end-actions" aria-label="終了後の操作">
+          <button className="icon-button primary game-end-action" onClick={restartGame} type="button">
+            <RotateCcw size={18} />
+            <span>もう一度プレイ</span>
+          </button>
+          <button className="icon-button game-end-action secondary" onClick={resetToInitialSetup} type="button">
+            <Settings size={18} />
+            <span>設定に戻る</span>
+          </button>
+        </div>
+        {(outcome || winnerGroups.length > 1) && (winnerCampDisplayLabel || outcome) ? (
           <div className="game-end-camps" aria-label="勝敗内訳">
             {winnerCampDisplayLabel ? (
               <span>
@@ -3660,7 +3683,7 @@ export function App() {
             ) : null}
           </div>
         ) : null}
-        {!hidden ? <p className="game-end-reason">{formatMessage(eventMessageForSpectator(event, spectatorMode))}</p> : null}
+        {reason ? <p className="game-end-reason">{reason}</p> : null}
       </section>
     );
   }
@@ -4886,7 +4909,7 @@ export function App() {
                       {renderStoryProcessingHud()}
                       {speechInputPrompt ? renderHumanInputQuickControls() : null}
 
-                      {!speechInputPrompt ? (
+                      {!speechInputPrompt && currentEvent?.type !== "game_ended" ? (
                         <div className="story-controls" ref={storyControlsRef}>
                           <button className="icon-button story-back" disabled={storyBackDisabled} onClick={retreatStory} type="button">
                             <ChevronLeft size={20} />

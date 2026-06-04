@@ -254,11 +254,18 @@ test("game-end screen has a personal loss presentation", () => {
   assert.match(source, /renderGameEndOutcome\(event, hidden\)/);
   assert.match(source, /あなたは勝利条件を満たせませんでした。/);
   assert.match(source, /className=\{`game-end-result \$\{resultClass\}`\}/);
+  assert.match(source, /function restartGame\(\) \{[\s\S]*playBgmRotationFromStart\(\);[\s\S]*startGame\(\{ revealFirstEvent: true \}\);[\s\S]*\}/);
+  assert.match(source, /className="game-end-actions"/);
+  assert.match(source, /onClick=\{restartGame\}/);
+  assert.match(source, /もう一度プレイ/);
+  assert.match(source, /設定に戻る/);
   assert.match(source, /personal-\$\{gameEndOutcome\.status\}/);
   assert.match(css, /\.story-hero\.game_ended\.personal-lost \.chapel-backdrop::after\s*\{/);
   assert.match(css, /\.story-hero\.game_ended\.personal-won \.chapel-backdrop::after\s*\{/);
   assert.match(css, /\.game-end-result\.lost\s*\{/);
   assert.match(css, /\.game-end-result\.won\s*\{/);
+  assert.match(css, /\.game-end-actions\s*\{/);
+  assert.match(css, /\.game-end-action\s*\{/);
   assert.match(css, /@keyframes game-end-alert-pulse/);
   assert.match(css, /@keyframes game-end-victory-mark/);
   assert.match(css, /@keyframes game-end-victory-glow/);
@@ -1218,7 +1225,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
   assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?submitHumanInput\(\{ decision: false \}\)[\s\S]*?発言せず次へ/s);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
-  assert.match(source, /!\s*speechInputPrompt\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
+  assert.match(source, /!\s*speechInputPrompt\s*&&\s*currentEvent\?\.type !== "game_ended"\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-choice-text\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.human-speech-prompt-title\s*\{[^}]*font-size:\s*24px;/s);
@@ -1388,7 +1395,10 @@ test("guided UI tour spotlights the main controls at match start", () => {
 
   // Launches once per match after the opening board is revealed; reset on new game.
   assert.match(source, /tourLaunchedRef\.current = false;\s*\n\s*setTourStepIndex\(null\);/);
-  assert.match(source, /if \(events\.length === 0\) \{\s*\n\s*return;\s*\n\s*\}\s*\n\s*tourLaunchedRef\.current = true;/);
+  assert.match(
+    source,
+    /if \(events\.length === 0\) \{\s*\n\s*return;\s*\n\s*\}\s*\n\s*if \(events\.at\(-1\)\?\.type === "game_ended"\) \{\s*\n\s*return;\s*\n\s*\}\s*\n\s*tourLaunchedRef\.current = true;/
+  );
 
   // Overlay is rendered, skippable, and keyboard-driven; not a blanket modal.
   assert.match(source, /function renderUiTour\(\)/);

@@ -2559,8 +2559,12 @@ input[type="range"] {
 
 .story-hero.game_ended .story-copy {
   width: min(92%, 980px);
-  max-height: calc(100% - 178px);
-  padding-top: 56px;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 40px;
+  padding-bottom: 24px;
+  scrollbar-gutter: stable both-edges;
 }
 
 .story-hero.game_ended.personal-lost .chapel-backdrop::after {
@@ -2609,8 +2613,9 @@ input[type="range"] {
   background:
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 10px),
     linear-gradient(90deg, transparent 0 34%, rgba(255, 255, 255, 0.12) 48%, transparent 62%);
+  background-position: 0 0, 125% 0;
+  background-size: auto, 220% 100%;
   opacity: 0.22;
-  transform: translateX(-36%);
   animation: game-end-scan 1.4s ease-out both;
 }
 
@@ -2649,6 +2654,8 @@ input[type="range"] {
     linear-gradient(90deg, transparent 0 28%, rgba(190, 255, 222, 0.2) 47%, transparent 66%),
     radial-gradient(circle at 18% 20%, rgba(134, 239, 172, 0.2), transparent 24%),
     radial-gradient(circle at 86% 14%, rgba(103, 216, 223, 0.16), transparent 26%);
+  background-position: 0 0, 125% 0, center, center;
+  background-size: auto, 220% 100%, auto, auto;
   opacity: 0.3;
   animation:
     game-end-scan 1.35s ease-out both,
@@ -2804,6 +2811,32 @@ input[type="range"] {
   background: rgba(6, 78, 59, 0.22);
 }
 
+.game-end-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.game-end-action {
+  min-height: 52px;
+  min-width: 188px;
+  justify-content: center;
+}
+
+.game-end-action.secondary {
+  border-color: rgba(218, 230, 236, 0.28);
+  background:
+    linear-gradient(180deg, rgba(48, 63, 73, 0.62), rgba(12, 20, 28, 0.86)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.11), transparent 42%, rgba(0, 0, 0, 0.2)),
+    var(--ship-trim-texture),
+    #15222b;
+  background-blend-mode: normal, soft-light, normal, normal;
+  background-position: center, center, var(--ship-trim-position), center;
+  background-size: auto, auto, var(--ship-trim-size), auto;
+}
+
 .game-end-reason {
   border-top: 1px solid rgba(218, 230, 236, 0.16);
   padding-top: 14px;
@@ -2825,14 +2858,14 @@ input[type="range"] {
 @keyframes game-end-scan {
   from {
     opacity: 0;
-    transform: translateX(-48%);
+    background-position: 0 0, 125% 0, center, center;
   }
   36% {
     opacity: 0.34;
   }
   to {
     opacity: 0.12;
-    transform: translateX(38%);
+    background-position: 0 0, -25% 0, center, center;
   }
 }
 
@@ -2899,8 +2932,8 @@ input[type="range"] {
 @media (max-width: 760px) {
   .story-hero.game_ended .story-copy {
     width: min(100%, 680px);
-    max-height: calc(100% - 238px);
-    padding: 36px 18px 0 22px;
+    max-height: calc(100% - 28px);
+    padding: 32px 18px 20px 22px;
   }
 
   .game-end-result {
@@ -2919,12 +2952,22 @@ input[type="range"] {
   .game-end-camps {
     grid-template-columns: 1fr;
   }
+
+  .game-end-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .game-end-action {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 620px) {
   .story-hero.game_ended .story-copy {
-    max-height: calc(100% - 252px);
-    padding: 28px 14px 0 16px;
+    max-height: calc(100% - 24px);
+    padding: 24px 14px 18px 16px;
   }
 
   .game-end-alert {
