@@ -639,6 +639,12 @@ type TestableGame = WerewolfGame & {
   hunterShotsUsed: Set<string>;
 };
 
+class FastDayVoteTimeoutGame extends WerewolfGame {
+  protected override dayVoteDecisionTimeoutMs(): number {
+    return 15;
+  }
+}
+
 function createGame(): TestableGame {
   return new WerewolfGame(baseConfig) as TestableGame;
 }
@@ -5243,6 +5249,36 @@ test("day vote casts keep voter order even when decisions finish out of order", 
     voteCastPlayerIds,
     players.slice(0, 5).map((player) => player.id)
   );
+});
+
+test("day vote timeouts follow the current leading target", async () => {
+  const game = new FastDayVoteTimeoutGame({ ...baseConfig, language: "Japanese", prefetchConcurrency: 5 }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager", alive: false }
+  ]);
+  const slowAgent = new DelayedTargetRaceAgent(players[0].name, "delayed", [50], [players[1].id]);
+  game.agents.set(players[0].id, slowAgent);
+  game.agents.set(players[1].id, new DelayedTargetRaceAgent(players[1].name, "delayed", [1], [players[3].id]));
+  game.agents.set(players[2].id, new DelayedTargetRaceAgent(players[2].name, "delayed", [1], [players[3].id]));
+  game.agents.set(players[3].id, new DelayedTargetRaceAgent(players[3].name, "delayed", [1], [players[4].id]));
+  game.agents.set(players[4].id, new DelayedTargetRaceAgent(players[4].name, "delayed", [1], [players[3].id]));
+
+  const events = await collect(game.runVoting());
+  const voteEvents = events.filter((event) => event.type === "vote_cast");
+
+  assert.equal(slowAgent.abortedTargets, 1);
+  assert.deepEqual(
+    voteEvents.map((event) => event.playerId),
+    players.slice(0, 5).map((player) => player.id)
+  );
+  assert.equal(voteEvents[0]?.targetId, players[3].id);
+  assert.equal(voteEvents[0]?.data?.timeoutFallback, true);
+  assert.equal(voteEvents[0]?.data?.timeoutMs, 15);
 });
 
 test("LLM voting decisions use spare request budget as duplicate races", async () => {

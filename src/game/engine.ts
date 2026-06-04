@@ -1,4 +1,5 @@
 import { setMaxListeners } from "node:events";
+import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers";
 import { hedge, mapConcurrentUnordered, mergeAbortSignals, raceCandidates } from "llm-hedge";
 import { buildSimpleFallbackSpeech, createAgentFactory, DemoAgent, summarizeRoundWithLlm } from "./agents";
 import { characterNames, getCharacterProfile, getPersonaForPlayer } from "./characters";
@@ -99,6 +100,7 @@ const defaultAiPrefetchConcurrency = 5;
 const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 const maxHumanDayDiscussionInterruptions = 5;
+const dayVoteDecisionTimeoutMs = 15_000;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
@@ -289,6 +291,10 @@ interface WerewolfAttackResolution {
   tied: boolean;
   randomSelectionReason: "tie" | "no_votes" | null;
 }
+
+type DayVoteCollectionResult =
+  | { kind: "decision"; voter: Player; decision: TargetDecision }
+  | { kind: "timeout"; voter: Player; targets: Player[] };
 
 type PreparedWitchAction =
   | { kind: "save"; witch: Player; target: Player }
@@ -1327,6 +1333,10 @@ export class WerewolfGame {
     if (this.abortSignal?.aborted) {
       throw new Error("Game stream cancelled.");
     }
+  }
+
+  protected dayVoteDecisionTimeoutMs(): number {
+    return dayVoteDecisionTimeoutMs;
   }
 
   private progressReporter(
@@ -4330,6 +4340,40 @@ export class WerewolfGame {
     }
   }
 
+  private dayVoteTimeoutFallbackDecision(voter: Player, targets: Player[], knownVotes: VoteRecord[]): TargetDecision | null {
+    const fallbackTarget = targets[0] ?? null;
+    if (!fallbackTarget) {
+      return null;
+    }
+
+    const counts = tallyVotes(knownVotes);
+    let selected = fallbackTarget;
+    let selectedCount = counts.get(selected.id) ?? 0;
+    for (const target of targets.slice(1)) {
+      const count = counts.get(target.id) ?? 0;
+      if (count > selectedCount) {
+        selected = target;
+        selectedCount = count;
+      }
+    }
+
+    const timeoutSeconds = Math.max(0, Math.round(this.dayVoteDecisionTimeoutMs() / 1000));
+    return {
+      targetId: selected.id,
+      reason:
+        selectedCount > 0
+          ? this.text(
+              `${voter.name}'s vote exceeded ${timeoutSeconds} seconds, so it followed the current leading vote for ${selected.name}.`,
+              `${voter.name}の投票判断が${timeoutSeconds}秒を超えたため、現在の最多票である${selected.name}に合わせました。`
+            )
+          : this.text(
+              `${voter.name}'s vote exceeded ${timeoutSeconds} seconds, so ${selected.name} was selected as a legal fallback target.`,
+              `${voter.name}の投票判断が${timeoutSeconds}秒を超えたため、合法な投票先として${selected.name}を選びました。`
+            ),
+      reasonKind: "legal_fallback"
+    };
+  }
+
   private async *runVoting(): AsyncGenerator<GameEvent> {
     this.phase = "voting";
     this.lastVoteEliminatedPlayerId = null;
@@ -4338,11 +4382,12 @@ export class WerewolfGame {
     const votes: VoteRecord[] = [];
     const livingPlayers = this.alivePlayers();
     const voters = livingPlayers.filter((player) => !this.ruleState.players[player.id]?.statuses.some((status) => status.kind === "no_vote"));
+    const aiVoteDeadlineAt = Date.now() + Math.max(0, this.dayVoteDecisionTimeoutMs());
     const collectVote = async (
       voter: Player,
       raceSlots = this.prefetchConcurrency,
       signal?: AbortSignal
-    ): Promise<{ voter: Player; decision: TargetDecision } | null> => {
+    ): Promise<DayVoteCollectionResult | null> => {
       const targets = livingPlayers.filter((player) => player.id !== voter.id && !this.isProtectedHumanVoteTarget(player));
       if (targets.length === 0) {
         return null;
@@ -4370,18 +4415,49 @@ export class WerewolfGame {
         previousVotes: this.lastVotes
       });
       const context = this.contextFor(voter, contextLines, {}, speechPlan);
-      const decision = await this.raceChooseTarget(
-        voter,
-        this.text("Day elimination vote", "昼の処刑投票"),
-        context,
-        targets,
-        false,
-        contextLines,
-        raceSlots,
-        signal
-      );
-      const influencedDecision = this.applyHumanVoteInfluence(voter, decision, targets, humanInfluenceProfile);
-      return influencedDecision.targetId && legalTargetIds.has(influencedDecision.targetId) ? { voter, decision: influencedDecision } : null;
+      const timeoutApplies = !this.isHumanControlledPlayer(voter);
+      const remainingVoteMs = aiVoteDeadlineAt - Date.now();
+      if (timeoutApplies && remainingVoteMs <= 0) {
+        return { kind: "timeout", voter, targets };
+      }
+
+      const timeoutController = timeoutApplies ? new AbortController() : null;
+      const timeoutAbort = timeoutController ? mergeAbortSignals(signal, timeoutController.signal) : null;
+      let voteTimedOut = false;
+      const timeout =
+        timeoutController && remainingVoteMs > 0
+          ? setNodeTimeout(() => {
+              voteTimedOut = true;
+              timeoutController.abort();
+            }, remainingVoteMs)
+          : null;
+
+      try {
+        const decision = await this.raceChooseTarget(
+          voter,
+          this.text("Day elimination vote", "昼の処刑投票"),
+          context,
+          targets,
+          false,
+          contextLines,
+          raceSlots,
+          timeoutAbort?.signal ?? signal
+        );
+        const influencedDecision = this.applyHumanVoteInfluence(voter, decision, targets, humanInfluenceProfile);
+        return influencedDecision.targetId && legalTargetIds.has(influencedDecision.targetId)
+          ? { kind: "decision", voter, decision: influencedDecision }
+          : null;
+      } catch (error) {
+        if (voteTimedOut && !this.abortSignal?.aborted) {
+          return { kind: "timeout", voter, targets };
+        }
+        throw error;
+      } finally {
+        if (timeout) {
+          clearNodeTimeout(timeout);
+        }
+        timeoutAbort?.cleanup();
+      }
     };
     const voteResults = this.completionOrderAiDecisionWithHumanBoundary(
       voters,
@@ -4391,22 +4467,47 @@ export class WerewolfGame {
     );
 
     const voteResultsByVoterId = new Map<string, { voter: Player; decision: TargetDecision }>();
+    const timedOutVoteResultsByVoterId = new Map<string, { voter: Player; targets: Player[] }>();
     for await (const result of voteResults) {
-      const targetId = result?.decision.targetId;
-      if (!result || !targetId) {
+      if (!result) {
         continue;
       }
-      voteResultsByVoterId.set(result.voter.id, result);
+      if (result.kind === "timeout") {
+        timedOutVoteResultsByVoterId.set(result.voter.id, { voter: result.voter, targets: result.targets });
+        continue;
+      }
+      const targetId = result.decision.targetId;
+      if (!targetId) {
+        continue;
+      }
+      voteResultsByVoterId.set(result.voter.id, { voter: result.voter, decision: result.decision });
     }
+
+    const actualVoteRecords = [...voteResultsByVoterId.values()].flatMap(({ voter, decision }) =>
+      decision.targetId ? [{ voterId: voter.id, targetId: decision.targetId, reason: decision.reason }] : []
+    );
+    const timeoutFallbackVoteRecords: VoteRecord[] = [];
 
     for (const voter of voters) {
       const result = voteResultsByVoterId.get(voter.id);
-      const targetId = result?.decision.targetId;
-      if (!result || !targetId) {
+      const timedOutResult = timedOutVoteResultsByVoterId.get(voter.id);
+      const timeoutFallbackDecision = timedOutResult
+        ? this.dayVoteTimeoutFallbackDecision(
+            timedOutResult.voter,
+            timedOutResult.targets,
+            [...actualVoteRecords, ...timeoutFallbackVoteRecords]
+          )
+        : null;
+      const decision = result?.decision ?? timeoutFallbackDecision;
+      const targetId = decision?.targetId;
+      if (!decision || !targetId) {
         continue;
       }
-      const { voter: resultVoter, decision } = result;
+      const resultVoter = result?.voter ?? timedOutResult?.voter ?? voter;
       votes.push({ voterId: resultVoter.id, targetId, reason: decision.reason });
+      if (timeoutFallbackDecision) {
+        timeoutFallbackVoteRecords.push({ voterId: resultVoter.id, targetId, reason: decision.reason });
+      }
       const target = this.requirePlayer(targetId);
       resultVoter.memories.push(
         this.text(
@@ -4417,7 +4518,12 @@ export class WerewolfGame {
       yield this.emit(
         "vote_cast",
         this.text(`${resultVoter.name} votes for ${target.name}.`, `${resultVoter.name}が${target.name}に投票しました。`),
-        {},
+        timeoutFallbackDecision
+          ? {
+              timeoutFallback: true,
+              timeoutMs: this.dayVoteDecisionTimeoutMs()
+            }
+          : {},
         resultVoter,
         target
       );
