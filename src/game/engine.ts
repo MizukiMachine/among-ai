@@ -100,7 +100,7 @@ const defaultAiPrefetchConcurrency = 5;
 const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 const maxHumanDayDiscussionInterruptions = 5;
-const dayVoteDecisionTimeoutMs = 15_000;
+const dayVoteDecisionTimeoutMs = 20_000;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
