@@ -1827,19 +1827,30 @@ export function App() {
         key: "roles",
         getEl: () => roleDistributionRef.current,
         title: "役職内訳",
-        body: "画面上部のここで、今回の対局の役職構成を確認できます。各役職をクリックすると、勝利条件や能力などの詳しい説明が開きます。対局中でも何度でも開けます。"
+        body: [
+          "今回の対局の役職構成を確認できます",
+          "各役職をクリックすると、勝利条件や能力などの詳しい説明が開きます",
+          "対局中でも何度でも開けます"
+        ]
       },
       {
         key: "roster",
         getEl: () => rosterListRef.current,
         title: "プレイヤー一覧",
-        body: "対局に参加しているメンバーの一覧です。気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます。"
+        body: [
+          "対局に参加しているメンバーの一覧です",
+          "気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます"
+        ]
       },
       {
         key: "logs",
         getEl: () => playerActionsRef.current,
         title: "会話ログ・投票結果",
-        body: "これまでの会話の履歴は「会話ログ」、各日の投票結果は「投票結果」のボタンから、いつでも振り返れます。"
+        body: [
+          "これまでの会話の履歴は「会話ログ」から振り返れます",
+          "各日の投票結果は「投票結果」から確認できます",
+          "どちらも対局中にいつでも開けます"
+        ]
       },
       {
         key: "speech",
@@ -1855,7 +1866,11 @@ export function App() {
         key: "controls",
         getEl: () => storyControlsRef.current,
         title: "視点・BGM・進行",
-        body: "「全情報／人間視点」で見え方を切り替え、BGMはオン／オフを切替できます。「次へ」ボタンまたは → キーで物語を進めます。"
+        body: [
+          "「全情報／人間視点」で見え方を切り替えられます",
+          "BGMはオン／オフを切り替えられます",
+          "「次へ」ボタンまたは → キーで物語を進めます"
+        ]
       }
     ],
     []
@@ -4517,7 +4532,7 @@ export function App() {
     // screen; the chosen position is always clamped inside the viewport.
     const calloutMargin = 16;
     const gap = pad + 12;
-    const calloutWidth = Math.min(420, viewportWidth - calloutMargin * 2);
+    const calloutWidth = Math.min(520, viewportWidth - calloutMargin * 2);
     const calloutHeight = 320; // estimate used only for placement decisions
     const clampX = (x: number) => Math.min(Math.max(calloutMargin, x), viewportWidth - calloutWidth - calloutMargin);
     const clampY = (y: number) => Math.min(Math.max(calloutMargin, y), viewportHeight - calloutHeight - calloutMargin);
@@ -4563,15 +4578,11 @@ export function App() {
             <button className="ui-tour-skip" onClick={finishTour} type="button">スキップ</button>
           </div>
           <h2>{activeTourStep.title}</h2>
-          {Array.isArray(activeTourStep.body) ? (
-            <ul className="ui-tour-body-list">
-              {activeTourStep.body.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>{activeTourStep.body}</p>
-          )}
+          <ul className="ui-tour-body-list">
+            {activeTourStep.body.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
           <div className="ui-tour-actions">
             <button
               className="ui-tour-back"

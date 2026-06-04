@@ -1346,6 +1346,9 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
 
   // The ordered steps stay neutral because the human player can be assigned either camp.
+  const tourStepsSource = source.slice(source.indexOf("  const tourSteps = useMemo"), source.indexOf("  const tourActive ="));
+  assert.doesNotMatch(tourStepsSource, /body:\s*"/);
+  assert.doesNotMatch(tourStepsSource, /。/);
   assert.match(source, /getEl: \(\) => roleDistributionRef\.current,\s*\n\s*title: "役職内訳"/);
   assert.match(source, /今回の対局の役職構成を確認できます/);
   assert.doesNotMatch(source, /人狼陣営として村人の全排除を目指すゲーム/);
@@ -1354,7 +1357,7 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
   assert.match(source, /getEl: \(\) => speechInterruptButtonRef\.current \?\? storyControlsRef\.current,\s*\n\s*title: "発言"/);
   assert.match(source, /body: \[\s*"議論が進むと発言できるようになり、「発言」ボタンが現れます",\s*"自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",\s*"発言しない時は「次へ」で進めます"\s*\]/);
-  assert.match(source, /Array\.isArray\(activeTourStep\.body\) \? \(\s*<ul className="ui-tour-body-list">/);
+  assert.match(source, /<ul className="ui-tour-body-list">/);
   assert.match(source, /<li key=\{item\}>\{item\}<\/li>/);
   assert.match(source, /const tourSpeechButtonPreview = tourActive && activeTourStep\?\.key === "speech" && !availableSpeechInterruptInput;/);
   assert.match(source, /const showSpeechInterruptButton = Boolean\(availableSpeechInterruptInput \|\| tourSpeechButtonPreview\);/);
@@ -1378,9 +1381,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // Spotlight + callout styling exists.
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
-  assert.match(css, /\.ui-tour-callout p\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(css, /\.ui-tour-body-list\s*\{[^}]*font-size:\s*18px;/s);
-  assert.match(source, /const calloutWidth = Math\.min\(420, viewportWidth - calloutMargin \* 2\);/);
+  assert.match(source, /const calloutWidth = Math\.min\(520, viewportWidth - calloutMargin \* 2\);/);
 });
 
 test("hard reload resets the tour without a startup generation gate", () => {
