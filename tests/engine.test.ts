@@ -1259,7 +1259,7 @@ test("Japanese demo werewolf does not fake a black Seer result on quiet first da
   }
 });
 
-test("Japanese demo Seer claims a first-day white result", async () => {
+test("Japanese demo Seer does not claim a first-day result", async () => {
   const game = createGame();
   const [player] = setTable(game, [{ role: "Seer" }, { role: "Villager" }, { role: "Villager" }]);
   player.seerResults = { p2: "village" };
@@ -1280,9 +1280,9 @@ test("Japanese demo Seer claims a first-day white result", async () => {
     privateHistory: []
   });
 
-  assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer"), true);
+  assert.equal(speech.metadata.claims.some((claim) => claim.role === "Seer" && claim.result), false);
   const messageText = speech.messages.join(" ");
-  assert.match(messageText, /占い師を名乗ります|人間側判定|判定/);
+  assert.doesNotMatch(messageText, /人間側判定|人狼判定|白判定|黒判定|判定です/);
 });
 
 test("Japanese demo voting reason uses pre-vote framing", async () => {
@@ -1831,7 +1831,7 @@ test("werewolf Seer fake claim persists and forces later fake results", async ()
       role: "Werewolf",
       targets: ["p2"],
       speeches: [
-        { messages: ["私は占い師です。黒結果が出るまでは伏せます"], metadata: emptyMetadata },
+        { messages: ["私は占い師です。初日は結果がないので、投票理由を見ます"], metadata: emptyMetadata },
         { messages: ["今日は投票前に理由を見ます"], metadata: emptyMetadata },
         { messages: ["投票理由の薄い人を候補に入れます"], metadata: emptyMetadata }
       ]
@@ -2242,6 +2242,8 @@ test("speech sanitization drops claim metadata not supported by displayed text",
   const sanitizer = game as unknown as {
     sanitizeSpeechForPhase(speech: AgentSpeech, legalPlayers: TargetCandidate[], speaker?: TargetCandidate): AgentSpeech;
   };
+  (game as unknown as { phase: "day_discussion"; round: number }).phase = "day_discussion";
+  (game as unknown as { round: number }).round = 1;
   const legalPlayers: TargetCandidate[] = players.slice(1).map(({ id, name }) => ({ id, name }));
 
   const policyTalk = sanitizer.sanitizeSpeechForPhase(
@@ -2271,6 +2273,30 @@ test("speech sanitization drops claim metadata not supported by displayed text",
     players[0]
   );
   assert.deepEqual(reportedOtherPlayerClaim.metadata.claims, []);
+
+  const firstDayResultClaim = sanitizer.sanitizeSpeechForPhase(
+    {
+      messages: [`私は占い師です。${players[1].name}は人間側判定です`],
+      metadata: {
+        suspects: [],
+        trusts: [],
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: { targetId: players[1].id, targetName: players[1].name, camp: "village", round: 1 }
+          }
+        ]
+      }
+    },
+    legalPlayers,
+    players[0]
+  );
+  assert.equal(firstDayResultClaim.metadata.claims.length, 1);
+  assert.equal(firstDayResultClaim.metadata.claims[0].role, "Seer");
+  assert.equal(firstDayResultClaim.metadata.claims[0].result, undefined);
+
+  (game as unknown as { round: number }).round = 2;
 
   const visibleClaim = sanitizer.sanitizeSpeechForPhase(
     {
@@ -3867,7 +3893,7 @@ test("human day interrupt rollback restores true Seer disclosure state", async (
   game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
   game.agents.set(
     players[1].id,
-    new DelayedSpeechAgent(players[1].name, [1], () => `ここで占い師を名乗ります。${players[3].name}は人間側判定です`)
+    new DelayedSpeechAgent(players[1].name, [1], () => "ここで占い師を名乗ります。初日は結果なしで方針だけ出します")
   );
   game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [60, 1], () => "残りのAI発言です。"));
 

@@ -349,6 +349,20 @@ function legalTargetLineForLanguage(players: TargetCandidate[] | undefined, lang
   return `選べる対象ID: ${players.map((candidate) => `${candidate.id}=${candidate.name}`).join(", ")}。`;
 }
 
+function firstDaySeerResultRuleLines(phase: Phase, round: number, language: string): string[] {
+  if ((phase !== "day_discussion" && phase !== "voting") || round > 1) {
+    return [];
+  }
+  if (isJapaneseLanguage(language)) {
+    return [
+      "- 初日昼には占い結果はありません。本物の占い師も、占い師騙りも、対象名と判定を出しません。占い師を名乗る場合も結果なしの方針だけにします。"
+    ];
+  }
+  return [
+    "- 初日昼には占い結果はありません。本物の占い師も、占い師騙りも、対象名と判定を出しません。占い師を名乗る場合も結果なしの方針だけにします。"
+  ];
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -402,9 +416,11 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   if (japanese) {
     const claimRoles = "占い師、魔女、ハンター、鴉、愚者、長老";
     const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時";
+    const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
     const common = werewolfRole
       ? [
           `人狼側の役職騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}に短く騙る。`,
+          firstDaySeerResultRule,
           "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
           "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
           "仲間、夜の相談、襲撃情報は漏らさない。騙る時も村側と同じ条件で、票・対抗・自分への疑いを動かす理由に結びつける。"
@@ -412,17 +428,19 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
       : jesterRole
         ? [
             `道化師の役職騙り方針: ${claimRoles}は、${claimCondition}だけ短く騙ってよい。`,
+            firstDaySeerResultRule,
             "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
             "単独勝利条件は終盤まで隠す。騙る時も村側と同じ条件で、票・対抗・自分への疑いを動かす理由に結びつける。"
           ]
         : [
             `役職CO方針: ${claimRoles}は、${claimCondition}だけ短く名乗ってよい。`,
+            firstDaySeerResultRule,
             "騎士は通常絶対に名乗らない。護衛先も伏せる。",
             "恋人は相方を通常伏せる。村人は役職を騙らない。道化師は単独勝利条件を終盤まで隠す。"
           ];
     if (role === "Seer") {
       return [
-        "あなたは占い師です。結果が1件でも議論の判断材料になるなら早めに名乗り、対象と判定を短く出す。",
+        "あなたは占い師です。初日昼は占い結果がないので、名乗る場合も対象名と判定は出さない。二日目以降、結果が1件でも議論の判断材料になるなら早めに名乗り、対象と判定を短く出す。",
         ...common
       ];
     }
@@ -449,9 +467,11 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
 
   const claimRoles = "占い師・魔女・ハンター・鴉・愚者・長老";
   const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時だけ";
+  const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
   const common = werewolfRole
     ? [
         `人狼の騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}短く騙る。`,
+        firstDaySeerResultRule,
         "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
         "騎士は通常の騙り対象にしない。護衛先は作らない。",
         "仲間、人狼だけの相談、襲撃情報は絶対に漏らさない。役職を騙る時は、村側の名乗りと同じ条件を使う。"
@@ -459,16 +479,21 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     : jesterRole
       ? [
           `道化師の騙り方針: ${claimRoles}は、${claimCondition}短く騙ってよい。`,
+          firstDaySeerResultRule,
           "騎士は通常の騙り対象にしない。護衛先は作らない。",
           "終盤まで中立勝利条件は隠す。役職を騙る時は、村側の名乗りと同じ条件を使う。"
         ]
       : [
           `役職名乗り方針: ${claimRoles}は、${claimCondition}短く名乗ってよい。`,
+          firstDaySeerResultRule,
           "騎士は通常名乗らない。護衛先は伏せる。",
           "恋人は通常、相方を隠す。村人は能力役職を騙らない。道化師は終盤まで中立勝利条件を隠す。"
         ];
   if (role === "Seer") {
-    return ["あなたは占い師です。結果が今日の判断に一つでも役立つなら、対象と結果を添えた早めの名乗りを検討する。", ...common];
+    return [
+      "あなたは占い師です。初日昼は占い結果がないので、名乗る場合も対象名と判定は出さない。二日目以降、結果が今日の判断に一つでも役立つなら、対象と結果を添えた早めの名乗りを検討する。",
+      ...common
+    ];
   }
   if (role === "Witch") {
     return ["あなたは魔女です。平和、複数死亡、偽主張への対抗で情報が必要な時だけ名乗り、必要な薬情報だけ明かす。", ...common];
@@ -625,6 +650,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
   const visibleSituation = publicSpeechSituationLines(extra);
   const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : ["- なし。"];
   const rosterStatus = publicDayRosterStatusLines(options);
+  const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
 
   if (japanese) {
     return [
@@ -639,6 +665,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "",
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+      ...firstDaySeerResultRules,
       ...roleBreakdownLines(roleBreakdown, language),
       ...rosterStatus,
       `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
@@ -670,6 +697,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "",
     "現在の状況:",
     `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+    ...firstDaySeerResultRules,
     ...roleBreakdownLines(roleBreakdown, language),
     ...rosterStatus,
     `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
@@ -709,6 +737,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   const japanese = isJapaneseLanguage(language);
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
   const rosterStatus = publicDayRosterStatusLines(options);
+  const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
   if (mode === "public_speech") {
     return buildSimplePublicSpeechContext(options);
   }
@@ -726,6 +755,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     japanese
       ? `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`
       : `現在のフェーズ: ${phaseHeading(phase, language)}。ラウンド: ${round}。`,
+    ...firstDaySeerResultRules,
     japanese ? "プロンプト用途: 内部判断。" : "プロンプト用途: 内部判断。",
     "",
     japanese ? "情報境界:" : "情報境界:",
@@ -816,11 +846,13 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
   const targetDecision = promptMaterials.languageStyles.japanese.targetDecision;
   const situationGuidance = daySituationGuidance({ phase, round, publicHistory, extra, language });
   const rosterStatus = publicDayRosterStatusLines(options);
+  const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
   const lines = [
     `あなたは${player.name}です。`,
     `役職: ${roleLabel(player.role, language)}。`,
     `表向きの性格: ${personaHeading(player.persona, language)}。`,
     `現在: ${phaseHeading(phase, language)}、第${round}ラウンド。`,
+    ...firstDaySeerResultRules,
     "",
     "投票理由の前提:",
     bulletList(targetDecision.boundary),
