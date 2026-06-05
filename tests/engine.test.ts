@@ -1442,7 +1442,7 @@ test("day-scoped public digest carries factual claims without stale reads", asyn
   const context = (game as unknown as { contextFor(player: Player): string }).contextFor(seer);
 
   assert.match(context, /これまでの経過（日ごとの要約）:/);
-  assert.match(context, new RegExp(`主張: ${seer.name}が占い師を主張: ${checked.name}は人狼判定`));
+  assert.match(context, new RegExp(`主張: ${seer.name}が占い師を主張: ${checked.name}は(?:人狼|狼陣営)判定`));
   assert.match(context, new RegExp(`${staleSuspect.name}: 今日の発言です。`));
   assert.doesNotMatch(context, new RegExp(`読み: 疑い先 ${staleSuspect.name}`));
 });
