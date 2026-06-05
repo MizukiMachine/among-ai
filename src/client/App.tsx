@@ -4344,7 +4344,7 @@ export function App() {
 
             {humanEnabled ? (
               <div className="human-camp-field">
-                <span>陣営（人間陣営の方が難易度が高くなります）</span>
+                <span>陣営</span>
                 <div className="segments human-camp-options" role="group" aria-label="陣営">
                   {humanCampPreferenceOptions.map((option) => (
                     <button
