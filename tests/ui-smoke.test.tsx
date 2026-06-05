@@ -7,6 +7,7 @@ import {
   App,
   characterClaimHistoryForEvents,
   characterReadHistoryForEvents,
+  characterValueBullets,
   clusterReads,
   dedupeReadsBySourceTarget,
   eventPhaseMetaLabel,
@@ -70,6 +71,11 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /insight-grid/);
   assert.match(html, /人数（認知不可が高くなるため、人数が多いほど難易度が高くなります）/);
   assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
+});
+
+test("character public values render as sentence bullets without final periods", () => {
+  assert.deepEqual(characterValueBullets("一つ目の人物像。二つ目の人物像。"), ["一つ目の人物像", "二つ目の人物像"]);
+  assert.deepEqual(characterValueBullets("  「迷いは見せる。」それでも決める。  "), ["「迷いは見せる」", "それでも決める"]);
 });
 
 test("roster vote result overlay is wired next to the conversation log", () => {
@@ -1004,6 +1010,8 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /公開人物メモ/);
   assert.match(source, /roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   assert.match(source, /profile\.values/);
+  assert.match(source, /characterValueBullets\(profile\.values\)\.map/);
+  assert.match(source, /className="character-profile-values"/);
   assert.match(source, /characterReadHistoryForEvents\(events, selectedCharacterId, spectatorMode\)/);
   assert.match(source, /<h3>この人物の読み<\/h3>/);
   assert.match(source, /renderCharacterReadColumn\("疑い", readHistory\.suspects, "suspect"\)/);
@@ -1022,6 +1030,7 @@ test("living roster cards open public character profile popover", () => {
   assert.match(css, /\.character-profile-popover \.overlay-body\s*\{/);
   assert.match(css, /\.character-profile-body\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.character-profile-thumb\s*\{[^}]*width:\s*68px[^}]*height:\s*68px/s);
+  assert.match(css, /\.character-profile-values li::before\s*\{/);
 });
 
 test("graveyard cards stay compact like the living roster", () => {

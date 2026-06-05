@@ -931,6 +931,37 @@ function displayMessageText(text: string): string {
   return text.trimEnd().replace(/。+(?=」?$)/u, "");
 }
 
+export function characterValueBullets(values: string): string[] {
+  const bullets: string[] = [];
+  let current = "";
+
+  for (const char of values.trim()) {
+    if (char === "。") {
+      const line = current.trim();
+      if (line) {
+        bullets.push(line);
+      }
+      current = "";
+      continue;
+    }
+
+    if (/[」』）】]/u.test(char) && current.trim() === "" && bullets.length > 0) {
+      bullets[bullets.length - 1] = `${bullets[bullets.length - 1]}${char}`;
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const lastLine = current.trim();
+  if (lastLine) {
+    bullets.push(lastLine);
+  }
+
+  return bullets;
+}
+
 function renderTextWithCharacterNames(text: string, keyPrefix = "character-name"): ReactNode {
   void keyPrefix;
   return text;
@@ -4850,7 +4881,11 @@ export function App() {
 
             <section className="character-profile-section">
               <h3>人物像</h3>
-              <p>{profile.values}</p>
+              <ul className="character-profile-values">
+                {characterValueBullets(profile.values).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
             </section>
           </div>
         </section>

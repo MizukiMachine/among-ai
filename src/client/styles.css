@@ -1776,6 +1776,23 @@ textarea:focus-visible {
   list-style: none;
 }
 
+.character-profile-values li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.character-profile-values li::before {
+  width: 6px;
+  height: 6px;
+  margin-top: 0.76em;
+  border-radius: 999px;
+  background: var(--ship-cyan);
+  content: "";
+  box-shadow: 0 0 10px rgba(103, 216, 223, 0.65);
+}
+
 .character-profile-reads {
   display: grid;
   gap: 10px;
