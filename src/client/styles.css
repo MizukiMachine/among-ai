@@ -2991,7 +2991,7 @@ input[type="range"] {
 }
 
 .story-hero.round_summary .story-copy {
-  width: min(98%, 1260px);
+  width: 100%;
   max-height: calc(100% - 188px);
   grid-template-columns: minmax(520px, 900px) minmax(184px, 224px);
   align-items: start;
@@ -3010,7 +3010,7 @@ input[type="range"] {
 
 @media (max-width: 1599px) and (min-width: 1181px) {
   .story-hero.round_summary .story-copy {
-    width: min(98%, 1100px);
+    width: 100%;
     grid-template-columns: minmax(0, 1fr) minmax(176px, 196px);
     column-gap: 18px;
     padding-right: 18px;
@@ -5536,7 +5536,7 @@ input[type="range"] {
   }
 
   .story-hero.round_summary .story-copy {
-    width: min(92%, 980px);
+    width: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
 
