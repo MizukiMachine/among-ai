@@ -498,14 +498,16 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*relative[^}]*width:\s*min\(100%,\s*860px\)[^}]*transform:\s*none/s);
   assert.match(css, /\.mentioned-character-strip\s*\{[^}]*padding-bottom:\s*18px;/s);
   assert.doesNotMatch(css, /\.mentioned-character-strip\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.story-hero\.round_summary \.story-copy\s*\{[^}]*width:\s*100%;[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.story-hero\.round_summary \.story-copy\s*\{[^}]*grid-template-columns:\s*minmax\(520px,\s*900px\) minmax\(184px,\s*224px\)/s);
   assert.match(css, /\.story-hero\.round_summary \.story-copy\s*\{[^}]*overflow-y:\s*auto[^}]*scrollbar-gutter:\s*stable/s);
   assert.match(css, /\.story-hero\.round_summary \.round-summary-mentions\s*\{[^}]*display:\s*grid[^}]*grid-column:\s*2[^}]*grid-row:\s*3[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.story-hero\.round_summary \.round-summary-mentions \.mentioned-character-thumb\s*\{[^}]*width:\s*96px[^}]*height:\s*112px/s);
-  assert.match(css, /@media \(max-width: 1599px\) and \(min-width: 1181px\)[\s\S]*\.story-hero\.round_summary \.story-copy\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(176px,\s*196px\)/s);
+  assert.match(css, /@media \(max-width: 1599px\) and \(min-width: 1181px\)[\s\S]*\.story-hero\.round_summary \.story-copy\s*\{[^}]*width:\s*100%;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(176px,\s*196px\)/s);
   assert.match(css, /@media \(max-width: 1599px\) and \(min-width: 1181px\)[\s\S]*\.story-hero\.round_summary \.round-summary-mentions \.mentioned-character-thumb\s*\{[^}]*width:\s*82px[^}]*height:\s*96px/s);
   assert.match(css, /@media \(max-width: 1599px\) and \(min-width: 1181px\)[\s\S]*\.story-hero\.round_summary \.summary-layout\s*\{[^}]*grid-template-columns:\s*1fr/s);
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.story-hero\.round_summary \.round-summary-mentions\s*\{[^}]*display:\s*flex[^}]*grid-column:\s*1/s);
+  assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.story-hero\.round_summary \.story-copy\s*\{[^}]*width:\s*100%;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
   assert.match(css, /@media \(max-width: 980px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*54px 24px 28px 56px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*width:\s*min\(100%,\s*640px\)/s);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.story-copy\s*\{[^}]*padding:\s*42px 16px 28px 32px[^}]*\}[\s\S]*\.mentioned-character-strip\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /\.mentioned-character-thumb\s*\{[^}]*width:\s*112px[^}]*height:\s*128px[^}]*background:\s*transparent/s);
