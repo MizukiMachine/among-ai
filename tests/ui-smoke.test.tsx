@@ -1180,7 +1180,7 @@ test("setup exposes human camp choices without role preference choices", () => {
   assert.doesNotMatch(source, /プレイ目標/);
   assert.doesNotMatch(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
   assert.doesNotMatch(source, /仲間の演技を見ながら村人の全排除を狙います/);
-  assert.match(source, /陣営（人間陣営の方が難易度が高くなります）/);
+  assert.match(source, /<span>陣営<\/span>/);
   assert.match(source, /label: "人間陣営"/);
   assert.match(source, /label: "狼陣営"/);
   assert.match(source, /label: "ランダム"/);
