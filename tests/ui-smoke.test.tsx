@@ -76,10 +76,12 @@ test("roster vote result overlay is wired next to the conversation log", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /useState<"history" \| "votes" \| null>/);
+  assert.match(source, /useState<"history" \| "votes" \| "rules" \| null>/);
   assert.match(source, /const latestVoteResult = useMemo\(\(\) => events\.filter\(voteResultHasVisibleData\)\.at\(-1\)/);
   assert.match(source, /function renderVoteResultsPopover/);
+  assert.match(source, /function renderRulesPopover/);
   assert.match(source, /aria-label="投票結果"/);
+  assert.match(source, /aria-label="ゲームのルール"/);
   assert.match(source, /dataArray<VoteDetail>\(latestVoteResult, "votes"\)/);
   assert.match(source, /理由は非公開/);
   assert.match(css, /\.player-section-actions\s*\{/);
@@ -994,7 +996,11 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /aria-label=\{`\$\{player\.name\}の公開プロフィールを表示\$\{showKnownWerewolfBadge \? "、判明した人狼陣営" : ""\}`\}/);
   assert.match(source, /function renderCharacterProfilePopover\(\)/);
   assert.match(source, /className="player-history-popover character-profile-popover"/);
-  assert.doesNotMatch(source, /aria-modal="true"/);
+  const profilePopoverSource = source.slice(
+    source.indexOf("  function renderCharacterProfilePopover()"),
+    source.indexOf("  function renderUiTour()")
+  );
+  assert.doesNotMatch(profilePopoverSource, /aria-modal="true"/);
   assert.match(source, /公開人物メモ/);
   assert.match(source, /roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   assert.match(source, /profile\.values/);
@@ -1554,7 +1560,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /function renderUiTour\(\)/);
   assert.match(source, /\{renderUiTour\(\)\}/);
   assert.match(source, /className="ui-tour-skip" onClick=\{finishTour\}/);
-  assert.doesNotMatch(source, /aria-modal="true"/);
+  const uiTourSource = source.slice(source.indexOf("  function renderUiTour()"), source.indexOf("  function renderOpeningMonologue()"));
+  assert.doesNotMatch(uiTourSource, /aria-modal="true"/);
 
   // Focus moves into the callout (no scroll) and Tab is trapped within it.
   assert.match(source, /tourCalloutRef\.current\?\.focus\(\{ preventScroll: true \}\)/);

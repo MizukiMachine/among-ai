@@ -16,6 +16,7 @@ import {
   Moon,
   Play,
   RotateCcw,
+  ScrollText,
   Send,
   Settings,
   Shield,
@@ -79,6 +80,10 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
 const STREAM_WAIT_SLOW_MS = 15_000;
 const STREAM_WAIT_STALLED_MS = 70_000;
+// The match always runs to a 3-round limit (server default `defaultMaxRounds`); the
+// client never overrides it, so the rules copy can treat this as a fixed constant.
+const MATCH_MAX_ROUNDS = 3;
+
 // "Seen the tour" is scoped to this page load so a hard reload shows the guide
 // again, while later matches in the same loaded app skip it without a startup gate.
 let uiTourSeenThisPageLoad = false;
@@ -1351,6 +1356,32 @@ function renderHeaderCampRatio(count: number, language: string): ReactNode {
   return getCampRatioText(count, language);
 }
 
+// Shared rules copy so the guided-tour step (C) and the always-on rules panel (D)
+// state the same objective, flow, win conditions, and round-limit tie-break. The
+// tie-break mirrors `adjudicateStandardVictory`: at the round limit the larger camp
+// wins, and a tie (werewolves >= villagers) goes to the werewolves.
+function getMatchRulesCopy(count: number, maxRounds: number, language: string): string[] {
+  const { werewolves } = getCampRatioCounts(count);
+  if (isJapaneseLanguage(language)) {
+    return [
+      `村に紛れたAI人狼${werewolves}体を、昼の議論と投票で追放するゲームです`,
+      `1ラウンドは「昼の議論 → 追放投票 → 夜の襲撃」。勝負は最大${maxRounds}ラウンドです`,
+      "人狼をすべて追放できれば人間側の勝ち",
+      "人狼が人間側と同数まで生き残れば人狼側の勝ち",
+      `${maxRounds}ラウンドで決着しなければ、その時点で生存数が多い陣営の勝ち（同数なら人狼側）`,
+      "各役職の能力と勝利条件は「役職内訳」からいつでも確認できます"
+    ];
+  }
+  return [
+    `Root out the ${werewolves} AI werewolves hidden in the village through daytime debate and votes`,
+    `One round is "daytime debate → exile vote → night attack." A match lasts up to ${maxRounds} rounds`,
+    "The village wins by exiling every werewolf",
+    "The werewolves win once they survive in numbers equal to the villagers",
+    `If no side has won after ${maxRounds} rounds, the side with more survivors wins (a tie goes to the werewolves)`,
+    "Check each role's ability and win condition anytime from the role breakdown"
+  ];
+}
+
 interface RoleRuleCopy {
   goal: string;
   ability: string;
@@ -1704,7 +1735,7 @@ export function App() {
   const [selectedBgmId, setSelectedBgmId] = useState(getDefaultBgmId(null));
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioStarted, setAudioStarted] = useState(false);
-  const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | null>(null);
+  const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | "rules" | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
   const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
@@ -1746,6 +1777,7 @@ export function App() {
   const processingHudHideTimerRef = useRef<number | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const voteResultsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const rulesButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
   const roleDistributionRef = useRef<HTMLElement | null>(null);
   const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1936,6 +1968,17 @@ export function App() {
   const tourSteps = useMemo(
     () => [
       {
+        // Anchorless step (getEl → null) renders as a centered card with no spotlight,
+        // so the very first thing onboarding shows is the rules of the game itself.
+        key: "rules",
+        getEl: () => null,
+        title: "ゲームのルール",
+        body: [
+          "1ラウンド（1日）は「昼の議論 → 追放投票 → 夜の襲撃」",
+          "勝負は最大3ラウンドです"
+        ]
+      },
+      {
         key: "roles",
         getEl: () => roleDistributionRef.current,
         title: "役職内訳",
@@ -1985,7 +2028,7 @@ export function App() {
         ]
       }
     ],
-    []
+    [effectivePlayerCount, language]
   );
   const tourActive = tourStepIndex !== null;
   const activeTourStep = tourStepIndex !== null ? tourSteps[tourStepIndex] ?? null : null;
@@ -3052,9 +3095,8 @@ export function App() {
   }, []);
 
   // Just-in-time targeted prefetch: the unread buffer (queuedEvents) already knows who speaks
-  // next, so fetch the next few speakers' (large) portraits at high priority well before the
-  // user advances to them. This is what actually hides the per-speaker load delay — the blanket
-  // background preload above is too lazy (low priority + requestIdleCallback) to win during play.
+  // next, so fetch the next few speakers' thumbnails at high priority before the user advances
+  // to them. Full portraits stay on the low-priority background preload path.
   useEffect(() => {
     const upcomingPlayerIds: string[] = [];
     if (currentEvent?.playerId) {
@@ -3068,11 +3110,11 @@ export function App() {
         break;
       }
     }
-    const portraits = upcomingPlayerIds
-      .map((playerId) => getCharacterPortrait(playerId))
+    const images = upcomingPlayerIds
+      .map((playerId) => getCharacterImage(playerId))
       .filter((src): src is string => Boolean(src));
-    if (portraits.length > 0) {
-      preloadCharacterImages(portraits, "high");
+    if (images.length > 0) {
+      preloadCharacterImages(images, "high");
     }
   }, [currentEvent, queuedEvents]);
 
@@ -3188,7 +3230,8 @@ export function App() {
       if (
         historyPopoverRef.current?.contains(target) ||
         historyButtonRef.current?.contains(target) ||
-        voteResultsButtonRef.current?.contains(target)
+        voteResultsButtonRef.current?.contains(target) ||
+        rulesButtonRef.current?.contains(target)
       ) {
         return;
       }
@@ -4618,6 +4661,42 @@ export function App() {
     );
   }
 
+  // Always-on rules reference (approach D): the same copy as the tour's rules step,
+  // reachable any time from the roster header so a player can recheck win conditions
+  // and the round-limit tie-break mid-match.
+  function renderRulesPopover() {
+    if (activeOverlay !== "rules") {
+      return null;
+    }
+
+    const rules = getMatchRulesCopy(effectivePlayerCount, MATCH_MAX_ROUNDS, language);
+
+    return (
+      <>
+        <div className="player-history-panel-dismiss" aria-hidden="true" />
+        <section className="player-history-popover rules-popover" ref={historyPopoverRef} role="dialog" aria-label="ゲームのルール">
+          <div className="overlay-header">
+            <div className="overlay-title">
+              <ScrollText size={20} />
+              <h2>ゲームのルール</h2>
+              <span>勝利条件</span>
+            </div>
+            <button className="overlay-close" onClick={() => setActiveOverlay(null)} type="button" aria-label="ルールを閉じる">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="overlay-body rules-body">
+            <ul className="rules-list">
+              {rules.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </>
+    );
+  }
+
   function renderCharacterReadColumn(title: string, reads: CharacterReadHistoryItem[], tone: "suspect" | "trust") {
     const shownReads = reads.slice(0, 4);
     return (
@@ -4962,6 +5041,19 @@ export function App() {
                   <Vote size={14} />
                   <span>投票結果</span>
                 </button>
+                <button
+                  aria-pressed={activeOverlay === "rules"}
+                  className={`player-history-button rules-button ${activeOverlay === "rules" ? "active" : ""}`}
+                  onClick={() => {
+                    closeCharacterProfile({ restoreFocus: false });
+                    setActiveOverlay(activeOverlay === "rules" ? null : "rules");
+                  }}
+                  ref={rulesButtonRef}
+                  type="button"
+                >
+                  <ScrollText size={14} />
+                  <span>ルール</span>
+                </button>
               </div>
             </div>
             <ChevronDown size={16} />
@@ -5100,6 +5192,7 @@ export function App() {
           </div>
           {renderConversationLogPopover()}
           {renderVoteResultsPopover()}
+          {renderRulesPopover()}
           {renderCharacterProfilePopover()}
         </aside>
 
