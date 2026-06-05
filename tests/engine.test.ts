@@ -954,7 +954,8 @@ test("human player role assignment balances werewolf and village camp odds by pl
   try {
     for (const [roll, expectedCamp] of [
       [0.49, "werewolf"],
-      [0.51, "village"]
+      [0.51, "village"],
+      [0.99, "village"]
     ] as const) {
       Math.random = () => roll;
       for (const playerCount of [6, 7, 8, 9, 10, 13, 14, maxSupportedPlayers]) {
@@ -970,6 +971,7 @@ test("human player role assignment balances werewolf and village camp odds by pl
 
         assert.ok(human);
         assert.equal(human.camp, expectedCamp, `${playerCount} players at roll ${roll} should assign ${expectedCamp}`);
+        assert.notEqual(human.role, "Villager", `${playerCount} players at roll ${roll} should not assign the plain human role`);
         assert.deepEqual(
           game.players.map((player) => player.role).sort(),
           createRoles(playerCount).sort(),
@@ -994,28 +996,35 @@ test("human camp preference pins the human player to the requested camp", () => 
       return { decision: false };
     }
   };
+  const originalRandom = Math.random;
 
-  for (const humanCampPreference of ["village", "werewolf"] as const) {
-    for (const playerCount of [6, 7, 9, 14, maxSupportedPlayers]) {
-      const game = new WerewolfGame(
-        {
-          ...baseConfig,
-          playerCount,
-          humanPlayerId: "p3",
-          humanCampPreference
-        },
-        { humanInput }
-      ) as TestableGame;
-      const human = game.players.find((player) => player.id === "p3");
+  try {
+    Math.random = () => 0.99;
+    for (const humanCampPreference of ["village", "werewolf"] as const) {
+      for (const playerCount of [6, 7, 9, 14, maxSupportedPlayers]) {
+        const game = new WerewolfGame(
+          {
+            ...baseConfig,
+            playerCount,
+            humanPlayerId: "p3",
+            humanCampPreference
+          },
+          { humanInput }
+        ) as TestableGame;
+        const human = game.players.find((player) => player.id === "p3");
 
-      assert.ok(human);
-      assert.equal(human.camp, humanCampPreference);
-      assert.deepEqual(
-        game.players.map((player) => player.role).sort(),
-        createRoles(playerCount).sort(),
-        "camp preference must not change the table's role distribution"
-      );
+        assert.ok(human);
+        assert.equal(human.camp, humanCampPreference);
+        assert.notEqual(human.role, "Villager", `${playerCount} players should assign an active human-controlled role`);
+        assert.deepEqual(
+          game.players.map((player) => player.role).sort(),
+          createRoles(playerCount).sort(),
+          "camp preference must not change the table's role distribution"
+        );
+      }
     }
+  } finally {
+    Math.random = originalRandom;
   }
 });
 
