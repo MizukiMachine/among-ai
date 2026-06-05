@@ -488,7 +488,7 @@ export function mentionedCharactersForText(text: string): MentionedCharacterItem
 
   return mentionedIds.map((id) => ({
     id,
-    image: getCharacterPortrait(id),
+    image: getCharacterImage(id),
     name: characterName(id)
   }));
 }
