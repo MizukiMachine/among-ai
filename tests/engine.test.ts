@@ -1392,6 +1392,30 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(summary.message.includes("Votes:"));
 });
 
+test("next-day context carries the successful vote execution target", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p4"] },
+    { role: "Seer", targets: ["p4"] },
+    { role: "Witch", targets: ["p4"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p2"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  await collect(game.runVoting());
+  assert.equal(players[3].alive, false);
+
+  (game as unknown as { round: number; phase: "day_discussion" }).round = 2;
+  (game as unknown as { round: number; phase: "day_discussion" }).phase = "day_discussion";
+  const context = (game as unknown as { contextFor(player: Player): string }).contextFor(players[0]);
+
+  assert.match(context, new RegExp(`死亡済み: .*${players[3].name} \\(${players[3].id}\\) / 投票処刑`));
+  assert.match(context, new RegExp(`直近の投票処刑: ${players[3].name} \\(${players[3].id}\\) / 投票処刑`));
+  assert.doesNotMatch(context, new RegExp(`生存中: .*${players[3].name} \\(${players[3].id}\\)`));
+});
+
 test("human speech influence affects only a probabilistic subset of AI votes", async () => {
   const game = new WerewolfGame({
     ...baseConfig,

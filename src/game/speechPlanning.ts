@@ -290,7 +290,10 @@ function cause(kind: PublicNightDeathCause["kind"], language: string): PublicNig
   return { kind, label: labels(language).causeLabels[kind] };
 }
 
-function publicCauseLabel(): string | null {
+function publicCauseLabel(death: DeathRecord, language: string): string | null {
+  if (death.cause === "vote") {
+    return isJapaneseLanguage(language) ? "投票処刑" : "vote execution";
+  }
   return null;
 }
 
@@ -336,21 +339,21 @@ function intent(kind: SpeechIntent["kind"], language: string): SpeechIntent {
   };
 }
 
-function publicNightDeathInfo(death: DeathRecord, players: Player[]): PublicNightDeathInfo {
+function publicNightDeathInfo(death: DeathRecord, players: Player[], language: string): PublicNightDeathInfo {
   const player = players.find((candidate) => candidate.id === death.playerId);
   return {
     playerId: death.playerId,
     playerName: player?.name ?? death.playerId,
-    publicCauseLabel: publicCauseLabel()
+    publicCauseLabel: publicCauseLabel(death, language)
   };
 }
 
-export function publicNightDeathInfos(deaths: DeathRecord[], players: Player[]): PublicNightDeathInfo[] {
-  return deaths.map((death) => publicNightDeathInfo(death, players));
+export function publicNightDeathInfos(deaths: DeathRecord[], players: Player[], language = "Japanese"): PublicNightDeathInfo[] {
+  return deaths.map((death) => publicNightDeathInfo(death, players, language));
 }
 
 export function buildPublicSpeechPlan(input: BuildPublicSpeechPlanInput): PublicSpeechPlan {
-  const deaths = publicNightDeathInfos(input.lastNightDeaths, input.players);
+  const deaths = publicNightDeathInfos(input.lastNightDeaths, input.players, input.language);
   const intents: SpeechIntent[] = [];
 
   // The opening turn of the game (round 1, first pass) has no public statements,

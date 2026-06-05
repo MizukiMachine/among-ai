@@ -1153,6 +1153,8 @@ export class WerewolfGame {
   private lastVotes: VoteRecord[] = [];
   private lastVoteModifiers: VoteModifier[] = [];
   private lastVoteEliminatedPlayerId: string | null = null;
+  private readonly deathRecords: DeathRecord[] = [];
+  private lastVoteDeathRecords: DeathRecord[] = [];
   private lastNightDeathRecords: DeathRecord[] = [];
   private readonly werewolfDeceptions = new Map<string, WerewolfDeceptionState>();
   private readonly seerDisclosures = new Map<string, SeerDisclosureState>();
@@ -4557,6 +4559,7 @@ export class WerewolfGame {
     this.lastVoteModifiers = voteModifiers;
     if (eligibleVotes.length === 0 && voteModifiers.length === 0) {
       yield this.emit("vote_result", this.text("No votes were cast.", "投票はありませんでした。"), { votes: [] });
+      this.lastVoteDeathRecords = [];
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
@@ -4574,6 +4577,7 @@ export class WerewolfGame {
 
     if (!voteResolution.eliminatedId) {
       yield this.emit("vote_result", this.text("The vote is tied, so no one is eliminated.", "投票が同数のため、処刑は行われません。"));
+      this.lastVoteDeathRecords = [];
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
@@ -4592,11 +4596,13 @@ export class WerewolfGame {
         undefined,
         eliminated
       );
+      this.lastVoteDeathRecords = [];
       this.ruleState = expireStatuses(this.ruleState, "round");
       return;
     }
 
     this.lastVoteEliminatedPlayerId = eliminated.camp === "werewolf" ? eliminated.id : null;
+    this.lastVoteDeathRecords = [];
     yield* this.resolveDeaths([{ playerId: eliminated.id, cause: "vote" }]);
     this.ruleState = expireStatuses(this.ruleState, "round");
   }
@@ -4621,9 +4627,12 @@ export class WerewolfGame {
       if (!markPlayerDead(player)) {
         continue;
       }
+      this.deathRecords.push(death);
       if (this.phase !== "voting") {
         this.lastNightDeaths.push(death.playerId);
         this.lastNightDeathRecords.push(death);
+      } else if (death.cause === "vote") {
+        this.lastVoteDeathRecords.push(death);
       }
       yield this.emit("death", this.deathMessage(player, death), this.deathEventData(player, death, chainDepth), undefined, player);
       const deathEffects = createDeathResolutionEffects(death, player, this.players);
@@ -6118,15 +6127,27 @@ export class WerewolfGame {
       alivePlayers: this.alivePlayers().map(({ id, name }) => ({ id, name })),
       deadPlayers: this.players
         .filter((candidate) => !candidate.alive)
-        .map(({ id, name, role }) => ({ id, name, role })),
+        .map(({ id, name, role }) => ({ id, name, role, publicDeathLabel: this.publicDeathLabelFor(id) })),
       publicHistory: this.publicHistory,
       privateHistory: player.memories,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride, round),
-      lastNightDeaths: publicNightDeathInfos(this.lastNightDeathRecords, this.players),
+      lastNightDeaths: publicNightDeathInfos(this.lastNightDeathRecords, this.players, this.config.language),
+      lastVoteDeaths: publicNightDeathInfos(this.lastVoteDeathRecords, this.players, this.config.language),
       speechPlan,
       extra
     });
+  }
+
+  private publicDeathLabelFor(playerId: string): string | undefined {
+    const death = [...this.deathRecords].reverse().find((record) => record.playerId === playerId);
+    if (!death) {
+      return undefined;
+    }
+    if (death.cause === "vote") {
+      return this.text("vote execution", "投票処刑");
+    }
+    return this.text("public cause unknown", "公開上原因不明");
   }
 
   private secretContextFor(player: Player, override: RoleSecretContext = {}, round = this.round): RoleSecretContext {
