@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   App,
+  characterClaimHistoryForEvents,
   characterReadHistoryForEvents,
   clusterReads,
   dedupeReadsBySourceTarget,
@@ -714,6 +715,94 @@ test("character read history shows visible occurred reads for the selected playe
     ]
   });
   assert.deepEqual(characterReadHistoryForEvents(events, "p1", "omniscient").trusts.map((read) => read.targetId), ["p4", "p3"]);
+});
+
+test("character claim history shows visible role claims for the selected player", () => {
+  const snapshot: GameSnapshot = {
+    round: 2,
+    phase: "day_discussion",
+    winner: null,
+    players: [],
+    aliveCount: 0,
+    werewolfCount: 0,
+    villageCount: 0
+  };
+  const events: GameEvent[] = [
+    {
+      id: 1,
+      createdAt: "2026-05-24T00:00:00.000Z",
+      round: 1,
+      phase: "day_discussion",
+      type: "player_speech",
+      message: "私は占い師です。",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        claims: [{ type: "role_claim", role: "Seer", note: "占い師主張" }]
+      },
+      snapshot
+    },
+    {
+      id: 2,
+      createdAt: "2026-05-24T00:01:00.000Z",
+      round: 2,
+      phase: "day_discussion",
+      type: "player_speech",
+      message: "ガクは人狼判定です。",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: { targetId: "p2", targetName: "ガク", camp: "werewolf", round: 2 }
+          }
+        ]
+      },
+      snapshot
+    },
+    {
+      id: 3,
+      createdAt: "2026-05-24T00:02:00.000Z",
+      round: 2,
+      phase: "werewolf_discussion",
+      type: "player_speech",
+      message: "非公開の主張",
+      playerId: "p1",
+      playerName: "シオン",
+      data: {
+        visibility: "werewolf",
+        claims: [{ type: "role_claim", role: "Seer", note: "夜会話の主張" }]
+      },
+      snapshot
+    },
+    {
+      id: 4,
+      createdAt: "2026-05-24T00:03:00.000Z",
+      round: 2,
+      phase: "day_discussion",
+      type: "round_summary",
+      message: "集計",
+      data: {
+        claims: [{ speakerId: "p1", speakerName: "シオン", claim: { type: "role_claim", role: "Seer", note: "集計済み" } }]
+      },
+      snapshot
+    }
+  ];
+
+  assert.deepEqual(
+    characterClaimHistoryForEvents(events, "p1", "village").map((claim) => ({
+      eventId: claim.eventId,
+      role: claim.claim.role,
+      resultTargetId: typeof claim.claim.result === "object" ? claim.claim.result.targetId : undefined
+    })),
+    [
+      { eventId: 2, role: "Seer", resultTargetId: "p2" },
+      { eventId: 1, role: "Seer", resultTargetId: undefined }
+    ]
+  );
+  assert.deepEqual(characterClaimHistoryForEvents(events, "p1", "omniscient").map((claim) => claim.eventId), [3, 2, 1]);
 });
 
 test("vote result data is visible from either individual votes or totals", () => {

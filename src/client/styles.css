@@ -1776,6 +1776,11 @@ textarea:focus-visible {
   list-style: none;
 }
 
+.character-profile-reads {
+  display: grid;
+  gap: 10px;
+}
+
 .character-read-grid {
   display: grid;
   min-width: 0;
@@ -1783,12 +1788,18 @@ textarea:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.character-claim-column,
 .character-read-column {
   min-width: 0;
   border: 1px solid rgba(218, 230, 236, 0.1);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.04);
   padding: 9px;
+}
+
+.character-claim-column {
+  border-color: rgba(103, 216, 223, 0.24);
+  background: rgba(12, 74, 91, 0.16);
 }
 
 .character-read-column.suspect {
@@ -1822,6 +1833,10 @@ textarea:focus-visible {
 
 .character-read-column.trust .character-read-heading svg {
   color: #bbf7d0;
+}
+
+.character-claim-column .character-read-heading svg {
+  color: #bff7ff;
 }
 
 .character-read-heading span {

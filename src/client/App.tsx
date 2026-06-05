@@ -600,6 +600,15 @@ export interface CharacterReadHistory {
   trusts: CharacterReadHistoryItem[];
 }
 
+export interface CharacterClaimHistoryItem {
+  claim: ClaimMetadata;
+  eventId: number;
+  index: number;
+  round: number;
+  speakerId: string;
+  speakerName: string;
+}
+
 type HumanSpeechInputRequest = Extract<HumanInputRequest, { kind: "speech_choice" }>;
 type HumanInputSubmitPayload = {
   speech?: string;
@@ -1128,6 +1137,69 @@ function latestCharacterReads(reads: CharacterReadHistoryItem[]): CharacterReadH
     latestBySourceAndTarget.set(key, read);
   }
   return [...latestBySourceAndTarget.values()].sort((a, b) => b.eventId - a.eventId || b.round - a.round);
+}
+
+function claimSource(claimOrSummary: ClaimMetadata | ClaimSummary, event: GameEvent): { claim: ClaimMetadata; speakerId: string; speakerName: string } {
+  if ("claim" in claimOrSummary) {
+    return {
+      claim: claimOrSummary.claim,
+      speakerId: claimOrSummary.speakerId,
+      speakerName: claimOrSummary.speakerName
+    };
+  }
+  const speakerId = event.playerId || dataString(event, "sourceId");
+  return {
+    claim: claimOrSummary,
+    speakerId,
+    speakerName: event.playerName || dataString(event, "sourceName") || (speakerId ? characterName(speakerId) : "")
+  };
+}
+
+function claimHistorySignature(item: CharacterClaimHistoryItem): string {
+  const result = item.claim.result;
+  const resultKey =
+    result && typeof result === "object"
+      ? `${result.targetId}:${result.camp}:${result.round ?? ""}`
+      : typeof result === "string"
+        ? result
+        : "";
+  return [item.speakerId, item.claim.type, item.claim.role ?? "", item.claim.targetId ?? "", item.claim.camp ?? "", resultKey].join(":");
+}
+
+function sortedCharacterClaims(claims: CharacterClaimHistoryItem[]): CharacterClaimHistoryItem[] {
+  return [...claims].sort((a, b) => b.eventId - a.eventId || b.round - a.round || b.index - a.index);
+}
+
+export function characterClaimHistoryForEvents(
+  events: GameEvent[],
+  playerId: string,
+  mode: SpectatorMode = initialSpectatorMode
+): CharacterClaimHistoryItem[] {
+  const claims: CharacterClaimHistoryItem[] = [];
+
+  for (const event of events) {
+    if (event.type === "round_summary" || isEventRedactedForSpectator(event, mode)) {
+      continue;
+    }
+
+    for (const [index, claimOrSummary] of dataArray<ClaimMetadata | ClaimSummary>(event, "claims").entries()) {
+      const source = claimSource(claimOrSummary, event);
+      if (source.speakerId !== playerId) {
+        continue;
+      }
+
+      claims.push({
+        claim: source.claim,
+        eventId: event.id,
+        index,
+        round: event.round,
+        speakerId: source.speakerId,
+        speakerName: source.speakerName
+      });
+    }
+  }
+
+  return sortedCharacterClaims(claims);
 }
 
 export function characterReadHistoryForEvents(
@@ -4389,6 +4461,40 @@ export function App() {
     );
   }
 
+  function renderCharacterClaimHistory(claims: CharacterClaimHistoryItem[]) {
+    const shownClaims = claims.slice(0, 4);
+    return (
+      <div className="character-claim-column">
+        <div className="character-read-heading">
+          <MessageCircle size={14} />
+          <span>役職主張</span>
+          <strong>{claims.length}</strong>
+        </div>
+        {shownClaims.length > 0 ? (
+          <ul className="character-read-list character-claim-list">
+            {shownClaims.map((claim) => (
+              <li key={`claim-${claim.eventId}-${claim.index}-${claimHistorySignature(claim)}`}>
+                <div className="character-read-target">
+                  <small>R{claim.round}</small>
+                  <ChevronRight size={13} aria-hidden="true" />
+                  <strong>{renderTextWithCharacterNames(formatClaim(claim.claim, language), `profile-claim-${claim.eventId}-${claim.index}`)}</strong>
+                </div>
+                {claim.claim.note && !formatClaim(claim.claim, language).includes(claim.claim.note) ? (
+                  <span className="character-read-reason">
+                    {renderTextWithCharacterNames(claim.claim.note, `profile-claim-note-${claim.eventId}-${claim.index}`)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+            {claims.length > shownClaims.length ? <li className="character-read-more">他{claims.length - shownClaims.length}件</li> : null}
+          </ul>
+        ) : (
+          <p className="character-read-empty">まだなし</p>
+        )}
+      </div>
+    );
+  }
+
   function renderCharacterProfilePopover() {
     if (!selectedCharacterId || !selectedCharacterProfile) {
       return null;
@@ -4415,6 +4521,7 @@ export function App() {
           ? roleChipClass(player, spectatorMode, profileRevealed)
           : "role-hidden";
     const readHistory = characterReadHistoryForEvents(events, selectedCharacterId, spectatorMode);
+    const claimHistory = characterClaimHistoryForEvents(events, selectedCharacterId, spectatorMode);
 
     return (
       <>
@@ -4465,6 +4572,7 @@ export function App() {
 
             <section className="character-profile-section character-profile-reads">
               <h3>この人物の読み</h3>
+              {renderCharacterClaimHistory(claimHistory)}
               <div className="character-read-grid">
                 {renderCharacterReadColumn("疑い", readHistory.suspects, "suspect")}
                 {renderCharacterReadColumn("信頼", readHistory.trusts, "trust")}
@@ -4700,6 +4808,7 @@ export function App() {
                       aria-label={`${player.name}の公開プロフィールを表示${showKnownWerewolfBadge ? "、判明した人狼陣営" : ""}`}
                       data-player-id={player.id}
                       className={`player-card ${currentEvent?.playerId === player.id ? "active" : ""} ${humanPlayer ? "human-player" : ""} ${knownWerewolf ? "known-werewolf" : ""} ${revealing ? "revealing-role" : ""} ${endReveal ? "end-role-reveal" : ""}`}
+                      disabled={Boolean(activeOverlay || selectedCharacterId)}
                       key={player.id}
                       onClick={(event) => openCharacterProfile(player.id, event.currentTarget)}
                       title={`${player.name}の公開プロフィールを表示`}
