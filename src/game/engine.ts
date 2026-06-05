@@ -19,7 +19,6 @@ import {
   buildPublicSpeechPlan,
   firstDayOpeningMove,
   firstDayOpeningMoveKinds,
-  firstDayWerewolfOpeningMoveKinds,
   publicNightDeathInfos,
   renderPublicSpeechDiversityContext
 } from "./speechPlanning";
@@ -96,6 +95,7 @@ const followUpDayDiscussionPass = regularDayDiscussionPasses + 1;
 const followUpDayDiscussionSpeakerRatio = 0.3;
 const minFollowUpDayDiscussionSpeakers = 2;
 const maxFollowUpDayDiscussionSpeakers = 6;
+const werewolfFakeRoleOpeningProbability = 0.5;
 const defaultAiPrefetchConcurrency = 5;
 const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
@@ -4141,22 +4141,16 @@ export class WerewolfGame {
     }
     // Give every round-one first-pass speaker a distinct opening move so the table
     // covers varied natural topics instead of degenerating into "様子見"/"保留" filler.
-    // Werewolves are special in the player-facing game: at least two thirds of the
-    // living wolf team open by acting explicitly human-side or by floating a fake
-    // village-role claim, so the user can enjoy the allies' public performance.
+    // Werewolves roll independently for a fake-role opening. A failed roll falls
+    // back to the same public agenda pool as everyone else, keeping Seer deception
+    // visible without making it automatic in one-wolf games.
     const assignments = new Map<string, FirstDayOpeningMoveKind>();
-    const wolfSpeakers = speakers.filter((speaker) => speaker.camp === "werewolf");
-    const wolfClaimCount = Math.ceil((wolfSpeakers.length * 2) / 3);
-    const wolfClaimSpeakers = shuffle(wolfSpeakers).slice(0, wolfClaimCount);
-    for (const [index, speaker] of wolfClaimSpeakers.entries()) {
-      assignments.set(speaker.id, firstDayWerewolfOpeningMoveKinds[index % firstDayWerewolfOpeningMoveKinds.length]);
-    }
-
     const kinds = [...firstDayOpeningMoveKinds];
     const offset = Math.floor(Math.random() * kinds.length);
     let cursor = 0;
     for (const speaker of speakers) {
-      if (assignments.has(speaker.id)) {
+      if (speaker.camp === "werewolf" && weightedChance(werewolfFakeRoleOpeningProbability)) {
+        assignments.set(speaker.id, "wolf_fake_role_claim");
         continue;
       }
       assignments.set(speaker.id, kinds[(offset + cursor) % kinds.length]);

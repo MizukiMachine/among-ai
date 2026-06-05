@@ -1781,7 +1781,13 @@ test("every first-day first-pass speaker receives a distinct opening move prompt
   ]);
   (game as unknown as { round: number }).round = 1;
 
-  await collect(game.runDay());
+  const originalRandom = Math.random;
+  Math.random = () => 0.4;
+  try {
+    await collect(game.runDay());
+  } finally {
+    Math.random = originalRandom;
+  }
 
   const allowedKinds = new Set<string>([...firstDayOpeningMoveKinds, ...firstDayWerewolfOpeningMoveKinds]);
   const assignedKinds: string[] = [];
@@ -1800,6 +1806,31 @@ test("every first-day first-pass speaker receives a distinct opening move prompt
 
   // With as many distinct moves as speakers, the table covers varied topics.
   assert.equal(new Set(assignedKinds).size, players.length);
+});
+
+test("first-day werewolf fake Seer opening is skipped when the deception roll misses", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager", targets: ["p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Guard", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const originalRandom = Math.random;
+  Math.random = () => 0.99;
+  try {
+    await collect(game.runDay());
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const wolfKind = (game.agents.get(players[1].id) as ScriptedAgent).speechInputs[0].speechPlan?.firstDayOpeningMove?.kind;
+  assert.ok(wolfKind);
+  assert.notEqual(wolfKind, "wolf_fake_role_claim");
 });
 
 test("later day first-pass speakers do not receive opening move prompts", async () => {
