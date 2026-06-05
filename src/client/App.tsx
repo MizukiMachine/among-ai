@@ -139,6 +139,10 @@ function shouldAutoAcknowledgeHumanInput(request: HumanInputRequest, revealAfter
   return revealAfterEventId === null && !isOptionalDiscussionInterruptInput(request);
 }
 
+export function shouldDeferDiscussionInterruptSkip(request: HumanInputRequest | null, unreadStoryCount: number): boolean {
+  return isOptionalDiscussionInterruptInput(request) && unreadStoryCount > 0;
+}
+
 function isSubmittedHumanSpeechEvent(request: HumanInputRequest, event: GameEvent): boolean {
   return request.kind === "speech_choice" && event.type === "player_speech" && event.playerId === request.playerId;
 }
@@ -2395,6 +2399,13 @@ export function App() {
     );
   }
 
+  function deferActiveHumanInput() {
+    updatePendingHumanInputs((currentInputs) =>
+      currentInputs.map((entry, index) => (index === 0 ? { ...entry, anchorAcknowledged: false } : entry))
+    );
+    initializeHumanInputForm(pendingHumanInput);
+  }
+
   function completeHumanInputRequest(request: HumanInputRequest) {
     const wasActive = pendingHumanInputsRef.current[0]?.request.id === request.id;
     const nextInputs = pendingHumanInputsRef.current.filter((entry) => entry.request.id !== request.id);
@@ -2946,6 +2957,18 @@ export function App() {
     return true;
   }
 
+  function skipVisibleDiscussionInterruptInput() {
+    if (!isOptionalDiscussionInterruptInput(visibleHumanInput)) {
+      return;
+    }
+    if (shouldDeferDiscussionInterruptSkip(visibleHumanInput, queuedRef.current.length)) {
+      deferActiveHumanInput();
+      revealNext();
+      return;
+    }
+    void submitHumanInput({ decision: false });
+  }
+
   function advanceStory() {
     if (paused) {
       return;
@@ -3426,7 +3449,7 @@ export function App() {
             <button
               className="icon-button human-speech-skip-button"
               disabled={humanSubmitting}
-              onClick={() => submitHumanInput({ decision: false })}
+              onClick={skipVisibleDiscussionInterruptInput}
               type="button"
             >
               <X size={18} />
