@@ -11,6 +11,10 @@ function winsWithStandardCamp(player: RulePlayer): boolean {
   return getRoleDefinition(player.role).standardCampVictory !== false;
 }
 
+export function standardCampWinnerIds(players: RulePlayer[], camp: Camp): string[] {
+  return players.filter((player) => player.alive && player.camp === camp && winsWithStandardCamp(player)).map((player) => player.id);
+}
+
 export function checkStandardVictory(players: RulePlayer[]): VictoryCheckResult | null {
   const werewolf = countAliveByCamp(players, "werewolf");
   const village = countAliveByCamp(players, "village");
@@ -21,7 +25,7 @@ export function checkStandardVictory(players: RulePlayer[]): VictoryCheckResult 
       fallbackCamp: "village",
       reason: "all_werewolves_eliminated",
       counts: { werewolf, village },
-      winnerIds: players.filter((player) => player.alive && player.camp === "village" && winsWithStandardCamp(player)).map((player) => player.id)
+      winnerIds: standardCampWinnerIds(players, "village")
     };
   }
 
@@ -31,7 +35,7 @@ export function checkStandardVictory(players: RulePlayer[]): VictoryCheckResult 
       fallbackCamp: "werewolf",
       reason: "werewolf_parity",
       counts: { werewolf, village },
-      winnerIds: players.filter((player) => player.alive && player.camp === "werewolf" && winsWithStandardCamp(player)).map((player) => player.id)
+      winnerIds: standardCampWinnerIds(players, "werewolf")
     };
   }
 
