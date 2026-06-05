@@ -71,6 +71,8 @@ import type {
   GenerationProgressTask,
   HumanCampPreference,
   HumanInputHandler,
+  HumanInputRequestPayload,
+  HumanInputResponse,
   Persona,
   Phase,
   Player,
@@ -108,6 +110,7 @@ const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 const maxHumanDayDiscussionInterruptions = 5;
 const dayVoteDecisionTimeoutMs = 20_000;
+const defaultHumanOptionalInputTimeoutMs = 45_000;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
@@ -162,6 +165,13 @@ function humanInfluenceFollowUpPersonaScore(persona: Persona): number {
     case "stoic":
       return 0.5;
   }
+}
+
+function normalizeHumanOptionalInputTimeoutMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return defaultHumanOptionalInputTimeoutMs;
+  }
+  return Math.max(0, Math.floor(value));
 }
 
 type HumanInfluenceMode = "adopt" | "lean" | "ignore" | "challenge";
@@ -1210,7 +1220,8 @@ export class WerewolfGame {
       humanPlayerId: normalizeHumanPlayerId(config.humanPlayerId, playerCount),
       humanCampPreference: normalizeHumanCampPreference(config.humanCampPreference),
       humanRolePreference: config.humanRolePreference ?? null,
-      prefetchConcurrency
+      prefetchConcurrency,
+      humanOptionalInputTimeoutMs: normalizeHumanOptionalInputTimeoutMs(config.humanOptionalInputTimeoutMs)
     };
 
     if (this.config.provider === "llm" && !(process.env.ZAI_API_KEY || process.env.OPENAI_API_KEY)) {
@@ -1777,8 +1788,7 @@ export class WerewolfGame {
     remainingInterruptions: number,
     abortSignal: AbortSignal
   ): Promise<DayDiscussionSpeechResult | null> {
-    const handler = this.humanInput?.requestOptional;
-    if (!handler) {
+    if (!this.humanInput) {
       return null;
     }
     const legalPlayers = this.speechLegalPlayers(player).map(({ id, name }) => ({ id, name }));
@@ -1803,38 +1813,33 @@ export class WerewolfGame {
       ),
       ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
     ];
-    const requestAbort = mergeAbortSignals(this.abortSignal, abortSignal);
-    try {
-      const response = await handler(
-        {
-          kind: "speech_choice",
-          speechMode: "discussion_interrupt",
-          nonBlocking: true,
-          playerId: player.id,
-          playerName: player.name,
-          phase: this.phase,
-          role: player.role,
-          task: this.text("Interrupt the public day discussion.", "昼議論に発言を挟んでください。"),
-          context: buildHumanInputContext({
-            uiContext: contextLines,
-            publicHistory: this.publicHistory,
-            privateHistory: this.humanVisiblePrivateHistory(player)
-          }),
-          allowFreeText: true,
-          options: []
-        },
-        { signal: requestAbort.signal }
-      );
-      if (!response) {
-        return null;
-      }
-      const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
-      return customSpeech
-        ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
-        : null;
-    } finally {
-      requestAbort.cleanup();
+    const response = await this.requestOptionalHumanInput(
+      {
+        kind: "speech_choice",
+        speechMode: "discussion_interrupt",
+        nonBlocking: true,
+        playerId: player.id,
+        playerName: player.name,
+        phase: this.phase,
+        role: player.role,
+        task: this.text("Interrupt the public day discussion.", "昼議論に発言を挟んでください。"),
+        context: buildHumanInputContext({
+          uiContext: contextLines,
+          publicHistory: this.publicHistory,
+          privateHistory: this.humanVisiblePrivateHistory(player)
+        }),
+        allowFreeText: true,
+        options: []
+      },
+      { signal: abortSignal, logLabel: "day discussion interrupt" }
+    );
+    if (!response) {
+      return null;
     }
+    const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
+    return customSpeech
+      ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
+      : null;
   }
 
   // Speculative race over different speakers: the slot/cancel mechanism lives in
@@ -5416,6 +5421,61 @@ export class WerewolfGame {
     );
   }
 
+  private async requestOptionalHumanInput(
+    input: HumanInputRequestPayload,
+    options: { signal?: AbortSignal; logLabel?: string } = {}
+  ): Promise<HumanInputResponse | null> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return null;
+    }
+
+    const baseAbort = mergeAbortSignals(this.abortSignal, options.signal);
+    const timeoutController = new AbortController();
+    const requestAbort = mergeAbortSignals(baseAbort.signal, timeoutController.signal);
+    let timedOut = false;
+    let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const requestPromise: Promise<HumanInputResponse | null> = Promise.resolve().then(() =>
+      handler.requestOptional ? handler.requestOptional(input, { signal: requestAbort.signal }) : handler.request(input)
+    );
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeout = setNodeTimeout(() => {
+        timedOut = true;
+        timeoutController.abort();
+        resolve(null);
+      }, this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs);
+    });
+
+    try {
+      const response = await Promise.race([requestPromise, timeoutPromise]);
+      if (this.abortSignal?.aborted) {
+        throw new Error("Game stream cancelled.");
+      }
+      if (timedOut) {
+        console.warn(`[human-input] optional ${options.logLabel ?? "input"} timed out; continuing without input.`);
+      }
+      return response;
+    } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(
+        `[human-input] optional ${options.logLabel ?? "input"} failed; continuing without input: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    } finally {
+      if (timeout) {
+        clearNodeTimeout(timeout);
+      }
+      requestPromise.catch(() => undefined);
+      requestAbort.cleanup();
+      baseAbort.cleanup();
+      timeoutController.abort();
+    }
+  }
+
   private async humanWerewolfFaceoffSpeech(
     player: Player,
     werewolves: Player[],
@@ -5442,26 +5502,32 @@ export class WerewolfGame {
         ),
       humanPromptLine
     ].filter((line) => line.length > 0);
-    const response = await handler.request({
-      kind: "speech_choice",
-      speechMode: "werewolf_alignment",
-      nonBlocking: true,
-      playerId: player.id,
-      playerName: player.name,
-      phase: this.phase,
-      role: player.role,
-      task: this.text(
-        "Speak at the end of the private werewolf face-off.",
-        "人狼陣営の顔合わせの最後に発言してください。"
-      ),
-      context: buildHumanInputContext({
-        uiContext: visibleUiContext,
-        publicHistory: this.publicHistory,
-        privateHistory: this.humanVisiblePrivateHistory(player)
-      }),
-      allowFreeText: true,
-      options: []
-    });
+    const response = await this.requestOptionalHumanInput(
+      {
+        kind: "speech_choice",
+        speechMode: "werewolf_alignment",
+        nonBlocking: true,
+        playerId: player.id,
+        playerName: player.name,
+        phase: this.phase,
+        role: player.role,
+        task: this.text(
+          "Speak at the end of the private werewolf face-off.",
+          "人狼陣営の顔合わせの最後に発言してください。"
+        ),
+        context: buildHumanInputContext({
+          uiContext: visibleUiContext,
+          publicHistory: this.publicHistory,
+          privateHistory: this.humanVisiblePrivateHistory(player)
+        }),
+        allowFreeText: true,
+        options: []
+      },
+      { logLabel: "werewolf alignment" }
+    );
+    if (!response) {
+      return this.defaultHumanWerewolfFaceoffSpeech(player);
+    }
 
     const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
     return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanWerewolfFaceoffSpeech(player);
@@ -5494,26 +5560,32 @@ export class WerewolfGame {
         ),
       humanPromptLine
     ].filter((line) => line.length > 0);
-    const response = await handler.request({
-      kind: "speech_choice",
-      speechMode: "lover_alignment",
-      nonBlocking: true,
-      playerId: player.id,
-      playerName: player.name,
-      phase: this.phase,
-      role: player.role,
-      task: this.text(
-        "Speak at the end of the private lover face-off.",
-        "恋人同士の顔合わせの最後に発言してください。"
-      ),
-      context: buildHumanInputContext({
-        uiContext: visibleUiContext,
-        publicHistory: this.publicHistory,
-        privateHistory: this.humanVisiblePrivateHistory(player)
-      }),
-      allowFreeText: true,
-      options: []
-    });
+    const response = await this.requestOptionalHumanInput(
+      {
+        kind: "speech_choice",
+        speechMode: "lover_alignment",
+        nonBlocking: true,
+        playerId: player.id,
+        playerName: player.name,
+        phase: this.phase,
+        role: player.role,
+        task: this.text(
+          "Speak at the end of the private lover face-off.",
+          "恋人同士の顔合わせの最後に発言してください。"
+        ),
+        context: buildHumanInputContext({
+          uiContext: visibleUiContext,
+          publicHistory: this.publicHistory,
+          privateHistory: this.humanVisiblePrivateHistory(player)
+        }),
+        allowFreeText: true,
+        options: []
+      },
+      { logLabel: "lover alignment" }
+    );
+    if (!response) {
+      return this.defaultHumanLoverFaceoffSpeech(player, partner);
+    }
 
     const customSpeech = humanFreeTextSpeech(response.speech, this.config.language, legalPlayers);
     return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanLoverFaceoffSpeech(player, partner);

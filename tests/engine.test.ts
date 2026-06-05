@@ -2679,6 +2679,98 @@ test("first-day werewolf face-off lets the human werewolf speak with free text a
   assert.ok(game.wolfHistory.some((line) => line.includes(humanSpeech.message)));
 });
 
+test("first-day werewolf face-off falls back when optional human alignment is unanswered", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  let cancelled = false;
+  const humanInput: HumanInputHandler = {
+    async request() {
+      throw new Error("werewolf alignment should use optional input");
+    },
+    requestOptional(input, options) {
+      requests.push(input);
+      return new Promise<null>((resolve) => {
+        if (options?.signal?.aborted) {
+          cancelled = true;
+          resolve(null);
+          return;
+        }
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelled = true;
+            resolve(null);
+          },
+          { once: true }
+        );
+      });
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5, humanOptionalInputTimeoutMs: 0 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  players[0].model = "human";
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const request = requests.find((entry) => entry.kind === "speech_choice");
+
+  assert.equal(cancelled, true);
+  assert.ok(request && request.kind === "speech_choice");
+  assert.equal(request.speechMode, "werewolf_alignment");
+  assert.equal(request.nonBlocking, true);
+  assert.ok(humanSpeech);
+  assert.equal(humanSpeech.message, defaultWerewolfAlignmentSpeechForPlayer(players[0], "Japanese"));
+  assert.ok(game.wolfHistory.some((line) => line.includes(humanSpeech.message)));
+});
+
+test("first-day werewolf face-off times out even when optional input is unsupported", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  const humanInput: HumanInputHandler = {
+    request(input) {
+      requests.push(input);
+      return new Promise<never>(() => undefined);
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5, humanOptionalInputTimeoutMs: 0 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  players[0].model = "human";
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const request = requests.find((entry) => entry.kind === "speech_choice");
+
+  assert.ok(request && request.kind === "speech_choice");
+  assert.equal(request.speechMode, "werewolf_alignment");
+  assert.equal(request.nonBlocking, true);
+  assert.ok(humanSpeech);
+  assert.equal(humanSpeech.message, defaultWerewolfAlignmentSpeechForPlayer(players[0], "Japanese"));
+});
+
 test("first-day lover face-off: paired lovers use fixed partner lines, secret to the pair", async () => {
   const game = new WerewolfGame({ ...baseConfig, prefetchConcurrency: 5 }) as OpeningTestableGame;
   const players = setTable(game, [
@@ -2790,6 +2882,63 @@ test("first-day lover face-off lets the human lover speak with free text at the 
   assert.equal(speakerIds.size, 2, "the AI partner and human input line are both emitted");
   assert.ok(humanSpeech);
   assert.equal(humanSpeech.message, "相方確認。昼は距離を取る");
+  assert.equal(humanSpeech.data?.visibility, "lover");
+});
+
+test("first-day lover face-off falls back when optional human alignment is unanswered", async () => {
+  const requests: HumanInputRequestPayload[] = [];
+  let cancelled = false;
+  const humanInput: HumanInputHandler = {
+    async request() {
+      throw new Error("lover alignment should use optional input");
+    },
+    requestOptional(input, options) {
+      requests.push(input);
+      return new Promise<null>((resolve) => {
+        if (options?.signal?.aborted) {
+          cancelled = true;
+          resolve(null);
+          return;
+        }
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelled = true;
+            resolve(null);
+          },
+          { once: true }
+        );
+      });
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5, humanOptionalInputTimeoutMs: 0 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Lover" },
+    { role: "Lover" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  players[0].model = "human";
+
+  const events = await collect(game.runLoverFaceoffPass());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const request = requests.find((entry) => entry.kind === "speech_choice");
+
+  assert.equal(cancelled, true);
+  assert.ok(request && request.kind === "speech_choice");
+  assert.equal(request.speechMode, "lover_alignment");
+  assert.equal(request.nonBlocking, true);
+  assert.ok(humanSpeech);
+  assert.equal(humanSpeech.message, defaultLoverAlignmentSpeechForPlayer(players[0], players[1], "Japanese"));
   assert.equal(humanSpeech.data?.visibility, "lover");
 });
 
@@ -3753,6 +3902,73 @@ test("optional human day interrupt stays open while the next AI speech race cont
   assert.equal(cancelledBeforeIteratorReturn, 0, "the optional interrupt must stay open when the next AI speech wins");
   assert.ok(cancelledOptionalRequestCount > 0, "closing the iterator should still clean up the open optional request");
   assert.equal(daySpeeches[1]?.message, "次のAI発言です。");
+});
+
+test("optional human day interrupt times out after AI speech work is exhausted", async () => {
+  let optionalRequestCount = 0;
+  let cancelledOptionalRequestCount = 0;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Human regular speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input, options) {
+      optionalRequestCount += 1;
+      assert.equal(input.kind, "speech_choice");
+      assert.equal(input.speechMode, "discussion_interrupt");
+      return new Promise<null>((resolve) => {
+        if (options?.signal?.aborted) {
+          cancelledOptionalRequestCount += 1;
+          resolve(null);
+          return;
+        }
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelledOptionalRequestCount += 1;
+            resolve(null);
+          },
+          { once: true }
+        );
+      });
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1,
+      humanOptionalInputTimeoutMs: 0
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new ScriptedAgent(players[0].name));
+  game.agents.set(players[1].id, new ScriptedAgent(players[1].name));
+  game.agents.set(players[3].id, new ScriptedAgent(players[3].name));
+
+  const events = await Promise.race([
+    collect(game.runDay()),
+    sleepWithAbort(1000).then<never>(() => {
+      throw new Error("Timed out waiting for day to finish after unanswered optional interrupt.");
+    })
+  ]);
+
+  assert.ok(optionalRequestCount > 0, "an optional discussion interrupt should have opened");
+  assert.ok(cancelledOptionalRequestCount > 0, "the unanswered optional interrupt should be cancelled by timeout");
+  assert.ok(events.some((event) => event.type === "vote_result"), "the day should continue through voting");
+  assert.ok(!events.some((event) => event.type === "player_speech" && event.message === "Human optional speech."));
 });
 
 test("delayed human day interrupt keeps read AI context and regenerates unread remaining AI", async () => {
