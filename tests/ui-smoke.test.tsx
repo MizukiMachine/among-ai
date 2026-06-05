@@ -281,13 +281,13 @@ test("dialogue keeps character names as ordinary text", () => {
   assert.doesNotMatch(html, /--character-name-color/);
 });
 
-test("dialogue mentions resolve to transparent character portraits", () => {
+test("dialogue mentions resolve to preloaded character thumbnails", () => {
   const mentions = mentionedCharactersForText("シオンがガクを疑う。キリエは保留です。シオンは継続。");
 
   assert.deepEqual(mentions.map((mention) => mention.id), ["p8", "p9", "p13"]);
   assert.deepEqual(mentions.map((mention) => mention.name), ["シオン", "ガク", "キリエ"]);
-  assert.match(mentions[0].image ?? "", /\/assets\/characters\/p1_shion\.png$/);
-  assert.match(mentions[1].image ?? "", /\/assets\/characters\/p2_gaku\.png$/);
+  assert.match(mentions[0].image ?? "", /\/assets\/characters\/thumbs\/p1_shion\.webp$/);
+  assert.match(mentions[1].image ?? "", /\/assets\/characters\/thumbs\/p2_gaku\.webp$/);
 });
 
 test("event mention thumbnails include visible detail data", () => {
@@ -487,7 +487,7 @@ test("story uses mention thumbnails instead of the ambient hero cast row", () =>
   assert.match(source, /placement === "round-summary" \? "mentioned-character-strip round-summary-mentions" : "mentioned-character-strip"/);
   assert.match(source, /className=\{stripClassName\}/);
   assert.match(source, /mentioned-character-more/);
-  assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
+  assert.match(source, /image:\s*getCharacterImage\(id\)/);
   assert.match(source, /!speechInputPrompt && currentEvent && currentEvent\.type !== "game_ended" \? renderEventDetails\(currentEvent, hidden\) : null/);
   assert.match(
     source,
@@ -564,12 +564,12 @@ test("setup character thumbnails preload and portrait images warm in the backgro
   );
 });
 
-test("full portrait images stay limited to active speaker and mention cues", () => {
+test("full portrait images stay limited to hero scenes", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 5);
+  assert.equal(source.match(/getCharacterPortrait\(/g)?.length, 4);
   assert.match(source, /const activeSpeakerImage = currentEvent \? getCharacterPortrait\(currentEvent\.playerId\) : null;/);
-  assert.match(source, /image:\s*getCharacterPortrait\(id\)/);
+  assert.match(source, /image:\s*getCharacterImage\(id\)/);
   assert.match(source, /getCharacterPortrait\(speechInputPrompt\.playerId\)/);
   assert.match(source, /className=\{`hero-character \$\{speechInputPrompt \? "human-input-character" : ""\}`\}/);
   assert.match(source, /src=\{heroCharacterImage\}/);
