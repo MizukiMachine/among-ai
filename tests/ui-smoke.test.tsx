@@ -1223,7 +1223,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const blockingHumanInputAdvanceReady = Boolean\(/);
   assert.match(source, /shouldRevealBlockingHumanInputAfterAdvance\(/);
   assert.match(source, /const nonBlockingHumanInputAdvanceReady = Boolean\(/);
-  assert.match(source, /shouldRevealNonBlockingHumanInputAfterAdvance\(pendingHumanInputRevealAfterEventId, currentEvent, humanInputAnchorAcknowledged\)/);
+  assert.match(
+    source,
+    /shouldRevealNonBlockingHumanInputAfterAdvance\(\s*pendingHumanInputRevealAfterEventId,\s*events,\s*queuedEvents\.length > 0,\s*humanInputAnchorAcknowledged\s*\)/
+  );
   assert.match(source, /const humanInputAdvanceReady = blockingHumanInputAdvanceReady \|\| nonBlockingHumanInputAdvanceReady;/);
   assert.match(source, /const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents\.length === 0 \? blockingHumanInput : null;/);
   assert.match(
@@ -1374,9 +1377,11 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(isCurrentHumanInputRevealAnchor(2, undefined), false);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 2 }), true);
   assert.equal(isCurrentHumanInputRevealAnchor(2, { id: 3 }), false);
-  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 1 }, false), false);
-  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 2 }, false), true);
-  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, { id: 2 }, true), false);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }], false, false), false);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, false), true);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }, { id: 3 }], false, false), true);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], true, false), false);
+  assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, true), false);
 });
 
 test("blocking human input requires an extra advance after the story anchor is visible", () => {

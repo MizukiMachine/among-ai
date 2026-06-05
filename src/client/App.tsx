@@ -167,10 +167,11 @@ export function shouldRevealBlockingHumanInputAfterAdvance(
 
 export function shouldRevealNonBlockingHumanInputAfterAdvance(
   revealAfterEventId: number | null,
-  currentEvent: Pick<GameEvent, "id"> | undefined,
+  visibleEvents: Pick<GameEvent, "id">[],
+  hasUnreadEvents: boolean,
   anchorAcknowledged: boolean
 ): boolean {
-  return !anchorAcknowledged && isCurrentHumanInputRevealAnchor(revealAfterEventId, currentEvent);
+  return !anchorAcknowledged && !hasUnreadEvents && hasSeenHumanInputRevealAnchor(revealAfterEventId, visibleEvents);
 }
 
 // Portrait/thumbnail assets are filed under each character's *original* id (e.g. p13_sena). Cast
@@ -1884,7 +1885,12 @@ export function App() {
   const nonBlockingHumanInputAdvanceReady = Boolean(
     nonBlockingHumanInput &&
       !isOptionalDiscussionInterruptInput(nonBlockingHumanInput) &&
-      shouldRevealNonBlockingHumanInputAfterAdvance(pendingHumanInputRevealAfterEventId, currentEvent, humanInputAnchorAcknowledged)
+      shouldRevealNonBlockingHumanInputAfterAdvance(
+        pendingHumanInputRevealAfterEventId,
+        events,
+        queuedEvents.length > 0,
+        humanInputAnchorAcknowledged
+      )
   );
   const humanInputAdvanceReady = blockingHumanInputAdvanceReady || nonBlockingHumanInputAdvanceReady;
   const readyHumanInput = blockingHumanInput && humanInputAnchorAcknowledged && queuedEvents.length === 0 ? blockingHumanInput : null;

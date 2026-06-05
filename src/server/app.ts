@@ -31,6 +31,7 @@ const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
 const defaultMaxRounds = 3;
 const fixedGenerationConcurrency = 5;
+const defaultHumanOptionalInputTimeoutMs = 45_000;
 const defaultStreamHeartbeatMs = 15_000;
 const defaultStreamWatchdogMs = 30_000;
 let nextStreamLogId = 0;
@@ -171,6 +172,7 @@ export function parseStreamOptions(url: URL): StreamOptions {
     humanCampPreference,
     humanRolePreference,
     prefetchConcurrency: fixedGenerationConcurrency,
+    humanOptionalInputTimeoutMs: humanOptionalInputTimeoutMs(),
     speed: intParam(url.searchParams.get("speed"), 650, 0, 3000),
     view: spectatorModeParam(url.searchParams.get("view"))
   };
@@ -188,7 +190,8 @@ function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
     humanPlayerId: options.humanPlayerId,
     humanCampPreference: options.humanCampPreference,
     humanRolePreference: options.humanRolePreference,
-    prefetchConcurrency: options.prefetchConcurrency
+    prefetchConcurrency: options.prefetchConcurrency,
+    humanOptionalInputTimeoutMs: options.humanOptionalInputTimeoutMs
   };
 }
 
@@ -202,6 +205,15 @@ function streamHeartbeatMs(): number {
 
 function streamWatchdogMs(): number {
   return intEnv(process.env.AMONG_AI_STREAM_WATCHDOG_MS, defaultStreamWatchdogMs, 10_000, 300_000);
+}
+
+function humanOptionalInputTimeoutMs(): number {
+  return intEnv(
+    process.env.AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS ?? process.env.AMONG_AI_HUMAN_ALIGNMENT_TIMEOUT_MS,
+    defaultHumanOptionalInputTimeoutMs,
+    5_000,
+    300_000
+  );
 }
 
 function createStreamLogId(): string {
@@ -222,6 +234,7 @@ function traceStreamOptions(options: StreamOptions): Record<string, unknown> {
     humanCampPreference: options.humanCampPreference,
     humanRolePreference: options.humanRolePreference,
     prefetchConcurrency: options.prefetchConcurrency,
+    humanOptionalInputTimeoutMs: options.humanOptionalInputTimeoutMs,
     speed: options.speed,
     view: options.view
   };

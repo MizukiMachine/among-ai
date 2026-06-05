@@ -303,6 +303,7 @@ export interface GameConfig {
   humanCampPreference?: HumanCampPreference;
   humanRolePreference?: Role | null;
   prefetchConcurrency?: number;
+  humanOptionalInputTimeoutMs?: number;
 }
 
 export interface TargetCandidate {
