@@ -1205,7 +1205,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /const discardUntilHumanEcho = discardStoryUntilHumanEchoRef\.current;/);
   assert.match(source, /postClientTrace\("discard_stale_game_before_human_echo"/);
   assert.match(source, /discardStoryUntilHumanEchoRef\.current = request;/);
-  assert.match(source, /className="icon-button story-run-button story-interrupt-button"/);
+  assert.match(source, /className="icon-button story-interrupt-cta"/);
   assert.match(source, /type:\s*"player_speech"/);
   assert.match(source, /localHumanEcho:\s*true/);
   assert.match(source, /function showLocalHumanSpeechEvent\(event: GameEvent\)/);
@@ -1389,7 +1389,7 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /const storyControlsRef = useRef<HTMLDivElement \| null>\(null\)/);
   assert.match(source, /className="player-list-scroll" ref=\{rosterListRef\}/);
   assert.match(source, /className="player-section-actions" ref=\{playerActionsRef\}/);
-  assert.match(source, /className="icon-button story-run-button story-interrupt-button"\s*\n\s*ref=\{speechInterruptButtonRef\}/);
+  assert.match(source, /className="icon-button story-interrupt-cta"\s*\n\s*ref=\{speechInterruptButtonRef\}/);
   assert.match(source, /className="story-controls" ref=\{storyControlsRef\}/);
 
   // The ordered steps stay neutral because the human player can be assigned either camp.
@@ -1403,12 +1403,14 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /気になるプレイヤーをクリックすると、その性格やプロフィールが表示されます/);
   assert.match(source, /getEl: \(\) => playerActionsRef\.current,\s*\n\s*title: "会話ログ・投票結果"/);
   assert.match(source, /getEl: \(\) => speechInterruptButtonRef\.current \?\? storyControlsRef\.current,\s*\n\s*title: "発言"/);
-  assert.match(source, /body: \[\s*"議論が進むと発言できるようになり、「発言」ボタンが現れます",\s*"自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",\s*"発言しない時は「次へ」で進めます"\s*\]/);
+  assert.match(source, /body: \[\s*"議論が進むと発言できるようになり、「発言を挟む」ボタンが現れます",\s*"自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",\s*"発言しない時は「次へ」で進めます"\s*\]/);
   assert.match(source, /<ul className="ui-tour-body-list">/);
   assert.match(source, /<li key=\{item\}>\{item\}<\/li>/);
   assert.match(source, /const tourSpeechButtonPreview = tourActive && activeTourStep\?\.key === "speech" && !availableSpeechInterruptInput;/);
   assert.match(source, /const showSpeechInterruptButton = Boolean\(availableSpeechInterruptInput \|\| tourSpeechButtonPreview\);/);
-  assert.match(source, /\{showSpeechInterruptButton \? \(\s*<button[\s\S]*?className="icon-button story-run-button story-interrupt-button"[\s\S]*?aria-disabled=\{tourSpeechButtonPreview \? true : undefined\}[\s\S]*?disabled=\{availableSpeechInterruptInput \? paused \|\| humanSubmitting : false\}[\s\S]*?onClick=\{availableSpeechInterruptInput \? openSpeechInterruptInput : undefined\}[\s\S]*?tabIndex=\{tourSpeechButtonPreview \? -1 : undefined\}/);
+  assert.match(source, /\{!\s*speechInputPrompt && currentEvent\?\.type !== "game_ended" && showSpeechInterruptButton \? \(\s*<div className="story-interrupt-cta-wrap">[\s\S]*?<button[\s\S]*?className="icon-button story-interrupt-cta"[\s\S]*?aria-disabled=\{tourSpeechButtonPreview \? true : undefined\}[\s\S]*?disabled=\{availableSpeechInterruptInput \? paused \|\| humanSubmitting : false\}[\s\S]*?onClick=\{availableSpeechInterruptInput \? openSpeechInterruptInput : undefined\}[\s\S]*?tabIndex=\{tourSpeechButtonPreview \? -1 : undefined\}/);
+  assert.match(css, /\.story-interrupt-cta-wrap\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*122px;[^}]*width:\s*min\(380px,\s*calc\(100% - 72px\)\);/s);
+  assert.match(css, /\.story-interrupt-cta\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*52px;[^}]*border-radius:\s*999px;/s);
   assert.match(source, /getEl: \(\) => storyControlsRef\.current,\s*\n\s*title: "視点・BGM・進行"/);
 
   // Launches once per match after the opening board is revealed; reset on new game.

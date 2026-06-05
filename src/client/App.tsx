@@ -1867,7 +1867,7 @@ export function App() {
         getEl: () => speechInterruptButtonRef.current ?? storyControlsRef.current,
         title: "発言",
         body: [
-          "議論が進むと発言できるようになり、「発言」ボタンが現れます",
+          "議論が進むと発言できるようになり、「発言を挟む」ボタンが現れます",
           "自分も参加している対局では、このボタンからAIの会話へ一言を挟めます",
           "発言しない時は「次へ」で進めます"
         ]
@@ -4908,6 +4908,23 @@ export function App() {
                       {renderPendingHumanInputNotice()}
                       {renderStoryProcessingHud()}
                       {speechInputPrompt ? renderHumanInputQuickControls() : null}
+                      {!speechInputPrompt && currentEvent?.type !== "game_ended" && showSpeechInterruptButton ? (
+                        <div className="story-interrupt-cta-wrap">
+                          <button
+                            className="icon-button story-interrupt-cta"
+                            ref={speechInterruptButtonRef}
+                            aria-disabled={tourSpeechButtonPreview ? true : undefined}
+                            disabled={availableSpeechInterruptInput ? paused || humanSubmitting : false}
+                            onClick={availableSpeechInterruptInput ? openSpeechInterruptInput : undefined}
+                            tabIndex={tourSpeechButtonPreview ? -1 : undefined}
+                            title={tourSpeechButtonPreview ? "議論が進むと発言できます" : "昼議論に発言を挟む"}
+                            type="button"
+                          >
+                            <MessageCircle size={20} />
+                            <span>発言を挟む</span>
+                          </button>
+                        </div>
+                      ) : null}
 
                       {!speechInputPrompt && currentEvent?.type !== "game_ended" ? (
                         <div className="story-controls" ref={storyControlsRef}>
@@ -4932,21 +4949,6 @@ export function App() {
                             </span>
                             <ChevronRight className="story-next-chevron" size={20} />
                           </button>
-                          {showSpeechInterruptButton ? (
-                            <button
-                              className="icon-button story-run-button story-interrupt-button"
-                              ref={speechInterruptButtonRef}
-                              aria-disabled={tourSpeechButtonPreview ? true : undefined}
-                              disabled={availableSpeechInterruptInput ? paused || humanSubmitting : false}
-                              onClick={availableSpeechInterruptInput ? openSpeechInterruptInput : undefined}
-                              tabIndex={tourSpeechButtonPreview ? -1 : undefined}
-                              title={tourSpeechButtonPreview ? "議論が進むと発言できます" : "昼議論に発言を挟む"}
-                              type="button"
-                            >
-                              <MessageCircle size={18} />
-                              <span>発言</span>
-                            </button>
-                          ) : null}
                           {renderRunControls()}
                           {!humanEnabled ? (
                             <div className="view-toggle view-toggle-inline">
