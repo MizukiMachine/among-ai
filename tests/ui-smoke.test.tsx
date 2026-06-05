@@ -1310,6 +1310,8 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /submittedHumanInputRef\.current = holdSubmittedScene \? request : null;/);
   assert.match(source, /function shouldHoldSubmittedHumanInputScene\(request: HumanInputRequest\): boolean/);
   assert.match(source, /return request\.kind === "speech_choice" && !request\.nonBlocking;/);
+  assert.match(source, /function shouldAutoAcknowledgeHumanInput\(request: HumanInputRequest, revealAfterEventId: number \| null\): boolean/);
+  assert.match(source, /return revealAfterEventId === null && !isOptionalDiscussionInterruptInput\(request\);/);
   assert.match(source, /function isSubmittedHumanSpeechEvent\(request: HumanInputRequest, event: GameEvent\): boolean/);
   assert.match(source, /event\.type === "player_speech" && event\.playerId === request\.playerId/);
   assert.match(source, /const submittedHumanInputRef = useRef<HumanInputRequest \| null>\(null\);/);
@@ -1318,6 +1320,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /completeHumanInputRequest\(submittedHumanInput\);[\s\S]*eventsRef\.current = nextEvents;[\s\S]*setEvents\(nextEvents\);[\s\S]*setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);[\s\S]*return;/);
   assert.match(source, /function resetHumanInputState\(\) \{\s*submittedHumanInputRef\.current = null;/);
   assert.match(source, /function resetHumanInputState\(\) \{[\s\S]*?discardStoryUntilHumanEchoRef\.current = null;/);
+  assert.match(source, /anchorAcknowledged: shouldAutoAcknowledgeHumanInput\(request, revealAfterEventId\)/);
   assert.match(source, /if \(localHumanSpeechEvent\) \{\s*discardUnreadStoryBeforeHumanInterrupt\(request\);[\s\S]*completeHumanInputRequest\(request\);[\s\S]*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
   assert.match(source, /else if \(holdSubmittedScene\) \{\s*if \(submittedHumanInputRef\.current === request\) \{[\s\S]*showProcessingHudNow\(\);[\s\S]*setGameStatus\("生成中"\);/s);
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
