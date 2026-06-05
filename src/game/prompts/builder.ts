@@ -187,7 +187,7 @@ function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, langua
   const deception = secret?.werewolfDeception;
   if (!deception?.claimedRole) {
     return [
-      "- 公開上の偽装方針: まだ固定していません。人間側として自然に振る舞い、占い師騙りを含む嘘を投票・対抗・疑い作りに積極的に使います。"
+      "- 公開上の偽装方針: まだ固定していません。人間側として自然に振る舞い、役職騙りは明確な偽装方針や公開上の必要がある時だけ使います。"
     ];
   }
 
@@ -419,7 +419,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
     const common = werewolfRole
       ? [
-          `人狼側の役職騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}に短く騙る。`,
+          `人狼側の役職騙り方針: 偽装方針がある時は占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}に短く騙る。`,
           firstDaySeerResultRule,
           "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
           "騎士は通常の騙り対象にしない。護衛先の作り込みも避ける。",
@@ -470,7 +470,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
   const common = werewolfRole
     ? [
-        `人狼の騙り方針: 占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}短く騙る。`,
+        `人狼の騙り方針: 偽装方針がある時は占い師騙りを優先候補にし、${claimRoles}は、${claimCondition}短く騙る。`,
         firstDaySeerResultRule,
         "一度占い師を騙ったら撤回しない。二日目以降は毎昼、偽の占い結果を対象名と判定つきで出す。",
         "騎士は通常の騙り対象にしない。護衛先は作らない。",
