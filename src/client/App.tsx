@@ -135,6 +135,10 @@ function shouldHoldSubmittedHumanInputScene(request: HumanInputRequest): boolean
   return request.kind === "speech_choice" && !request.nonBlocking;
 }
 
+function shouldAutoAcknowledgeHumanInput(request: HumanInputRequest, revealAfterEventId: number | null): boolean {
+  return revealAfterEventId === null && !isOptionalDiscussionInterruptInput(request);
+}
+
 function isSubmittedHumanSpeechEvent(request: HumanInputRequest, event: GameEvent): boolean {
   return request.kind === "speech_choice" && event.type === "player_speech" && event.playerId === request.playerId;
 }
@@ -2377,7 +2381,7 @@ export function App() {
       {
         request,
         revealAfterEventId,
-        anchorAcknowledged: revealAfterEventId === null
+        anchorAcknowledged: shouldAutoAcknowledgeHumanInput(request, revealAfterEventId)
       }
     ]);
     if (wasEmpty) {
@@ -2399,6 +2403,7 @@ export function App() {
       initializeHumanInputForm(nextInputs[0]?.request ?? null);
     } else {
       setHumanInputError("");
+      setHumanSubmitting(false);
     }
   }
 
