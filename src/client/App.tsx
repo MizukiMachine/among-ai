@@ -187,21 +187,21 @@ export function shouldRevealNonBlockingHumanInputAfterAdvance(
 // files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
 // uses. Files are not renamed — only the lookup key changes.
 const portraitFileByOriginalId: Record<string, string> = {
-  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
-  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
-  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
-  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.png`,
-  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.png`,
-  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.png`,
-  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.png`,
-  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.png`,
-  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.png`,
-  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.png`,
-  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.png`,
-  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
-  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
-  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
-  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
+  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.webp`,
+  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.webp`,
+  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.webp`,
+  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.webp`,
+  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.webp`,
+  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.webp`,
+  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.webp`,
+  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.webp`,
+  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.webp`,
+  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.webp`,
+  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.webp`,
+  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.webp`,
+  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.webp`,
+  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.webp`,
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.webp`
 };
 
 const thumbnailFileByOriginalId: Record<string, string> = {
@@ -3050,6 +3050,31 @@ export function App() {
   useEffect(() => {
     scheduleBackgroundCharacterPreload(characterPortraitImages);
   }, []);
+
+  // Just-in-time targeted prefetch: the unread buffer (queuedEvents) already knows who speaks
+  // next, so fetch the next few speakers' (large) portraits at high priority well before the
+  // user advances to them. This is what actually hides the per-speaker load delay — the blanket
+  // background preload above is too lazy (low priority + requestIdleCallback) to win during play.
+  useEffect(() => {
+    const upcomingPlayerIds: string[] = [];
+    if (currentEvent?.playerId) {
+      upcomingPlayerIds.push(currentEvent.playerId);
+    }
+    for (const event of queuedEvents) {
+      if (event.playerId) {
+        upcomingPlayerIds.push(event.playerId);
+      }
+      if (upcomingPlayerIds.length >= 4) {
+        break;
+      }
+    }
+    const portraits = upcomingPlayerIds
+      .map((playerId) => getCharacterPortrait(playerId))
+      .filter((src): src is string => Boolean(src));
+    if (portraits.length > 0) {
+      preloadCharacterImages(portraits, "high");
+    }
+  }, [currentEvent, queuedEvents]);
 
   useEffect(() => {
     if (readyHumanInput && !paused) {
