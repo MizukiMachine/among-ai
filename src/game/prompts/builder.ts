@@ -593,8 +593,31 @@ function publicSpeechHistoryLines(lines: string[], player: Player, language: str
   return recentLines(lines.map((line) => selfAwarePublicHistoryLine(line, player, language)), count);
 }
 
+function publicUnknownDeathLabel(language: string): string {
+  return isJapaneseLanguage(language) ? "公開上原因不明" : "public cause unknown";
+}
+
+function formatPublicDeathInfo(
+  death: { playerId: string; playerName: string; publicCauseLabel: string | null },
+  language: string
+): string {
+  return `${death.playerName} (${death.playerId}) / ${death.publicCauseLabel ?? publicUnknownDeathLabel(language)}`;
+}
+
+function formatDeadPlayerInfo(playerInfo: TargetCandidate & { publicDeathLabel?: string }): string {
+  return `${playerInfo.name} (${playerInfo.id})${playerInfo.publicDeathLabel ? ` / ${playerInfo.publicDeathLabel}` : ""}`;
+}
+
 function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[] {
-  const { phase, round, language = defaultLanguage, alivePlayers, deadPlayers, lastNightDeaths: publicLastNightDeaths } = options;
+  const {
+    phase,
+    round,
+    language = defaultLanguage,
+    alivePlayers,
+    deadPlayers,
+    lastNightDeaths: publicLastNightDeaths,
+    lastVoteDeaths = []
+  } = options;
   if ((phase !== "day_discussion" && phase !== "voting") || round <= 1) {
     return [];
   }
@@ -602,13 +625,19 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
   const japanese = isJapaneseLanguage(language);
   const lastNightDeaths =
     publicLastNightDeaths.length > 0
-      ? publicLastNightDeaths.map((death) => `${death.playerName} (${death.playerId})`).join(", ")
+      ? publicLastNightDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
+      : japanese
+        ? "なし"
+        : "none";
+  const lastVoteDeathList =
+    lastVoteDeaths.length > 0
+      ? lastVoteDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
       : japanese
         ? "なし"
         : "none";
   const deadPlayerList =
     deadPlayers.length > 0
-      ? deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")
+      ? deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")
       : japanese
         ? "なし"
         : "none";
@@ -618,6 +647,7 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
       `- 生存中: ${formatPlayers(alivePlayers, language)}。`,
       `- 死亡済み: ${deadPlayerList}。`,
       `- 昨夜死亡: ${lastNightDeaths}。`,
+      `- 直近の投票処刑: ${lastVoteDeathList}。`,
       "- 今日の疑い・信頼・投票候補として扱えるのは生存中の人物だけです。死亡済みの人物は、経緯や死亡からの推理としてだけ触れます。"
     ];
   }
@@ -627,6 +657,7 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
     `- Alive: ${formatPlayers(alivePlayers, language)}.`,
     `- Dead: ${deadPlayerList}.`,
     `- Last night's deaths: ${lastNightDeaths}.`,
+    `- Last vote execution: ${lastVoteDeathList}.`,
     "- Only alive participants can be treated as current suspicion, trust, or vote-candidate targets. Dead participants are context for events and inferences only."
   ];
 }
@@ -670,7 +701,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       ...rosterStatus,
       `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
       deadPlayers.length > 0
-        ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+        ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
         : "- 死亡者: なし。",
       ...visibleSituation,
       "",
@@ -702,7 +733,7 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     ...rosterStatus,
     `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
-      ? `- 死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+      ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
       : "- 死亡者: なし。",
     ...visibleSituation,
     "",
@@ -790,8 +821,8 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
     japanese ? `生存者: ${formatPlayers(alivePlayers, language)}。` : `生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
       ? japanese
-        ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
-        : `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+        ? `死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
+        : `死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
       : japanese
         ? "死亡者: なし。"
         : "死亡者: なし。",
@@ -872,7 +903,7 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
     ...rosterStatus,
     `生存者: ${formatPlayers(alivePlayers, language)}。`,
     deadPlayers.length > 0
-      ? `死亡者: ${deadPlayers.map((playerInfo) => `${playerInfo.name} (${playerInfo.id})`).join(", ")}。`
+      ? `死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
       : "死亡者: なし。",
     `投票できる相手: ${formatPlayers(alivePlayers.filter((playerInfo) => playerInfo.id !== player.id), language)}。`,
     "",

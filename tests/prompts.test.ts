@@ -578,17 +578,19 @@ test("later-day public speech context pins current roster status without full sp
     phase: "day_discussion",
     round: 2,
     alivePlayers: [{ id: "p1", name: "Ada" }, { id: "p3", name: "Curie" }],
-    deadPlayers: [{ id: "p2", name: "Byron" }],
+    deadPlayers: [{ id: "p2", name: "Byron", publicDeathLabel: "投票処刑" }],
     publicHistory: [],
     privateHistory: [],
     language: "Japanese",
-    lastNightDeaths: [{ playerId: "p2", playerName: "Byron", publicCauseLabel: null }]
+    lastNightDeaths: [{ playerId: "p4", playerName: "Darwin", publicCauseLabel: null }],
+    lastVoteDeaths: [{ playerId: "p2", playerName: "Byron", publicCauseLabel: "投票処刑" }]
   });
 
   assert.match(context, /現在の参加者ステータス/);
   assert.match(context, /生存中: Ada \(p1\), Curie \(p3\)/);
-  assert.match(context, /死亡済み: Byron \(p2\)/);
-  assert.match(context, /昨夜死亡: Byron \(p2\)/);
+  assert.match(context, /死亡済み: Byron \(p2\) \/ 投票処刑/);
+  assert.match(context, /昨夜死亡: Darwin \(p4\) \/ 公開上原因不明/);
+  assert.match(context, /直近の投票処刑: Byron \(p2\) \/ 投票処刑/);
   assert.match(context, /疑い・信頼・投票候補として扱えるのは生存中の人物だけ/);
   assert.match(context, /生存者: Ada \(p1\), Curie \(p3\)/);
   assert.doesNotMatch(context, /公開知識|公開上の死因|死因候補を並べるだけで終わらず/);

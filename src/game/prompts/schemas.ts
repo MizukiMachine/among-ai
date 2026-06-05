@@ -67,12 +67,13 @@ export interface BuildPromptContextOptions {
   round: number;
   roleBreakdown?: RoleBreakdownEntry[];
   alivePlayers: TargetCandidate[];
-  deadPlayers: Array<TargetCandidate & { role?: Role }>;
+  deadPlayers: Array<TargetCandidate & { role?: Role; publicDeathLabel?: string }>;
   publicHistory: string[];
   privateHistory: string[];
   language?: string;
   secret?: RoleSecretContext;
   lastNightDeaths: PublicNightDeathInfo[];
+  lastVoteDeaths?: PublicNightDeathInfo[];
   speechPlan?: PublicSpeechPlan;
   extra?: string[];
 }
