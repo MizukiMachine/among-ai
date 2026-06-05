@@ -2022,7 +2022,6 @@ export function App() {
         getEl: () => storyControlsRef.current,
         title: "視点・BGM・進行",
         body: [
-          "「全情報／人間視点」で見え方を切り替えられます",
           "BGMはオン／オフを切り替えられます",
           "「次へ」ボタンまたは → キーで物語を進めます"
         ]
