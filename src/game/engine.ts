@@ -747,26 +747,32 @@ function assignHumanRole(roles: Role[], humanIndex: number, campPreference: Huma
 }
 
 function sampleHumanRoleForCamp(roles: Role[], camp: Camp): Role {
-  const candidates = roles.filter((role) => roleCamp(role) === camp);
+  const candidates = preferredHumanAssignableRoles(roles.filter((role) => roleCamp(role) === camp));
   return candidates.length > 0 ? sample(candidates) : sampleBalancedHumanRole(roles);
 }
 
 function sampleBalancedHumanRole(roles: Role[]): Role {
-  const werewolfCount = roles.filter((role) => roleCamp(role) === "werewolf").length;
-  const villageCount = roles.length - werewolfCount;
+  const candidates = preferredHumanAssignableRoles(roles);
+  const werewolfCount = candidates.filter((role) => roleCamp(role) === "werewolf").length;
+  const villageCount = candidates.length - werewolfCount;
   const werewolfWeight = werewolfCount > 0 && villageCount > 0 ? villageCount / werewolfCount : 1;
   const weightForRole = (role: Role) => (roleCamp(role) === "werewolf" ? werewolfWeight : 1);
-  const totalWeight = roles.reduce((total, role) => total + weightForRole(role), 0);
+  const totalWeight = candidates.reduce((total, role) => total + weightForRole(role), 0);
   let cursor = Math.random() * totalWeight;
 
-  for (const role of roles) {
+  for (const role of candidates) {
     cursor -= weightForRole(role);
     if (cursor < 0) {
       return role;
     }
   }
 
-  return roles[roles.length - 1];
+  return candidates[candidates.length - 1];
+}
+
+function preferredHumanAssignableRoles(roles: Role[]): Role[] {
+  const activeRoles = roles.filter((role) => role !== "Villager");
+  return activeRoles.length > 0 ? activeRoles : roles;
 }
 
 function removeOneRole(roles: Role[], roleToRemove: Role): Role[] {
