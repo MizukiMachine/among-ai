@@ -31,6 +31,8 @@ const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
 const defaultMaxRounds = 3;
 const fixedGenerationConcurrency = 5;
+const defaultStreamHeartbeatMs = 15_000;
+const defaultStreamWatchdogMs = 30_000;
 let nextStreamLogId = 0;
 
 interface StreamOptions extends GameConfig {
@@ -61,6 +63,17 @@ interface TraceableGameEvent {
 
 function intParam(value: string | null, fallback: number, min: number, max: number): number {
   if (value === null || value.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function intEnv(value: string | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined || value.trim() === "") {
     return fallback;
   }
   const parsed = Number(value);
@@ -181,6 +194,14 @@ function gameConfigFromStreamOptions(options: StreamOptions): GameConfig {
 
 function sseFrame(event: string, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function streamHeartbeatMs(): number {
+  return intEnv(process.env.AMONG_AI_STREAM_HEARTBEAT_MS, defaultStreamHeartbeatMs, 5_000, 120_000);
+}
+
+function streamWatchdogMs(): number {
+  return intEnv(process.env.AMONG_AI_STREAM_WATCHDOG_MS, defaultStreamWatchdogMs, 10_000, 300_000);
 }
 
 function createStreamLogId(): string {
@@ -399,6 +420,13 @@ export function createApp(): Hono {
       error: submitted.ok ? null : submitted.error
     });
     if (!submitted.ok) {
+      console.warn(
+        `[human-input-submit-failed] ${JSON.stringify({
+          sessionId,
+          requestId: parsed.requestId,
+          error: submitted.error
+        })}`
+      );
       if (submitted.error === "invalid_input") {
         return c.json({ ok: false, error: submitted.error }, 400);
       }
@@ -415,6 +443,7 @@ export function createApp(): Hono {
     const config = gameConfigFromStreamOptions(options);
     let cancelled = false;
     let humanSession: HumanInputSession | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const abortController = new AbortController();
     const streamLogId = createStreamLogId();
     const traceLog = createPersistentTraceLog(streamLogId);
@@ -424,14 +453,72 @@ export function createApp(): Hono {
       async start(controller) {
         const speechDiagnostics = createSpeechDiagnosticsLogger(streamLogId);
         let streamStatus: "completed" | "cancelled" | "error" = "completed";
+        const startedAt = Date.now();
+        let lastDataEventAt = startedAt;
+        let lastDataEventKind = "stream_start";
+        let lastProgress: Record<string, unknown> | null = null;
+        let lastWatchdogLogAt = 0;
+        const heartbeatIntervalMs = streamHeartbeatMs();
+        const watchdogIntervalMs = streamWatchdogMs();
+        const sendSse = (event: string, payload: unknown, options: { dataEvent?: boolean } = {}) => {
+          if (cancelled || abortController.signal.aborted) {
+            return;
+          }
+          if (options.dataEvent !== false) {
+            lastDataEventAt = Date.now();
+            lastDataEventKind = event;
+          }
+          try {
+            controller.enqueue(sseFrame(event, payload));
+          } catch {
+            cancelled = true;
+            abortController.abort();
+          }
+        };
+        const writeWatchdogLog = () => {
+          if (cancelled || abortController.signal.aborted) {
+            return;
+          }
+          const now = Date.now();
+          const idleMs = now - lastDataEventAt;
+          if (idleMs < watchdogIntervalMs || now - lastWatchdogLogAt < watchdogIntervalMs) {
+            return;
+          }
+          lastWatchdogLogAt = now;
+          console.warn(
+            `[stream-watchdog] ${JSON.stringify({
+              streamId: streamLogId,
+              idleMs,
+              elapsedMs: now - startedAt,
+              lastEventKind: lastDataEventKind,
+              lastProgress
+            })}`
+          );
+        };
+        heartbeatTimer = setInterval(() => {
+          const now = Date.now();
+          sendSse(
+            "heartbeat",
+            {
+              message: "stream_alive",
+              streamLogId,
+              elapsedMs: now - startedAt,
+              idleMs: now - lastDataEventAt,
+              lastEventKind: lastDataEventKind,
+              lastProgress
+            },
+            { dataEvent: false }
+          );
+          writeWatchdogLog();
+        }, heartbeatIntervalMs);
         humanSession = config.humanPlayerId
           ? new HumanInputSession((request) => {
               traceLog?.write("server.human_input", traceHumanInputRequest(request));
-              controller.enqueue(sseFrame("human_input", request));
+              sendSse("human_input", request);
             }, (request) => {
               if (!cancelled && !abortController.signal.aborted) {
                 traceLog?.write("server.human_input_cancelled", { requestId: request.id });
-                controller.enqueue(sseFrame("human_input_cancelled", { requestId: request.id }));
+                sendSse("human_input_cancelled", { requestId: request.id });
               }
             })
           : null;
@@ -453,8 +540,9 @@ export function createApp(): Hono {
                   : streamView === "village"
                     ? redactProgressForVillage(progress)
                     : progress;
-              traceLog?.write("server.progress", traceProgress(payload));
-              controller.enqueue(sseFrame("progress", payload));
+              lastProgress = traceProgress(payload);
+              traceLog?.write("server.progress", lastProgress);
+              sendSse("progress", payload);
             }
           }
         });
@@ -469,7 +557,7 @@ export function createApp(): Hono {
           traceFile: traceLog?.filePath ?? null
         };
         traceLog?.write("server.system", systemPayload);
-        controller.enqueue(sseFrame("system", systemPayload));
+        sendSse("system", systemPayload);
 
         try {
           for await (const event of game.run()) {
@@ -479,16 +567,16 @@ export function createApp(): Hono {
             }
             const payload =
               streamView === "player" && config.humanPlayerId
-                ? redactEventForPlayer(event, config.humanPlayerId)
-                : streamView === "village"
-                  ? redactEventForVillage(event)
-                  : event;
+                  ? redactEventForPlayer(event, config.humanPlayerId)
+                  : streamView === "village"
+                    ? redactEventForVillage(event)
+                    : event;
             traceLog?.write("server.game", traceEvent(payload));
-            controller.enqueue(sseFrame("game", payload));
+            sendSse("game", payload);
           }
           if (!cancelled && !abortController.signal.aborted) {
             traceLog?.write("server.done", { message: "game_complete" });
-            controller.enqueue(sseFrame("done", { message: "game_complete" }));
+            sendSse("done", { message: "game_complete" });
           }
         } catch (error) {
           streamStatus = "error";
@@ -502,14 +590,19 @@ export function createApp(): Hono {
             })}`
           );
           if (!cancelled && !abortController.signal.aborted) {
-            controller.enqueue(
-              sseFrame("error", {
+            sendSse(
+              "error",
+              {
                 message: streamErrorMessageForClient(errorMessage),
                 streamLogId
-              })
+              }
             );
           }
         } finally {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
           speechDiagnostics.logSummary(cancelled || abortController.signal.aborted ? "cancelled" : streamStatus);
           if (humanSession) {
             unregisterHumanInputSession(humanSession.id);
@@ -526,6 +619,10 @@ export function createApp(): Hono {
       cancel() {
         cancelled = true;
         abortController.abort();
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
+        }
         traceLog?.write("server.cancelled", { reason: "readable_stream_cancel" });
         if (humanSession) {
           unregisterHumanInputSession(humanSession.id);

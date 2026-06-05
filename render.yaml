@@ -17,4 +17,8 @@ services:
       - key: ZAI_BASE_URL
         value: https://api.z.ai/api/anthropic
       - key: ZAI_TIMEOUT_MS
-        value: "120000"
+        value: "45000"
+      - key: AMONG_AI_STREAM_HEARTBEAT_MS
+        value: "15000"
+      - key: AMONG_AI_STREAM_WATCHDOG_MS
+        value: "30000"

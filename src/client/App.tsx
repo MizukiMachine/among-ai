@@ -77,9 +77,13 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 // Startup never triggers this by itself; it only applies after play has reached a
 // generated scene or after submitted human input is waiting on a streamed response.
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
+const STREAM_WAIT_SLOW_MS = 15_000;
+const STREAM_WAIT_STALLED_MS = 70_000;
 // "Seen the tour" is scoped to this page load so a hard reload shows the guide
 // again, while later matches in the same loaded app skip it without a startup gate.
 let uiTourSeenThisPageLoad = false;
+
+type StreamWaitNotice = "slow" | "stalled";
 
 function hasSeenUiTour(): boolean {
   return uiTourSeenThisPageLoad;
@@ -373,6 +377,13 @@ interface StreamSystemPayload {
   traceEnabled?: boolean;
   traceFile?: string | null;
   view?: SpectatorMode;
+}
+
+interface StreamHeartbeatPayload {
+  elapsedMs?: number;
+  idleMs?: number;
+  lastEventKind?: string;
+  streamLogId?: string | null;
 }
 
 interface MentionedCharacterItem {
@@ -1674,6 +1685,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [processingHudVisible, setProcessingHudVisible] = useState(false);
+  const [streamWaitNotice, setStreamWaitNotice] = useState<StreamWaitNotice | null>(null);
   const [running, setRunning] = useState(false);
   const [sourceDone, setSourceDone] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -1709,6 +1721,10 @@ export function App() {
   const streamLogIdRef = useRef<string | null>(null);
   const clientTraceEnabledRef = useRef(false);
   const lastClientUiTraceKeyRef = useRef("");
+  const lastMeaningfulStreamEventAtRef = useRef<number | null>(null);
+  const lastStreamHeartbeatAtRef = useRef<number | null>(null);
+  const streamWaitWatchdogTimerRef = useRef<number | null>(null);
+  const streamWaitNoticeRef = useRef<StreamWaitNotice | null>(null);
   const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
   const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
   const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest | null>(null);
@@ -2471,6 +2487,53 @@ export function App() {
     }).catch(() => undefined);
   }
 
+  function clearStreamWaitWatchdogTimer() {
+    if (streamWaitWatchdogTimerRef.current !== null) {
+      window.clearTimeout(streamWaitWatchdogTimerRef.current);
+      streamWaitWatchdogTimerRef.current = null;
+    }
+  }
+
+  function setStreamWaitNoticeState(notice: StreamWaitNotice | null, payload: Record<string, unknown> = {}) {
+    if (streamWaitNoticeRef.current === notice) {
+      return;
+    }
+    streamWaitNoticeRef.current = notice;
+    setStreamWaitNotice(notice);
+    if (notice) {
+      postClientTrace("stream_wait_watchdog", {
+        notice,
+        lastMeaningfulStreamEventAt: lastMeaningfulStreamEventAtRef.current,
+        lastStreamHeartbeatAt: lastStreamHeartbeatAtRef.current,
+        ...payload
+      });
+    }
+  }
+
+  function resetStreamActivityState() {
+    clearStreamWaitWatchdogTimer();
+    lastMeaningfulStreamEventAtRef.current = null;
+    lastStreamHeartbeatAtRef.current = null;
+    setStreamWaitNoticeState(null);
+  }
+
+  function beginStreamActivityState() {
+    resetStreamActivityState();
+    lastMeaningfulStreamEventAtRef.current = Date.now();
+  }
+
+  function noteMeaningfulStreamActivity(kind: string) {
+    lastMeaningfulStreamEventAtRef.current = Date.now();
+    setStreamWaitNoticeState(null, { kind });
+  }
+
+  function noteStreamHeartbeat(payload: StreamHeartbeatPayload) {
+    lastStreamHeartbeatAtRef.current = Date.now();
+    if (payload.streamLogId && !streamLogIdRef.current) {
+      streamLogIdRef.current = payload.streamLogId;
+    }
+  }
+
   function clearProcessingHudHideTimer() {
     if (processingHudHideTimerRef.current !== null) {
       window.clearTimeout(processingHudHideTimerRef.current);
@@ -2498,6 +2561,7 @@ export function App() {
     streamLogIdRef.current = null;
     clientTraceEnabledRef.current = false;
     lastClientUiTraceKeyRef.current = "";
+    resetStreamActivityState();
     resetHumanInputState();
     setPaused(false);
     setActiveOverlay(null);
@@ -2559,6 +2623,7 @@ export function App() {
     streamLogIdRef.current = null;
     clientTraceEnabledRef.current = false;
     lastClientUiTraceKeyRef.current = "";
+    beginStreamActivityState();
     resetHumanInputState();
     setPaused(false);
     eventsRef.current = [];
@@ -2596,6 +2661,7 @@ export function App() {
     sourceRef.current = source;
 
     source.addEventListener("system", (message) => {
+      noteMeaningfulStreamActivity("system");
       const payload = JSON.parse((message as MessageEvent).data) as StreamSystemPayload;
       streamLogIdRef.current = payload.streamLogId ?? null;
       clientTraceEnabledRef.current = payload.traceEnabled === true;
@@ -2613,7 +2679,13 @@ export function App() {
       setGameStatus("生成中");
     });
 
+    source.addEventListener("heartbeat", (message) => {
+      const payload = JSON.parse((message as MessageEvent).data) as StreamHeartbeatPayload;
+      noteStreamHeartbeat(payload);
+    });
+
     source.addEventListener("progress", (message) => {
+      noteMeaningfulStreamActivity("progress");
       const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
       postClientTrace("progress", clientTraceProgressSummary(progress) ?? {});
       if (!pausedRef.current && eventsRef.current.length > 0 && queuedRef.current.length === 0) {
@@ -2624,6 +2696,7 @@ export function App() {
     });
 
     source.addEventListener("game", (message) => {
+      noteMeaningfulStreamActivity("game");
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
       postClientTrace("game", {
         event: clientTraceEventSummary(event),
@@ -2678,6 +2751,7 @@ export function App() {
     });
 
     source.addEventListener("human_input", (message) => {
+      noteMeaningfulStreamActivity("human_input");
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
       const revealAfterEventId =
         typeof request.revealAfterEventId === "number"
@@ -2700,6 +2774,7 @@ export function App() {
     });
 
     source.addEventListener("human_input_cancelled", (message) => {
+      noteMeaningfulStreamActivity("human_input_cancelled");
       const payload = JSON.parse((message as MessageEvent).data) as { requestId?: string };
       const requestId = payload.requestId;
       if (!requestId) {
@@ -2720,6 +2795,7 @@ export function App() {
     });
 
     source.addEventListener("done", () => {
+      noteMeaningfulStreamActivity("done");
       postClientTrace("done", {
         eventsCount: eventsRef.current.length,
         queuedCount: queuedRef.current.length
@@ -2728,6 +2804,7 @@ export function App() {
       setRunning(false);
       setSourceDone(true);
       setGenerationProgress(null);
+      resetStreamActivityState();
       resetHumanInputState();
       setGameStatus("生成完了");
       source.close();
@@ -2737,6 +2814,7 @@ export function App() {
     });
 
     source.addEventListener("error", (message) => {
+      noteMeaningfulStreamActivity("error");
       postClientTrace("error", {
         eventsCount: eventsRef.current.length,
         queuedCount: queuedRef.current.length
@@ -2745,6 +2823,7 @@ export function App() {
       setRunning(false);
       setSourceDone(true);
       setGenerationProgress(null);
+      resetStreamActivityState();
       resetHumanInputState();
       setGameStatus("エラー");
       const errorMessage = streamErrorMessageFromData(
@@ -2893,6 +2972,7 @@ export function App() {
   useEffect(() => {
     return () => {
       closeGameStream();
+      clearStreamWaitWatchdogTimer();
       clearProcessingHudHideTimer();
       audioControllerRef.current?.dispose();
     };
@@ -3874,19 +3954,66 @@ export function App() {
     return clearProcessingHudHideTimer;
   }, [processingHudVisible, storyWaitingForStream, waitingForSubmittedHumanInput]);
 
+  useEffect(() => {
+    clearStreamWaitWatchdogTimer();
+
+    const activelyWaitingForStream =
+      processingHudVisible &&
+      !paused &&
+      !unreadStoryAvailable &&
+      (storyWaitingForStream || waitingForSubmittedHumanInput);
+    if (!activelyWaitingForStream) {
+      setStreamWaitNoticeState(null);
+      return undefined;
+    }
+
+    const checkWait = () => {
+      const now = Date.now();
+      const lastMeaningfulEventAt = lastMeaningfulStreamEventAtRef.current ?? now;
+      const idleMs = now - lastMeaningfulEventAt;
+      const heartbeatAgeMs = lastStreamHeartbeatAtRef.current === null ? null : now - lastStreamHeartbeatAtRef.current;
+
+      if (idleMs >= STREAM_WAIT_STALLED_MS) {
+        setStreamWaitNoticeState("stalled", { idleMs, heartbeatAgeMs });
+      } else if (idleMs >= STREAM_WAIT_SLOW_MS) {
+        setStreamWaitNoticeState("slow", { idleMs, heartbeatAgeMs });
+      } else {
+        setStreamWaitNoticeState(null);
+      }
+
+      streamWaitWatchdogTimerRef.current = window.setTimeout(checkWait, 1000);
+    };
+
+    checkWait();
+    return clearStreamWaitWatchdogTimer;
+  }, [paused, processingHudVisible, storyWaitingForStream, unreadStoryAvailable, waitingForSubmittedHumanInput]);
+
   function renderStoryProcessingHud() {
-    if (!processingHudVisible) {
+    if (!processingHudVisible || unreadStoryAvailable) {
       return null;
     }
 
     const progress = storyWaitingForStream ? generationProgress : null;
-    const title = "AIプレイヤーが考えています";
+    const title =
+      streamWaitNotice === "stalled"
+        ? "生成の応答が止まっている可能性があります"
+        : streamWaitNotice === "slow"
+          ? "AI生成に時間がかかっています"
+          : "AIプレイヤーが考えています";
     const passText = progress?.pass && progress.passes ? ` ${progress.pass}/${progress.passes}巡目` : "";
-    const detail = progress ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}` : null;
+    const progressDetail = progress
+      ? `${progress.completed}/${progress.total}件${passText} · 実行中${progress.active} · 待機${progress.queued} · 並列${progress.concurrency}`
+      : null;
+    const detail =
+      streamWaitNotice === "stalled"
+        ? "応答が戻らない場合は対局をリセットしてください"
+        : streamWaitNotice === "slow"
+          ? "接続は維持されています。生成の完了を待っています"
+          : progressDetail;
     const progressPercent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
     return (
-      <section className="story-processing-hud" role="status" aria-live="polite">
+      <section className={`story-processing-hud ${streamWaitNotice ? `is-${streamWaitNotice}` : ""}`} role="status" aria-live="polite">
         <span className="processing-icon" aria-hidden="true">
           <LoaderCircle size={18} />
         </span>
@@ -3898,6 +4025,11 @@ export function App() {
           <span className="processing-meter" aria-hidden="true">
             <i style={{ width: `${progressPercent}%` }} />
           </span>
+        ) : null}
+        {streamWaitNotice === "stalled" ? (
+          <button className="processing-reset-button" onClick={resetToSetup} type="button">
+            対局をリセット
+          </button>
         ) : null}
       </section>
     );

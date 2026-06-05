@@ -1572,8 +1572,9 @@ test("hard reload resets the tour without a startup generation gate", () => {
   assert.match(source, /storyProcessingBlocksAdvance \|\|/);
   assert.match(source, /primaryActionLabel = primaryActionIsGameStart \? "ゲーム開始" : humanInputAdvanceReady \? "入力へ" : storyProcessingBlocksAdvance \? "処理中" : "次へ"/);
   assert.match(source, /hideProcessingHudNow\(\);\s*\n\s*\}\);/);
-  assert.match(source, /if \(!processingHudVisible\) \{\s*\n\s*return null;/);
-  assert.match(source, /const title = "AIプレイヤーが考えています";/);
+  assert.match(source, /if \(!processingHudVisible \|\| unreadStoryAvailable\) \{\s*\n\s*return null;/);
+  assert.match(source, /streamWaitNotice === "stalled"[\s\S]*?生成の応答が止まっている可能性があります/);
+  assert.match(source, /streamWaitNotice === "slow"[\s\S]*?AI生成に時間がかかっています/);
 
   // Real generation waits still keep the HUD visible briefly, but the minimum is 2s.
   assert.match(source, /const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;/);
