@@ -225,6 +225,22 @@ test("personal game-end outcome calls out unmet win conditions", () => {
   assert.equal(missedOutcome?.status, "lost");
   assert.match(missedOutcome?.detail ?? "", /勝利陣営は恋人陣営・道化師陣営、あなたの陣営は人間側です。/);
 
+  const standardAndLoverWinSnapshot: GameSnapshot = {
+    ...sharedWinSnapshot,
+    winner: "village",
+    winnerCamp: "lover",
+    winnerIds: ["p1", "p2", "p5"],
+    winnerCamps: ["lover", "village"],
+    winnerGroups: [
+      { camp: "lover", winnerIds: ["p1", "p2"] },
+      { camp: "village", winnerIds: ["p1", "p2", "p5"] }
+    ]
+  };
+  const sharedVillageOutcome = personalVictoryOutcomeForSnapshot(standardAndLoverWinSnapshot, "p5", "Japanese");
+  assert.equal(sharedVillageOutcome?.status, "won");
+  assert.equal(sharedVillageOutcome?.winnerCamp, "village");
+  assert.match(sharedVillageOutcome?.detail ?? "", /人間側として勝利/);
+
   const deadLoverOutcome = personalVictoryOutcomeForSnapshot(
     {
       ...snapshot,

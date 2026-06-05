@@ -42,7 +42,14 @@ import {
 import { roleCamp } from "./rules/roles";
 import { addVictoryClaims, applyStatusEffects, canUseAbilities, createInitialRuleState, expireStatuses, playerStatuses } from "./rules/state";
 import { filterEligibleVotes, resolveVote, tallyVotes, topVoted, voteModifiersFromRuleState, type VoteModifier } from "./rules/voting";
-import { adjudicateStandardVictory, checkLoverVictory, checkNeutralVictory, checkStandardVictory, countAliveByCamp } from "./rules/victory";
+import {
+  adjudicateStandardVictory,
+  checkLoverVictory,
+  checkNeutralVictory,
+  checkStandardVictory,
+  countAliveByCamp,
+  standardCampWinnerIds
+} from "./rules/victory";
 import { sample, shuffle, weightedChance } from "./random";
 import { werewolfFaceoffLineOptionsForPlayer } from "./werewolfFaceoffLines";
 import type {
@@ -2415,12 +2422,17 @@ export class WerewolfGame {
     }
 
     const adjudicated = adjudicateStandardVictory(this.players);
+    const adjudicatedWinnerIds = standardCampWinnerIds(this.players, adjudicated);
     const loverResult = checkLoverVictory(this.players, this.ruleState);
     yield this.finishGame(
       loverResult
-        ? this.loverVictoryResult(loverResult)
+        ? this.loverVictoryResult(loverResult, adjudicated, adjudicatedWinnerIds)
         : {
             camp: adjudicated,
+            winnerCamp: adjudicated,
+            winnerIds: adjudicatedWinnerIds,
+            winnerCamps: [adjudicated],
+            winnerGroups: [{ camp: adjudicated, winnerIds: adjudicatedWinnerIds }],
             reason: this.text(
               `Round limit reached after ${this.config.maxRounds} rounds.`,
               `${this.config.maxRounds}ラウンドの上限に到達しました。`
@@ -4805,16 +4817,21 @@ export class WerewolfGame {
     ];
   }
 
-  private loverVictoryResult(loverResult: ReturnType<typeof checkLoverVictory>): VictoryResult {
-    if (!loverResult) {
-      throw new Error("lover victory result is required");
-    }
+  private loverVictoryResult(
+    loverResult: NonNullable<ReturnType<typeof checkLoverVictory>>,
+    standardCamp = loverResult.fallbackCamp,
+    standardWinnerIds = standardCampWinnerIds(this.players, standardCamp)
+  ): VictoryResult {
+    const winnerGroups: WinnerGroup[] = [
+      { camp: loverResult.camp, winnerIds: loverResult.winnerIds },
+      { camp: standardCamp, winnerIds: standardWinnerIds }
+    ];
     return {
-      camp: loverResult.fallbackCamp,
+      camp: standardCamp,
       winnerCamp: loverResult.camp,
-      winnerIds: loverResult.winnerIds,
-      winnerCamps: [loverResult.camp],
-      winnerGroups: [{ camp: loverResult.camp, winnerIds: loverResult.winnerIds }],
+      winnerIds: [...new Set(winnerGroups.flatMap((group) => group.winnerIds))],
+      winnerCamps: winnerGroups.map((group) => group.camp),
+      winnerGroups,
       reason: this.text("Both lovers are alive at game end.", "ゲーム終了時点で恋人2人とも生存しています。")
     };
   }
@@ -4883,7 +4900,7 @@ export class WerewolfGame {
     }
 
     if (loverResult) {
-      return this.loverVictoryResult(loverResult);
+      return result ? this.loverVictoryResult(loverResult, result.fallbackCamp, result.winnerIds) : null;
     }
 
     if (!result) {
@@ -5634,7 +5651,11 @@ export class WerewolfGame {
       return null;
     }
 
-    const { result: _result, targetId: _targetId, targetName: _targetName, camp: _camp, ...rest } = claim;
+    const rest: ClaimMetadata = { ...claim };
+    delete rest.result;
+    delete rest.targetId;
+    delete rest.targetName;
+    delete rest.camp;
     const note =
       claim.note && !textHasCampResultEvidence(claim.note)
         ? claim.note
