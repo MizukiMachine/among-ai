@@ -20,6 +20,7 @@ import {
   mentionedCharactersForEvent,
   mentionedCharactersForText,
   personalVictoryOutcomeForSnapshot,
+  shouldDeferDiscussionInterruptSkip,
   shouldRevealBlockingHumanInputAfterAdvance,
   shouldRevealNonBlockingHumanInputAfterAdvance,
   stageLightMoodForEvent,
@@ -30,7 +31,7 @@ import {
   winnerLabelForRoster
 } from "../src/client/App";
 import { roleLabel as displayRoleLabel } from "../src/game/i18n";
-import type { GameEvent, GameSnapshot } from "../src/game/types";
+import type { GameEvent, GameSnapshot, HumanInputRequest } from "../src/game/types";
 
 test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -1276,6 +1277,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function isOptionalDiscussionInterruptInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
+  assert.match(source, /function skipVisibleDiscussionInterruptInput\(\)/);
+  assert.match(source, /function deferActiveHumanInput\(\)/);
+  assert.match(source, /shouldDeferDiscussionInterruptSkip\(visibleHumanInput, queuedRef\.current\.length\)/);
+  assert.match(source, /deferActiveHumanInput\(\);[\s\S]*revealNext\(\);/);
   assert.match(source, /const optionalDiscussionInterruptSkipReady = Boolean\(availableSpeechInterruptInput\);/);
   assert.doesNotMatch(source, /const revealNextStoryEventOnArrivalRef = useRef\(false\);/);
   assert.doesNotMatch(source, /void submitHumanInput\(\{ decision: false \}, \{ revealNextStoryEventOnArrival: true \}\);/);
@@ -1336,7 +1341,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
-  assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?submitHumanInput\(\{ decision: false \}\)[\s\S]*?発言せず次へ/s);
+  assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?onClick=\{skipVisibleDiscussionInterruptInput\}[\s\S]*?発言せず次へ/s);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(source, /!\s*speechInputPrompt\s*&&\s*currentEvent\?\.type !== "game_ended"\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
@@ -1385,6 +1390,34 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }, { id: 3 }], false, false), true);
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], true, false), false);
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, true), false);
+});
+
+test("discussion interrupt skip stays available across already queued story", () => {
+  const request: HumanInputRequest = {
+    id: "request-1",
+    kind: "speech_choice",
+    speechMode: "discussion_interrupt",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion",
+    role: "Villager",
+    task: "昼議論に発言を挟んでください。",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    allowFreeText: true,
+    options: []
+  };
+  const faceoffRequest: HumanInputRequest = {
+    ...request,
+    speechMode: "werewolf_alignment",
+    phase: "werewolf_discussion",
+    role: "Werewolf"
+  };
+
+  assert.equal(shouldDeferDiscussionInterruptSkip(request, 1), true);
+  assert.equal(shouldDeferDiscussionInterruptSkip(request, 0), false);
+  assert.equal(shouldDeferDiscussionInterruptSkip(faceoffRequest, 1), false);
+  assert.equal(shouldDeferDiscussionInterruptSkip(null, 1), false);
 });
 
 test("blocking human input requires an extra advance after the story anchor is visible", () => {
