@@ -1392,6 +1392,61 @@ test("voting eliminates a single top-voted player and records totals", async () 
   assert.ok(summary.message.includes("Votes:"));
 });
 
+test("day-scoped public digest carries factual claims without stale reads", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Seer" },
+    { role: "Werewolf" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+  const seer = players[0];
+  const checked = players[1];
+  const staleSuspect = players[2];
+  (game as unknown as { round: number; phase: "day_discussion" }).round = 1;
+  (game as unknown as { round: number; phase: "day_discussion" }).phase = "day_discussion";
+  game.publicHistory.push(`${seer.name}: 占い師として出ます。${checked.name}は人狼判定です。`);
+  game.lastDiscussion = [
+    {
+      playerId: seer.id,
+      playerName: seer.name,
+      message: `${checked.name}は人狼判定です。${staleSuspect.name}も発言が薄いです。`,
+      metadata: {
+        claims: [
+          {
+            type: "role_claim",
+            role: "Seer",
+            result: {
+              targetId: checked.id,
+              targetName: checked.name,
+              camp: "werewolf",
+              round: 1
+            }
+          }
+        ],
+        suspects: [{ targetId: staleSuspect.id, targetName: staleSuspect.name, reason: "発言が薄い" }],
+        trusts: []
+      }
+    }
+  ];
+
+  const summary = await game.emitRoundSummary();
+  assert.match(summary.message, new RegExp(`読み: 疑い先 ${staleSuspect.name}`));
+
+  (game as unknown as { round: number; phase: "day_discussion"; roundPublicStart: number }).round = 2;
+  (game as unknown as { round: number; phase: "day_discussion"; roundPublicStart: number }).phase = "day_discussion";
+  (game as unknown as { round: number; phase: "day_discussion"; roundPublicStart: number }).roundPublicStart = game.publicHistory.length;
+  game.publicHistory.push(`${staleSuspect.name}: 今日の発言です。`);
+  const context = (game as unknown as { contextFor(player: Player): string }).contextFor(seer);
+
+  assert.match(context, /これまでの経過（日ごとの要約）:/);
+  assert.match(context, new RegExp(`主張: ${seer.name}が占い師を主張: ${checked.name}は人狼判定`));
+  assert.match(context, new RegExp(`${staleSuspect.name}: 今日の発言です。`));
+  assert.doesNotMatch(context, new RegExp(`読み: 疑い先 ${staleSuspect.name}`));
+});
+
 test("next-day context carries the successful vote execution target", async () => {
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [
@@ -3860,7 +3915,8 @@ test("optional human day interrupt stays open while the next AI speech race cont
     {
       ...baseConfig,
       humanPlayerId: "p3",
-      prefetchConcurrency: 1
+      prefetchConcurrency: 1,
+      humanOptionalInputTimeoutMs: 1
     },
     { humanInput }
   ) as TestableGame;
@@ -3872,7 +3928,7 @@ test("optional human day interrupt stays open while the next AI speech race cont
   ]);
   players[2].model = "human";
   game.agents.set(players[0].id, new DelayedSpeechAgent(players[0].name, [1], () => "最初のAI発言です。"));
-  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [1], () => "次のAI発言です。"));
+  game.agents.set(players[1].id, new DelayedSpeechAgent(players[1].name, [30], () => "次のAI発言です。"));
   game.agents.set(players[3].id, new DelayedSpeechAgent(players[3].name, [1], () => "三人目のAI発言です。"));
 
   const iterator = game.runDay();

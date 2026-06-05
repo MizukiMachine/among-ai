@@ -6464,3 +6464,171 @@ input[type="range"] {
     transition: none;
   }
 }
+
+/* Rules reference panel (approach D) — reuses the .player-history-popover chrome */
+.rules-popover .overlay-title svg {
+  color: var(--ship-cyan);
+}
+
+.rules-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 2px 0 4px;
+  list-style: none;
+  counter-reset: rules-counter;
+}
+
+.rules-list li {
+  position: relative;
+  padding-left: 32px;
+  color: #d6e2e9;
+  font-size: 16px;
+  line-height: 1.6;
+  counter-increment: rules-counter;
+}
+
+.rules-list li::before {
+  content: counter(rules-counter);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(103, 216, 223, 0.4);
+  background: rgba(103, 216, 223, 0.12);
+  color: var(--ship-cyan);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* Opening monologue (approach A) — cinematic curtain-rise narration */
+.opening-monologue {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.opening-monologue-backdrop {
+  position: fixed;
+  inset: 0;
+  cursor: pointer;
+  background:
+    radial-gradient(120% 80% at 50% 40%, rgba(8, 16, 24, 0.86), rgba(2, 5, 9, 0.97));
+  backdrop-filter: blur(6px);
+  animation: opening-monologue-fade 0.45s ease-out;
+}
+
+.opening-monologue-panel {
+  position: relative;
+  z-index: 1;
+  width: min(680px, 100%);
+  padding: 40px 40px 32px;
+  border: 1px solid rgba(103, 216, 223, 0.22);
+  border-radius: 16px;
+  background:
+    linear-gradient(rgba(20, 33, 42, 0.62), rgba(7, 13, 19, 0.9)),
+    var(--ship-panel-texture),
+    #0d1820;
+  background-blend-mode: normal, soft-light, normal;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(103, 216, 223, 0.14),
+    inset 0 0 80px rgba(103, 216, 223, 0.05);
+  text-align: center;
+  animation: opening-monologue-fade 0.5s ease-out;
+}
+
+.opening-monologue-tag {
+  display: inline-block;
+  margin-bottom: 22px;
+  padding: 5px 14px;
+  border: 1px solid rgba(103, 216, 223, 0.35);
+  border-radius: 999px;
+  color: var(--ship-cyan);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.opening-monologue-lines {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.opening-monologue-lines p {
+  margin: 0;
+  color: #e9f2f6;
+  font-size: 19px;
+  line-height: 1.72;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: monologue-line-in 0.7s ease-out forwards;
+  animation-delay: calc(var(--monologue-line) * 0.6s + 0.35s);
+}
+
+.opening-monologue-begin {
+  min-height: 46px;
+  padding: 11px 30px;
+  border: 1px solid rgba(103, 216, 223, 0.55);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(103, 216, 223, 0.16), rgba(103, 216, 223, 0.06));
+  color: #eafcff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  opacity: 0;
+  animation: monologue-begin-in 0.6s ease-out forwards;
+  animation-delay: 2.9s;
+  transition: filter 0.15s ease, background 0.15s ease;
+}
+
+.opening-monologue-begin:hover {
+  filter: brightness(1.12);
+  background: linear-gradient(180deg, rgba(103, 216, 223, 0.26), rgba(103, 216, 223, 0.12));
+}
+
+@keyframes opening-monologue-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes monologue-line-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes monologue-begin-in {
+  to { opacity: 1; }
+}
+
+@media (max-width: 700px) {
+  .opening-monologue-panel {
+    padding: 30px 22px 26px;
+  }
+  .opening-monologue-lines p {
+    font-size: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opening-monologue-backdrop,
+  .opening-monologue-panel,
+  .opening-monologue-lines p,
+  .opening-monologue-begin {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

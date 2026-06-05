@@ -182,6 +182,98 @@ test("public speech context is a simple character-role-conversation prompt", () 
   }
 });
 
+test("private memory context keeps older round facts after later memories grow", () => {
+  const context = buildPromptContext({
+    player: player("Seer"),
+    phase: "day_discussion",
+    promptPhase: "discussion",
+    mode: "public_speech",
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Ada: 今日の投票先を整理します。"],
+    privateHistory: [
+      "第1ラウンド: Curieは人狼判定。",
+      "第2ラウンド: Byronへ投票。理由: 票理由が薄い。",
+      "第3ラウンド: ",
+      ...Array.from({ length: 14 }, (_, index) => `第3ラウンド: 直近の記憶${index + 1}。`)
+    ],
+    language: "Japanese",
+    lastNightDeaths: []
+  });
+
+  assert.match(context, /1日目:/);
+  assert.match(context, /Curieは人狼判定/);
+  assert.match(context, /3日目（今日）:/);
+  assert.doesNotMatch(context, /^- 第3ラウンド:\s*$/m);
+});
+
+test("public context buckets past day digests and current day raw discussion", () => {
+  const publicHistory = [
+    "Ada: 1日目の古い占い主張です。",
+    "第1ラウンド投票: Ada -> Byron。得票: Byron 2票。",
+    "Byron: 2日目の古い反論です。",
+    "第2ラウンド投票: Byron -> Curie。得票: Curie 2票。",
+    "Ada: 3日目の今日の発言です。"
+  ];
+  const baseInput = {
+    player: player("Seer"),
+    phase: "day_discussion" as const,
+    promptPhase: "discussion" as const,
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory,
+    privateHistory: [],
+    pastDayPublicDigests: [
+      { round: 1, message: "夜: 死亡者なし。主張: Adaが占い師を主張: Byronは人狼判定。投票: Byron 2票。" },
+      { round: 2, message: "夜: Curieが死亡。主張: なし。投票: Curie 2票。" }
+    ],
+    currentRoundPublicStart: 4,
+    language: "Japanese",
+    lastNightDeaths: []
+  };
+
+  const publicSpeechContext = buildPromptContext({
+    ...baseInput,
+    mode: "public_speech"
+  });
+  assert.match(publicSpeechContext, /これまでの経過（日ごとの要約）:/);
+  assert.match(publicSpeechContext, /1日目: 夜: 死亡者なし/);
+  assert.match(publicSpeechContext, /今日（3日目）の議論:/);
+  assert.match(publicSpeechContext, /自分（Ada）: 3日目の今日の発言です。/);
+  assert.doesNotMatch(publicSpeechContext, /1日目の古い占い主張/);
+  assert.doesNotMatch(publicSpeechContext, /2日目の古い反論/);
+
+  const internalContext = buildPromptContext({
+    ...baseInput,
+    mode: "internal_decision"
+  });
+  assert.match(internalContext, /Ada: 3日目の今日の発言です。/);
+  assert.doesNotMatch(internalContext, /自分（Ada）: 3日目の今日の発言です。/);
+});
+
+test("public context falls back to flat history when day metadata is incomplete", () => {
+  const context = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    promptPhase: "discussion",
+    mode: "internal_decision",
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Ada: 1日目の古い発言です。", "Curie: 3日目の今日の発言です。"],
+    privateHistory: [],
+    pastDayPublicDigests: [{ round: 1, message: "夜: 死亡者なし。主張: なし。投票: Ada 1票。" }],
+    language: "Japanese",
+    lastNightDeaths: []
+  });
+
+  assert.doesNotMatch(context, /これまでの経過（日ごとの要約）:/);
+  assert.match(context, /Ada: 1日目の古い発言です。/);
+  assert.match(context, /Curie: 3日目の今日の発言です。/);
+});
+
 test("prompt builder only exposes secrets visible to each role", () => {
   const werewolf = contextFor("Werewolf");
   assert.match(werewolf, /SecretWolf/);

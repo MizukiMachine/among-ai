@@ -593,6 +593,104 @@ function publicSpeechHistoryLines(lines: string[], player: Player, language: str
   return recentLines(lines.map((line) => selfAwarePublicHistoryLine(line, player, language)), count);
 }
 
+/**
+ * Render the public-discussion block as day buckets: earlier rounds appear as compact factual
+ * recaps (deterministic round summaries) and only the current round shows raw speech lines.
+ * Falls back to a flat recent window when the caller did not provide complete day metadata,
+ * so behaviour is unchanged for legacy prompt-builder callers.
+ */
+function dayScopedPublicHistoryLines(
+  options: BuildPromptContextOptions,
+  player: Player,
+  language: string,
+  count: number,
+  selfAware: boolean
+): string[] {
+  const { publicHistory, pastDayPublicDigests, currentRoundPublicStart, round } = options;
+  const japanese = isJapaneseLanguage(language);
+  const flatLines = selfAware ? publicSpeechHistoryLines(publicHistory, player, language, count) : recentLines(publicHistory, count);
+  if (!Array.isArray(pastDayPublicDigests) || typeof currentRoundPublicStart !== "number" || !Number.isFinite(currentRoundPublicStart)) {
+    return flatLines;
+  }
+
+  const past = pastDayPublicDigests.filter((entry) => entry.round < round && entry.message.trim().length > 0);
+  const start = Math.max(0, Math.min(publicHistory.length, Math.floor(currentRoundPublicStart)));
+  if (past.length === 0 && start > 0) {
+    return flatLines;
+  }
+
+  const currentRaw = publicHistory.slice(start);
+  const todayLines = selfAware
+    ? publicSpeechHistoryLines(currentRaw, player, language, count)
+    : recentLines(currentRaw, count);
+
+  if (past.length === 0) {
+    return todayLines;
+  }
+
+  const out: string[] = [japanese ? "これまでの経過（日ごとの要約）:" : "Recap by day so far:"];
+  for (const entry of past) {
+    out.push(japanese ? `- ${entry.round}日目: ${entry.message}` : `- Day ${entry.round}: ${entry.message}`);
+  }
+  out.push("", japanese ? `今日（${round}日目）の議論:` : `Today (Day ${round}) discussion:`);
+  if (todayLines.length > 0) {
+    out.push(...todayLines);
+  } else {
+    out.push(japanese ? "- まだ発言はありません。" : "- No remarks yet.");
+  }
+  return out;
+}
+
+const MEMORY_ROUND_PREFIX = /^(?:第(\d+)ラウンド|Round\s+(\d+))[:：]\s*/i;
+
+/**
+ * Render the player's private memory grouped into day buckets. Memory lines are factual notes
+ * (own night actions, seer results, vote records) already tagged with their round, so grouping by
+ * day keeps early-day facts (e.g. a Day 1 seer result) visible on later days instead of letting
+ * them fall out of a flat recent window. Unrecognised lines are kept under a trailing "other" group.
+ */
+function dayScopedMemoryLines(privateHistory: string[], round: number, language: string, count: number): string[] {
+  const japanese = isJapaneseLanguage(language);
+  const byRound = new Map<number, string[]>();
+  const other: string[] = [];
+  let sawRoundPrefix = false;
+  for (const line of privateHistory) {
+    const match = line.match(MEMORY_ROUND_PREFIX);
+    if (match) {
+      sawRoundPrefix = true;
+      const parsed = Number(match[1] ?? match[2]);
+      const stripped = line.replace(MEMORY_ROUND_PREFIX, "").trim();
+      if (stripped.length === 0) {
+        continue;
+      }
+      const bucket = byRound.get(parsed) ?? [];
+      bucket.push(stripped);
+      byRound.set(parsed, bucket);
+    } else {
+      other.push(line);
+    }
+  }
+
+  if (byRound.size === 0) {
+    return recentLines(sawRoundPrefix ? other : privateHistory, count);
+  }
+
+  const out: string[] = [];
+  const maxLinesPerRound = Math.max(2, Math.ceil(count / Math.max(1, byRound.size)));
+  let emittedMemoryLines = 0;
+  for (const parsed of [...byRound.keys()].sort((a, b) => a - b)) {
+    const label = parsed === round ? (japanese ? `${parsed}日目（今日）:` : `Day ${parsed} (today):`) : japanese ? `${parsed}日目:` : `Day ${parsed}:`;
+    const bucketLines = recentLines(byRound.get(parsed)!, maxLinesPerRound);
+    emittedMemoryLines += bucketLines.length;
+    out.push(label, ...bucketLines.map((line) => `- ${line}`));
+  }
+  const otherBudget = Math.max(0, count - emittedMemoryLines);
+  if (otherBudget > 0 && other.length > 0) {
+    out.push(japanese ? "その他:" : "Other:", ...recentLines(other, otherBudget).map((line) => `- ${line}`));
+  }
+  return out;
+}
+
 function publicUnknownDeathLabel(language: string): string {
   return isJapaneseLanguage(language) ? "公開上原因不明" : "public cause unknown";
 }
@@ -677,9 +775,9 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     extra = []
   } = options;
   const japanese = isJapaneseLanguage(language);
-  const recentPublicHistory = publicHistory.length > 0 ? publicSpeechHistoryLines(publicHistory, player, language, 24) : ["- まだありません。"];
+  const recentPublicHistory = publicHistory.length > 0 ? dayScopedPublicHistoryLines(options, player, language, 24, true) : ["- まだありません。"];
   const visibleSituation = publicSpeechSituationLines(extra);
-  const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : ["- なし。"];
+  const privateMemory = privateHistory.length > 0 ? dayScopedMemoryLines(privateHistory, round, language, 12) : ["- なし。"];
   const rosterStatus = publicDayRosterStatusLines(options);
   const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
 
@@ -835,7 +933,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   ];
 
   if (privateHistory.length > 0) {
-    lines.push("", japanese ? "自分の記憶:" : "自分の記憶:", ...recentLines(privateHistory, 12));
+    lines.push("", japanese ? "自分の記憶（日ごと）:" : "自分の記憶（日ごと）:", ...dayScopedMemoryLines(privateHistory, round, language, 16));
   }
 
   if (publicHistory.length > 0) {
@@ -848,7 +946,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       japanese
         ? "- 見えている発言だけを証拠にする。反応、矛盾、名乗り、発言量を作らない。"
         : "- 見えている発言だけを証拠にする。反応、矛盾、名乗り、発言量を作らない。",
-      ...recentLines(publicHistory, 18)
+      ...dayScopedPublicHistoryLines(options, player, language, 18, false)
     );
   }
 
@@ -912,11 +1010,11 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
   ];
 
   if (privateHistory.length > 0) {
-    lines.push("", "自分の記憶:", ...recentLines(privateHistory, 12));
+    lines.push("", "自分の記憶（日ごと）:", ...dayScopedMemoryLines(privateHistory, round, language, 16));
   }
 
   if (publicHistory.length > 0) {
-    lines.push("", "直近の昼の発言:", ...recentLines(publicHistory, 18));
+    lines.push("", "直近の昼の発言:", ...dayScopedPublicHistoryLines(options, player, language, 18, false));
   } else {
     lines.push("", "直近の昼の発言:", "- まだ、この昼の発言はありません。");
   }

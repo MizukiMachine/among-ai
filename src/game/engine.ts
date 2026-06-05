@@ -246,6 +246,39 @@ interface DiscussionReadDetail {
   weight?: number;
 }
 
+interface RoundSummaryDeathDetail {
+  playerId: string;
+  playerName: string;
+}
+
+interface RoundSummaryClaimDetail {
+  speakerId: string;
+  speakerName: string;
+  claim: ClaimMetadata;
+}
+
+interface RoundSummaryVoteDetail {
+  voterId: string;
+  voterName: string;
+  targetId: string;
+  targetName: string;
+}
+
+interface RoundSummaryVoteTotal {
+  targetId: string;
+  targetName: string;
+  count: number;
+}
+
+type RoundSummaryData = Record<string, unknown> & {
+  nightDeaths: RoundSummaryDeathDetail[];
+  claims: RoundSummaryClaimDetail[];
+  suspects: DiscussionReadDetail[];
+  trusts: DiscussionReadDetail[];
+  votes: RoundSummaryVoteDetail[];
+  totals: RoundSummaryVoteTotal[];
+};
+
 interface SocialReadPressure {
   targetId: string;
   targetName: string;
@@ -1135,6 +1168,11 @@ export class WerewolfGame {
   private readonly humanInput?: HumanInputHandler;
   private humanChoiceAgent: Agent | null = null;
   private readonly publicHistory: string[] = [];
+  // Day-segmented context: one factual recap per round that has already ended, carried forward
+  // so prior-day events survive into later days instead of being dropped by the sliding window.
+  private readonly roundPublicDigests: Array<{ round: number; message: string }> = [];
+  // Index into publicHistory where the current round's public discussion begins.
+  private roundPublicStart = 0;
   private readonly wolfHistory: string[] = [];
   private readonly loverHistory: string[] = [];
   private readonly config: GameConfig;
@@ -1653,9 +1691,12 @@ export class WerewolfGame {
     };
 
     const consumePendingHumanInterrupt = async (
-      pending: PendingHumanDayDiscussionInterrupt
+      pending: PendingHumanDayDiscussionInterrupt,
+      options: { startTimeout?: boolean } = {}
     ): Promise<DayDiscussionSpeechResult | null> => {
-      const result = await pending.promise;
+      const result = options.startTimeout
+        ? await this.waitForPendingHumanDayDiscussionInterrupt(pending)
+        : await pending.promise;
       if (pendingHumanInterrupt === pending) {
         pendingHumanInterrupt = null;
         humanInterruptState.pending = null;
@@ -1681,7 +1722,7 @@ export class WerewolfGame {
             break;
           }
           const activeHumanInterrupt = pendingHumanInterrupt;
-          const humanInterrupt = await consumePendingHumanInterrupt(activeHumanInterrupt);
+          const humanInterrupt = await consumePendingHumanInterrupt(activeHumanInterrupt, { startTimeout: true });
           if (!humanInterrupt) {
             break;
           }
@@ -1813,7 +1854,7 @@ export class WerewolfGame {
       ),
       ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
     ];
-    const response = await this.requestOptionalHumanInput(
+    const response = await this.requestOptionalHumanInputWithoutTimeout(
       {
         kind: "speech_choice",
         speechMode: "discussion_interrupt",
@@ -1840,6 +1881,36 @@ export class WerewolfGame {
     return customSpeech
       ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
       : null;
+  }
+
+  private async waitForPendingHumanDayDiscussionInterrupt(
+    pending: PendingHumanDayDiscussionInterrupt
+  ): Promise<DayDiscussionSpeechResult | null> {
+    let timedOut = false;
+    let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeout = setNodeTimeout(() => {
+        timedOut = true;
+        pending.controller.abort();
+        resolve(null);
+      }, this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([pending.promise, timeoutPromise]);
+      if (this.abortSignal?.aborted) {
+        throw new Error("Game stream cancelled.");
+      }
+      if (timedOut) {
+        console.warn("[human-input] optional day discussion interrupt timed out; continuing without input.");
+      }
+      return result;
+    } finally {
+      if (timeout) {
+        clearNodeTimeout(timeout);
+      }
+      pending.promise.catch(() => undefined);
+    }
   }
 
   // Speculative race over different speakers: the slot/cancel mechanism lives in
@@ -2389,6 +2460,8 @@ export class WerewolfGame {
     while (!this.winner && this.round < this.config.maxRounds) {
       this.throwIfCancelled();
       this.round += 1;
+      // Everything pushed to publicHistory from here on belongs to this round's day discussion.
+      this.roundPublicStart = this.publicHistory.length;
 
       yield* this.runDay();
       this.throwIfCancelled();
@@ -3517,7 +3590,7 @@ export class WerewolfGame {
       if (!pending) {
         return null;
       }
-      const result = await pending.promise;
+      const result = await this.waitForPendingHumanDayDiscussionInterrupt(pending);
       if (humanInterruptState.pending === pending) {
         humanInterruptState.pending = null;
       }
@@ -5476,6 +5549,39 @@ export class WerewolfGame {
     }
   }
 
+  private async requestOptionalHumanInputWithoutTimeout(
+    input: HumanInputRequestPayload,
+    options: { signal?: AbortSignal; logLabel?: string } = {}
+  ): Promise<HumanInputResponse | null> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return null;
+    }
+
+    const requestAbort = mergeAbortSignals(this.abortSignal, options.signal);
+    try {
+      const response = await (handler.requestOptional
+        ? handler.requestOptional(input, { signal: requestAbort.signal })
+        : handler.request(input));
+      if (this.abortSignal?.aborted) {
+        throw new Error("Game stream cancelled.");
+      }
+      return response;
+    } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(
+        `[human-input] optional ${options.logLabel ?? "input"} failed; continuing without input: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    } finally {
+      requestAbort.cleanup();
+    }
+  }
+
   private async humanWerewolfFaceoffSpeech(
     player: Player,
     werewolves: Player[],
@@ -5949,6 +6055,11 @@ export class WerewolfGame {
 
   private async emitRoundSummary(): Promise<GameEvent> {
     const summary = this.buildRoundSummary();
+    // Carry only factual recap forward as its day-bucket. Reads stay in the latest live state
+    // instead of becoming stale suspicion/trust layers in later-day prompts.
+    if (!this.roundPublicDigests.some((entry) => entry.round === this.round)) {
+      this.roundPublicDigests.push({ round: this.round, message: this.buildRoundPublicDigest(summary.data) });
+    }
     const data: Record<string, unknown> = {
       ...summary.data,
       deterministicMessage: summary.message,
@@ -5998,7 +6109,7 @@ export class WerewolfGame {
     return null;
   }
 
-  private buildRoundSummary(): { message: string; data: Record<string, unknown> } {
+  private buildRoundSummary(): { message: string; data: RoundSummaryData } {
     const nightDeaths = this.lastNightDeaths.map((id) => {
       const player = this.requirePlayer(id);
       return { playerId: player.id, playerName: player.name };
@@ -6056,6 +6167,32 @@ export class WerewolfGame {
         totals
       }
     };
+  }
+
+  private buildRoundPublicDigest(data: RoundSummaryData): string {
+    const nightLine =
+      data.nightDeaths.length > 0
+        ? this.text(
+            `Night: ${data.nightDeaths.map((death) => death.playerName).join(", ")} died.`,
+            `夜: ${data.nightDeaths.map((death) => death.playerName).join(", ")}が死亡。`
+          )
+        : this.text("Night: no deaths.", "夜: 死亡者なし。");
+    const claimLine =
+      data.claims.length > 0
+        ? this.text(
+            `Claims: ${data.claims.map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}.`,
+            `主張: ${data.claims.map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}。`
+          )
+        : this.text("Claims: none.", "主張: なし。");
+    const sortedTotals = [...data.totals].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
+    const voteLine =
+      sortedTotals.length > 0
+        ? this.text(
+            `Votes: ${sortedTotals.map((total) => `${total.targetName} ${total.count}`).join(", ")}.`,
+            `投票: ${sortedTotals.map((total) => `${total.targetName} ${total.count}票`).join(", ")}。`
+          )
+        : this.text("Votes: none.", "投票: なし。");
+    return [nightLine, claimLine, voteLine].join(" ");
   }
 
   private formatReadLeaders(reads: Array<{ targetId: string; targetName: string }>): string {
@@ -6223,6 +6360,8 @@ export class WerewolfGame {
         .map(({ id, name, role }) => ({ id, name, role, publicDeathLabel: this.publicDeathLabelFor(id) })),
       publicHistory: this.publicHistory,
       privateHistory: player.memories,
+      pastDayPublicDigests: this.roundPublicDigests.filter((entry) => entry.round < round),
+      currentRoundPublicStart: this.roundPublicStart,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride, round),
       lastNightDeaths: publicNightDeathInfos(this.lastNightDeathRecords, this.players, this.config.language),
