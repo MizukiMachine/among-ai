@@ -1578,6 +1578,9 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /className="ui-tour-skip" onClick=\{finishTour\}/);
   const uiTourSource = source.slice(source.indexOf("  function renderUiTour()"), source.indexOf("  function renderOpeningMonologue()"));
   assert.doesNotMatch(uiTourSource, /aria-modal="true"/);
+  assert.match(source, /type TourRectState = \{ stepIndex: number; rect: DOMRect \| null \};/);
+  assert.match(source, /const rect = tourRect\?\.stepIndex === tourStepIndex \? tourRect\.rect : null;/);
+  assert.match(source, /className=\{rect \? "ui-tour-callout" : "ui-tour-callout is-centered"\}/);
 
   // Focus moves into the callout (no scroll) and Tab is trapped within it.
   assert.match(source, /tourCalloutRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
@@ -1586,6 +1589,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // Spotlight + callout styling exists.
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
+  assert.match(css, /\.ui-tour-callout\.is-centered\s*\{[^}]*animation-name:\s*ui-tour-centered-in;/s);
+  assert.match(css, /@keyframes ui-tour-centered-in\s*\{[\s\S]*transform:\s*translate\(-50%, calc\(-50% \+ 6px\)\);[\s\S]*transform:\s*translate\(-50%, -50%\);/);
   assert.match(css, /\.ui-tour-body-list\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(source, /const calloutWidth = Math\.min\(520, viewportWidth - calloutMargin \* 2\);/);
 });
