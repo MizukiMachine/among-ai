@@ -19,7 +19,7 @@ services:
       - key: ZAI_TIMEOUT_MS
         value: "45000"
       - key: AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS
-        value: "45000"
+        value: "120000"
       - key: AMONG_AI_STREAM_HEARTBEAT_MS
         value: "15000"
       - key: AMONG_AI_STREAM_WATCHDOG_MS

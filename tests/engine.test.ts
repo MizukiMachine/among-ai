@@ -2837,6 +2837,79 @@ test("first-day werewolf face-off falls back when optional human alignment is un
   assert.ok(game.wolfHistory.some((line) => line.includes(humanSpeech.message)));
 });
 
+test("optional werewolf face-off timeout extends while the client reports input activity", async () => {
+  const requestId = "werewolf-activity-request";
+  let latestActivityAt: number | null = null;
+  let cancelled = false;
+  let activityTimer: ReturnType<typeof setInterval> | null = null;
+  const humanInput: HumanInputHandler = {
+    async request() {
+      throw new Error("werewolf alignment should use optional input");
+    },
+    requestOptional(input, options) {
+      assert.equal(input.kind, "speech_choice");
+      assert.equal(input.speechMode, "werewolf_alignment");
+      options?.onRequestId?.(requestId);
+      latestActivityAt = Date.now();
+      activityTimer = setInterval(() => {
+        latestActivityAt = Date.now();
+      }, 5);
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (response: { speech: string } | null) => {
+          if (done) {
+            return;
+          }
+          done = true;
+          if (activityTimer) {
+            clearInterval(activityTimer);
+            activityTimer = null;
+          }
+          resolve(response);
+        };
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            if (!done) {
+              cancelled = true;
+            }
+            finish(null);
+          },
+          { once: true }
+        );
+        setTimeout(() => finish({ speech: "人間の合図です。" }), 60);
+      });
+    },
+    latestInputActivityAt(filter) {
+      assert.deepEqual(filter, { requestId, kind: "speech_choice", speechMode: "werewolf_alignment" });
+      return latestActivityAt;
+    }
+  };
+  const game = new WerewolfGame(
+    { ...baseConfig, humanPlayerId: "p1", language: "Japanese", prefetchConcurrency: 5, humanOptionalInputTimeoutMs: 20 },
+    { humanInput }
+  ) as OpeningTestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf" },
+    { role: "AlphaWolf" },
+    { role: "Villager" },
+    { role: "Seer" },
+    { role: "Villager" }
+  ]);
+  game.round = 1;
+  for (const player of players) {
+    game.agents.set(player.id, new IntroAgent(player.name));
+  }
+  players[0].model = "human";
+
+  const events = await collect(game.runWerewolfFaceoffPass());
+  const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+
+  assert.equal(cancelled, false);
+  assert.ok(humanSpeech);
+  assert.equal(humanSpeech.message, "人間の合図です");
+});
+
 test("first-day werewolf face-off times out even when optional input is unsupported", async () => {
   const requests: HumanInputRequestPayload[] = [];
   const humanInput: HumanInputHandler = {
@@ -4077,6 +4150,7 @@ test("optional human day interrupt times out after AI speech work is exhausted",
 test("optional human day interrupt timeout extends while the client reports input activity", async () => {
   let optionalRequestCount = 0;
   let cancelledOptionalRequestCount = 0;
+  const requestId = "activity-request";
   let latestActivityAt: number | null = null;
   let activityTimer: ReturnType<typeof setInterval> | null = null;
   const humanInput: HumanInputHandler = {
@@ -4093,6 +4167,7 @@ test("optional human day interrupt timeout extends while the client reports inpu
       optionalRequestCount += 1;
       assert.equal(input.kind, "speech_choice");
       assert.equal(input.speechMode, "discussion_interrupt");
+      options?.onRequestId?.(requestId);
       latestActivityAt = Date.now();
       activityTimer = setInterval(() => {
         latestActivityAt = Date.now();
@@ -4117,7 +4192,7 @@ test("optional human day interrupt timeout extends while the client reports inpu
       });
     },
     latestInputActivityAt: (filter) => {
-      assert.deepEqual(filter, { kind: "speech_choice", speechMode: "discussion_interrupt" });
+      assert.deepEqual(filter, { requestId, kind: "speech_choice", speechMode: "discussion_interrupt" });
       return latestActivityAt;
     }
   };

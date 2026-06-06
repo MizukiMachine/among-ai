@@ -1230,6 +1230,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function enqueueHumanInput\(request: HumanInputRequest, revealAfterEventId: number \| null\)/);
   assert.match(source, /function acknowledgeActiveHumanInput\(\)/);
   assert.match(source, /function completeHumanInputRequest\(request: HumanInputRequest\)/);
+  assert.match(
+    source,
+    /function completeHumanInputRequest\(request: HumanInputRequest\) \{[\s\S]*humanInputActivityTouchAtRef\.current\.delete\(request\.id\);/
+  );
   assert.match(source, /const pendingHumanInputEntry = pendingHumanInputs\[0\] \?\? null;/);
   assert.match(source, /const pendingHumanInput = pendingHumanInputEntry\?\.request \?\? null;/);
   assert.match(source, /const pendingHumanInputRevealAfterEventId = pendingHumanInputEntry\?\.revealAfterEventId \?\? null;/);
@@ -1290,13 +1294,23 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function isOptionalLoverAlignmentInput/);
   assert.match(source, /function isOptionalFaceoffAlignmentInput/);
   assert.match(source, /function isOptionalDiscussionInterruptInput/);
+  assert.match(source, /function isOptionalSpeechInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /function skipVisibleDiscussionInterruptInput\(\)/);
   assert.match(source, /function deferActiveHumanInput\(\)/);
   assert.match(source, /function touchHumanInputActivity\(request: HumanInputRequest, reason: "active" \| "opened" \| "typing"\)/);
+  assert.match(source, /if \(!currentGameId \|\| !isOptionalSpeechInput\(request\)\) \{/);
+  assert.match(source, /if \(lastTouchAt > 0 && now - lastTouchAt < 10_000\) \{/);
   assert.match(source, /fetch\(`\/api\/games\/\$\{currentGameId\}\/input\/activity`/);
+  assert.match(source, /const visibleOptionalSpeechInput = isOptionalSpeechInput\(visibleHumanInput\) \? visibleHumanInput : null;/);
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*touchHumanInputActivity\(visibleOptionalSpeechInput, "opened"\);[\s\S]*\}, \[visibleOptionalSpeechInput\?\.id, gameId\]\);/
+  );
   assert.match(source, /touchHumanInputActivity\(availableSpeechInterruptInput, "opened"\)/);
+  assert.match(source, /const tracksInputActivity = isOptionalSpeechInput\(prompt\);/);
+  assert.match(source, /if \(tracksInputActivity\) \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
   assert.match(source, /onCompositionStart=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
   assert.match(source, /onCompositionEnd=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
   assert.match(source, /onKeyDown=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
@@ -1316,6 +1330,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
   assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "lover_alignment" && request\.speechMode !== "discussion_interrupt"/);
   assert.match(source, /source\.addEventListener\("human_input_cancelled"/);
+  assert.match(
+    source,
+    /source\.addEventListener\("human_input_cancelled"[\s\S]*humanInputActivityTouchAtRef\.current\.delete\(requestId\);/
+  );
   assert.match(source, /const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest \| null>\(null\);/);
   assert.match(source, /function discardUnreadStoryBeforeHumanInterrupt\(request: HumanInputRequest\)/);
   assert.match(source, /isOptionalDiscussionInterruptInput\(request\) \|\| queuedRef\.current\.length === 0/);
@@ -1334,6 +1352,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);/);
   assert.match(source, /const localHumanSpeechEvent = createLocalHumanSpeechEvent\(request, payload\);/);
   assert.match(source, /const holdSubmittedScene = shouldHoldSubmittedHumanInputScene\(request\);/);
+  assert.match(
+    source,
+    /if \(response\.status === 404 && responseError === "input_not_pending"\) \{[\s\S]*completeHumanInputRequest\(request\);/
+  );
   assert.match(source, /submittedHumanInputRef\.current = holdSubmittedScene \? request : null;/);
   assert.match(source, /function shouldHoldSubmittedHumanInputScene\(request: HumanInputRequest\): boolean/);
   assert.match(source, /return request\.kind === "speech_choice" && !request\.nonBlocking;/);

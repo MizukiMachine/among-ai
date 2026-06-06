@@ -4,6 +4,7 @@ import type {
   HumanInputActivityFilter,
   HumanInputHandler,
   HumanInputRequest,
+  HumanInputRequestOptions,
   HumanInputRequestPayload,
   HumanInputResponse
 } from "../game/types";
@@ -30,8 +31,8 @@ export class HumanInputSession implements HumanInputHandler {
     return this.requestInternal(input, { optional: false }) as Promise<HumanInputResponse>;
   }
 
-  requestOptional(input: HumanInputRequestPayload, options: { signal?: AbortSignal } = {}): Promise<HumanInputResponse | null> {
-    return this.requestInternal(input, { optional: true, signal: options.signal });
+  requestOptional(input: HumanInputRequestPayload, options: HumanInputRequestOptions = {}): Promise<HumanInputResponse | null> {
+    return this.requestInternal(input, { optional: true, signal: options.signal, onRequestId: options.onRequestId });
   }
 
   latestInputActivityAt(filter: HumanInputActivityFilter = {}): number | null {
@@ -58,7 +59,7 @@ export class HumanInputSession implements HumanInputHandler {
 
   private requestInternal(
     input: HumanInputRequestPayload,
-    options: { optional: boolean; signal?: AbortSignal }
+    options: { optional: boolean; signal?: AbortSignal; onRequestId?: (requestId: string) => void }
   ): Promise<HumanInputResponse | null> {
     if (this.closed) {
       return Promise.reject(new Error("Human input session is closed."));
@@ -92,6 +93,7 @@ export class HumanInputSession implements HumanInputHandler {
         options.signal.addEventListener("abort", cancel, { once: true });
       }
       this.pending.set(request.id, { request, resolve, reject, lastActivityAt: null, cleanup });
+      options.onRequestId?.(request.id);
       try {
         this.onRequest(request);
       } catch (error) {
@@ -141,6 +143,9 @@ function normalizeString(value: string | undefined): string | undefined {
 }
 
 function matchesActivityFilter(request: HumanInputRequest, filter: HumanInputActivityFilter): boolean {
+  if (filter.requestId && request.id !== filter.requestId) {
+    return false;
+  }
   if (filter.kind && request.kind !== filter.kind) {
     return false;
   }
