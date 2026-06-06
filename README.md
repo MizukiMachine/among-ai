@@ -66,6 +66,7 @@ ZAI_API_KEY=...
 ZAI_MODEL=glm-5-turbo
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
 ZAI_TIMEOUT_MS=120000
+AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS=45000
 ```
 
 人間参加モードは `src/server/humanSessions.ts` のインメモリセッションを使うため、

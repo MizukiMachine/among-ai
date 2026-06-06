@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_LOVER_ALIGNMENT_SPEECH, DEFAULT_WEREWOLF_ALIGNMENT_SPEECH } from "../game/humanInputDefaults";
-import type { HumanInputHandler, HumanInputRequest, HumanInputRequestPayload, HumanInputResponse } from "../game/types";
+import type {
+  HumanInputActivityFilter,
+  HumanInputHandler,
+  HumanInputRequest,
+  HumanInputRequestPayload,
+  HumanInputResponse
+} from "../game/types";
 
 interface PendingHumanInput {
   request: HumanInputRequest;
   resolve: (response: HumanInputResponse | null) => void;
   reject: (error: Error) => void;
+  lastActivityAt: number | null;
   cleanup?: () => void;
 }
 
@@ -25,6 +32,28 @@ export class HumanInputSession implements HumanInputHandler {
 
   requestOptional(input: HumanInputRequestPayload, options: { signal?: AbortSignal } = {}): Promise<HumanInputResponse | null> {
     return this.requestInternal(input, { optional: true, signal: options.signal });
+  }
+
+  latestInputActivityAt(filter: HumanInputActivityFilter = {}): number | null {
+    let latest: number | null = null;
+    for (const pending of this.pending.values()) {
+      if (!matchesActivityFilter(pending.request, filter)) {
+        continue;
+      }
+      if (pending.lastActivityAt !== null && (latest === null || pending.lastActivityAt > latest)) {
+        latest = pending.lastActivityAt;
+      }
+    }
+    return latest;
+  }
+
+  touch(requestId: string): HumanInputActivityResult {
+    const pending = this.pending.get(requestId);
+    if (!pending || this.closed) {
+      return { ok: false, error: "input_not_pending" };
+    }
+    pending.lastActivityAt = Date.now();
+    return { ok: true };
   }
 
   private requestInternal(
@@ -62,7 +91,7 @@ export class HumanInputSession implements HumanInputHandler {
       if (options.signal) {
         options.signal.addEventListener("abort", cancel, { once: true });
       }
-      this.pending.set(request.id, { request, resolve, reject, cleanup });
+      this.pending.set(request.id, { request, resolve, reject, lastActivityAt: null, cleanup });
       try {
         this.onRequest(request);
       } catch (error) {
@@ -104,9 +133,21 @@ export type HumanInputSubmitResult =
   | { ok: true }
   | { ok: false; error: "input_not_pending" | "invalid_input" };
 
+export type HumanInputActivityResult = { ok: true } | { ok: false; error: "input_not_pending" };
+
 function normalizeString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function matchesActivityFilter(request: HumanInputRequest, filter: HumanInputActivityFilter): boolean {
+  if (filter.kind && request.kind !== filter.kind) {
+    return false;
+  }
+  if (filter.speechMode && (request.kind !== "speech_choice" || request.speechMode !== filter.speechMode)) {
+    return false;
+  }
+  return true;
 }
 
 function normalizeVisibleEventId(value: number | null | undefined): number | null | undefined {
@@ -178,4 +219,8 @@ export function unregisterHumanInputSession(sessionId: string): void {
 
 export function submitHumanInput(sessionId: string, requestId: string, response: HumanInputResponse): HumanInputSubmitResult {
   return sessions.get(sessionId)?.submit(requestId, response) ?? { ok: false, error: "input_not_pending" };
+}
+
+export function touchHumanInput(sessionId: string, requestId: string): HumanInputActivityResult {
+  return sessions.get(sessionId)?.touch(requestId) ?? { ok: false, error: "input_not_pending" };
 }

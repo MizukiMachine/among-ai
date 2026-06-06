@@ -4074,6 +4074,85 @@ test("optional human day interrupt times out after AI speech work is exhausted",
   assert.ok(!events.some((event) => event.type === "player_speech" && event.message === "Human optional speech."));
 });
 
+test("optional human day interrupt timeout extends while the client reports input activity", async () => {
+  let optionalRequestCount = 0;
+  let cancelledOptionalRequestCount = 0;
+  let latestActivityAt: number | null = null;
+  let activityTimer: ReturnType<typeof setInterval> | null = null;
+  const humanInput: HumanInputHandler = {
+    async request(input) {
+      if (input.kind === "target") {
+        return { targetId: input.candidates[0]?.id ?? null, reason: "Human vote." };
+      }
+      if (input.kind === "speech_choice") {
+        return { speech: "Human regular speech." };
+      }
+      return { decision: false };
+    },
+    requestOptional(input, options) {
+      optionalRequestCount += 1;
+      assert.equal(input.kind, "speech_choice");
+      assert.equal(input.speechMode, "discussion_interrupt");
+      latestActivityAt = Date.now();
+      activityTimer = setInterval(() => {
+        latestActivityAt = Date.now();
+      }, 5);
+      return new Promise((resolve) => {
+        const finish = (response: { speech: string } | null) => {
+          if (activityTimer) {
+            clearInterval(activityTimer);
+            activityTimer = null;
+          }
+          resolve(response);
+        };
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelledOptionalRequestCount += 1;
+            finish(null);
+          },
+          { once: true }
+        );
+        setTimeout(() => finish({ speech: "Human optional speech." }), 60);
+      });
+    },
+    latestInputActivityAt: (filter) => {
+      assert.deepEqual(filter, { kind: "speech_choice", speechMode: "discussion_interrupt" });
+      return latestActivityAt;
+    }
+  };
+  const game = new WerewolfGame(
+    {
+      ...baseConfig,
+      humanPlayerId: "p3",
+      prefetchConcurrency: 1,
+      humanOptionalInputTimeoutMs: 20
+    },
+    { humanInput }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" }
+  ]);
+  players[2].model = "human";
+  game.agents.set(players[0].id, new ScriptedAgent(players[0].name));
+  game.agents.set(players[1].id, new ScriptedAgent(players[1].name));
+  game.agents.set(players[3].id, new ScriptedAgent(players[3].name));
+
+  const events = await Promise.race([
+    collect(game.runDay()),
+    sleepWithAbort(1000).then<never>(() => {
+      throw new Error("Timed out waiting for day to finish after active optional interrupt.");
+    })
+  ]);
+
+  assert.ok(optionalRequestCount > 0, "an optional discussion interrupt should have opened");
+  assert.equal(cancelledOptionalRequestCount, 0);
+  assert.ok(events.some((event) => event.type === "player_speech" && event.message === "Human optional speech."));
+});
+
 test("delayed human day interrupt keeps read AI context and regenerates unread remaining AI", async () => {
   const optionalRequest = createDeferred<HumanInputRequestPayload>();
   const optionalResponse = createDeferred<{ speech: string; visibleEventId: number | null }>();
