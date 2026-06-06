@@ -27,7 +27,8 @@ import {
   createDeathResolutionEffects,
   createLinkedDeathRecords,
   createNightDeathRecords,
-  markPlayerDead
+  markPlayerDead,
+  mergeDeathCause
 } from "./rules/deaths";
 import { resolveVoteElimination } from "./rules/elimination";
 import type { DeathRecord, RuleState } from "./rules/types";
@@ -120,7 +121,7 @@ const roleBreakdownOrder: Role[] = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -136,7 +137,7 @@ const targetActionLabels: Record<string, string> = {
   "Seer identity check": "占い師の判定",
   "Witch poison potion": "魔女の毒薬",
   "Wolf Beauty charm": "美女狼の魅了",
-  "Raven mark": "鴉の印",
+  "Trap set": "罠師の罠",
   "Day elimination vote": "昼の処刑投票",
   "Alpha Wolf death shot": "α人狼の道連れ",
   "Hunter death shot": "ハンターの道連れ"
@@ -1191,6 +1192,10 @@ export class WerewolfGame {
   private readonly guardState = {
     protectedTargetId: null as string | null,
     lastProtectedTargetId: null as string | null
+  };
+  private readonly trapState = {
+    targetId: null as string | null,
+    trapperId: null as string | null
   };
   private readonly hunterShotsUsed = new Set<string>();
   private ruleState: RuleState = { players: {} };
@@ -2587,6 +2592,8 @@ export class WerewolfGame {
     this.witchState.savedTargetId = null;
     this.witchState.poisonTargetId = null;
     this.guardState.protectedTargetId = null;
+    this.trapState.targetId = null;
+    this.trapState.trapperId = null;
     this.phase = "night";
     yield this.emit("phase_changed", this.text(`Night ${this.round} begins.`, `第${this.round}夜が始まりました。`));
 
@@ -2600,6 +2607,11 @@ export class WerewolfGame {
       }
       if (step.kind === "werewolf_discussion") {
         yield* this.runWerewolfDiscussion(werewolves);
+      }
+      if (step.kind === "trap_set") {
+        for (const actorId of step.actorIds) {
+          yield* this.runTrapperAction(this.requirePlayer(actorId));
+        }
       }
       if (step.kind === "werewolf_attack") {
         this.phase = "night";
@@ -2636,11 +2648,6 @@ export class WerewolfGame {
           yield* this.runWolfBeautyCharmAction(this.requirePlayer(actorId));
         }
       }
-      if (step.kind === "raven_mark") {
-        for (const actorId of step.actorIds) {
-          yield* this.runRavenAction(this.requirePlayer(actorId));
-        }
-      }
     }
 
     const guardBlockedAttack = Boolean(
@@ -2669,14 +2676,19 @@ export class WerewolfGame {
       }
     }
 
-    const deaths = this.filterProtectedHumanDeathRecords(
-      createNightDeathRecords({
+    const trapDeath = this.trapDeathForAttack(killTarget, werewolves);
+    if (trapDeath) {
+      yield this.trapTriggeredEvent(trapDeath, killTarget);
+    }
+    const deaths = this.filterProtectedHumanDeathRecords(this.mergeDeathRecords([
+      ...createNightDeathRecords({
         werewolfTargetId: killTarget?.id,
         savedTargetId: savedTarget,
         protectedTargetId: this.guardState.protectedTargetId,
         poisonTargetId: this.witchState.poisonTargetId
-      })
-    );
+      }),
+      ...(trapDeath ? [trapDeath] : [])
+    ]));
 
     this.phase = "night";
     if (deaths.length === 0) {
@@ -3505,12 +3517,13 @@ export class WerewolfGame {
     );
   }
 
-  private async *runRavenAction(raven: Player): AsyncGenerator<GameEvent> {
-    if (!raven.alive || raven.role !== "Raven" || !canUseAbilities(this.ruleState, raven.id)) {
+  private async *runTrapperAction(trapper: Player): AsyncGenerator<GameEvent> {
+    if (!trapper.alive || trapper.role !== "Trapper" || !canUseAbilities(this.ruleState, trapper.id)) {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => player.id !== raven.id && !this.isProtectedHumanVoteTarget(player));
+    this.phase = "night";
+    const targets = this.alivePlayers().filter((player) => player.id !== trapper.id && !this.isProtectedHumanAttackTarget(player));
     if (targets.length === 0) {
       return;
     }
@@ -3518,42 +3531,100 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。",
-        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。"
+        "生存者一人に罠を仕掛けるか、見送れます。その相手が今夜人狼に襲撃された場合、襲撃は通常通り処理され、人狼側の一人が罠で死亡します。",
+        "生存者一人に罠を仕掛けるか、見送れます。その相手が今夜人狼に襲撃された場合、襲撃は通常通り処理され、人狼側の一人が罠で死亡します。"
       )
     ];
-    const context = this.contextFor(raven, contextLines);
-    const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, true, contextLines);
+    const context = this.contextFor(trapper, contextLines);
+    const decision = await this.raceChooseTarget(trapper, this.text("Trap set", "罠師の罠"), context, targets, true, contextLines);
     if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
 
     const target = this.requirePlayer(decision.targetId);
-    this.ruleState = applyStatusEffects(this.ruleState, [
-      {
-        playerId: target.id,
-        addStatuses: [{ kind: "raven_marked", sourceId: raven.id, duration: "round", count: 1 }]
-      }
-    ]);
-    raven.memories.push(
+    this.trapState.targetId = target.id;
+    this.trapState.trapperId = trapper.id;
+    trapper.memories.push(
       this.text(
-        `Round ${this.round}: marked ${target.name}. Reason: ${decision.reason}`,
-        `第${this.round}ラウンド: ${target.name}に印。理由: ${decision.reason}`
+        `Round ${this.round}: set a trap on ${target.name}. Reason: ${decision.reason}`,
+        `第${this.round}ラウンド: ${target.name}に罠を仕掛けました。理由: ${decision.reason}`
       )
     );
     yield this.emit(
       "night_action",
-      this.text(`${raven.name} marked ${target.name}.`, `${raven.name}が${target.name}に印を付けました。`),
+      this.text(`${trapper.name} set a trap on ${target.name}.`, `${trapper.name}が${target.name}に罠を仕掛けました。`),
       {
         visibility: "private",
-        action: "raven_mark",
-        markedTargetId: target.id,
-        markedTargetName: target.name,
+        action: "trap_set",
+        trappedTargetId: target.id,
+        trappedTargetName: target.name,
         reason: decision.reason
       },
-      raven,
+      trapper,
       target
     );
+  }
+
+  private trapDeathForAttack(killTarget: Player | null, werewolves: Player[]): DeathRecord | null {
+    if (!killTarget || this.trapState.targetId !== killTarget.id || !this.trapState.trapperId) {
+      return null;
+    }
+    const trapper = this.players.find((player) => player.id === this.trapState.trapperId);
+    if (!trapper?.alive || trapper.role !== "Trapper" || !canUseAbilities(this.ruleState, trapper.id)) {
+      return null;
+    }
+    const trappedWerewolfCandidates = werewolves.filter((player) => player.alive && player.camp === "werewolf");
+    if (trappedWerewolfCandidates.length === 0) {
+      return null;
+    }
+    const trappedWerewolf = sample(trappedWerewolfCandidates);
+    trapper.memories.push(
+      this.text(
+        `Round ${this.round}: trap on ${killTarget.name} triggered and caught ${trappedWerewolf.name}.`,
+        `第${this.round}ラウンド: ${killTarget.name}への罠が発動し、${trappedWerewolf.name}を巻き込みました。`
+      )
+    );
+    return { playerId: trappedWerewolf.id, cause: "trap", sourceId: trapper.id };
+  }
+
+  private trapTriggeredEvent(death: DeathRecord, killTarget: Player | null): GameEvent {
+    const trapper = death.sourceId ? this.requirePlayer(death.sourceId) : undefined;
+    const trappedWerewolf = this.requirePlayer(death.playerId);
+    return this.emit(
+      "private_info",
+      this.text(
+        `${trapper?.name ?? "The trapper"}'s trap triggered on ${killTarget?.name ?? "the attacked player"} and caught ${trappedWerewolf.name}.`,
+        `${trapper?.name ?? "罠師"}の罠が${killTarget?.name ?? "襲撃対象"}で発動し、${trappedWerewolf.name}を巻き込みました。`
+      ),
+      {
+        visibility: "private",
+        visibleTo: trapper?.id,
+        action: "trap_triggered",
+        trappedTargetId: killTarget?.id,
+        trappedTargetName: killTarget?.name,
+        trapDeathId: trappedWerewolf.id,
+        trapDeathName: trappedWerewolf.name
+      },
+      trapper,
+      trappedWerewolf
+    );
+  }
+
+  private mergeDeathRecords(records: DeathRecord[]): DeathRecord[] {
+    const byPlayerId = new Map<string, DeathRecord>();
+    for (const record of records) {
+      const existing = byPlayerId.get(record.playerId);
+      if (!existing) {
+        byPlayerId.set(record.playerId, record);
+        continue;
+      }
+      byPlayerId.set(record.playerId, {
+        ...existing,
+        cause: mergeDeathCause(existing.cause, record.cause),
+        sourceId: existing.sourceId ?? record.sourceId
+      });
+    }
+    return [...byPlayerId.values()];
   }
 
   private async *runDay(): AsyncGenerator<GameEvent> {

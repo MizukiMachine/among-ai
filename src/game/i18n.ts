@@ -14,7 +14,7 @@ const roleJa: Record<Role | "Hidden", string> = {
   Witch: "魔女",
   Guard: "騎士",
   Hunter: "ハンター",
-  Raven: "鴉",
+  Trapper: "罠師",
   Idiot: "愚者",
   Elder: "長老",
   Lover: "恋人",

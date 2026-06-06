@@ -39,7 +39,7 @@ const claimableRoles: Role[] = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -60,7 +60,7 @@ function japaneseRoleAliases(role: Role, language: string): string[] {
     Witch: ["魔女"],
     Guard: ["騎士", "狩人"],
     Hunter: ["ハンター"],
-    Raven: ["鴉"],
+    Trapper: ["罠師"],
     Idiot: ["愚者"],
     Elder: ["長老"],
     Lover: ["恋人"],
@@ -206,12 +206,12 @@ export function textHasSeerClaimEvidence(text: string): boolean {
 
 export function textHasRoleClaimEvidence(text: string): boolean {
   const japaneseRoleClaim =
-    /主張:\s*[^。\n]*が(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師|人間|村人|人間側|村側)を主張|(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師)(?:CO|を主張|として出(?:ます|る|た|ました|ている|ています)|を名乗(?:ります|りました|った|っている|っています))|(?:私|僕|俺|自分|こちら)(?:は|が)?(?:占い師|魔女|騎士|狩人|ハンター|鴉|愚者|長老|恋人|道化師)(?:です|だ|として|を名乗)/;
+    /主張:\s*[^。\n]*が(?:占い師|魔女|騎士|狩人|ハンター|罠師|愚者|長老|恋人|道化師|人間|村人|人間側|村側)を主張|(?:占い師|魔女|騎士|狩人|ハンター|罠師|愚者|長老|恋人|道化師)(?:CO|を主張|として出(?:ます|る|た|ました|ている|ています)|を名乗(?:ります|りました|った|っている|っています))|(?:私|僕|俺|自分|こちら)(?:は|が)?(?:占い師|魔女|騎士|狩人|ハンター|罠師|愚者|長老|恋人|道化師)(?:です|だ|として|を名乗)/;
   const japaneseCampClaim =
     /(?:私|僕|俺|自分|こちら)(?:は|が)?(?:人間側|村側|村人)(?:です|だ|として|を名乗|を主張)|(?:人間側|村側|村人)(?:を主張|として動く|として村を守る)/;
   return (
     textHasSeerClaimEvidence(text) ||
-    /\b(?:I(?: am|'m) (?:the )?(?:Witch|Guard|Hunter|Raven|Idiot|Elder|Lover|Jester|Villager)|claims? (?:to be )?(?:the )?(?:Witch|Guard|Hunter|Raven|Idiot|Elder|Lover|Jester|Villager)|role claim(?:ed|s)?)\b/i.test(
+    /\b(?:I(?: am|'m) (?:the )?(?:Witch|Guard|Hunter|Trapper|Idiot|Elder|Lover|Jester|Villager)|claims? (?:to be )?(?:the )?(?:Witch|Guard|Hunter|Trapper|Idiot|Elder|Lover|Jester|Villager)|role claim(?:ed|s)?)\b/i.test(
       text
     ) ||
     japaneseRoleClaim.test(text) ||

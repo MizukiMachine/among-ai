@@ -53,8 +53,8 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
     "Idiot",
     "Jester",
     "Lover",
-    "Raven",
     "Seer",
+    "Trapper",
     "Villager",
     "Werewolf",
     "Witch",
@@ -77,7 +77,7 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   );
   assert.match(
     promptMaterials.roles.Jester.publicSpeechGuidanceJa.join("\n"),
-    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+    /占い師・魔女・ハンター・罠師・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
   );
 });
 
@@ -101,7 +101,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(seerContext, /初日昼には占い結果はありません/);
   assert.match(seerContext, /本物の占い師も、占い師騙りも/);
-  assert.match(seerContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(seerContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(seerContext, /騎士は通常絶対に名乗らない/);
   assert.doesNotMatch(seerContext, /占い師など|役職など/);
 
@@ -111,7 +111,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(werewolfContext, /初日昼には占い結果はありません/);
   assert.match(werewolfContext, /人狼側の役職騙り方針/);
-  assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(werewolfContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(werewolfContext, /占い師騙りを優先候補/);
   assert.match(werewolfContext, /二日目以降は毎昼、偽の占い結果/);
   assert.match(werewolfContext, /騎士は通常の騙り対象にしない/);
@@ -122,7 +122,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(jesterContext, /初日昼には占い結果はありません/);
   assert.match(jesterContext, /道化師の役職騙り方針/);
-  assert.match(jesterContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(jesterContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(jesterContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
   assert.match(jesterContext, /単独勝利条件は終盤まで隠す/);
 

@@ -483,7 +483,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   const werewolfRole = isWerewolfRole(role);
   const jesterRole = role === "Jester";
   if (japanese) {
-    const claimRoles = "占い師、魔女、ハンター、鴉、愚者、長老";
+    const claimRoles = "占い師、魔女、ハンター、罠師、愚者、長老";
     const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時";
     const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
     const common = werewolfRole
@@ -519,8 +519,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     if (role === "Hunter") {
       return ["あなたはハンターです。吊られそうな時や撃ち先を整理する価値がある時は名乗ってよい。", ...common];
     }
-    if (role === "Raven") {
-      return ["あなたは鴉です。印や票数変化を説明すると村が迷わない時は名乗ってよい。", ...common];
+    if (role === "Trapper") {
+      return ["あなたは罠師です。罠の発動や襲撃筋を説明すると村が迷わない時は名乗ってよい。", ...common];
     }
     if (role === "Idiot") {
       return ["あなたは愚者です。無駄吊りになりそうな時は名乗ってよいが、吊られに行くためのCOはしない。", ...common];
@@ -534,7 +534,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     return common;
   }
 
-  const claimRoles = "占い師・魔女・ハンター・鴉・愚者・長老";
+  const claimRoles = "占い師・魔女・ハンター・罠師・愚者・長老";
   const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時だけ";
   const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
   const common = werewolfRole
@@ -570,8 +570,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   if (role === "Hunter") {
     return ["あなたはハンターです。処刑されそうな時や、反撃先の考え方を出すことが村に役立つ時だけ名乗る。", ...common];
   }
-  if (role === "Raven") {
-    return ["あなたは鴉です。印や票数変化の説明が悪い処刑を避ける時だけ名乗る。", ...common];
+  if (role === "Trapper") {
+    return ["あなたは罠師です。罠の発動や襲撃筋の説明が悪い処刑を避ける時だけ名乗る。", ...common];
   }
   if (role === "Idiot") {
     return ["あなたは愚者です。無駄な処刑を避けるためなら名乗るが、処刑されるためだけには名乗らない。", ...common];

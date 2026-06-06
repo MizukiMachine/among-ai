@@ -21,7 +21,7 @@ export type NightActionKind =
   | "werewolf_attack"
   | "seer_check"
   | "witch_action"
-  | "raven_mark"
+  | "trap_set"
   | "wolf_beauty_charm";
 
 export interface NightActionDefinition {
@@ -86,7 +86,6 @@ export interface VictoryCheckResult {
 export type RulePlayer = Pick<Player, "id" | "role" | "camp" | "alive">;
 
 export type RuleStatusKind =
-  | "raven_marked"
   | "no_vote"
   | "revealed"
   | "abilities_disabled"

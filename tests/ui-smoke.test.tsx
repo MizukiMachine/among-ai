@@ -947,7 +947,8 @@ test("story controls stay stable as history grows", () => {
   assert.doesNotMatch(css, /\.topbar\.compact-role-topbar/);
   assert.doesNotMatch(css, /\.header-role-distribution\.compact-roles/);
   assert.doesNotMatch(css, /\.header-camp-ratio\.split/);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*static/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*grid-column:\s*1 \/ -1/s);
 });
 
 test("view toggle hover follows next button treatment", () => {
@@ -962,24 +963,24 @@ test("view toggle hover follows next button treatment", () => {
   assert.match(hoverRule[0], /transform:\s*translateY\(-1px\)/);
 });
 
-test("header role rule popover follows the selected chip", () => {
+test("header role rule popover expands inside the role distribution", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /roleRuleTriggerRef = useRef<HTMLButtonElement \| null>\(null\)/);
-  assert.match(source, /roleRuleTriggerRef\.current = event\.currentTarget/);
-  assert.match(source, /setRoleRulePopoverPosition\(getRoleRulePopoverPosition\(event\.currentTarget\)\)/);
+  assert.doesNotMatch(source, /roleRuleTriggerRef/);
+  assert.doesNotMatch(source, /setRoleRulePopoverPosition/);
+  assert.doesNotMatch(source, /getRoleRulePopoverPosition/);
   assert.match(source, /window\.addEventListener\("pointerdown", closeRoleRuleOnPointerDown, true\)/);
-  assert.match(source, /window\.addEventListener\("resize", scheduleRoleRuleReposition\)/);
-  assert.match(source, /window\.addEventListener\("orientationchange", scheduleRoleRuleReposition\)/);
+  assert.doesNotMatch(source, /scheduleRoleRuleReposition/);
   assert.match(source, /function roleRuleText\(text: string\): string \{\s*return text\.replace\(/s);
   assert.match(source, /<dd>\{roleRuleText\(selectedRule\.ability\)\}<\/dd>/);
   assert.match(source, /夜の魔女フェーズで、救命薬と毒薬をゲーム中各1回だけ使える。同じ夜に両方使える/);
   assert.match(source, /人狼の襲撃先を確認した夜。救命薬は襲撃がある時、毒薬は残っていれば使用可/);
   assert.match(source, /救命薬はその夜の襲撃対象を救う薬。毒薬は選んだ生存者1人を死亡させる薬。使用は任意/);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*top:\s*var\(--role-rule-top/s);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*left:\s*var\(--role-rule-left/s);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*calc\(100vw - 40px\)\)/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*static/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*grid-column:\s*1 \/ -1/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*100%\)/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*max-width:\s*100%/s);
   assert.match(css, /\.role-rule-body dd\s*\{[^}]*font-size:\s*17px/s);
 });
 
