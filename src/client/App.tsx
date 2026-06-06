@@ -137,6 +137,12 @@ function isOptionalDiscussionInterruptInput(request: HumanInputRequest | null): 
   );
 }
 
+function isOptionalSpeechInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+} {
+  return Boolean(request && request.nonBlocking && request.kind === "speech_choice");
+}
+
 function shouldHoldSubmittedHumanInputScene(request: HumanInputRequest): boolean {
   return request.kind === "speech_choice" && !request.nonBlocking;
 }
@@ -1974,6 +1980,7 @@ export function App() {
       ? nonBlockingHumanInput
       : null;
   const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
+  const visibleOptionalSpeechInput = isOptionalSpeechInput(visibleHumanInput) ? visibleHumanInput : null;
   const availableSpeechInterruptInput =
     optionalDiscussionInterruptInput &&
     !humanInputAnchorAcknowledged &&
@@ -2487,6 +2494,7 @@ export function App() {
   function completeHumanInputRequest(request: HumanInputRequest) {
     const wasActive = pendingHumanInputsRef.current[0]?.request.id === request.id;
     const nextInputs = pendingHumanInputsRef.current.filter((entry) => entry.request.id !== request.id);
+    humanInputActivityTouchAtRef.current.delete(request.id);
     commitPendingHumanInputs(nextInputs);
     if (wasActive) {
       initializeHumanInputForm(nextInputs[0]?.request ?? null);
@@ -2590,13 +2598,13 @@ export function App() {
 
   function touchHumanInputActivity(request: HumanInputRequest, reason: "active" | "opened" | "typing") {
     const currentGameId = gameId;
-    if (!currentGameId || !isOptionalDiscussionInterruptInput(request)) {
+    if (!currentGameId || !isOptionalSpeechInput(request)) {
       return;
     }
 
     const now = Date.now();
     const lastTouchAt = humanInputActivityTouchAtRef.current.get(request.id) ?? 0;
-    if (reason !== "opened" && now - lastTouchAt < 10_000) {
+    if (lastTouchAt > 0 && now - lastTouchAt < 10_000) {
       return;
     }
     humanInputActivityTouchAtRef.current.set(request.id, now);
@@ -2914,6 +2922,7 @@ export function App() {
         activeRequestId: pendingHumanInputsRef.current[0]?.request.id ?? null
       });
       const wasActive = pendingHumanInputsRef.current[0]?.request.id === requestId;
+      humanInputActivityTouchAtRef.current.delete(requestId);
       updatePendingHumanInputs((currentInputs) => currentInputs.filter((entry) => entry.request.id !== requestId));
       if (submittedHumanInputRef.current?.id === requestId) {
         submittedHumanInputRef.current = null;
@@ -3110,6 +3119,13 @@ export function App() {
     acknowledgeActiveHumanInput();
     setGameStatus("入力待ち");
   }
+
+  useEffect(() => {
+    if (!visibleOptionalSpeechInput) {
+      return;
+    }
+    touchHumanInputActivity(visibleOptionalSpeechInput, "opened");
+  }, [visibleOptionalSpeechInput?.id, gameId]);
 
   useEffect(() => {
     return () => {
@@ -3489,7 +3505,17 @@ export function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errorBody = (await response.json().catch(() => null)) as { error?: string } | null;
+        const responseError = errorBody?.error ?? `HTTP ${response.status}`;
+        if (response.status === 404 && responseError === "input_not_pending") {
+          if (submittedHumanInputRef.current === request) {
+            submittedHumanInputRef.current = null;
+          }
+          completeHumanInputRequest(request);
+          setGameStatus("生成中");
+          return;
+        }
+        throw new Error(responseError);
       }
 
       if (localHumanSpeechEvent) {
@@ -3527,6 +3553,7 @@ export function App() {
     const isLoverAlignment = prompt.speechMode === "lover_alignment";
     const isFaceoffAlignment = isWerewolfAlignment || isLoverAlignment;
     const isDiscussionInterrupt = prompt.speechMode === "discussion_interrupt";
+    const tracksInputActivity = isOptionalSpeechInput(prompt);
     const canSubmitHumanSpeech = isFaceoffAlignment || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfAlignment
       ? "未入力なら既定の意思合わせ発言で進みます"
@@ -3571,33 +3598,33 @@ export function App() {
           disabled={humanSubmitting}
           maxLength={240}
           onCompositionEnd={() => {
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "typing");
             }
           }}
           onCompositionStart={() => {
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "active");
             }
           }}
           onCompositionUpdate={() => {
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "active");
             }
           }}
           onChange={(event) => {
             setHumanSpeech(event.target.value);
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "typing");
             }
           }}
           onFocus={() => {
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "active");
             }
           }}
           onKeyDown={() => {
-            if (isDiscussionInterrupt) {
+            if (tracksInputActivity) {
               touchHumanInputActivity(prompt, "active");
             }
           }}

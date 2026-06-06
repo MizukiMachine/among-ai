@@ -31,7 +31,7 @@ const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
 const defaultMaxRounds = 3;
 const fixedGenerationConcurrency = 5;
-const defaultHumanOptionalInputTimeoutMs = 45_000;
+const defaultHumanOptionalInputTimeoutMs = 120_000;
 const defaultStreamHeartbeatMs = 15_000;
 const defaultStreamWatchdogMs = 30_000;
 let nextStreamLogId = 0;
@@ -601,6 +601,7 @@ export function createApp(): Hono {
           view: streamView,
           gameId: humanSession?.id ?? null,
           humanPlayerId: config.humanPlayerId ?? null,
+          humanOptionalInputTimeoutMs: config.humanOptionalInputTimeoutMs ?? null,
           prefetchConcurrency: config.prefetchConcurrency ?? null,
           streamLogId,
           traceEnabled: isPersistentTraceEnabled(),

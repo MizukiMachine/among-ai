@@ -110,7 +110,7 @@ const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 const maxHumanDayDiscussionInterruptions = 5;
 const dayVoteDecisionTimeoutMs = 20_000;
-const defaultHumanOptionalInputTimeoutMs = 45_000;
+const defaultHumanOptionalInputTimeoutMs = 120_000;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
@@ -312,6 +312,7 @@ interface DayDiscussionSpeechResult {
 
 interface PendingHumanDayDiscussionInterrupt {
   controller: AbortController;
+  requestId: string | null;
   promise: Promise<DayDiscussionSpeechResult | null>;
   settled: boolean;
   rollbackSnapshot: HumanDayDiscussionRollbackSnapshot;
@@ -1689,6 +1690,7 @@ export class WerewolfGame {
       const rollbackSnapshot = createRollbackSnapshot();
       const pending: PendingHumanDayDiscussionInterrupt = {
         controller,
+        requestId: null,
         promise: Promise.resolve(null),
         settled: false,
         rollbackSnapshot,
@@ -1699,7 +1701,10 @@ export class WerewolfGame {
         discussionPass,
         discussionPasses,
         humanInterruptState.remaining,
-        controller.signal
+        controller.signal,
+        (requestId) => {
+          pending.requestId = requestId;
+        }
       ).then(
         (result) => {
           pending.settled = true;
@@ -1851,7 +1856,8 @@ export class WerewolfGame {
     discussionPass: number,
     discussionPasses: number,
     remainingInterruptions: number,
-    abortSignal: AbortSignal
+    abortSignal: AbortSignal,
+    onRequestId: (requestId: string) => void
   ): Promise<DayDiscussionSpeechResult | null> {
     if (!this.humanInput) {
       return null;
@@ -1896,7 +1902,7 @@ export class WerewolfGame {
         allowFreeText: true,
         options: []
       },
-      { signal: abortSignal, logLabel: "day discussion interrupt" }
+      { signal: abortSignal, logLabel: "day discussion interrupt", onRequestId }
     );
     if (!response) {
       return null;
@@ -1916,14 +1922,24 @@ export class WerewolfGame {
     const timeoutWindowStartedAt = Date.now();
     const timeoutPromise = new Promise<null>((resolve) => {
       const schedule = () => {
-        const latestActivityAt =
-          this.humanInput?.latestInputActivityAt?.({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? null;
+        const latestActivityAt = pending.requestId
+          ? (this.humanInput?.latestInputActivityAt?.({
+              requestId: pending.requestId,
+              kind: "speech_choice",
+              speechMode: "discussion_interrupt"
+            }) ?? null)
+          : null;
         const deadlineBaseAt =
           latestActivityAt !== null && latestActivityAt > timeoutWindowStartedAt ? latestActivityAt : timeoutWindowStartedAt;
         const delayMs = Math.max(0, timeoutMs - (Date.now() - deadlineBaseAt));
         timeout = setNodeTimeout(() => {
-          const currentLatestActivityAt =
-            this.humanInput?.latestInputActivityAt?.({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? null;
+          const currentLatestActivityAt = pending.requestId
+            ? (this.humanInput?.latestInputActivityAt?.({
+                requestId: pending.requestId,
+                kind: "speech_choice",
+                speechMode: "discussion_interrupt"
+              }) ?? null)
+            : null;
           const currentDeadlineBaseAt =
             currentLatestActivityAt !== null && currentLatestActivityAt > timeoutWindowStartedAt
               ? currentLatestActivityAt
@@ -5550,7 +5566,7 @@ export class WerewolfGame {
 
   private async requestOptionalHumanInput(
     input: HumanInputRequestPayload,
-    options: { signal?: AbortSignal; logLabel?: string } = {}
+    options: { signal?: AbortSignal; logLabel?: string; onRequestId?: (requestId: string) => void } = {}
   ): Promise<HumanInputResponse | null> {
     const handler = this.humanInput;
     if (!handler) {
@@ -5561,16 +5577,53 @@ export class WerewolfGame {
     const timeoutController = new AbortController();
     const requestAbort = mergeAbortSignals(baseAbort.signal, timeoutController.signal);
     let timedOut = false;
+    let requestId: string | null = null;
     let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const rememberRequestId = (id: string) => {
+      requestId = id;
+      options.onRequestId?.(id);
+    };
+    const inputActivityFilter = () => {
+      if (!requestId) {
+        return null;
+      }
+      return input.kind === "speech_choice"
+        ? { requestId, kind: input.kind, speechMode: input.speechMode }
+        : { requestId, kind: input.kind };
+    };
     const requestPromise: Promise<HumanInputResponse | null> = Promise.resolve().then(() =>
-      handler.requestOptional ? handler.requestOptional(input, { signal: requestAbort.signal }) : handler.request(input)
+      handler.requestOptional
+        ? handler.requestOptional(input, { signal: requestAbort.signal, onRequestId: rememberRequestId })
+        : handler.request(input)
     );
+    const timeoutMs = this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs;
+    const timeoutWindowStartedAt = Date.now();
     const timeoutPromise = new Promise<null>((resolve) => {
-      timeout = setNodeTimeout(() => {
-        timedOut = true;
-        timeoutController.abort();
-        resolve(null);
-      }, this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs);
+      const schedule = () => {
+        const filter = inputActivityFilter();
+        const latestActivityAt = filter ? (this.humanInput?.latestInputActivityAt?.(filter) ?? null) : null;
+        const deadlineBaseAt =
+          latestActivityAt !== null && latestActivityAt > timeoutWindowStartedAt ? latestActivityAt : timeoutWindowStartedAt;
+        const delayMs = Math.max(0, timeoutMs - (Date.now() - deadlineBaseAt));
+        timeout = setNodeTimeout(() => {
+          const currentFilter = inputActivityFilter();
+          const currentLatestActivityAt = currentFilter
+            ? (this.humanInput?.latestInputActivityAt?.(currentFilter) ?? null)
+            : null;
+          const currentDeadlineBaseAt =
+            currentLatestActivityAt !== null && currentLatestActivityAt > timeoutWindowStartedAt
+              ? currentLatestActivityAt
+              : timeoutWindowStartedAt;
+          if (Date.now() - currentDeadlineBaseAt < timeoutMs) {
+            schedule();
+            return;
+          }
+          timedOut = true;
+          timeoutController.abort();
+          resolve(null);
+        }, delayMs);
+      };
+      schedule();
     });
 
     try {
@@ -5605,7 +5658,7 @@ export class WerewolfGame {
 
   private async requestOptionalHumanInputWithoutTimeout(
     input: HumanInputRequestPayload,
-    options: { signal?: AbortSignal; logLabel?: string } = {}
+    options: { signal?: AbortSignal; logLabel?: string; onRequestId?: (requestId: string) => void } = {}
   ): Promise<HumanInputResponse | null> {
     const handler = this.humanInput;
     if (!handler) {
@@ -5615,7 +5668,7 @@ export class WerewolfGame {
     const requestAbort = mergeAbortSignals(this.abortSignal, options.signal);
     try {
       const response = await (handler.requestOptional
-        ? handler.requestOptional(input, { signal: requestAbort.signal })
+        ? handler.requestOptional(input, { signal: requestAbort.signal, onRequestId: options.onRequestId })
         : handler.request(input));
       if (this.abortSignal?.aborted) {
         throw new Error("Game stream cancelled.");

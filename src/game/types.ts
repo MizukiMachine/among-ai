@@ -502,13 +502,19 @@ export interface HumanInputResponse {
 }
 
 export interface HumanInputActivityFilter {
+  requestId?: string;
   kind?: HumanInputKind;
   speechMode?: HumanSpeechChoiceInputRequest["speechMode"];
 }
 
+export interface HumanInputRequestOptions {
+  signal?: AbortSignal;
+  onRequestId?: (requestId: string) => void;
+}
+
 export interface HumanInputHandler {
   request(input: HumanInputRequestPayload): Promise<HumanInputResponse>;
-  requestOptional?(input: HumanInputRequestPayload, options?: { signal?: AbortSignal }): Promise<HumanInputResponse | null>;
+  requestOptional?(input: HumanInputRequestPayload, options?: HumanInputRequestOptions): Promise<HumanInputResponse | null>;
   latestInputActivityAt?(filter?: HumanInputActivityFilter): number | null;
 }
 

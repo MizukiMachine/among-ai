@@ -179,11 +179,15 @@ test("stream cancels an unanswered optional day speech interrupt and keeps progr
       })
     ]);
     const cancelIndex = frames.findIndex((frame) => frame.event === "human_input_cancelled");
+    const systemFrame = frames.find((frame) => frame.event === "system")?.data as
+      | { humanOptionalInputTimeoutMs?: number }
+      | undefined;
     const laterHumanInput = frames
       .slice(cancelIndex + 1)
       .find((frame) => frame.event === "human_input")?.data as { kind?: string; speechMode?: string } | undefined;
 
     assert.equal(response.status, 200);
+    assert.equal(systemFrame?.humanOptionalInputTimeoutMs, 5000);
     assert.ok(cancelIndex >= 0);
     assert.notEqual(laterHumanInput?.speechMode, "discussion_interrupt");
   } finally {
@@ -492,7 +496,10 @@ test("optional human input session records client activity while pending", async
   assert.equal(session.latestInputActivityAt(), null);
   assert.deepEqual(session.touch(requestId), { ok: true });
   assert.ok((session.latestInputActivityAt() ?? 0) > 0);
+  assert.ok((session.latestInputActivityAt({ requestId }) ?? 0) > 0);
+  assert.equal(session.latestInputActivityAt({ requestId: "other-request" }), null);
   assert.ok((session.latestInputActivityAt({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+  assert.ok((session.latestInputActivityAt({ requestId, kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
   assert.equal(session.latestInputActivityAt({ kind: "target" }), null);
   assert.deepEqual(session.submit(requestId, { decision: false }), { ok: true });
   assert.deepEqual(await interruptPromise, { decision: false });
@@ -545,6 +552,8 @@ test("human input activity endpoint touches a pending request", async () => {
     assert.equal(activityResponse.status, 200);
     assert.deepEqual(await activityResponse.json(), { ok: true });
     assert.ok((session.latestInputActivityAt({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+    assert.ok((session.latestInputActivityAt({ requestId, kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+    assert.equal(session.latestInputActivityAt({ requestId: "other-request", kind: "speech_choice" }), null);
 
     assert.deepEqual(session.submit(requestId, { decision: false }), { ok: true });
     assert.deepEqual(await interruptPromise, { decision: false });
