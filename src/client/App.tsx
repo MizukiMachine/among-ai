@@ -3172,6 +3172,21 @@ export function App() {
   }, [audioManifest, audioMuted, audioStarted, bgmRotationIds, selectedBgmId]);
 
   useEffect(() => {
+    if (!audioStarted || audioMuted || bgmRotationIds.length === 0) {
+      return;
+    }
+    const retryBgmOnUserInput = () => {
+      void getAudioController()?.resumeBgm();
+    };
+    window.addEventListener("pointerdown", retryBgmOnUserInput, true);
+    window.addEventListener("keydown", retryBgmOnUserInput, true);
+    return () => {
+      window.removeEventListener("pointerdown", retryBgmOnUserInput, true);
+      window.removeEventListener("keydown", retryBgmOnUserInput, true);
+    };
+  }, [audioMuted, audioStarted, bgmRotationIds]);
+
+  useEffect(() => {
     scheduleBackgroundCharacterPreload(characterPortraitImages);
   }, []);
 
