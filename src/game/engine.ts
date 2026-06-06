@@ -1235,6 +1235,9 @@ export class WerewolfGame {
                     requestOptions
                   )
               }
+            : {}),
+          ...(options.humanInput.latestInputActivityAt
+            ? { latestInputActivityAt: (filter) => options.humanInput!.latestInputActivityAt!(filter) }
             : {})
         }
       : undefined;
@@ -1909,12 +1912,32 @@ export class WerewolfGame {
   ): Promise<DayDiscussionSpeechResult | null> {
     let timedOut = false;
     let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const timeoutMs = this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs;
+    const timeoutWindowStartedAt = Date.now();
     const timeoutPromise = new Promise<null>((resolve) => {
-      timeout = setNodeTimeout(() => {
-        timedOut = true;
-        pending.controller.abort();
-        resolve(null);
-      }, this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs);
+      const schedule = () => {
+        const latestActivityAt =
+          this.humanInput?.latestInputActivityAt?.({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? null;
+        const deadlineBaseAt =
+          latestActivityAt !== null && latestActivityAt > timeoutWindowStartedAt ? latestActivityAt : timeoutWindowStartedAt;
+        const delayMs = Math.max(0, timeoutMs - (Date.now() - deadlineBaseAt));
+        timeout = setNodeTimeout(() => {
+          const currentLatestActivityAt =
+            this.humanInput?.latestInputActivityAt?.({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? null;
+          const currentDeadlineBaseAt =
+            currentLatestActivityAt !== null && currentLatestActivityAt > timeoutWindowStartedAt
+              ? currentLatestActivityAt
+              : timeoutWindowStartedAt;
+          if (Date.now() - currentDeadlineBaseAt < timeoutMs) {
+            schedule();
+            return;
+          }
+          timedOut = true;
+          pending.controller.abort();
+          resolve(null);
+        }, delayMs);
+      };
+      schedule();
     });
 
     try {

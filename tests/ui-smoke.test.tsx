@@ -1294,6 +1294,13 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /function skipVisibleDiscussionInterruptInput\(\)/);
   assert.match(source, /function deferActiveHumanInput\(\)/);
+  assert.match(source, /function touchHumanInputActivity\(request: HumanInputRequest, reason: "active" \| "opened" \| "typing"\)/);
+  assert.match(source, /fetch\(`\/api\/games\/\$\{currentGameId\}\/input\/activity`/);
+  assert.match(source, /touchHumanInputActivity\(availableSpeechInterruptInput, "opened"\)/);
+  assert.match(source, /onCompositionStart=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
+  assert.match(source, /onCompositionEnd=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
+  assert.match(source, /onKeyDown=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
+  assert.doesNotMatch(source, /window\.setInterval\(\(\) => \{[\s\S]*touchHumanInputActivity\(request, "active"\);/);
   assert.match(source, /shouldDeferDiscussionInterruptSkip\(visibleHumanInput, queuedRef\.current\.length\)/);
   assert.match(source, /deferActiveHumanInput\(\);[\s\S]*revealNext\(\);/);
   assert.match(source, /const optionalDiscussionInterruptSkipReady = Boolean\(availableSpeechInterruptInput\);/);

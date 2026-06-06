@@ -19,7 +19,7 @@ import type {
   SpeechGenerationDiagnostic,
   SummaryMode
 } from "../game/types";
-import { HumanInputSession, registerHumanInputSession, submitHumanInput, unregisterHumanInputSession } from "./humanSessions";
+import { HumanInputSession, registerHumanInputSession, submitHumanInput, touchHumanInput, unregisterHumanInputSession } from "./humanSessions";
 import {
   appendClientTrace,
   createPersistentTraceLog,
@@ -144,6 +144,22 @@ function humanInputResponseFromBody(value: unknown): { requestId: string; respon
       decision: typeof body.decision === "boolean" ? body.decision : undefined,
       visibleEventId: typeof body.visibleEventId === "number" && Number.isFinite(body.visibleEventId) ? body.visibleEventId : null
     }
+  };
+}
+
+function humanInputActivityFromBody(value: unknown): { requestId: string; reason: string | null } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const body = value as Record<string, unknown>;
+  if (typeof body.requestId !== "string" || !body.requestId) {
+    return null;
+  }
+
+  return {
+    requestId: body.requestId,
+    reason: typeof body.reason === "string" && body.reason ? body.reason : null
   };
 }
 
@@ -417,6 +433,27 @@ export function createApp(): Hono {
       return c.json({ ok: false, enabled: true, error: result.error }, 400);
     }
     return c.json({ ok: true, enabled: true, filePath: result.filePath });
+  });
+
+  app.post("/api/games/:id/input/activity", async (c) => {
+    const sessionId = c.req.param("id");
+    const parsed = humanInputActivityFromBody(await c.req.json().catch(() => null));
+    if (!parsed) {
+      return c.json({ ok: false, error: "invalid_input" }, 400);
+    }
+
+    const touched = touchHumanInput(sessionId, parsed.requestId);
+    writeTraceForKey(sessionId, "server.human_input_activity", {
+      requestId: parsed.requestId,
+      reason: parsed.reason,
+      ok: touched.ok,
+      error: touched.ok ? null : touched.error
+    });
+    if (!touched.ok) {
+      return c.json({ ok: false, error: touched.error }, 404);
+    }
+
+    return c.json({ ok: true });
   });
 
   app.post("/api/games/:id/input", async (c) => {

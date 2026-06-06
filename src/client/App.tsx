@@ -1797,6 +1797,7 @@ export function App() {
   const streamWaitWatchdogTimerRef = useRef<number | null>(null);
   const streamWaitNoticeRef = useRef<StreamWaitNotice | null>(null);
   const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
+  const humanInputActivityTouchAtRef = useRef(new Map<string, number>());
   const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
   const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest | null>(null);
   const eventsRef = useRef<GameEvent[]>([]);
@@ -2494,6 +2495,7 @@ export function App() {
   function resetHumanInputState() {
     submittedHumanInputRef.current = null;
     discardStoryUntilHumanEchoRef.current = null;
+    humanInputActivityTouchAtRef.current.clear();
     commitPendingHumanInputs([]);
     setHumanSpeech("");
     setHumanTargetId(null);
@@ -2580,6 +2582,32 @@ export function App() {
       body,
       keepalive: true
     }).catch(() => undefined);
+  }
+
+  function touchHumanInputActivity(request: HumanInputRequest, reason: "active" | "opened" | "typing") {
+    const currentGameId = gameId;
+    if (!currentGameId || !isOptionalDiscussionInterruptInput(request)) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastTouchAt = humanInputActivityTouchAtRef.current.get(request.id) ?? 0;
+    if (reason !== "opened" && now - lastTouchAt < 10_000) {
+      return;
+    }
+    humanInputActivityTouchAtRef.current.set(request.id, now);
+
+    const body = JSON.stringify({ requestId: request.id, reason });
+    void fetch(`/api/games/${currentGameId}/input/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true
+    }).catch(() => undefined);
+    postClientTrace("human_input_activity", {
+      request: clientTraceRequestSummary(request),
+      reason
+    });
   }
 
   function clearStreamWaitWatchdogTimer() {
@@ -3072,6 +3100,7 @@ export function App() {
       return;
     }
     playSfx("ui_confirm");
+    touchHumanInputActivity(availableSpeechInterruptInput, "opened");
     acknowledgeActiveHumanInput();
     setGameStatus("入力待ち");
   }
@@ -3535,7 +3564,37 @@ export function App() {
           autoFocus
           disabled={humanSubmitting}
           maxLength={240}
-          onChange={(event) => setHumanSpeech(event.target.value)}
+          onCompositionEnd={() => {
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "typing");
+            }
+          }}
+          onCompositionStart={() => {
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onCompositionUpdate={() => {
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onChange={(event) => {
+            setHumanSpeech(event.target.value);
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "typing");
+            }
+          }}
+          onFocus={() => {
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onKeyDown={() => {
+            if (isDiscussionInterrupt) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
           placeholder={speechPlaceholder}
           rows={7}
           value={humanSpeech}

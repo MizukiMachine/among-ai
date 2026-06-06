@@ -501,9 +501,15 @@ export interface HumanInputResponse {
   visibleEventId?: number | null;
 }
 
+export interface HumanInputActivityFilter {
+  kind?: HumanInputKind;
+  speechMode?: HumanSpeechChoiceInputRequest["speechMode"];
+}
+
 export interface HumanInputHandler {
   request(input: HumanInputRequestPayload): Promise<HumanInputResponse>;
   requestOptional?(input: HumanInputRequestPayload, options?: { signal?: AbortSignal }): Promise<HumanInputResponse | null>;
+  latestInputActivityAt?(filter?: HumanInputActivityFilter): number | null;
 }
 
 export interface VoteRecord {
