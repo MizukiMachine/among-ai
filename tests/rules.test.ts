@@ -268,6 +268,23 @@ test("death resolver hook supports lover and WolfBeauty-style chains", () => {
   ]);
 });
 
+test("death resolver uses only the latest WolfBeauty charm anchor", () => {
+  const state = applyStatusEffects(createRuleState([{ id: "p1" }, { id: "p2" }, { id: "p3" }]), [
+    {
+      playerId: "p1",
+      addStatuses: [
+        { kind: "charm_anchor", targetId: "p2", duration: "game", round: 1 },
+        { kind: "charm_anchor", targetId: "p3", duration: "game", round: 2 }
+      ]
+    }
+  ]);
+
+  assert.deepEqual(createLinkedDeathRecords([{ playerId: "p1", cause: "vote" }], state), [
+    { playerId: "p1", cause: "vote" },
+    { playerId: "p3", cause: "wolf_beauty_charm", sourceId: "p1" }
+  ]);
+});
+
 test("ability disable effects can model Elder-style village penalty", () => {
   const players = [
     rulePlayer("p1", "Seer"),

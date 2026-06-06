@@ -24,7 +24,7 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
   WolfBeauty: {
     role: "WolfBeauty",
     camp: "werewolf",
-    tags: ["werewolf", "night_action", "team_action", "linked_death", "single_use"],
+    tags: ["werewolf", "night_action", "team_action", "linked_death"],
     nightActions: [...werewolfNightActions, { kind: "wolf_beauty_charm", priority: 75 }],
     deathTriggers: []
   },
