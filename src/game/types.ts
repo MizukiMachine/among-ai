@@ -6,7 +6,7 @@ export const roleValues = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -314,6 +314,7 @@ export interface TargetCandidate {
 export type PublicNightDeathCauseKind =
   | "werewolf_attack"
   | "witch_poison"
+  | "trapper_trap"
   | "werewolf_and_witch_overlap"
   | "hunter_death_shot"
   | "alpha_wolf_death_shot"
@@ -501,9 +502,21 @@ export interface HumanInputResponse {
   visibleEventId?: number | null;
 }
 
+export interface HumanInputActivityFilter {
+  requestId?: string;
+  kind?: HumanInputKind;
+  speechMode?: HumanSpeechChoiceInputRequest["speechMode"];
+}
+
+export interface HumanInputRequestOptions {
+  signal?: AbortSignal;
+  onRequestId?: (requestId: string) => void;
+}
+
 export interface HumanInputHandler {
   request(input: HumanInputRequestPayload): Promise<HumanInputResponse>;
-  requestOptional?(input: HumanInputRequestPayload, options?: { signal?: AbortSignal }): Promise<HumanInputResponse | null>;
+  requestOptional?(input: HumanInputRequestPayload, options?: HumanInputRequestOptions): Promise<HumanInputResponse | null>;
+  latestInputActivityAt?(filter?: HumanInputActivityFilter): number | null;
 }
 
 export interface VoteRecord {

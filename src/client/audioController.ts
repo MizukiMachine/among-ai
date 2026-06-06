@@ -1,10 +1,11 @@
-import { resolveAssetUrl, type AudioAssetManifest, type AudioSfxId } from "./audioAssets";
+import { fallbackBgmAssets, resolveAssetUrl, type AudioAssetManifest, type BgmAsset, type AudioSfxId } from "./audioAssets";
 
 export interface GameAudioController {
   dispose(): void;
   playBgm(id: string): Promise<void>;
   playBgmPlaylist(ids: string[], startId?: string): Promise<void>;
   playSfx(id: AudioSfxId): Promise<void>;
+  resumeBgm(): Promise<void>;
   setManifest(manifest: AudioAssetManifest): void;
   setMuted(muted: boolean): void;
   stopBgm(): void;
@@ -40,12 +41,12 @@ class BrowserGameAudioController implements GameAudioController {
   }
 
   async playBgm(id: string): Promise<void> {
-    if (this.muted || !this.manifest) {
+    if (this.muted) {
       return;
     }
 
     this.playlistIds = [];
-    const asset = this.manifest.bgm.find((item) => item.id === id);
+    const asset = this.getBgmAssets().find((item) => item.id === id);
     if (!asset) {
       return;
     }
@@ -54,11 +55,11 @@ class BrowserGameAudioController implements GameAudioController {
   }
 
   async playBgmPlaylist(ids: string[], startId?: string): Promise<void> {
-    if (this.muted || !this.manifest) {
+    if (this.muted) {
       return;
     }
 
-    const availableIds = new Set(this.manifest.bgm.map((asset) => asset.id));
+    const availableIds = new Set(this.getBgmAssets().map((asset) => asset.id));
     const playlistIds = ids.filter((id, index) => availableIds.has(id) && ids.indexOf(id) === index);
     if (playlistIds.length === 0) {
       return;
@@ -70,13 +71,20 @@ class BrowserGameAudioController implements GameAudioController {
     await this.playCurrentPlaylistTrack();
   }
 
+  async resumeBgm(): Promise<void> {
+    if (this.muted || !this.bgm) {
+      return;
+    }
+    await this.bgm.play().catch(() => undefined);
+  }
+
   private async playCurrentPlaylistTrack(): Promise<void> {
-    if (!this.manifest || this.playlistIds.length === 0) {
+    if (this.playlistIds.length === 0) {
       return;
     }
 
     const id = this.playlistIds[this.playlistIndex];
-    const asset = this.manifest.bgm.find((item) => item.id === id);
+    const asset = this.getBgmAssets().find((item) => item.id === id);
     if (!asset) {
       return;
     }
@@ -92,7 +100,11 @@ class BrowserGameAudioController implements GameAudioController {
     await this.playCurrentPlaylistTrack();
   }
 
-  private async startBgmAsset(asset: AudioAssetManifest["bgm"][number], loop: boolean): Promise<void> {
+  private getBgmAssets(): BgmAsset[] {
+    return this.manifest?.bgm.length ? this.manifest.bgm : fallbackBgmAssets;
+  }
+
+  private async startBgmAsset(asset: BgmAsset, loop: boolean): Promise<void> {
     if (this.currentBgmId === asset.id && this.bgm) {
       this.detachBgmEndedHandler();
       this.bgm.volume = asset.volume ?? 0.16;

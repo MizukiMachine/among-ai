@@ -53,8 +53,8 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
     "Idiot",
     "Jester",
     "Lover",
-    "Raven",
     "Seer",
+    "Trapper",
     "Villager",
     "Werewolf",
     "Witch",
@@ -77,7 +77,7 @@ test("prompt materials YAML is schema-valid and placeholder-safe", () => {
   );
   assert.match(
     promptMaterials.roles.Jester.publicSpeechGuidanceJa.join("\n"),
-    /占い師・魔女・ハンター・鴉・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
+    /占い師・魔女・ハンター・罠師・愚者・長老[\s\S]*公開情報が投票・対抗・自分への疑いを動かす時だけ/
   );
 });
 
@@ -101,7 +101,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(seerContext, /初日昼には占い結果はありません/);
   assert.match(seerContext, /本物の占い師も、占い師騙りも/);
-  assert.match(seerContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(seerContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(seerContext, /騎士は通常絶対に名乗らない/);
   assert.doesNotMatch(seerContext, /占い師など|役職など/);
 
@@ -111,7 +111,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(werewolfContext, /初日昼には占い結果はありません/);
   assert.match(werewolfContext, /人狼側の役職騙り方針/);
-  assert.match(werewolfContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(werewolfContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(werewolfContext, /占い師騙りを優先候補/);
   assert.match(werewolfContext, /二日目以降は毎昼、偽の占い結果/);
   assert.match(werewolfContext, /騎士は通常の騙り対象にしない/);
@@ -122,7 +122,7 @@ test("Japanese public speech context lists concrete claim roles and excludes Gua
   });
   assert.match(jesterContext, /初日昼には占い結果はありません/);
   assert.match(jesterContext, /道化師の役職騙り方針/);
-  assert.match(jesterContext, /占い師、魔女、ハンター、鴉、愚者、長老/);
+  assert.match(jesterContext, /占い師、魔女、ハンター、罠師、愚者、長老/);
   assert.match(jesterContext, /公開情報が投票・対抗・自分への疑いを動かす時だけ短く騙ってよい/);
   assert.match(jesterContext, /単独勝利条件は終盤まで隠す/);
 
@@ -182,10 +182,103 @@ test("public speech context is a simple character-role-conversation prompt", () 
   }
 });
 
+test("private memory context keeps older round facts after later memories grow", () => {
+  const context = buildPromptContext({
+    player: player("Seer"),
+    phase: "day_discussion",
+    promptPhase: "discussion",
+    mode: "public_speech",
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Ada: 今日の投票先を整理します。"],
+    privateHistory: [
+      "第1ラウンド: Curieは人狼判定。",
+      "第2ラウンド: Byronへ投票。理由: 票理由が薄い。",
+      "第3ラウンド: ",
+      ...Array.from({ length: 14 }, (_, index) => `第3ラウンド: 直近の記憶${index + 1}。`)
+    ],
+    language: "Japanese",
+    lastNightDeaths: []
+  });
+
+  assert.match(context, /1日目:/);
+  assert.match(context, /Curieは人狼判定/);
+  assert.match(context, /3日目（今日）:/);
+  assert.doesNotMatch(context, /^- 第3ラウンド:\s*$/m);
+});
+
+test("public context buckets past day digests and current day raw discussion", () => {
+  const publicHistory = [
+    "Ada: 1日目の古い占い主張です。",
+    "第1ラウンド投票: Ada -> Byron。得票: Byron 2票。",
+    "Byron: 2日目の古い反論です。",
+    "第2ラウンド投票: Byron -> Curie。得票: Curie 2票。",
+    "Ada: 3日目の今日の発言です。"
+  ];
+  const baseInput = {
+    player: player("Seer"),
+    phase: "day_discussion" as const,
+    promptPhase: "discussion" as const,
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory,
+    privateHistory: [],
+    pastDayPublicDigests: [
+      { round: 1, message: "夜: 死亡者なし。主張: Adaが占い師を主張: Byronは人狼判定。投票: Byron 2票。" },
+      { round: 2, message: "夜: Curieが死亡。主張: なし。投票: Curie 2票。" }
+    ],
+    currentRoundPublicStart: 4,
+    language: "Japanese",
+    lastNightDeaths: []
+  };
+
+  const publicSpeechContext = buildPromptContext({
+    ...baseInput,
+    mode: "public_speech"
+  });
+  assert.match(publicSpeechContext, /これまでの経過（日ごとの要約）:/);
+  assert.match(publicSpeechContext, /1日目: 夜: 死亡者なし/);
+  assert.match(publicSpeechContext, /今日（3日目）の議論:/);
+  assert.match(publicSpeechContext, /自分（Ada）: 3日目の今日の発言です。/);
+  assert.doesNotMatch(publicSpeechContext, /1日目の古い占い主張/);
+  assert.doesNotMatch(publicSpeechContext, /2日目の古い反論/);
+
+  const internalContext = buildPromptContext({
+    ...baseInput,
+    mode: "internal_decision"
+  });
+  assert.match(internalContext, /Ada: 3日目の今日の発言です。/);
+  assert.doesNotMatch(internalContext, /自分（Ada）: 3日目の今日の発言です。/);
+});
+
+test("public context falls back to flat history when day metadata is incomplete", () => {
+  const context = buildPromptContext({
+    player: player("Villager"),
+    phase: "day_discussion",
+    promptPhase: "discussion",
+    mode: "internal_decision",
+    round: 3,
+    alivePlayers,
+    deadPlayers: [],
+    publicHistory: ["Ada: 1日目の古い発言です。", "Curie: 3日目の今日の発言です。"],
+    privateHistory: [],
+    pastDayPublicDigests: [{ round: 1, message: "夜: 死亡者なし。主張: なし。投票: Ada 1票。" }],
+    language: "Japanese",
+    lastNightDeaths: []
+  });
+
+  assert.doesNotMatch(context, /これまでの経過（日ごとの要約）:/);
+  assert.match(context, /Ada: 1日目の古い発言です。/);
+  assert.match(context, /Curie: 3日目の今日の発言です。/);
+});
+
 test("prompt builder only exposes secrets visible to each role", () => {
   const werewolf = contextFor("Werewolf");
   assert.match(werewolf, /SecretWolf/);
-  assert.match(werewolf, /SecretWolf \(secret-wolf\): α人狼/);
+  assert.match(werewolf, /SecretWolf: α人狼/);
+  assert.doesNotMatch(werewolf, /SecretWolf \(secret-wolf\): α人狼/);
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
@@ -275,7 +368,8 @@ test("role breakdown is public counts only while werewolf ally roles stay secret
     }
   });
 
-  assert.match(wolfContext, /Sena \(p13\): α人狼 生存/);
+  assert.match(wolfContext, /Sena: α人狼 生存/);
+  assert.doesNotMatch(wolfContext, /Sena \(p13\): α人狼 生存/);
 });
 
 test("werewolf public deception context persists fake Seer claim and current fake result", () => {
@@ -309,7 +403,7 @@ test("werewolf public deception context persists fake Seer claim and current fak
   assert.match(context, /公開上の偽装方針/);
   assert.match(context, /あなたは占い師を主張しています/);
   assert.match(context, /二日目以降は毎昼、偽の占い結果/);
-  assert.match(context, /今日必ず出す偽結果: Byron \(p2\) は狼陣営判定/);
+  assert.match(context, /今日必ず出す偽結果: Byron は狼陣営判定/);
   assert.match(context, /嘘だと認めず/);
 });
 
@@ -342,9 +436,9 @@ test("Seer disclosure context persists public claim and current real result", ()
   assert.match(context, /公開CO状態/);
   assert.match(context, /あなたは占い師として名乗っています/);
   assert.match(context, /公開済みの占い結果/);
-  assert.match(context, /Byron \(p2\) => 狼陣営判定/);
+  assert.match(context, /Byron => 狼陣営判定/);
   assert.match(context, /今日公開する占い結果/);
-  assert.match(context, /Curie \(p3\) は人間側判定/);
+  assert.match(context, /Curie は人間側判定/);
 });
 
 test("werewolf private discussion uses private wolf guidance without public speech instructions", () => {
@@ -450,6 +544,37 @@ test("Japanese output review rejects Chinese vocabulary in displayed speech", ()
   const review = reviewJapaneseOutput("初日は发言を控えて、様子を見るべきだと思います", "Japanese");
   assert.equal(review.ok, false);
   assert.match(review.issues.join("\n"), /Chinese vocabulary/);
+});
+
+test("Japanese output review rejects internal player ids in displayed speech", () => {
+  assert.deepEqual(reviewJapaneseOutput("アキオミの占い師主張は事実として追います", "Japanese"), {
+    ok: true,
+    issues: []
+  });
+
+  const review = reviewJapaneseOutput("アキオミの占い師主張がp3で出たのは事実ですね", "Japanese");
+  assert.equal(review.ok, false);
+  assert.match(review.issues.join("\n"), /internal player id/);
+});
+
+test("public speech context replaces player ids in visible text with names", () => {
+  const context = buildPromptContext({
+    player: player("Villager", "p1", "Ada"),
+    phase: "day_discussion",
+    round: 2,
+    alivePlayers: [{ id: "p1", name: "Ada" }, { id: "p3", name: "Curie" }],
+    deadPlayers: [{ id: "p2", name: "Byron" }],
+    publicHistory: ["Curie: p2の占い師主張がp3で出たと言っています。"],
+    privateHistory: ["第1ラウンド: p3を疑い。p2は死亡済み。"],
+    language: "Japanese",
+    lastNightDeaths: [{ playerId: "p2", playerName: "Byron", publicCauseLabel: null }],
+    extra: ["公開上の事実: p2への投票が集まりました。"]
+  });
+
+  assert.match(context, /Curie: Byronの占い師主張がCurieで出た/);
+  assert.match(context, /Curieを疑い。Byronは死亡済み/);
+  assert.match(context, /公開上の事実: Byronへの投票/);
+  assert.doesNotMatch(context, /\bp\d+\b/i);
 });
 
 test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {
@@ -587,12 +712,13 @@ test("later-day public speech context pins current roster status without full sp
   });
 
   assert.match(context, /現在の参加者ステータス/);
-  assert.match(context, /生存中: Ada \(p1\), Curie \(p3\)/);
-  assert.match(context, /死亡済み: Byron \(p2\) \/ 投票処刑/);
-  assert.match(context, /昨夜死亡: Darwin \(p4\) \/ 公開上原因不明/);
-  assert.match(context, /直近の投票処刑: Byron \(p2\) \/ 投票処刑/);
+  assert.match(context, /生存中: Ada, Curie/);
+  assert.match(context, /死亡済み: Byron \/ 投票処刑/);
+  assert.match(context, /昨夜死亡: Darwin \/ 公開上原因不明/);
+  assert.match(context, /直近の投票処刑: Byron \/ 投票処刑/);
   assert.match(context, /疑い・信頼・投票候補として扱えるのは生存中の人物だけ/);
-  assert.match(context, /生存者: Ada \(p1\), Curie \(p3\)/);
+  assert.match(context, /生存者: Ada, Curie/);
+  assert.doesNotMatch(context, /\bp\d+\b/i);
   assert.doesNotMatch(context, /公開知識|公開上の死因|死因候補を並べるだけで終わらず/);
 });
 

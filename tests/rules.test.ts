@@ -37,7 +37,7 @@ test("role presets preserve the compact low-player distribution", () => {
     [6, { Werewolf: 1, Seer: 1, Witch: 1, Villager: 3 }],
     [7, { Werewolf: 2, Seer: 1, Witch: 1, Villager: 3 }],
     [8, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Villager: 3 }],
-    [9, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Hunter: 1, Raven: 1, Villager: 2 }]
+    [9, { Werewolf: 2, Seer: 1, Witch: 1, Guard: 1, Hunter: 1, Trapper: 1, Villager: 2 }]
   ]);
 
   for (const [count, roleCounts] of expected) {
@@ -51,11 +51,11 @@ test("role presets preserve the compact low-player distribution", () => {
 
 test("compressed role presets unlock advanced roles across 10-14 players", () => {
   const expected = new Map<number, Partial<Record<Role, number>>>([
-    [10, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Villager: 2 }],
-    [11, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Villager: 2 }],
-    [12, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Elder: 1, Villager: 2 }],
-    [13, { Werewolf: 2, AlphaWolf: 1, Raven: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }],
-    [14, { Werewolf: 2, AlphaWolf: 1, WolfBeauty: 1, Raven: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }]
+    [10, { Werewolf: 2, AlphaWolf: 1, Trapper: 1, Villager: 2 }],
+    [11, { Werewolf: 2, AlphaWolf: 1, Trapper: 1, Idiot: 1, Villager: 2 }],
+    [12, { Werewolf: 2, AlphaWolf: 1, Trapper: 1, Idiot: 1, Elder: 1, Villager: 2 }],
+    [13, { Werewolf: 2, AlphaWolf: 1, Trapper: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }],
+    [14, { Werewolf: 2, AlphaWolf: 1, WolfBeauty: 1, Trapper: 1, Idiot: 1, Elder: 1, Lover: 2, Villager: 1 }]
   ]);
 
   for (const [count, roleCounts] of expected) {
@@ -78,7 +78,7 @@ test("15 player role preset compresses every advanced role into the supported ma
   assert.equal(roles.filter((role) => role === "Witch").length, 1);
   assert.equal(roles.filter((role) => role === "Guard").length, 1);
   assert.equal(roles.filter((role) => role === "Hunter").length, 1);
-  assert.equal(roles.filter((role) => role === "Raven").length, 1);
+  assert.equal(roles.filter((role) => role === "Trapper").length, 1);
   assert.equal(roles.filter((role) => role === "Idiot").length, 1);
   assert.equal(roles.filter((role) => role === "Elder").length, 1);
   assert.equal(roles.filter((role) => role === "Lover").length, 2);
@@ -153,7 +153,7 @@ test("vote resolver reports ties, modifiers, and single eliminations", () => {
   assert.equal(resolveVote(votes).eliminatedId, null);
   assert.equal(resolveVote(votes).tied, true);
 
-  const resolved = resolveVote(votes, [{ targetId: "p3", count: 1, sourceId: "raven" }]);
+  const resolved = resolveVote(votes, [{ targetId: "p3", count: 1, sourceId: "modifier" }]);
   assert.equal(resolved.eliminatedId, "p3");
   assert.equal(resolved.counts.get("p3"), 2);
 });
@@ -216,9 +216,8 @@ test("role registry models Jester as a neutral victory role without changing sta
   assert.equal(roleCamp("Jester"), "village");
 });
 
-test("rule state models Raven marks and no-vote status as vote modifiers", () => {
+test("rule state models no-vote status and empty vote modifiers", () => {
   const state = applyStatusEffects(createRuleState([{ id: "p1" }, { id: "p2" }, { id: "p3" }]), [
-    { playerId: "p3", addStatuses: [{ kind: "raven_marked", sourceId: "p1", duration: "round" }] },
     { playerId: "p2", addStatuses: [{ kind: "no_vote", sourceId: "p3", duration: "game" }] }
   ]);
   const votes: VoteRecord[] = [
@@ -229,8 +228,8 @@ test("rule state models Raven marks and no-vote status as vote modifiers", () =>
   assert.deepEqual(filterEligibleVotes(votes, state), [{ voterId: "p1", targetId: "p2" }]);
 
   const modifiers = voteModifiersFromRuleState(state);
-  assert.deepEqual(modifiers, [{ targetId: "p3", count: 1, sourceId: "p1", reason: "raven_marked" }]);
-  assert.equal(resolveVote(filterEligibleVotes(votes, state), modifiers).eliminatedId, null);
+  assert.deepEqual(modifiers, []);
+  assert.equal(resolveVote(filterEligibleVotes(votes, state), modifiers).eliminatedId, "p2");
 
   const nextRoundState = expireStatuses(state, "round");
   assert.deepEqual(voteModifiersFromRuleState(nextRoundState), []);
@@ -265,6 +264,23 @@ test("death resolver hook supports lover and WolfBeauty-style chains", () => {
   assert.deepEqual(createLinkedDeathRecords([{ playerId: "p1", cause: "vote" }], state, { isAlive: (id) => id !== "p3" }), [
     { playerId: "p1", cause: "vote" },
     { playerId: "p2", cause: "lover", sourceId: "p1" }
+  ]);
+});
+
+test("death resolver uses only the latest WolfBeauty charm anchor", () => {
+  const state = applyStatusEffects(createRuleState([{ id: "p1" }, { id: "p2" }, { id: "p3" }]), [
+    {
+      playerId: "p1",
+      addStatuses: [
+        { kind: "charm_anchor", targetId: "p2", duration: "game", round: 1 },
+        { kind: "charm_anchor", targetId: "p3", duration: "game", round: 2 }
+      ]
+    }
+  ]);
+
+  assert.deepEqual(createLinkedDeathRecords([{ playerId: "p1", cause: "vote" }], state), [
+    { playerId: "p1", cause: "vote" },
+    { playerId: "p3", cause: "wolf_beauty_charm", sourceId: "p1" }
   ]);
 });
 

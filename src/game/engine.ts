@@ -27,7 +27,8 @@ import {
   createDeathResolutionEffects,
   createLinkedDeathRecords,
   createNightDeathRecords,
-  markPlayerDead
+  markPlayerDead,
+  mergeDeathCause
 } from "./rules/deaths";
 import { resolveVoteElimination } from "./rules/elimination";
 import type { DeathRecord, RuleState } from "./rules/types";
@@ -110,7 +111,7 @@ const maxAiPrefetchConcurrency = 5;
 const abortSignalMaxListeners = 64;
 const maxHumanDayDiscussionInterruptions = 5;
 const dayVoteDecisionTimeoutMs = 20_000;
-const defaultHumanOptionalInputTimeoutMs = 45_000;
+const defaultHumanOptionalInputTimeoutMs = 120_000;
 
 const roleBreakdownOrder: Role[] = [
   "Werewolf",
@@ -120,7 +121,7 @@ const roleBreakdownOrder: Role[] = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -136,7 +137,7 @@ const targetActionLabels: Record<string, string> = {
   "Seer identity check": "占い師の判定",
   "Witch poison potion": "魔女の毒薬",
   "Wolf Beauty charm": "美女狼の魅了",
-  "Raven mark": "鴉の印",
+  "Trap set": "罠師の罠",
   "Day elimination vote": "昼の処刑投票",
   "Alpha Wolf death shot": "α人狼の道連れ",
   "Hunter death shot": "ハンターの道連れ"
@@ -246,6 +247,39 @@ interface DiscussionReadDetail {
   weight?: number;
 }
 
+interface RoundSummaryDeathDetail {
+  playerId: string;
+  playerName: string;
+}
+
+interface RoundSummaryClaimDetail {
+  speakerId: string;
+  speakerName: string;
+  claim: ClaimMetadata;
+}
+
+interface RoundSummaryVoteDetail {
+  voterId: string;
+  voterName: string;
+  targetId: string;
+  targetName: string;
+}
+
+interface RoundSummaryVoteTotal {
+  targetId: string;
+  targetName: string;
+  count: number;
+}
+
+type RoundSummaryData = Record<string, unknown> & {
+  nightDeaths: RoundSummaryDeathDetail[];
+  claims: RoundSummaryClaimDetail[];
+  suspects: DiscussionReadDetail[];
+  trusts: DiscussionReadDetail[];
+  votes: RoundSummaryVoteDetail[];
+  totals: RoundSummaryVoteTotal[];
+};
+
 interface SocialReadPressure {
   targetId: string;
   targetName: string;
@@ -279,6 +313,7 @@ interface DayDiscussionSpeechResult {
 
 interface PendingHumanDayDiscussionInterrupt {
   controller: AbortController;
+  requestId: string | null;
   promise: Promise<DayDiscussionSpeechResult | null>;
   settled: boolean;
   rollbackSnapshot: HumanDayDiscussionRollbackSnapshot;
@@ -1135,6 +1170,11 @@ export class WerewolfGame {
   private readonly humanInput?: HumanInputHandler;
   private humanChoiceAgent: Agent | null = null;
   private readonly publicHistory: string[] = [];
+  // Day-segmented context: one factual recap per round that has already ended, carried forward
+  // so prior-day events survive into later days instead of being dropped by the sliding window.
+  private readonly roundPublicDigests: Array<{ round: number; message: string }> = [];
+  // Index into publicHistory where the current round's public discussion begins.
+  private roundPublicStart = 0;
   private readonly wolfHistory: string[] = [];
   private readonly loverHistory: string[] = [];
   private readonly config: GameConfig;
@@ -1152,6 +1192,10 @@ export class WerewolfGame {
   private readonly guardState = {
     protectedTargetId: null as string | null,
     lastProtectedTargetId: null as string | null
+  };
+  private readonly trapState = {
+    targetId: null as string | null,
+    trapperId: null as string | null
   };
   private readonly hunterShotsUsed = new Set<string>();
   private ruleState: RuleState = { players: {} };
@@ -1197,6 +1241,9 @@ export class WerewolfGame {
                     requestOptions
                   )
               }
+            : {}),
+          ...(options.humanInput.latestInputActivityAt
+            ? { latestInputActivityAt: (filter) => options.humanInput!.latestInputActivityAt!(filter) }
             : {})
         }
       : undefined;
@@ -1337,6 +1384,27 @@ export class WerewolfGame {
 
   private text(english: string, japanese: string): string {
     return this.isJapanese() ? japanese : english;
+  }
+
+  private playerNameOrId(playerId: string, preferredName?: string): string {
+    return preferredName ?? this.players.find((player) => player.id === playerId)?.name ?? playerId;
+  }
+
+  private metadataTargetName(read: { targetId: string; targetName?: string }): string {
+    return this.playerNameOrId(read.targetId, read.targetName);
+  }
+
+  private japaneseSpeechReviewHint(issues: string[]): string {
+    const hints: string[] = [];
+    if (issues.some((issue) => issue.includes("Chinese vocabulary"))) {
+      hints.push("中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで書く。");
+    }
+    if (issues.some((issue) => issue.includes("internal player id"))) {
+      hints.push("内部プレイヤーIDは使わず、相手の名前だけで言う。");
+    }
+    return hints.length > 0
+      ? hints.join(" ")
+      : "同じ意図を保ち、自然な日本語の短い発言だけを出してください。";
   }
 
   private withPhase<T>(phase: Phase, run: () => T): T {
@@ -1627,6 +1695,7 @@ export class WerewolfGame {
       const rollbackSnapshot = createRollbackSnapshot();
       const pending: PendingHumanDayDiscussionInterrupt = {
         controller,
+        requestId: null,
         promise: Promise.resolve(null),
         settled: false,
         rollbackSnapshot,
@@ -1637,7 +1706,10 @@ export class WerewolfGame {
         discussionPass,
         discussionPasses,
         humanInterruptState.remaining,
-        controller.signal
+        controller.signal,
+        (requestId) => {
+          pending.requestId = requestId;
+        }
       ).then(
         (result) => {
           pending.settled = true;
@@ -1653,9 +1725,12 @@ export class WerewolfGame {
     };
 
     const consumePendingHumanInterrupt = async (
-      pending: PendingHumanDayDiscussionInterrupt
+      pending: PendingHumanDayDiscussionInterrupt,
+      options: { startTimeout?: boolean } = {}
     ): Promise<DayDiscussionSpeechResult | null> => {
-      const result = await pending.promise;
+      const result = options.startTimeout
+        ? await this.waitForPendingHumanDayDiscussionInterrupt(pending)
+        : await pending.promise;
       if (pendingHumanInterrupt === pending) {
         pendingHumanInterrupt = null;
         humanInterruptState.pending = null;
@@ -1681,7 +1756,7 @@ export class WerewolfGame {
             break;
           }
           const activeHumanInterrupt = pendingHumanInterrupt;
-          const humanInterrupt = await consumePendingHumanInterrupt(activeHumanInterrupt);
+          const humanInterrupt = await consumePendingHumanInterrupt(activeHumanInterrupt, { startTimeout: true });
           if (!humanInterrupt) {
             break;
           }
@@ -1786,7 +1861,8 @@ export class WerewolfGame {
     discussionPass: number,
     discussionPasses: number,
     remainingInterruptions: number,
-    abortSignal: AbortSignal
+    abortSignal: AbortSignal,
+    onRequestId: (requestId: string) => void
   ): Promise<DayDiscussionSpeechResult | null> {
     if (!this.humanInput) {
       return null;
@@ -1813,7 +1889,7 @@ export class WerewolfGame {
       ),
       ...renderPublicSpeechDiversityContext(this.lastDiscussion, this.config.language, { excludePlayerId: player.id })
     ];
-    const response = await this.requestOptionalHumanInput(
+    const response = await this.requestOptionalHumanInputWithoutTimeout(
       {
         kind: "speech_choice",
         speechMode: "discussion_interrupt",
@@ -1831,7 +1907,7 @@ export class WerewolfGame {
         allowFreeText: true,
         options: []
       },
-      { signal: abortSignal, logLabel: "day discussion interrupt" }
+      { signal: abortSignal, logLabel: "day discussion interrupt", onRequestId }
     );
     if (!response) {
       return null;
@@ -1840,6 +1916,66 @@ export class WerewolfGame {
     return customSpeech
       ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
       : null;
+  }
+
+  private async waitForPendingHumanDayDiscussionInterrupt(
+    pending: PendingHumanDayDiscussionInterrupt
+  ): Promise<DayDiscussionSpeechResult | null> {
+    let timedOut = false;
+    let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const timeoutMs = this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs;
+    const timeoutWindowStartedAt = Date.now();
+    const timeoutPromise = new Promise<null>((resolve) => {
+      const schedule = () => {
+        const latestActivityAt = pending.requestId
+          ? (this.humanInput?.latestInputActivityAt?.({
+              requestId: pending.requestId,
+              kind: "speech_choice",
+              speechMode: "discussion_interrupt"
+            }) ?? null)
+          : null;
+        const deadlineBaseAt =
+          latestActivityAt !== null && latestActivityAt > timeoutWindowStartedAt ? latestActivityAt : timeoutWindowStartedAt;
+        const delayMs = Math.max(0, timeoutMs - (Date.now() - deadlineBaseAt));
+        timeout = setNodeTimeout(() => {
+          const currentLatestActivityAt = pending.requestId
+            ? (this.humanInput?.latestInputActivityAt?.({
+                requestId: pending.requestId,
+                kind: "speech_choice",
+                speechMode: "discussion_interrupt"
+              }) ?? null)
+            : null;
+          const currentDeadlineBaseAt =
+            currentLatestActivityAt !== null && currentLatestActivityAt > timeoutWindowStartedAt
+              ? currentLatestActivityAt
+              : timeoutWindowStartedAt;
+          if (Date.now() - currentDeadlineBaseAt < timeoutMs) {
+            schedule();
+            return;
+          }
+          timedOut = true;
+          pending.controller.abort();
+          resolve(null);
+        }, delayMs);
+      };
+      schedule();
+    });
+
+    try {
+      const result = await Promise.race([pending.promise, timeoutPromise]);
+      if (this.abortSignal?.aborted) {
+        throw new Error("Game stream cancelled.");
+      }
+      if (timedOut) {
+        console.warn("[human-input] optional day discussion interrupt timed out; continuing without input.");
+      }
+      return result;
+    } finally {
+      if (timeout) {
+        clearNodeTimeout(timeout);
+      }
+      pending.promise.catch(() => undefined);
+    }
   }
 
   // Speculative race over different speakers: the slot/cancel mechanism lives in
@@ -2389,6 +2525,8 @@ export class WerewolfGame {
     while (!this.winner && this.round < this.config.maxRounds) {
       this.throwIfCancelled();
       this.round += 1;
+      // Everything pushed to publicHistory from here on belongs to this round's day discussion.
+      this.roundPublicStart = this.publicHistory.length;
 
       yield* this.runDay();
       this.throwIfCancelled();
@@ -2454,6 +2592,8 @@ export class WerewolfGame {
     this.witchState.savedTargetId = null;
     this.witchState.poisonTargetId = null;
     this.guardState.protectedTargetId = null;
+    this.trapState.targetId = null;
+    this.trapState.trapperId = null;
     this.phase = "night";
     yield this.emit("phase_changed", this.text(`Night ${this.round} begins.`, `第${this.round}夜が始まりました。`));
 
@@ -2467,6 +2607,11 @@ export class WerewolfGame {
       }
       if (step.kind === "werewolf_discussion") {
         yield* this.runWerewolfDiscussion(werewolves);
+      }
+      if (step.kind === "trap_set") {
+        for (const actorId of step.actorIds) {
+          yield* this.runTrapperAction(this.requirePlayer(actorId));
+        }
       }
       if (step.kind === "werewolf_attack") {
         this.phase = "night";
@@ -2503,11 +2648,6 @@ export class WerewolfGame {
           yield* this.runWolfBeautyCharmAction(this.requirePlayer(actorId));
         }
       }
-      if (step.kind === "raven_mark") {
-        for (const actorId of step.actorIds) {
-          yield* this.runRavenAction(this.requirePlayer(actorId));
-        }
-      }
     }
 
     const guardBlockedAttack = Boolean(
@@ -2536,14 +2676,19 @@ export class WerewolfGame {
       }
     }
 
-    const deaths = this.filterProtectedHumanDeathRecords(
-      createNightDeathRecords({
+    const trapDeath = this.trapDeathForAttack(killTarget, werewolves);
+    if (trapDeath) {
+      yield this.trapTriggeredEvent(trapDeath, killTarget);
+    }
+    const deaths = this.filterProtectedHumanDeathRecords(this.mergeDeathRecords([
+      ...createNightDeathRecords({
         werewolfTargetId: killTarget?.id,
         savedTargetId: savedTarget,
         protectedTargetId: this.guardState.protectedTargetId,
         poisonTargetId: this.witchState.poisonTargetId
-      })
-    );
+      }),
+      ...(trapDeath ? [trapDeath] : [])
+    ]));
 
     this.phase = "night";
     if (deaths.length === 0) {
@@ -2717,10 +2862,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Attack preferences: ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `襲撃希望: ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}`
         )
       );
@@ -2729,10 +2874,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Keep alive for cover: ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `残して利用したい相手: ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}`
         )
       );
@@ -3290,9 +3435,6 @@ export class WerewolfGame {
     if (!wolfBeauty.alive || wolfBeauty.role !== "WolfBeauty" || !canUseAbilities(this.ruleState, wolfBeauty.id)) {
       return;
     }
-    if ((this.ruleState.players[wolfBeauty.id]?.statuses ?? []).some((status) => status.kind === "charm_anchor")) {
-      return;
-    }
 
     const targets = this.alivePlayers().filter(
       (player) => player.id !== wolfBeauty.id && player.camp !== "werewolf" && !this.isProtectedHumanNightDeathTarget(player)
@@ -3304,8 +3446,8 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。",
-        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。"
+        "今夜魅了する生存者を一人選んでください。魅了先は毎晩選び直し、あなたが死亡すると最新の魅了先だけが道連れになります。",
+        "今夜魅了する生存者を一人選んでください。魅了先は毎晩選び直し、あなたが死亡すると最新の魅了先だけが道連れになります。"
       )
     ];
     const context = this.contextFor(wolfBeauty, contextLines);
@@ -3322,16 +3464,7 @@ export class WerewolfGame {
     }
 
     const target = this.requirePlayer(decision.targetId);
-    this.ruleState = applyStatusEffects(this.ruleState, [
-      {
-        playerId: wolfBeauty.id,
-        addStatuses: [{ kind: "charm_anchor", sourceId: wolfBeauty.id, targetId: target.id, duration: "game" }]
-      },
-      {
-        playerId: target.id,
-        addStatuses: [{ kind: "charmed", sourceId: wolfBeauty.id, duration: "game" }]
-      }
-    ]);
+    this.replaceWolfBeautyCharm(wolfBeauty.id, target.id);
     wolfBeauty.memories.push(
       this.text(
         `第${this.round}ラウンド: ${target.name}を魅了。理由: ${decision.reason}`,
@@ -3353,12 +3486,44 @@ export class WerewolfGame {
     );
   }
 
-  private async *runRavenAction(raven: Player): AsyncGenerator<GameEvent> {
-    if (!raven.alive || raven.role !== "Raven" || !canUseAbilities(this.ruleState, raven.id)) {
+  private replaceWolfBeautyCharm(wolfBeautyId: string, targetId: string): void {
+    const players = Object.fromEntries(
+      Object.entries(this.ruleState.players).map(([playerId, playerState]) => [
+        playerId,
+        {
+          ...playerState,
+          statuses: playerState.statuses.filter((status) => {
+            if (playerId === wolfBeautyId && status.kind === "charm_anchor") {
+              return false;
+            }
+            return !(status.kind === "charmed" && status.sourceId === wolfBeautyId);
+          })
+        }
+      ])
+    );
+
+    this.ruleState = applyStatusEffects(
+      { ...this.ruleState, players },
+      [
+        {
+          playerId: wolfBeautyId,
+          addStatuses: [{ kind: "charm_anchor", sourceId: wolfBeautyId, targetId, duration: "game", round: this.round }]
+        },
+        {
+          playerId: targetId,
+          addStatuses: [{ kind: "charmed", sourceId: wolfBeautyId, duration: "game", round: this.round }]
+        }
+      ]
+    );
+  }
+
+  private async *runTrapperAction(trapper: Player): AsyncGenerator<GameEvent> {
+    if (!trapper.alive || trapper.role !== "Trapper" || !canUseAbilities(this.ruleState, trapper.id)) {
       return;
     }
 
-    const targets = this.alivePlayers().filter((player) => player.id !== raven.id && !this.isProtectedHumanVoteTarget(player));
+    this.phase = "night";
+    const targets = this.alivePlayers().filter((player) => player.id !== trapper.id && !this.isProtectedHumanAttackTarget(player));
     if (targets.length === 0) {
       return;
     }
@@ -3366,42 +3531,100 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。",
-        "生存者一人に印を付けるか、見送れます。印を付けると、次の投票でその相手に1票が加算されます。"
+        "生存者一人に罠を仕掛けるか、見送れます。その相手が今夜人狼に襲撃された場合、襲撃は通常通り処理され、人狼側の一人が罠で死亡します。",
+        "生存者一人に罠を仕掛けるか、見送れます。その相手が今夜人狼に襲撃された場合、襲撃は通常通り処理され、人狼側の一人が罠で死亡します。"
       )
     ];
-    const context = this.contextFor(raven, contextLines);
-    const decision = await this.raceChooseTarget(raven, this.text("Raven mark", "鴉の印"), context, targets, true, contextLines);
+    const context = this.contextFor(trapper, contextLines);
+    const decision = await this.raceChooseTarget(trapper, this.text("Trap set", "罠師の罠"), context, targets, true, contextLines);
     if (!decision.targetId || !legalTargetIds.has(decision.targetId)) {
       return;
     }
 
     const target = this.requirePlayer(decision.targetId);
-    this.ruleState = applyStatusEffects(this.ruleState, [
-      {
-        playerId: target.id,
-        addStatuses: [{ kind: "raven_marked", sourceId: raven.id, duration: "round", count: 1 }]
-      }
-    ]);
-    raven.memories.push(
+    this.trapState.targetId = target.id;
+    this.trapState.trapperId = trapper.id;
+    trapper.memories.push(
       this.text(
-        `Round ${this.round}: marked ${target.name}. Reason: ${decision.reason}`,
-        `第${this.round}ラウンド: ${target.name}に印。理由: ${decision.reason}`
+        `Round ${this.round}: set a trap on ${target.name}. Reason: ${decision.reason}`,
+        `第${this.round}ラウンド: ${target.name}に罠を仕掛けました。理由: ${decision.reason}`
       )
     );
     yield this.emit(
       "night_action",
-      this.text(`${raven.name} marked ${target.name}.`, `${raven.name}が${target.name}に印を付けました。`),
+      this.text(`${trapper.name} set a trap on ${target.name}.`, `${trapper.name}が${target.name}に罠を仕掛けました。`),
       {
         visibility: "private",
-        action: "raven_mark",
-        markedTargetId: target.id,
-        markedTargetName: target.name,
+        action: "trap_set",
+        trappedTargetId: target.id,
+        trappedTargetName: target.name,
         reason: decision.reason
       },
-      raven,
+      trapper,
       target
     );
+  }
+
+  private trapDeathForAttack(killTarget: Player | null, werewolves: Player[]): DeathRecord | null {
+    if (!killTarget || this.trapState.targetId !== killTarget.id || !this.trapState.trapperId) {
+      return null;
+    }
+    const trapper = this.players.find((player) => player.id === this.trapState.trapperId);
+    if (!trapper?.alive || trapper.role !== "Trapper" || !canUseAbilities(this.ruleState, trapper.id)) {
+      return null;
+    }
+    const trappedWerewolfCandidates = werewolves.filter((player) => player.alive && player.camp === "werewolf");
+    if (trappedWerewolfCandidates.length === 0) {
+      return null;
+    }
+    const trappedWerewolf = sample(trappedWerewolfCandidates);
+    trapper.memories.push(
+      this.text(
+        `Round ${this.round}: trap on ${killTarget.name} triggered and caught ${trappedWerewolf.name}.`,
+        `第${this.round}ラウンド: ${killTarget.name}への罠が発動し、${trappedWerewolf.name}を巻き込みました。`
+      )
+    );
+    return { playerId: trappedWerewolf.id, cause: "trap", sourceId: trapper.id };
+  }
+
+  private trapTriggeredEvent(death: DeathRecord, killTarget: Player | null): GameEvent {
+    const trapper = death.sourceId ? this.requirePlayer(death.sourceId) : undefined;
+    const trappedWerewolf = this.requirePlayer(death.playerId);
+    return this.emit(
+      "private_info",
+      this.text(
+        `${trapper?.name ?? "The trapper"}'s trap triggered on ${killTarget?.name ?? "the attacked player"} and caught ${trappedWerewolf.name}.`,
+        `${trapper?.name ?? "罠師"}の罠が${killTarget?.name ?? "襲撃対象"}で発動し、${trappedWerewolf.name}を巻き込みました。`
+      ),
+      {
+        visibility: "private",
+        visibleTo: trapper?.id,
+        action: "trap_triggered",
+        trappedTargetId: killTarget?.id,
+        trappedTargetName: killTarget?.name,
+        trapDeathId: trappedWerewolf.id,
+        trapDeathName: trappedWerewolf.name
+      },
+      trapper,
+      trappedWerewolf
+    );
+  }
+
+  private mergeDeathRecords(records: DeathRecord[]): DeathRecord[] {
+    const byPlayerId = new Map<string, DeathRecord>();
+    for (const record of records) {
+      const existing = byPlayerId.get(record.playerId);
+      if (!existing) {
+        byPlayerId.set(record.playerId, record);
+        continue;
+      }
+      byPlayerId.set(record.playerId, {
+        ...existing,
+        cause: mergeDeathCause(existing.cause, record.cause),
+        sourceId: existing.sourceId ?? record.sourceId
+      });
+    }
+    return [...byPlayerId.values()];
   }
 
   private async *runDay(): AsyncGenerator<GameEvent> {
@@ -3517,7 +3740,7 @@ export class WerewolfGame {
       if (!pending) {
         return null;
       }
-      const result = await pending.promise;
+      const result = await this.waitForPendingHumanDayDiscussionInterrupt(pending);
       if (humanInterruptState.pending === pending) {
         humanInterruptState.pending = null;
       }
@@ -3775,7 +3998,7 @@ export class WerewolfGame {
         )
       ];
     }
-    const resultLine = `${task.result.targetName} (${task.result.targetId}) は${this.campText(task.result.camp)}判定`;
+    const resultLine = `${task.result.targetName}は${this.campText(task.result.camp)}判定`;
     const action =
       task.kind === "claim_seer"
         ? "占い師として名乗り、そのまま偽結果を出す"
@@ -3842,7 +4065,7 @@ export class WerewolfGame {
   private upsertSeerClaimMetadata(metadata: SpeechMetadata, result?: SeerClaimResult): SpeechMetadata {
     const claims = [...metadata.claims];
     const existingIndex = claims.findIndex((claim) => claim.type === "role_claim" && claim.role === "Seer");
-    const note = result ? `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定` : "占い師主張";
+    const note = result ? `${this.playerNameOrId(result.targetId, result.targetName)}は${this.campText(result.camp)}判定` : "占い師主張";
     if (existingIndex >= 0) {
       const existing = claims[existingIndex];
       claims[existingIndex] = {
@@ -4051,7 +4274,7 @@ export class WerewolfGame {
     if (!task) {
       return [];
     }
-    const resultLine = task.results.map((result) => `${result.targetName} (${result.targetId}) は${this.campText(result.camp)}判定`).join("、");
+    const resultLine = task.results.map((result) => `${result.targetName}は${this.campText(result.camp)}判定`).join("、");
     if (task.kind === "claim_seer_with_results") {
       return [
         this.text(
@@ -4111,7 +4334,7 @@ export class WerewolfGame {
   }
 
   private seerResultSpeechList(results: SeerClaimResult[]): string {
-    return results.map((result) => `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定`).join("、");
+    return results.map((result) => `${this.playerNameOrId(result.targetId, result.targetName)}は${this.campText(result.camp)}判定`).join("、");
   }
 
   private seerDisclosureFallbackSpeech(task: SeerDisclosureTask): AgentSpeech {
@@ -4166,15 +4389,20 @@ export class WerewolfGame {
     }
     // Give every round-one first-pass speaker a distinct opening move so the table
     // covers varied natural topics instead of degenerating into "様子見"/"保留" filler.
-    // Werewolves roll independently for a fake-role opening. A failed roll falls
-    // back to the same public agenda pool as everyone else, keeping Seer deception
-    // visible without making it automatic in one-wolf games.
+    // The werewolf team rolls once for a fake-role opening. When it hits, only one
+    // wolf takes the Seer deception slot; 3+ wolf teams always assign exactly one
+    // fake-role opener so large games do not randomly have several fake claims or none.
     const assignments = new Map<string, FirstDayOpeningMoveKind>();
     const kinds = [...firstDayOpeningMoveKinds];
     const offset = Math.floor(Math.random() * kinds.length);
+    const werewolfSpeakers = speakers.filter((speaker) => speaker.camp === "werewolf");
+    const shouldAssignFakeRoleOpener =
+      werewolfSpeakers.length >= 3 || (werewolfSpeakers.length > 0 && weightedChance(werewolfFakeRoleOpeningProbability));
+    const fakeRoleOpeningSpeakerId =
+      shouldAssignFakeRoleOpener ? sample(werewolfSpeakers).id : null;
     let cursor = 0;
     for (const speaker of speakers) {
-      if (speaker.camp === "werewolf" && weightedChance(werewolfFakeRoleOpeningProbability)) {
+      if (speaker.id === fakeRoleOpeningSpeakerId) {
         assignments.set(speaker.id, "wolf_fake_role_claim");
         continue;
       }
@@ -5080,15 +5308,13 @@ export class WerewolfGame {
 
       const outputReview = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
       if (!outputReview.ok) {
+        const revisionHint = this.japaneseSpeechReviewHint(outputReview.issues);
         emitSpeechAttemptDiagnostic({
           kind: "speech_review_rejected",
           attempts,
           issues: outputReview.issues,
           styleIssues: outputReview.issues,
-          revisionHint: this.text(
-            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。",
-            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。"
-          )
+          revisionHint
         });
         if (!options.suppressMemorySideEffects) {
           console.warn(
@@ -5105,14 +5331,7 @@ export class WerewolfGame {
         attempts += 1;
         const retryInput: AgentSpeechInput = {
           ...input,
-          context: [
-            input.context,
-            "",
-            this.text(
-              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。",
-              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。"
-            )
-          ].join("\n")
+          context: [input.context, "", `直前の生成発言に修正が必要です。${revisionHint}`].join("\n")
         };
         const retrySpeech = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers, player);
         if (requestAbortSignal?.aborted) {
@@ -5423,7 +5642,7 @@ export class WerewolfGame {
 
   private async requestOptionalHumanInput(
     input: HumanInputRequestPayload,
-    options: { signal?: AbortSignal; logLabel?: string } = {}
+    options: { signal?: AbortSignal; logLabel?: string; onRequestId?: (requestId: string) => void } = {}
   ): Promise<HumanInputResponse | null> {
     const handler = this.humanInput;
     if (!handler) {
@@ -5434,16 +5653,53 @@ export class WerewolfGame {
     const timeoutController = new AbortController();
     const requestAbort = mergeAbortSignals(baseAbort.signal, timeoutController.signal);
     let timedOut = false;
+    let requestId: string | null = null;
     let timeout: ReturnType<typeof setNodeTimeout> | null = null;
+    const rememberRequestId = (id: string) => {
+      requestId = id;
+      options.onRequestId?.(id);
+    };
+    const inputActivityFilter = () => {
+      if (!requestId) {
+        return null;
+      }
+      return input.kind === "speech_choice"
+        ? { requestId, kind: input.kind, speechMode: input.speechMode }
+        : { requestId, kind: input.kind };
+    };
     const requestPromise: Promise<HumanInputResponse | null> = Promise.resolve().then(() =>
-      handler.requestOptional ? handler.requestOptional(input, { signal: requestAbort.signal }) : handler.request(input)
+      handler.requestOptional
+        ? handler.requestOptional(input, { signal: requestAbort.signal, onRequestId: rememberRequestId })
+        : handler.request(input)
     );
+    const timeoutMs = this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs;
+    const timeoutWindowStartedAt = Date.now();
     const timeoutPromise = new Promise<null>((resolve) => {
-      timeout = setNodeTimeout(() => {
-        timedOut = true;
-        timeoutController.abort();
-        resolve(null);
-      }, this.config.humanOptionalInputTimeoutMs ?? defaultHumanOptionalInputTimeoutMs);
+      const schedule = () => {
+        const filter = inputActivityFilter();
+        const latestActivityAt = filter ? (this.humanInput?.latestInputActivityAt?.(filter) ?? null) : null;
+        const deadlineBaseAt =
+          latestActivityAt !== null && latestActivityAt > timeoutWindowStartedAt ? latestActivityAt : timeoutWindowStartedAt;
+        const delayMs = Math.max(0, timeoutMs - (Date.now() - deadlineBaseAt));
+        timeout = setNodeTimeout(() => {
+          const currentFilter = inputActivityFilter();
+          const currentLatestActivityAt = currentFilter
+            ? (this.humanInput?.latestInputActivityAt?.(currentFilter) ?? null)
+            : null;
+          const currentDeadlineBaseAt =
+            currentLatestActivityAt !== null && currentLatestActivityAt > timeoutWindowStartedAt
+              ? currentLatestActivityAt
+              : timeoutWindowStartedAt;
+          if (Date.now() - currentDeadlineBaseAt < timeoutMs) {
+            schedule();
+            return;
+          }
+          timedOut = true;
+          timeoutController.abort();
+          resolve(null);
+        }, delayMs);
+      };
+      schedule();
     });
 
     try {
@@ -5473,6 +5729,39 @@ export class WerewolfGame {
       requestAbort.cleanup();
       baseAbort.cleanup();
       timeoutController.abort();
+    }
+  }
+
+  private async requestOptionalHumanInputWithoutTimeout(
+    input: HumanInputRequestPayload,
+    options: { signal?: AbortSignal; logLabel?: string; onRequestId?: (requestId: string) => void } = {}
+  ): Promise<HumanInputResponse | null> {
+    const handler = this.humanInput;
+    if (!handler) {
+      return null;
+    }
+
+    const requestAbort = mergeAbortSignals(this.abortSignal, options.signal);
+    try {
+      const response = await (handler.requestOptional
+        ? handler.requestOptional(input, { signal: requestAbort.signal, onRequestId: options.onRequestId })
+        : handler.request(input));
+      if (this.abortSignal?.aborted) {
+        throw new Error("Game stream cancelled.");
+      }
+      return response;
+    } catch (error) {
+      if (this.abortSignal?.aborted) {
+        throw error;
+      }
+      console.warn(
+        `[human-input] optional ${options.logLabel ?? "input"} failed; continuing without input: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    } finally {
+      requestAbort.cleanup();
     }
   }
 
@@ -5924,10 +6213,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Public read note (not spoken): ${player.name} suspects ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `公開読みメモ（発話ではない）: ${player.name}が${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}を疑い`
         )
       );
@@ -5936,10 +6225,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Public trust note (not spoken): ${player.name} trusts ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `公開信頼メモ（発話ではない）: ${player.name}が${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}を信頼`
         )
       );
@@ -5949,6 +6238,11 @@ export class WerewolfGame {
 
   private async emitRoundSummary(): Promise<GameEvent> {
     const summary = this.buildRoundSummary();
+    // Carry only factual recap forward as its day-bucket. Reads stay in the latest live state
+    // instead of becoming stale suspicion/trust layers in later-day prompts.
+    if (!this.roundPublicDigests.some((entry) => entry.round === this.round)) {
+      this.roundPublicDigests.push({ round: this.round, message: this.buildRoundPublicDigest(summary.data) });
+    }
     const data: Record<string, unknown> = {
       ...summary.data,
       deterministicMessage: summary.message,
@@ -5998,7 +6292,7 @@ export class WerewolfGame {
     return null;
   }
 
-  private buildRoundSummary(): { message: string; data: Record<string, unknown> } {
+  private buildRoundSummary(): { message: string; data: RoundSummaryData } {
     const nightDeaths = this.lastNightDeaths.map((id) => {
       const player = this.requirePlayer(id);
       return { playerId: player.id, playerName: player.name };
@@ -6056,6 +6350,32 @@ export class WerewolfGame {
         totals
       }
     };
+  }
+
+  private buildRoundPublicDigest(data: RoundSummaryData): string {
+    const nightLine =
+      data.nightDeaths.length > 0
+        ? this.text(
+            `Night: ${data.nightDeaths.map((death) => death.playerName).join(", ")} died.`,
+            `夜: ${data.nightDeaths.map((death) => death.playerName).join(", ")}が死亡。`
+          )
+        : this.text("Night: no deaths.", "夜: 死亡者なし。");
+    const claimLine =
+      data.claims.length > 0
+        ? this.text(
+            `Claims: ${data.claims.map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}.`,
+            `主張: ${data.claims.map((item) => this.formatClaimSummary(item.speakerName, item.claim)).join("; ")}。`
+          )
+        : this.text("Claims: none.", "主張: なし。");
+    const sortedTotals = [...data.totals].sort((a, b) => b.count - a.count || a.targetName.localeCompare(b.targetName));
+    const voteLine =
+      sortedTotals.length > 0
+        ? this.text(
+            `Votes: ${sortedTotals.map((total) => `${total.targetName} ${total.count}`).join(", ")}.`,
+            `投票: ${sortedTotals.map((total) => `${total.targetName} ${total.count}票`).join(", ")}。`
+          )
+        : this.text("Votes: none.", "投票: なし。");
+    return [nightLine, claimLine, voteLine].join(" ");
   }
 
   private formatReadLeaders(reads: Array<{ targetId: string; targetName: string }>): string {
@@ -6189,9 +6509,10 @@ export class WerewolfGame {
       return result;
     }
     const roundText = result.round ? ` R${result.round}` : "";
+    const targetName = this.playerNameOrId(result.targetId, result.targetName);
     return this.text(
-      `${result.targetName ?? result.targetId} checked ${result.camp}${roundText}`,
-      `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定${roundText}`
+      `${targetName} checked ${result.camp}${roundText}`,
+      `${targetName}は${this.campText(result.camp)}判定${roundText}`
     );
   }
 
@@ -6223,6 +6544,8 @@ export class WerewolfGame {
         .map(({ id, name, role }) => ({ id, name, role, publicDeathLabel: this.publicDeathLabelFor(id) })),
       publicHistory: this.publicHistory,
       privateHistory: player.memories,
+      pastDayPublicDigests: this.roundPublicDigests.filter((entry) => entry.round < round),
+      currentRoundPublicStart: this.roundPublicStart,
       language: this.config.language,
       secret: this.secretContextFor(player, secretOverride, round),
       lastNightDeaths: publicNightDeathInfos(this.lastNightDeathRecords, this.players, this.config.language),

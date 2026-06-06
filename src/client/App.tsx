@@ -16,6 +16,7 @@ import {
   Moon,
   Play,
   RotateCcw,
+  ScrollText,
   Send,
   Settings,
   Shield,
@@ -29,7 +30,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
 import {
   audioManifestPath,
@@ -79,11 +80,16 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
 const STREAM_WAIT_SLOW_MS = 15_000;
 const STREAM_WAIT_STALLED_MS = 70_000;
+// The match always runs to a 3-round limit (server default `defaultMaxRounds`); the
+// client never overrides it, so the rules copy can treat this as a fixed constant.
+const MATCH_MAX_ROUNDS = 3;
+
 // "Seen the tour" is scoped to this page load so a hard reload shows the guide
 // again, while later matches in the same loaded app skip it without a startup gate.
 let uiTourSeenThisPageLoad = false;
 
 type StreamWaitNotice = "slow" | "stalled";
+type TourRectState = { stepIndex: number; rect: DOMRect | null };
 
 function hasSeenUiTour(): boolean {
   return uiTourSeenThisPageLoad;
@@ -131,8 +137,22 @@ function isOptionalDiscussionInterruptInput(request: HumanInputRequest | null): 
   );
 }
 
+function isOptionalSpeechInput(request: HumanInputRequest | null): request is HumanInputRequest & {
+  kind: "speech_choice";
+} {
+  return Boolean(request && request.nonBlocking && request.kind === "speech_choice");
+}
+
 function shouldHoldSubmittedHumanInputScene(request: HumanInputRequest): boolean {
   return request.kind === "speech_choice" && !request.nonBlocking;
+}
+
+function shouldAutoAcknowledgeHumanInput(request: HumanInputRequest, revealAfterEventId: number | null): boolean {
+  return revealAfterEventId === null && !isOptionalDiscussionInterruptInput(request);
+}
+
+export function shouldDeferDiscussionInterruptSkip(request: HumanInputRequest | null, unreadStoryCount: number): boolean {
+  return isOptionalDiscussionInterruptInput(request) && unreadStoryCount > 0;
 }
 
 function isSubmittedHumanSpeechEvent(request: HumanInputRequest, event: GameEvent): boolean {
@@ -179,21 +199,21 @@ export function shouldRevealNonBlockingHumanInputAfterAdvance(
 // files through ORIGINAL_TO_SLOT_ID to keep portraits matched to the slot id the rest of the app
 // uses. Files are not renamed — only the lookup key changes.
 const portraitFileByOriginalId: Record<string, string> = {
-  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.png`,
-  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.png`,
-  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.png`,
-  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.png`,
-  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.png`,
-  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.png`,
-  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.png`,
-  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.png`,
-  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.png`,
-  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.png`,
-  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.png`,
-  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.png`,
-  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.png`,
-  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.png`,
-  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.png`
+  p1: `${CHARACTER_ASSET_ROOT}/p1_shion.webp`,
+  p2: `${CHARACTER_ASSET_ROOT}/p2_gaku.webp`,
+  p3: `${CHARACTER_ASSET_ROOT}/p3_akane.webp`,
+  p4: `${CHARACTER_ASSET_ROOT}/p4_mahiro.webp`,
+  p5: `${CHARACTER_ASSET_ROOT}/p5_nagisa.webp`,
+  p6: `${CHARACTER_ASSET_ROOT}/p6_shuhei.webp`,
+  p7: `${CHARACTER_ASSET_ROOT}/p7_kirie.webp`,
+  p8: `${CHARACTER_ASSET_ROOT}/p8_rikuto.webp`,
+  p9: `${CHARACTER_ASSET_ROOT}/p9_iori.webp`,
+  p10: `${CHARACTER_ASSET_ROOT}/p10_sakurako.webp`,
+  p11: `${CHARACTER_ASSET_ROOT}/p11_rintaro.webp`,
+  p12: `${CHARACTER_ASSET_ROOT}/p12_koharu.webp`,
+  p13: `${CHARACTER_ASSET_ROOT}/p13_sena.webp`,
+  p14: `${CHARACTER_ASSET_ROOT}/p14_nozomi.webp`,
+  p15: `${CHARACTER_ASSET_ROOT}/p15_akiomi.webp`
 };
 
 const thumbnailFileByOriginalId: Record<string, string> = {
@@ -513,7 +533,7 @@ const roleClass: Partial<Record<Role, string>> = {
   Witch: "role-witch",
   Guard: "role-guard",
   Hunter: "role-villager",
-  Raven: "role-villager",
+  Trapper: "role-villager",
   Idiot: "role-villager",
   Elder: "role-villager",
   Lover: "role-villager",
@@ -918,6 +938,37 @@ function displayMessageText(text: string): string {
   return text.trimEnd().replace(/。+(?=」?$)/u, "");
 }
 
+export function characterValueBullets(values: string): string[] {
+  const bullets: string[] = [];
+  let current = "";
+
+  for (const char of values.trim()) {
+    if (char === "。") {
+      const line = current.trim();
+      if (line) {
+        bullets.push(line);
+      }
+      current = "";
+      continue;
+    }
+
+    if (/[」』）】]/u.test(char) && current.trim() === "" && bullets.length > 0) {
+      bullets[bullets.length - 1] = `${bullets[bullets.length - 1]}${char}`;
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const lastLine = current.trim();
+  if (lastLine) {
+    bullets.push(lastLine);
+  }
+
+  return bullets;
+}
+
 function renderTextWithCharacterNames(text: string, keyPrefix = "character-name"): ReactNode {
   void keyPrefix;
   return text;
@@ -1291,7 +1342,7 @@ const headerRoleOrder = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -1343,16 +1394,37 @@ function renderHeaderCampRatio(count: number, language: string): ReactNode {
   return getCampRatioText(count, language);
 }
 
+// Shared rules copy so the guided-tour step (C) and the always-on rules panel (D)
+// state the same objective, flow, win conditions, and round-limit tie-break. The
+// tie-break mirrors `adjudicateStandardVictory`: at the round limit the larger camp
+// wins, and a tie (werewolves >= villagers) goes to the werewolves.
+function getMatchRulesCopy(count: number, maxRounds: number, language: string): string[] {
+  const { werewolves } = getCampRatioCounts(count);
+  if (isJapaneseLanguage(language)) {
+    return [
+      `村に紛れたAI人狼${werewolves}体を、昼の議論と投票で追放するゲームです`,
+      `1ラウンドは「昼の議論 → 追放投票 → 夜の襲撃」。勝負は最大${maxRounds}ラウンドです`,
+      "人狼をすべて追放できれば人間側の勝ち",
+      "人狼が人間側と同数まで生き残れば人狼側の勝ち",
+      `${maxRounds}ラウンドで決着しなければ、その時点で生存数が多い陣営の勝ち（同数なら人狼側）`,
+      "各役職の能力と勝利条件は「役職内訳」からいつでも確認できます"
+    ];
+  }
+  return [
+    `Root out the ${werewolves} AI werewolves hidden in the village through daytime debate and votes`,
+    `One round is "daytime debate → exile vote → night attack." A match lasts up to ${maxRounds} rounds`,
+    "The village wins by exiling every werewolf",
+    "The werewolves win once they survive in numbers equal to the villagers",
+    `If no side has won after ${maxRounds} rounds, the side with more survivors wins (a tie goes to the werewolves)`,
+    "Check each role's ability and win condition anytime from the role breakdown"
+  ];
+}
+
 interface RoleRuleCopy {
   goal: string;
   ability: string;
   timing: string;
   note: string;
-}
-
-interface RoleRulePopoverPosition {
-  left: number;
-  top: number;
 }
 
 const roleRuleJa: Record<Role, RoleRuleCopy> = {
@@ -1370,8 +1442,8 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
   },
   WolfBeauty: {
     goal: "狼陣営が人間側と同数以上で勝利",
-    ability: "夜に1人を魅了し、自分の死亡時に道連れ",
-    timing: "夜に魅了、死亡時に連鎖",
+    ability: "毎晩1人を魅了し、自分の死亡時に最新対象を道連れ",
+    timing: "毎夜魅了、死亡時に最新対象が連鎖",
     note: "襲撃参加と道連れを両立する"
   },
   Seer: {
@@ -1398,11 +1470,11 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
     timing: "処刑・襲撃などで死亡した時",
     note: "撃つ前に疑い先を絞っておく"
   },
-  Raven: {
+  Trapper: {
     goal: "人間側として全人狼を排除",
-    ability: "夜に任意で印を付け、対象へ投票1票を加算",
-    timing: "夜に指定、次の投票で反映",
-    note: "根拠が薄い夜は見送れる"
+    ability: "夜に任意で1人に罠を仕掛け、対象が襲撃されると人狼側1人を死亡させる",
+    timing: "夜に指定、同じ夜の襲撃で発動",
+    note: "襲撃そのものは防がない"
   },
   Idiot: {
     goal: "人間側として全人狼を排除",
@@ -1696,14 +1768,13 @@ export function App() {
   const [selectedBgmId, setSelectedBgmId] = useState(getDefaultBgmId(null));
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioStarted, setAudioStarted] = useState(false);
-  const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | null>(null);
+  const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | "rules" | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
-  const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   // Guided UI tour: null = inactive, otherwise the active step index. The measured
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
-  const [tourRect, setTourRect] = useState<DOMRect | null>(null);
+  const [tourRect, setTourRect] = useState<TourRectState | null>(null);
   // Spotlight shown when a werewolf ally is unveiled at the face-off: frame only that roster
   // card while its role flips, without dimming the main story panel or the rest of the screen.
   const [revealSpotlight, setRevealSpotlight] = useState<{ id: string; rect: DOMRect } | null>(null);
@@ -1727,6 +1798,7 @@ export function App() {
   const streamWaitWatchdogTimerRef = useRef<number | null>(null);
   const streamWaitNoticeRef = useRef<StreamWaitNotice | null>(null);
   const pendingHumanInputsRef = useRef<PendingHumanInputEntry[]>([]);
+  const humanInputActivityTouchAtRef = useRef(new Map<string, number>());
   const submittedHumanInputRef = useRef<HumanInputRequest | null>(null);
   const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest | null>(null);
   const eventsRef = useRef<GameEvent[]>([]);
@@ -1738,9 +1810,9 @@ export function App() {
   const processingHudHideTimerRef = useRef<number | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const voteResultsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const rulesButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
   const roleDistributionRef = useRef<HTMLElement | null>(null);
-  const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roleRulePopoverRef = useRef<HTMLElement | null>(null);
   const characterProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const characterProfileDialogRef = useRef<HTMLElement | null>(null);
@@ -1901,6 +1973,7 @@ export function App() {
       ? nonBlockingHumanInput
       : null;
   const visibleHumanInput = readyHumanInput ?? deferredNonBlockingHumanInput;
+  const visibleOptionalSpeechInput = isOptionalSpeechInput(visibleHumanInput) ? visibleHumanInput : null;
   const availableSpeechInterruptInput =
     optionalDiscussionInterruptInput &&
     !humanInputAnchorAcknowledged &&
@@ -1927,6 +2000,17 @@ export function App() {
   // existing control; the features themselves stay usable any time afterwards.
   const tourSteps = useMemo(
     () => [
+      {
+        // Anchorless step (getEl → null) renders as a centered card with no spotlight,
+        // so the very first thing onboarding shows is the rules of the game itself.
+        key: "rules",
+        getEl: () => null,
+        title: "ゲームのルール",
+        body: [
+          "1ラウンド（1日）は「昼の議論 → 追放投票 → 夜の襲撃」",
+          "勝負は最大3ラウンドです"
+        ]
+      },
       {
         key: "roles",
         getEl: () => roleDistributionRef.current,
@@ -1971,13 +2055,12 @@ export function App() {
         getEl: () => storyControlsRef.current,
         title: "視点・BGM・進行",
         body: [
-          "「全情報／人間視点」で見え方を切り替えられます",
           "BGMはオン／オフを切り替えられます",
           "「次へ」ボタンまたは → キーで物語を進めます"
         ]
       }
     ],
-    []
+    [effectivePlayerCount, language]
   );
   const tourActive = tourStepIndex !== null;
   const activeTourStep = tourStepIndex !== null ? tourSteps[tourStepIndex] ?? null : null;
@@ -1990,6 +2073,7 @@ export function App() {
   }
 
   function advanceTour() {
+    setTourRect(null);
     setTourStepIndex((current) => {
       if (current === null) {
         return null;
@@ -2028,6 +2112,7 @@ export function App() {
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0 });
     }
+    setTourRect(null);
     setTourStepIndex(0);
   }, [events.length, tourStepIndex]);
 
@@ -2054,9 +2139,10 @@ export function App() {
       setTourRect(null);
       return;
     }
+    const measuredStepIndex = tourStepIndex;
     const measure = () => {
       const el = step.getEl();
-      setTourRect(el ? el.getBoundingClientRect() : null);
+      setTourRect({ stepIndex: measuredStepIndex, rect: el ? el.getBoundingClientRect() : null });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -2184,46 +2270,14 @@ export function App() {
 
   function closeRoleRulePopover() {
     setSelectedRoleRule(null);
-    setRoleRulePopoverPosition(null);
-    roleRuleTriggerRef.current = null;
   }
 
-  function getRoleRulePopoverPosition(trigger: HTMLElement): RoleRulePopoverPosition {
-    const container = roleDistributionRef.current;
-    if (!container) {
-      return { left: 0, top: 0 };
-    }
-
-    const viewportPadding = 20;
-    const popoverWidth = Math.min(620, Math.max(280, window.innerWidth - viewportPadding * 2));
-    const triggerRect = trigger.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const desiredLeft = triggerRect.left - containerRect.left;
-    const maxLeft = Math.max(0, window.innerWidth - containerRect.left - popoverWidth - viewportPadding);
-
-    return {
-      left: Math.min(Math.max(0, desiredLeft), maxLeft),
-      top: triggerRect.bottom - containerRect.top + 8
-    };
-  }
-
-  function repositionRoleRulePopover() {
-    const trigger = roleRuleTriggerRef.current;
-    if (!trigger || !document.body.contains(trigger)) {
-      closeRoleRulePopover();
-      return;
-    }
-    setRoleRulePopoverPosition(getRoleRulePopoverPosition(trigger));
-  }
-
-  function toggleRoleRule(role: Role, event: ReactMouseEvent<HTMLButtonElement>) {
+  function toggleRoleRule(role: Role) {
     if (selectedRoleRule === role) {
       closeRoleRulePopover();
       return;
     }
 
-    roleRuleTriggerRef.current = event.currentTarget;
-    setRoleRulePopoverPosition(getRoleRulePopoverPosition(event.currentTarget));
     setSelectedRoleRule(role);
   }
 
@@ -2377,7 +2431,7 @@ export function App() {
       {
         request,
         revealAfterEventId,
-        anchorAcknowledged: revealAfterEventId === null
+        anchorAcknowledged: shouldAutoAcknowledgeHumanInput(request, revealAfterEventId)
       }
     ]);
     if (wasEmpty) {
@@ -2391,20 +2445,30 @@ export function App() {
     );
   }
 
+  function deferActiveHumanInput() {
+    updatePendingHumanInputs((currentInputs) =>
+      currentInputs.map((entry, index) => (index === 0 ? { ...entry, anchorAcknowledged: false } : entry))
+    );
+    initializeHumanInputForm(pendingHumanInput);
+  }
+
   function completeHumanInputRequest(request: HumanInputRequest) {
     const wasActive = pendingHumanInputsRef.current[0]?.request.id === request.id;
     const nextInputs = pendingHumanInputsRef.current.filter((entry) => entry.request.id !== request.id);
+    humanInputActivityTouchAtRef.current.delete(request.id);
     commitPendingHumanInputs(nextInputs);
     if (wasActive) {
       initializeHumanInputForm(nextInputs[0]?.request ?? null);
     } else {
       setHumanInputError("");
+      setHumanSubmitting(false);
     }
   }
 
   function resetHumanInputState() {
     submittedHumanInputRef.current = null;
     discardStoryUntilHumanEchoRef.current = null;
+    humanInputActivityTouchAtRef.current.clear();
     commitPendingHumanInputs([]);
     setHumanSpeech("");
     setHumanTargetId(null);
@@ -2491,6 +2555,32 @@ export function App() {
       body,
       keepalive: true
     }).catch(() => undefined);
+  }
+
+  function touchHumanInputActivity(request: HumanInputRequest, reason: "active" | "opened" | "typing") {
+    const currentGameId = gameId;
+    if (!currentGameId || !isOptionalSpeechInput(request)) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastTouchAt = humanInputActivityTouchAtRef.current.get(request.id) ?? 0;
+    if (lastTouchAt > 0 && now - lastTouchAt < 10_000) {
+      return;
+    }
+    humanInputActivityTouchAtRef.current.set(request.id, now);
+
+    const body = JSON.stringify({ requestId: request.id, reason });
+    void fetch(`/api/games/${currentGameId}/input/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true
+    }).catch(() => undefined);
+    postClientTrace("human_input_activity", {
+      request: clientTraceRequestSummary(request),
+      reason
+    });
   }
 
   function clearStreamWaitWatchdogTimer() {
@@ -2582,6 +2672,7 @@ export function App() {
     hideProcessingHudNow();
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
+    setTourRect(null);
     setGameId(null);
     setSourceDone(false);
     setRunning(false);
@@ -2644,6 +2735,7 @@ export function App() {
     setSourceDone(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
+    setTourRect(null);
     setRunning(true);
     statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
@@ -2791,6 +2883,7 @@ export function App() {
         activeRequestId: pendingHumanInputsRef.current[0]?.request.id ?? null
       });
       const wasActive = pendingHumanInputsRef.current[0]?.request.id === requestId;
+      humanInputActivityTouchAtRef.current.delete(requestId);
       updatePendingHumanInputs((currentInputs) => currentInputs.filter((entry) => entry.request.id !== requestId));
       if (submittedHumanInputRef.current?.id === requestId) {
         submittedHumanInputRef.current = null;
@@ -2941,6 +3034,18 @@ export function App() {
     return true;
   }
 
+  function skipVisibleDiscussionInterruptInput() {
+    if (!isOptionalDiscussionInterruptInput(visibleHumanInput)) {
+      return;
+    }
+    if (shouldDeferDiscussionInterruptSkip(visibleHumanInput, queuedRef.current.length)) {
+      deferActiveHumanInput();
+      revealNext();
+      return;
+    }
+    void submitHumanInput({ decision: false });
+  }
+
   function advanceStory() {
     if (paused) {
       return;
@@ -2971,9 +3076,17 @@ export function App() {
       return;
     }
     playSfx("ui_confirm");
+    touchHumanInputActivity(availableSpeechInterruptInput, "opened");
     acknowledgeActiveHumanInput();
     setGameStatus("入力待ち");
   }
+
+  useEffect(() => {
+    if (!visibleOptionalSpeechInput) {
+      return;
+    }
+    touchHumanInputActivity(visibleOptionalSpeechInput, "opened");
+  }, [visibleOptionalSpeechInput?.id, gameId]);
 
   useEffect(() => {
     return () => {
@@ -3020,8 +3133,47 @@ export function App() {
   }, [audioManifest, audioMuted, audioStarted, bgmRotationIds, selectedBgmId]);
 
   useEffect(() => {
+    if (!audioStarted || audioMuted || bgmRotationIds.length === 0) {
+      return;
+    }
+    const retryBgmOnUserInput = () => {
+      void getAudioController()?.resumeBgm();
+    };
+    window.addEventListener("pointerdown", retryBgmOnUserInput, true);
+    window.addEventListener("keydown", retryBgmOnUserInput, true);
+    return () => {
+      window.removeEventListener("pointerdown", retryBgmOnUserInput, true);
+      window.removeEventListener("keydown", retryBgmOnUserInput, true);
+    };
+  }, [audioMuted, audioStarted, bgmRotationIds]);
+
+  useEffect(() => {
     scheduleBackgroundCharacterPreload(characterPortraitImages);
   }, []);
+
+  // Just-in-time targeted prefetch: the unread buffer (queuedEvents) already knows who speaks
+  // next, so fetch the next few speakers' thumbnails at high priority before the user advances
+  // to them. Full portraits stay on the low-priority background preload path.
+  useEffect(() => {
+    const upcomingPlayerIds: string[] = [];
+    if (currentEvent?.playerId) {
+      upcomingPlayerIds.push(currentEvent.playerId);
+    }
+    for (const event of queuedEvents) {
+      if (event.playerId) {
+        upcomingPlayerIds.push(event.playerId);
+      }
+      if (upcomingPlayerIds.length >= 4) {
+        break;
+      }
+    }
+    const images = upcomingPlayerIds
+      .map((playerId) => getCharacterImage(playerId))
+      .filter((src): src is string => Boolean(src));
+    if (images.length > 0) {
+      preloadCharacterImages(images, "high");
+    }
+  }, [currentEvent, queuedEvents]);
 
   useEffect(() => {
     if (readyHumanInput && !paused) {
@@ -3096,29 +3248,11 @@ export function App() {
       closeRoleRulePopover();
     }
 
-    let resizeAnimationFrame: number | null = null;
-    function scheduleRoleRuleReposition() {
-      if (resizeAnimationFrame !== null) {
-        window.cancelAnimationFrame(resizeAnimationFrame);
-      }
-      resizeAnimationFrame = window.requestAnimationFrame(() => {
-        resizeAnimationFrame = null;
-        repositionRoleRulePopover();
-      });
-    }
-
     window.addEventListener("keydown", closeRoleRuleOnKeyDown);
     window.addEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
-    window.addEventListener("resize", scheduleRoleRuleReposition);
-    window.addEventListener("orientationchange", scheduleRoleRuleReposition);
     return () => {
-      if (resizeAnimationFrame !== null) {
-        window.cancelAnimationFrame(resizeAnimationFrame);
-      }
       window.removeEventListener("keydown", closeRoleRuleOnKeyDown);
       window.removeEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
-      window.removeEventListener("resize", scheduleRoleRuleReposition);
-      window.removeEventListener("orientationchange", scheduleRoleRuleReposition);
     };
   }, [roleDistributionItems, selectedRoleRule]);
 
@@ -3135,7 +3269,8 @@ export function App() {
       if (
         historyPopoverRef.current?.contains(target) ||
         historyButtonRef.current?.contains(target) ||
-        voteResultsButtonRef.current?.contains(target)
+        voteResultsButtonRef.current?.contains(target) ||
+        rulesButtonRef.current?.contains(target)
       ) {
         return;
       }
@@ -3328,7 +3463,17 @@ export function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errorBody = (await response.json().catch(() => null)) as { error?: string } | null;
+        const responseError = errorBody?.error ?? `HTTP ${response.status}`;
+        if (response.status === 404 && responseError === "input_not_pending") {
+          if (submittedHumanInputRef.current === request) {
+            submittedHumanInputRef.current = null;
+          }
+          completeHumanInputRequest(request);
+          setGameStatus("生成中");
+          return;
+        }
+        throw new Error(responseError);
       }
 
       if (localHumanSpeechEvent) {
@@ -3366,6 +3511,7 @@ export function App() {
     const isLoverAlignment = prompt.speechMode === "lover_alignment";
     const isFaceoffAlignment = isWerewolfAlignment || isLoverAlignment;
     const isDiscussionInterrupt = prompt.speechMode === "discussion_interrupt";
+    const tracksInputActivity = isOptionalSpeechInput(prompt);
     const canSubmitHumanSpeech = isFaceoffAlignment || humanSpeech.trim().length > 0;
     const speechHint = isWerewolfAlignment
       ? "未入力なら既定の意思合わせ発言で進みます"
@@ -3409,7 +3555,37 @@ export function App() {
           autoFocus
           disabled={humanSubmitting}
           maxLength={240}
-          onChange={(event) => setHumanSpeech(event.target.value)}
+          onCompositionEnd={() => {
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "typing");
+            }
+          }}
+          onCompositionStart={() => {
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onCompositionUpdate={() => {
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onChange={(event) => {
+            setHumanSpeech(event.target.value);
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "typing");
+            }
+          }}
+          onFocus={() => {
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
+          onKeyDown={() => {
+            if (tracksInputActivity) {
+              touchHumanInputActivity(prompt, "active");
+            }
+          }}
           placeholder={speechPlaceholder}
           rows={7}
           value={humanSpeech}
@@ -3421,7 +3597,7 @@ export function App() {
             <button
               className="icon-button human-speech-skip-button"
               disabled={humanSubmitting}
-              onClick={() => submitHumanInput({ decision: false })}
+              onClick={skipVisibleDiscussionInterruptInput}
               type="button"
             >
               <X size={18} />
@@ -4215,12 +4391,6 @@ export function App() {
   function renderHeaderRoleDistribution() {
     const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
-    const roleRulePopoverStyle = roleRulePopoverPosition
-      ? ({
-          "--role-rule-left": `${roleRulePopoverPosition.left}px`,
-          "--role-rule-top": `${roleRulePopoverPosition.top}px`
-        } as CSSProperties)
-      : undefined;
 
     return (
       <section ref={roleDistributionRef} className="header-role-distribution" aria-label="役職内訳">
@@ -4238,7 +4408,7 @@ export function App() {
                 aria-expanded={selectedRoleRule === role}
                 aria-label={`${displayRoleLabel(role, language)} ${count}人のルールを表示`}
                 className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
-                onClick={(event) => toggleRoleRule(role, event)}
+                onClick={() => toggleRoleRule(role)}
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
@@ -4255,7 +4425,6 @@ export function App() {
             id="role-rule-panel"
             role="dialog"
             aria-label={`${selectedRoleLabel}のルール`}
-            style={roleRulePopoverStyle}
           >
             <div className="role-rule-header">
               <div>
@@ -4344,7 +4513,7 @@ export function App() {
 
             {humanEnabled ? (
               <div className="human-camp-field">
-                <span>陣営（人間陣営の方が難易度が高くなります）</span>
+                <span>陣営</span>
                 <div className="segments human-camp-options" role="group" aria-label="陣営">
                   {humanCampPreferenceOptions.map((option) => (
                     <button
@@ -4565,6 +4734,42 @@ export function App() {
     );
   }
 
+  // Always-on rules reference (approach D): the same copy as the tour's rules step,
+  // reachable any time from the roster header so a player can recheck win conditions
+  // and the round-limit tie-break mid-match.
+  function renderRulesPopover() {
+    if (activeOverlay !== "rules") {
+      return null;
+    }
+
+    const rules = getMatchRulesCopy(effectivePlayerCount, MATCH_MAX_ROUNDS, language);
+
+    return (
+      <>
+        <div className="player-history-panel-dismiss" aria-hidden="true" />
+        <section className="player-history-popover rules-popover" ref={historyPopoverRef} role="dialog" aria-label="ゲームのルール">
+          <div className="overlay-header">
+            <div className="overlay-title">
+              <ScrollText size={20} />
+              <h2>ゲームのルール</h2>
+              <span>勝利条件</span>
+            </div>
+            <button className="overlay-close" onClick={() => setActiveOverlay(null)} type="button" aria-label="ルールを閉じる">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="overlay-body rules-body">
+            <ul className="rules-list">
+              {rules.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </>
+    );
+  }
+
   function renderCharacterReadColumn(title: string, reads: CharacterReadHistoryItem[], tone: "suspect" | "trust") {
     const shownReads = reads.slice(0, 4);
     return (
@@ -4719,7 +4924,11 @@ export function App() {
 
             <section className="character-profile-section">
               <h3>人物像</h3>
-              <p>{profile.values}</p>
+              <ul className="character-profile-values">
+                {characterValueBullets(profile.values).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
             </section>
           </div>
         </section>
@@ -4756,7 +4965,7 @@ export function App() {
     const stepNumber = (tourStepIndex ?? 0) + 1;
     const isLast = (tourStepIndex ?? 0) >= tourSteps.length - 1;
     const pad = 10;
-    const rect = tourRect;
+    const rect = tourRect?.stepIndex === tourStepIndex ? tourRect.rect : null;
     const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
     const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
     const spotlightStyle: CSSProperties | undefined = rect
@@ -4821,7 +5030,7 @@ export function App() {
       <div className="ui-tour" role="dialog" aria-label={`使い方ガイド ${stepNumber}/${tourSteps.length}：${activeTourStep.title}`}>
         <div className="ui-tour-backdrop" onClick={advanceTour} aria-hidden="true" />
         {rect ? <div className="ui-tour-spotlight" style={spotlightStyle} aria-hidden="true" /> : null}
-        <div className="ui-tour-callout" style={calloutStyle} ref={tourCalloutRef} tabIndex={-1}>
+        <div className={rect ? "ui-tour-callout" : "ui-tour-callout is-centered"} style={calloutStyle} ref={tourCalloutRef} tabIndex={-1}>
           <div className="ui-tour-callout-head">
             <span className="ui-tour-step">ガイド {stepNumber} / {tourSteps.length}</span>
             <button className="ui-tour-skip" onClick={finishTour} type="button">スキップ</button>
@@ -4908,6 +5117,19 @@ export function App() {
                 >
                   <Vote size={14} />
                   <span>投票結果</span>
+                </button>
+                <button
+                  aria-pressed={activeOverlay === "rules"}
+                  className={`player-history-button rules-button ${activeOverlay === "rules" ? "active" : ""}`}
+                  onClick={() => {
+                    closeCharacterProfile({ restoreFocus: false });
+                    setActiveOverlay(activeOverlay === "rules" ? null : "rules");
+                  }}
+                  ref={rulesButtonRef}
+                  type="button"
+                >
+                  <ScrollText size={14} />
+                  <span>ルール</span>
                 </button>
               </div>
             </div>
@@ -5047,6 +5269,7 @@ export function App() {
           </div>
           {renderConversationLogPopover()}
           {renderVoteResultsPopover()}
+          {renderRulesPopover()}
           {renderCharacterProfilePopover()}
         </aside>
 

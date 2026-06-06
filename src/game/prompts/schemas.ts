@@ -70,6 +70,17 @@ export interface BuildPromptContextOptions {
   deadPlayers: Array<TargetCandidate & { role?: Role; publicDeathLabel?: string }>;
   publicHistory: string[];
   privateHistory: string[];
+  /**
+   * Per-day factual recaps of rounds that have already ended (one entry per past round).
+   * Used to carry compressed prior-day context forward instead of relying on a flat sliding
+   * window over `publicHistory`, which loses early-day events by the final round.
+   */
+  pastDayPublicDigests?: Array<{ round: number; message: string }>;
+  /**
+   * Index into `publicHistory` where the current round's public discussion begins.
+   * Lines before this index belong to earlier days and are represented by `pastDayPublicDigests`.
+   */
+  currentRoundPublicStart?: number;
   language?: string;
   secret?: RoleSecretContext;
   lastNightDeaths: PublicNightDeathInfo[];

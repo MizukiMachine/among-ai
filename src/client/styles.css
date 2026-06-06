@@ -435,12 +435,12 @@ textarea:focus-visible {
 }
 
 .role-rule-popover {
-  position: absolute;
-  top: var(--role-rule-top, calc(100% + 10px));
-  left: var(--role-rule-left, 0);
+  position: static;
+  grid-column: 1 / -1;
+  align-self: start;
   z-index: 30;
-  width: min(620px, calc(100vw - 40px));
-  max-width: calc(100vw - 40px);
+  width: min(620px, 100%);
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.22);
   border-radius: 8px;
@@ -1774,6 +1774,23 @@ textarea:focus-visible {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.character-profile-values li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.character-profile-values li::before {
+  width: 6px;
+  height: 6px;
+  margin-top: 0.76em;
+  border-radius: 999px;
+  background: var(--ship-cyan);
+  content: "";
+  box-shadow: 0 0 10px rgba(103, 216, 223, 0.65);
 }
 
 .character-profile-reads {
@@ -5835,7 +5852,7 @@ input[type="range"] {
   }
 
   .role-rule-popover {
-    width: min(620px, calc(100vw - 34px));
+    width: 100%;
     max-height: calc(100vh - 190px);
     overflow-y: auto;
   }
@@ -6353,6 +6370,15 @@ input[type="range"] {
   animation: overlay-in 0.2s ease-out;
 }
 
+.ui-tour-callout.is-centered {
+  animation-name: ui-tour-centered-in;
+}
+
+@keyframes ui-tour-centered-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
 .ui-tour-callout:focus {
   outline: none;
 }
@@ -6463,4 +6489,45 @@ input[type="range"] {
     animation: none;
     transition: none;
   }
+}
+
+/* Rules reference panel (approach D) — reuses the .player-history-popover chrome */
+.rules-popover .overlay-title svg {
+  color: var(--ship-cyan);
+}
+
+.rules-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 2px 0 4px;
+  list-style: none;
+  counter-reset: rules-counter;
+}
+
+.rules-list li {
+  position: relative;
+  padding-left: 32px;
+  color: #d6e2e9;
+  font-size: 16px;
+  line-height: 1.6;
+  counter-increment: rules-counter;
+}
+
+.rules-list li::before {
+  content: counter(rules-counter);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(103, 216, 223, 0.4);
+  background: rgba(103, 216, 223, 0.12);
+  color: var(--ship-cyan);
+  font-size: 12px;
+  font-weight: 800;
 }

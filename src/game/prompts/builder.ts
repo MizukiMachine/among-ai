@@ -31,6 +31,28 @@ import {
   type WitchPrivateState
 } from "./schemas";
 
+type PlayerReferenceStyle = "with_ids" | "names_only";
+
+function formatPlayerReference(player: TargetCandidate, style: PlayerReferenceStyle = "with_ids"): string {
+  return style === "names_only" ? player.name : `${player.name} (${player.id})`;
+}
+
+function formatPlayersForPrompt(
+  players: Array<{ id: string; name: string }>,
+  language = defaultLanguage,
+  style: PlayerReferenceStyle = "with_ids"
+): string {
+  return players.length > 0
+    ? players.map((player) => formatPlayerReference(player, style)).join(", ")
+    : isJapaneseLanguage(language)
+      ? "なし"
+      : "none";
+}
+
+function formatSeerResultTarget(result: SeerPrivateResult, style: PlayerReferenceStyle = "with_ids"): string {
+  return style === "names_only" ? result.targetName : `${result.targetName} (${result.targetId})`;
+}
+
 function phaseInstructions(profile: RolePromptProfile, promptPhase: PromptPhase): string[] {
   if (promptPhase === "werewolf_discussion") {
     const phase = promptMaterials.phases.werewolf_discussion;
@@ -78,7 +100,7 @@ function phaseInstructions(profile: RolePromptProfile, promptPhase: PromptPhase)
   ];
 }
 
-function formatSeerResults(results: SeerPrivateResult[], language: string): string[] {
+function formatSeerResults(results: SeerPrivateResult[], language: string, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (results.length === 0) {
     return ["- 占い結果: まだありません。"];
   }
@@ -87,12 +109,12 @@ function formatSeerResults(results: SeerPrivateResult[], language: string): stri
     "- 自分だけが知っている占い結果:",
     ...results.map((result) => {
       const round = result.round ? `第${result.round}ラウンド: ` : "";
-      return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}`;
+      return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}`;
     })
   ];
 }
 
-function formatSeerResultsJa(results: SeerPrivateResult[], language: string): string[] {
+function formatSeerResultsJa(results: SeerPrivateResult[], language: string, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (results.length === 0) {
     return ["- 占い結果: まだありません。"];
   }
@@ -101,18 +123,18 @@ function formatSeerResultsJa(results: SeerPrivateResult[], language: string): st
     "- 自分だけが知っている占い結果:",
     ...results.map((result) => {
       const round = result.round ? `第${result.round}ラウンド: ` : "";
-      return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}`;
+      return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}`;
     })
   ];
 }
 
-function formatWitchState(witch: WitchPrivateState | undefined): string[] {
+function formatWitchState(witch: WitchPrivateState | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!witch) {
     return ["- 薬の情報: 利用できません。"];
   }
 
   const attacked = witch.attackedTarget
-    ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
+    ? formatPlayerReference(witch.attackedTarget, style)
     : "この判断では見えていません";
   return [
     `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
@@ -121,13 +143,13 @@ function formatWitchState(witch: WitchPrivateState | undefined): string[] {
   ];
 }
 
-function formatWitchStateJa(witch: WitchPrivateState | undefined): string[] {
+function formatWitchStateJa(witch: WitchPrivateState | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!witch) {
     return ["- 薬の情報: 利用できません。"];
   }
 
   const attacked = witch.attackedTarget
-    ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
+    ? formatPlayerReference(witch.attackedTarget, style)
     : "この判断では見えていません";
   return [
     `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
@@ -167,23 +189,27 @@ function roleBreakdownLines(roleBreakdown: RoleBreakdownEntry[] | undefined, lan
   ];
 }
 
-function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!partner) {
     return ["- 恋人の相方: まだ見えていません。"];
   }
   const status = partner.alive === undefined ? "" : partner.alive ? " 生存" : " 死亡";
-  return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
+  return [`- 恋人の相方: ${formatPlayerReference(partner, style)}${status}。`];
 }
 
-function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!partner) {
     return ["- 恋人の相方: まだ見えていません。"];
   }
   const status = partner.alive === undefined ? "" : partner.alive ? " 生存" : " 死亡";
-  return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
+  return [`- 恋人の相方: ${formatPlayerReference(partner, style)}${status}。`];
 }
 
-function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, language: string): string[] {
+function formatWerewolfDeceptionJa(
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const deception = secret?.werewolfDeception;
   if (!deception?.claimedRole) {
     return [
@@ -207,21 +233,25 @@ function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, langua
         "- 公開で通す偽の占い結果:",
         ...deception.fakeSeerResults.map((result) => {
           const round = result.round ? `第${result.round}ラウンド: ` : "";
-          return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+          return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}判定`;
         })
       );
     }
     if (deception.currentFakeSeerResult) {
       const result = deception.currentFakeSeerResult;
       lines.push(
-        `- 今日必ず出す偽結果: ${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。対象名と判定を明示し、過去の偽結果と矛盾させません。`
+        `- 今日必ず出す偽結果: ${formatSeerResultTarget(result, style)} は${campLabel(result.camp, language)}判定。対象名と判定を明示し、過去の偽結果と矛盾させません。`
       );
     }
   }
   return lines;
 }
 
-function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language: string): string[] {
+function formatSeerDisclosureJa(
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const disclosure = secret?.seerDisclosure;
   if (!disclosure) {
     return [];
@@ -238,7 +268,7 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
       "- 公開済みの占い結果:",
       ...disclosure.announcedResults.map((result) => {
         const round = result.round ? `第${result.round}ラウンド: ` : "";
-        return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+        return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}判定`;
       })
     );
   }
@@ -248,7 +278,7 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
       "- 今日公開する占い結果:",
       ...disclosure.currentResultsToPublish.map((result) => {
         const round = result.round ? `第${result.round}ラウンド: ` : "";
-        return `  - ${round}${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。公開発言で対象名と判定を明示する。`;
+        return `  - ${round}${formatSeerResultTarget(result, style)} は${campLabel(result.camp, language)}判定。公開発言で対象名と判定を明示する。`;
       })
     );
   }
@@ -256,7 +286,12 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
   return lines;
 }
 
-function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+function roleVisiblePrivateInfoJa(
+  role: Role,
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   if (isWerewolfRole(role)) {
     const allies = secret?.werewolfAllies ?? [];
     return [
@@ -264,25 +299,25 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
       ...(allies.length > 0
         ? allies.map(
             (ally) =>
-              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+              `  - ${formatPlayerReference(ally, style)}${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
         : ["  - なし"]),
-      ...formatWerewolfDeceptionJa(secret, language)
+      ...formatWerewolfDeceptionJa(secret, language, style)
     ];
   }
 
   if (role === "Seer") {
-    return [...formatSeerResultsJa(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
+    return [...formatSeerResultsJa(secret?.seerResults ?? [], language, style), ...formatSeerDisclosureJa(secret, language, style)];
   }
 
   if (role === "Witch") {
-    return formatWitchStateJa(secret?.witch);
+    return formatWitchStateJa(secret?.witch, style);
   }
 
   if (role === "Lover") {
-    return formatLoverPartnerJa(secret?.loverPartner);
+    return formatLoverPartnerJa(secret?.loverPartner, style);
   }
 
   if (role === "Villager") {
@@ -292,9 +327,14 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
   return ["- 自分の役職と、見えている公開情報だけを使います。"];
 }
 
-function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+function roleVisiblePrivateInfo(
+  role: Role,
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   if (isJapaneseLanguage(language)) {
-    return roleVisiblePrivateInfoJa(role, secret, language);
+    return roleVisiblePrivateInfoJa(role, secret, language, style);
   }
 
   if (isWerewolfRole(role)) {
@@ -304,25 +344,25 @@ function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefine
       ...(allies.length > 0
         ? allies.map(
             (ally) =>
-              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+              `  - ${formatPlayerReference(ally, style)}${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
         : ["  - なし"]),
-      ...formatWerewolfDeceptionJa(secret, language)
+      ...formatWerewolfDeceptionJa(secret, language, style)
     ];
   }
 
   if (role === "Seer") {
-    return [...formatSeerResults(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
+    return [...formatSeerResults(secret?.seerResults ?? [], language, style), ...formatSeerDisclosureJa(secret, language, style)];
   }
 
   if (role === "Witch") {
-    return formatWitchState(secret?.witch);
+    return formatWitchState(secret?.witch, style);
   }
 
   if (role === "Lover") {
-    return formatLoverPartner(secret?.loverPartner);
+    return formatLoverPartner(secret?.loverPartner, style);
   }
 
   if (role === "Villager") {
@@ -365,6 +405,35 @@ function firstDaySeerResultRuleLines(phase: Phase, round: number, language: stri
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function playerNameReplacementEntries(options: BuildPromptContextOptions): Array<[string, string]> {
+  const deathPlayers = [...options.lastNightDeaths, ...(options.lastVoteDeaths ?? [])].map((death) => ({
+    id: death.playerId,
+    name: death.playerName
+  }));
+  const players = [options.player, ...options.alivePlayers, ...options.deadPlayers, ...deathPlayers];
+  const byId = new Map<string, string>();
+  for (const player of players) {
+    if (player.id.trim().length > 0 && player.name.trim().length > 0 && !byId.has(player.id)) {
+      byId.set(player.id, player.name);
+    }
+  }
+  return [...byId.entries()].sort(([left], [right]) => right.length - left.length);
+}
+
+function replacePlayerIdsWithNames(text: string, entries: Array<[string, string]>): string {
+  let out = text;
+  for (const [id, name] of entries) {
+    const pattern = new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(id)}(?=$|[^A-Za-z0-9_-])`, "gi");
+    out = out.replace(pattern, `$1${name}`);
+  }
+  return out;
+}
+
+function replacePlayerIdsWithNamesInLines(lines: string[], options: BuildPromptContextOptions): string[] {
+  const entries = playerNameReplacementEntries(options);
+  return entries.length > 0 ? lines.map((line) => replacePlayerIdsWithNames(line, entries)) : lines;
 }
 
 export function getRoleStrategy(role: Role): string {
@@ -414,7 +483,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   const werewolfRole = isWerewolfRole(role);
   const jesterRole = role === "Jester";
   if (japanese) {
-    const claimRoles = "占い師、魔女、ハンター、鴉、愚者、長老";
+    const claimRoles = "占い師、魔女、ハンター、罠師、愚者、長老";
     const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時";
     const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
     const common = werewolfRole
@@ -450,8 +519,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     if (role === "Hunter") {
       return ["あなたはハンターです。吊られそうな時や撃ち先を整理する価値がある時は名乗ってよい。", ...common];
     }
-    if (role === "Raven") {
-      return ["あなたは鴉です。印や票数変化を説明すると村が迷わない時は名乗ってよい。", ...common];
+    if (role === "Trapper") {
+      return ["あなたは罠師です。罠の発動や襲撃筋を説明すると村が迷わない時は名乗ってよい。", ...common];
     }
     if (role === "Idiot") {
       return ["あなたは愚者です。無駄吊りになりそうな時は名乗ってよいが、吊られに行くためのCOはしない。", ...common];
@@ -465,7 +534,7 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
     return common;
   }
 
-  const claimRoles = "占い師・魔女・ハンター・鴉・愚者・長老";
+  const claimRoles = "占い師・魔女・ハンター・罠師・愚者・長老";
   const claimCondition = "公開情報が投票・対抗・自分への疑いを動かす時だけ";
   const firstDaySeerResultRule = "初日昼には占い結果は出ない。本物の占い師も、占い師騙りも、初日に対象名と判定を出さない。";
   const common = werewolfRole
@@ -501,8 +570,8 @@ function simplePublicClaimPolicyLines(role: Role, language: string): string[] {
   if (role === "Hunter") {
     return ["あなたはハンターです。処刑されそうな時や、反撃先の考え方を出すことが村に役立つ時だけ名乗る。", ...common];
   }
-  if (role === "Raven") {
-    return ["あなたは鴉です。印や票数変化の説明が悪い処刑を避ける時だけ名乗る。", ...common];
+  if (role === "Trapper") {
+    return ["あなたは罠師です。罠の発動や襲撃筋の説明が悪い処刑を避ける時だけ名乗る。", ...common];
   }
   if (role === "Idiot") {
     return ["あなたは愚者です。無駄な処刑を避けるためなら名乗るが、処刑されるためだけには名乗らない。", ...common];
@@ -593,22 +662,128 @@ function publicSpeechHistoryLines(lines: string[], player: Player, language: str
   return recentLines(lines.map((line) => selfAwarePublicHistoryLine(line, player, language)), count);
 }
 
+/**
+ * Render the public-discussion block as day buckets: earlier rounds appear as compact factual
+ * recaps (deterministic round summaries) and only the current round shows raw speech lines.
+ * Falls back to a flat recent window when the caller did not provide complete day metadata,
+ * so behaviour is unchanged for legacy prompt-builder callers.
+ */
+function dayScopedPublicHistoryLines(
+  options: BuildPromptContextOptions,
+  player: Player,
+  language: string,
+  count: number,
+  selfAware: boolean
+): string[] {
+  const { publicHistory, pastDayPublicDigests, currentRoundPublicStart, round } = options;
+  const japanese = isJapaneseLanguage(language);
+  const flatLines = selfAware ? publicSpeechHistoryLines(publicHistory, player, language, count) : recentLines(publicHistory, count);
+  if (!Array.isArray(pastDayPublicDigests) || typeof currentRoundPublicStart !== "number" || !Number.isFinite(currentRoundPublicStart)) {
+    return flatLines;
+  }
+
+  const past = pastDayPublicDigests.filter((entry) => entry.round < round && entry.message.trim().length > 0);
+  const start = Math.max(0, Math.min(publicHistory.length, Math.floor(currentRoundPublicStart)));
+  if (past.length === 0 && start > 0) {
+    return flatLines;
+  }
+
+  const currentRaw = publicHistory.slice(start);
+  const todayLines = selfAware
+    ? publicSpeechHistoryLines(currentRaw, player, language, count)
+    : recentLines(currentRaw, count);
+
+  if (past.length === 0) {
+    return todayLines;
+  }
+
+  const out: string[] = [japanese ? "これまでの経過（日ごとの要約）:" : "Recap by day so far:"];
+  for (const entry of past) {
+    out.push(japanese ? `- ${entry.round}日目: ${entry.message}` : `- Day ${entry.round}: ${entry.message}`);
+  }
+  out.push("", japanese ? `今日（${round}日目）の議論:` : `Today (Day ${round}) discussion:`);
+  if (todayLines.length > 0) {
+    out.push(...todayLines);
+  } else {
+    out.push(japanese ? "- まだ発言はありません。" : "- No remarks yet.");
+  }
+  return out;
+}
+
+const MEMORY_ROUND_PREFIX = /^(?:第(\d+)ラウンド|Round\s+(\d+))[:：]\s*/i;
+
+/**
+ * Render the player's private memory grouped into day buckets. Memory lines are factual notes
+ * (own night actions, seer results, vote records) already tagged with their round, so grouping by
+ * day keeps early-day facts (e.g. a Day 1 seer result) visible on later days instead of letting
+ * them fall out of a flat recent window. Unrecognised lines are kept under a trailing "other" group.
+ */
+function dayScopedMemoryLines(privateHistory: string[], round: number, language: string, count: number): string[] {
+  const japanese = isJapaneseLanguage(language);
+  const byRound = new Map<number, string[]>();
+  const other: string[] = [];
+  let sawRoundPrefix = false;
+  for (const line of privateHistory) {
+    const match = line.match(MEMORY_ROUND_PREFIX);
+    if (match) {
+      sawRoundPrefix = true;
+      const parsed = Number(match[1] ?? match[2]);
+      const stripped = line.replace(MEMORY_ROUND_PREFIX, "").trim();
+      if (stripped.length === 0) {
+        continue;
+      }
+      const bucket = byRound.get(parsed) ?? [];
+      bucket.push(stripped);
+      byRound.set(parsed, bucket);
+    } else {
+      other.push(line);
+    }
+  }
+
+  if (byRound.size === 0) {
+    return recentLines(sawRoundPrefix ? other : privateHistory, count);
+  }
+
+  const out: string[] = [];
+  const maxLinesPerRound = Math.max(2, Math.ceil(count / Math.max(1, byRound.size)));
+  let emittedMemoryLines = 0;
+  for (const parsed of [...byRound.keys()].sort((a, b) => a - b)) {
+    const label = parsed === round ? (japanese ? `${parsed}日目（今日）:` : `Day ${parsed} (today):`) : japanese ? `${parsed}日目:` : `Day ${parsed}:`;
+    const bucketLines = recentLines(byRound.get(parsed)!, maxLinesPerRound);
+    emittedMemoryLines += bucketLines.length;
+    out.push(label, ...bucketLines.map((line) => `- ${line}`));
+  }
+  const otherBudget = Math.max(0, count - emittedMemoryLines);
+  if (otherBudget > 0 && other.length > 0) {
+    out.push(japanese ? "その他:" : "Other:", ...recentLines(other, otherBudget).map((line) => `- ${line}`));
+  }
+  return out;
+}
+
 function publicUnknownDeathLabel(language: string): string {
   return isJapaneseLanguage(language) ? "公開上原因不明" : "public cause unknown";
 }
 
 function formatPublicDeathInfo(
   death: { playerId: string; playerName: string; publicCauseLabel: string | null },
-  language: string
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
 ): string {
-  return `${death.playerName} (${death.playerId}) / ${death.publicCauseLabel ?? publicUnknownDeathLabel(language)}`;
+  const playerText = style === "names_only" ? death.playerName : `${death.playerName} (${death.playerId})`;
+  return `${playerText} / ${death.publicCauseLabel ?? publicUnknownDeathLabel(language)}`;
 }
 
-function formatDeadPlayerInfo(playerInfo: TargetCandidate & { publicDeathLabel?: string }): string {
-  return `${playerInfo.name} (${playerInfo.id})${playerInfo.publicDeathLabel ? ` / ${playerInfo.publicDeathLabel}` : ""}`;
+function formatDeadPlayerInfo(
+  playerInfo: TargetCandidate & { publicDeathLabel?: string },
+  style: PlayerReferenceStyle = "with_ids"
+): string {
+  return `${formatPlayerReference(playerInfo, style)}${playerInfo.publicDeathLabel ? ` / ${playerInfo.publicDeathLabel}` : ""}`;
 }
 
-function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[] {
+function publicDayRosterStatusLines(
+  options: BuildPromptContextOptions,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const {
     phase,
     round,
@@ -625,26 +800,26 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
   const japanese = isJapaneseLanguage(language);
   const lastNightDeaths =
     publicLastNightDeaths.length > 0
-      ? publicLastNightDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
+      ? publicLastNightDeaths.map((death) => formatPublicDeathInfo(death, language, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   const lastVoteDeathList =
     lastVoteDeaths.length > 0
-      ? lastVoteDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
+      ? lastVoteDeaths.map((death) => formatPublicDeathInfo(death, language, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   const deadPlayerList =
     deadPlayers.length > 0
-      ? deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")
+      ? deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   if (japanese) {
     return [
       "現在の参加者ステータス:",
-      `- 生存中: ${formatPlayers(alivePlayers, language)}。`,
+      `- 生存中: ${formatPlayersForPrompt(alivePlayers, language, style)}。`,
       `- 死亡済み: ${deadPlayerList}。`,
       `- 昨夜死亡: ${lastNightDeaths}。`,
       `- 直近の投票処刑: ${lastVoteDeathList}。`,
@@ -654,7 +829,7 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
 
   return [
     "Current participant status:",
-    `- Alive: ${formatPlayers(alivePlayers, language)}.`,
+    `- Alive: ${formatPlayersForPrompt(alivePlayers, language, style)}.`,
     `- Dead: ${deadPlayerList}.`,
     `- Last night's deaths: ${lastNightDeaths}.`,
     `- Last vote execution: ${lastVoteDeathList}.`,
@@ -677,10 +852,12 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     extra = []
   } = options;
   const japanese = isJapaneseLanguage(language);
-  const recentPublicHistory = publicHistory.length > 0 ? publicSpeechHistoryLines(publicHistory, player, language, 24) : ["- まだありません。"];
-  const visibleSituation = publicSpeechSituationLines(extra);
-  const privateMemory = privateHistory.length > 0 ? recentLines(privateHistory, 10) : ["- なし。"];
-  const rosterStatus = publicDayRosterStatusLines(options);
+  const recentPublicHistory =
+    publicHistory.length > 0 ? replacePlayerIdsWithNamesInLines(dayScopedPublicHistoryLines(options, player, language, 24, true), options) : ["- まだありません。"];
+  const visibleSituation = replacePlayerIdsWithNamesInLines(publicSpeechSituationLines(extra), options);
+  const privateMemory =
+    privateHistory.length > 0 ? replacePlayerIdsWithNamesInLines(dayScopedMemoryLines(privateHistory, round, language, 12), options) : ["- なし。"];
+  const rosterStatus = publicDayRosterStatusLines(options, "names_only");
   const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
 
   if (japanese) {
@@ -692,16 +869,16 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "",
       "役職:",
       `- ${roleLabel(player.role, language)}`,
-      ...roleVisiblePrivateInfo(player.role, secret, language),
+      ...roleVisiblePrivateInfo(player.role, secret, language, "names_only"),
       "",
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
       ...firstDaySeerResultRules,
       ...roleBreakdownLines(roleBreakdown, language),
       ...rosterStatus,
-      `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
+      `- 生存者: ${formatPlayersForPrompt(alivePlayers, language, "names_only")}。`,
       deadPlayers.length > 0
-        ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
+        ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, "names_only")).join(", ")}。`
         : "- 死亡者: なし。",
       ...visibleSituation,
       "",
@@ -724,16 +901,16 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "",
     "役職:",
     `- ${roleLabel(player.role, language)}`,
-    ...roleVisiblePrivateInfo(player.role, secret, language),
+    ...roleVisiblePrivateInfo(player.role, secret, language, "names_only"),
     "",
     "現在の状況:",
     `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
     ...firstDaySeerResultRules,
     ...roleBreakdownLines(roleBreakdown, language),
     ...rosterStatus,
-    `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
+    `- 生存者: ${formatPlayersForPrompt(alivePlayers, language, "names_only")}。`,
     deadPlayers.length > 0
-      ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
+      ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, "names_only")).join(", ")}。`
       : "- 死亡者: なし。",
     ...visibleSituation,
     "",
@@ -835,7 +1012,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
   ];
 
   if (privateHistory.length > 0) {
-    lines.push("", japanese ? "自分の記憶:" : "自分の記憶:", ...recentLines(privateHistory, 12));
+    lines.push("", japanese ? "自分の記憶（日ごと）:" : "自分の記憶（日ごと）:", ...dayScopedMemoryLines(privateHistory, round, language, 16));
   }
 
   if (publicHistory.length > 0) {
@@ -848,7 +1025,7 @@ export function buildPromptContext(options: BuildPromptContextOptions): string {
       japanese
         ? "- 見えている発言だけを証拠にする。反応、矛盾、名乗り、発言量を作らない。"
         : "- 見えている発言だけを証拠にする。反応、矛盾、名乗り、発言量を作らない。",
-      ...recentLines(publicHistory, 18)
+      ...dayScopedPublicHistoryLines(options, player, language, 18, false)
     );
   }
 
@@ -912,11 +1089,11 @@ function buildJapaneseVotingDecisionContext(options: BuildPromptContextOptions):
   ];
 
   if (privateHistory.length > 0) {
-    lines.push("", "自分の記憶:", ...recentLines(privateHistory, 12));
+    lines.push("", "自分の記憶（日ごと）:", ...dayScopedMemoryLines(privateHistory, round, language, 16));
   }
 
   if (publicHistory.length > 0) {
-    lines.push("", "直近の昼の発言:", ...recentLines(publicHistory, 18));
+    lines.push("", "直近の昼の発言:", ...dayScopedPublicHistoryLines(options, player, language, 18, false));
   } else {
     lines.push("", "直近の昼の発言:", "- まだ、この昼の発言はありません。");
   }

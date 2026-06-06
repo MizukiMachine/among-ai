@@ -7,6 +7,7 @@ import {
   App,
   characterClaimHistoryForEvents,
   characterReadHistoryForEvents,
+  characterValueBullets,
   clusterReads,
   dedupeReadsBySourceTarget,
   eventPhaseMetaLabel,
@@ -20,6 +21,7 @@ import {
   mentionedCharactersForEvent,
   mentionedCharactersForText,
   personalVictoryOutcomeForSnapshot,
+  shouldDeferDiscussionInterruptSkip,
   shouldRevealBlockingHumanInputAfterAdvance,
   shouldRevealNonBlockingHumanInputAfterAdvance,
   stageLightMoodForEvent,
@@ -30,7 +32,7 @@ import {
   winnerLabelForRoster
 } from "../src/client/App";
 import { roleLabel as displayRoleLabel } from "../src/game/i18n";
-import type { GameEvent, GameSnapshot } from "../src/game/types";
+import type { GameEvent, GameSnapshot, HumanInputRequest } from "../src/game/types";
 
 test("app shell renders spectator controls and role distribution", () => {
   const html = renderToStaticMarkup(createElement(App));
@@ -71,14 +73,21 @@ test("app shell renders spectator controls and role distribution", () => {
   assert.doesNotMatch(html, /10人以上は認知負荷が大きい/);
 });
 
+test("character public values render as sentence bullets without final periods", () => {
+  assert.deepEqual(characterValueBullets("一つ目の人物像。二つ目の人物像。"), ["一つ目の人物像", "二つ目の人物像"]);
+  assert.deepEqual(characterValueBullets("  「迷いは見せる。」それでも決める。  "), ["「迷いは見せる」", "それでも決める"]);
+});
+
 test("roster vote result overlay is wired next to the conversation log", () => {
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /useState<"history" \| "votes" \| null>/);
+  assert.match(source, /useState<"history" \| "votes" \| "rules" \| null>/);
   assert.match(source, /const latestVoteResult = useMemo\(\(\) => events\.filter\(voteResultHasVisibleData\)\.at\(-1\)/);
   assert.match(source, /function renderVoteResultsPopover/);
+  assert.match(source, /function renderRulesPopover/);
   assert.match(source, /aria-label="投票結果"/);
+  assert.match(source, /aria-label="ゲームのルール"/);
   assert.match(source, /dataArray<VoteDetail>\(latestVoteResult, "votes"\)/);
   assert.match(source, /理由は非公開/);
   assert.match(css, /\.player-section-actions\s*\{/);
@@ -938,7 +947,8 @@ test("story controls stay stable as history grows", () => {
   assert.doesNotMatch(css, /\.topbar\.compact-role-topbar/);
   assert.doesNotMatch(css, /\.header-role-distribution\.compact-roles/);
   assert.doesNotMatch(css, /\.header-camp-ratio\.split/);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*static/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*grid-column:\s*1 \/ -1/s);
 });
 
 test("view toggle hover follows next button treatment", () => {
@@ -953,24 +963,24 @@ test("view toggle hover follows next button treatment", () => {
   assert.match(hoverRule[0], /transform:\s*translateY\(-1px\)/);
 });
 
-test("header role rule popover follows the selected chip", () => {
+test("header role rule popover expands inside the role distribution", () => {
   const css = readFileSync(new URL("../src/client/styles.css", import.meta.url), "utf8");
   const source = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /roleRuleTriggerRef = useRef<HTMLButtonElement \| null>\(null\)/);
-  assert.match(source, /roleRuleTriggerRef\.current = event\.currentTarget/);
-  assert.match(source, /setRoleRulePopoverPosition\(getRoleRulePopoverPosition\(event\.currentTarget\)\)/);
+  assert.doesNotMatch(source, /roleRuleTriggerRef/);
+  assert.doesNotMatch(source, /setRoleRulePopoverPosition/);
+  assert.doesNotMatch(source, /getRoleRulePopoverPosition/);
   assert.match(source, /window\.addEventListener\("pointerdown", closeRoleRuleOnPointerDown, true\)/);
-  assert.match(source, /window\.addEventListener\("resize", scheduleRoleRuleReposition\)/);
-  assert.match(source, /window\.addEventListener\("orientationchange", scheduleRoleRuleReposition\)/);
+  assert.doesNotMatch(source, /scheduleRoleRuleReposition/);
   assert.match(source, /function roleRuleText\(text: string\): string \{\s*return text\.replace\(/s);
   assert.match(source, /<dd>\{roleRuleText\(selectedRule\.ability\)\}<\/dd>/);
   assert.match(source, /夜の魔女フェーズで、救命薬と毒薬をゲーム中各1回だけ使える。同じ夜に両方使える/);
   assert.match(source, /人狼の襲撃先を確認した夜。救命薬は襲撃がある時、毒薬は残っていれば使用可/);
   assert.match(source, /救命薬はその夜の襲撃対象を救う薬。毒薬は選んだ生存者1人を死亡させる薬。使用は任意/);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*top:\s*var\(--role-rule-top/s);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*left:\s*var\(--role-rule-left/s);
-  assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*calc\(100vw - 40px\)\)/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*position:\s*static/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*grid-column:\s*1 \/ -1/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*width:\s*min\(620px,\s*100%\)/s);
+  assert.match(css, /\.role-rule-popover\s*\{[^}]*max-width:\s*100%/s);
   assert.match(css, /\.role-rule-body dd\s*\{[^}]*font-size:\s*17px/s);
 });
 
@@ -993,10 +1003,16 @@ test("living roster cards open public character profile popover", () => {
   assert.match(source, /aria-label=\{`\$\{player\.name\}の公開プロフィールを表示\$\{showKnownWerewolfBadge \? "、判明した人狼陣営" : ""\}`\}/);
   assert.match(source, /function renderCharacterProfilePopover\(\)/);
   assert.match(source, /className="player-history-popover character-profile-popover"/);
-  assert.doesNotMatch(source, /aria-modal="true"/);
+  const profilePopoverSource = source.slice(
+    source.indexOf("  function renderCharacterProfilePopover()"),
+    source.indexOf("  function renderUiTour()")
+  );
+  assert.doesNotMatch(profilePopoverSource, /aria-modal="true"/);
   assert.match(source, /公開人物メモ/);
   assert.match(source, /roleDisplay\(player, spectatorMode, language, profileRevealed\)/);
   assert.match(source, /profile\.values/);
+  assert.match(source, /characterValueBullets\(profile\.values\)\.map/);
+  assert.match(source, /className="character-profile-values"/);
   assert.match(source, /characterReadHistoryForEvents\(events, selectedCharacterId, spectatorMode\)/);
   assert.match(source, /<h3>この人物の読み<\/h3>/);
   assert.match(source, /renderCharacterReadColumn\("疑い", readHistory\.suspects, "suspect"\)/);
@@ -1015,6 +1031,7 @@ test("living roster cards open public character profile popover", () => {
   assert.match(css, /\.character-profile-popover \.overlay-body\s*\{/);
   assert.match(css, /\.character-profile-body\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.character-profile-thumb\s*\{[^}]*width:\s*68px[^}]*height:\s*68px/s);
+  assert.match(css, /\.character-profile-values li::before\s*\{/);
 });
 
 test("graveyard cards stay compact like the living roster", () => {
@@ -1180,7 +1197,7 @@ test("setup exposes human camp choices without role preference choices", () => {
   assert.doesNotMatch(source, /プレイ目標/);
   assert.doesNotMatch(source, /このゲームは人狼陣営をシュミレーション出来るゲームです/);
   assert.doesNotMatch(source, /仲間の演技を見ながら村人の全排除を狙います/);
-  assert.match(source, /陣営（人間陣営の方が難易度が高くなります）/);
+  assert.match(source, /<span>陣営<\/span>/);
   assert.match(source, /label: "人間陣営"/);
   assert.match(source, /label: "狼陣営"/);
   assert.match(source, /label: "ランダム"/);
@@ -1214,6 +1231,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function enqueueHumanInput\(request: HumanInputRequest, revealAfterEventId: number \| null\)/);
   assert.match(source, /function acknowledgeActiveHumanInput\(\)/);
   assert.match(source, /function completeHumanInputRequest\(request: HumanInputRequest\)/);
+  assert.match(
+    source,
+    /function completeHumanInputRequest\(request: HumanInputRequest\) \{[\s\S]*humanInputActivityTouchAtRef\.current\.delete\(request\.id\);/
+  );
   assert.match(source, /const pendingHumanInputEntry = pendingHumanInputs\[0\] \?\? null;/);
   assert.match(source, /const pendingHumanInput = pendingHumanInputEntry\?\.request \?\? null;/);
   assert.match(source, /const pendingHumanInputRevealAfterEventId = pendingHumanInputEntry\?\.revealAfterEventId \?\? null;/);
@@ -1274,8 +1295,29 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function isOptionalLoverAlignmentInput/);
   assert.match(source, /function isOptionalFaceoffAlignmentInput/);
   assert.match(source, /function isOptionalDiscussionInterruptInput/);
+  assert.match(source, /function isOptionalSpeechInput/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance/);
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
+  assert.match(source, /function skipVisibleDiscussionInterruptInput\(\)/);
+  assert.match(source, /function deferActiveHumanInput\(\)/);
+  assert.match(source, /function touchHumanInputActivity\(request: HumanInputRequest, reason: "active" \| "opened" \| "typing"\)/);
+  assert.match(source, /if \(!currentGameId \|\| !isOptionalSpeechInput\(request\)\) \{/);
+  assert.match(source, /if \(lastTouchAt > 0 && now - lastTouchAt < 10_000\) \{/);
+  assert.match(source, /fetch\(`\/api\/games\/\$\{currentGameId\}\/input\/activity`/);
+  assert.match(source, /const visibleOptionalSpeechInput = isOptionalSpeechInput\(visibleHumanInput\) \? visibleHumanInput : null;/);
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*touchHumanInputActivity\(visibleOptionalSpeechInput, "opened"\);[\s\S]*\}, \[visibleOptionalSpeechInput\?\.id, gameId\]\);/
+  );
+  assert.match(source, /touchHumanInputActivity\(availableSpeechInterruptInput, "opened"\)/);
+  assert.match(source, /const tracksInputActivity = isOptionalSpeechInput\(prompt\);/);
+  assert.match(source, /if \(tracksInputActivity\) \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
+  assert.match(source, /onCompositionStart=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
+  assert.match(source, /onCompositionEnd=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
+  assert.match(source, /onKeyDown=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
+  assert.doesNotMatch(source, /window\.setInterval\(\(\) => \{[\s\S]*touchHumanInputActivity\(request, "active"\);/);
+  assert.match(source, /shouldDeferDiscussionInterruptSkip\(visibleHumanInput, queuedRef\.current\.length\)/);
+  assert.match(source, /deferActiveHumanInput\(\);[\s\S]*revealNext\(\);/);
   assert.match(source, /const optionalDiscussionInterruptSkipReady = Boolean\(availableSpeechInterruptInput\);/);
   assert.doesNotMatch(source, /const revealNextStoryEventOnArrivalRef = useRef\(false\);/);
   assert.doesNotMatch(source, /void submitHumanInput\(\{ decision: false \}, \{ revealNextStoryEventOnArrival: true \}\);/);
@@ -1289,6 +1331,10 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function createLocalHumanSpeechEvent\(request: HumanInputRequest, payload: HumanInputSubmitPayload\): GameEvent \| null/);
   assert.match(source, /request\.speechMode !== "werewolf_alignment" && request\.speechMode !== "lover_alignment" && request\.speechMode !== "discussion_interrupt"/);
   assert.match(source, /source\.addEventListener\("human_input_cancelled"/);
+  assert.match(
+    source,
+    /source\.addEventListener\("human_input_cancelled"[\s\S]*humanInputActivityTouchAtRef\.current\.delete\(requestId\);/
+  );
   assert.match(source, /const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest \| null>\(null\);/);
   assert.match(source, /function discardUnreadStoryBeforeHumanInterrupt\(request: HumanInputRequest\)/);
   assert.match(source, /isOptionalDiscussionInterruptInput\(request\) \|\| queuedRef\.current\.length === 0/);
@@ -1307,9 +1353,15 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);/);
   assert.match(source, /const localHumanSpeechEvent = createLocalHumanSpeechEvent\(request, payload\);/);
   assert.match(source, /const holdSubmittedScene = shouldHoldSubmittedHumanInputScene\(request\);/);
+  assert.match(
+    source,
+    /if \(response\.status === 404 && responseError === "input_not_pending"\) \{[\s\S]*completeHumanInputRequest\(request\);/
+  );
   assert.match(source, /submittedHumanInputRef\.current = holdSubmittedScene \? request : null;/);
   assert.match(source, /function shouldHoldSubmittedHumanInputScene\(request: HumanInputRequest\): boolean/);
   assert.match(source, /return request\.kind === "speech_choice" && !request\.nonBlocking;/);
+  assert.match(source, /function shouldAutoAcknowledgeHumanInput\(request: HumanInputRequest, revealAfterEventId: number \| null\): boolean/);
+  assert.match(source, /return revealAfterEventId === null && !isOptionalDiscussionInterruptInput\(request\);/);
   assert.match(source, /function isSubmittedHumanSpeechEvent\(request: HumanInputRequest, event: GameEvent\): boolean/);
   assert.match(source, /event\.type === "player_speech" && event\.playerId === request\.playerId/);
   assert.match(source, /const submittedHumanInputRef = useRef<HumanInputRequest \| null>\(null\);/);
@@ -1318,6 +1370,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /completeHumanInputRequest\(submittedHumanInput\);[\s\S]*eventsRef\.current = nextEvents;[\s\S]*setEvents\(nextEvents\);[\s\S]*setGameStatus\(statusForVisibleStory\(event, queuedRef\.current\.length\)\);[\s\S]*return;/);
   assert.match(source, /function resetHumanInputState\(\) \{\s*submittedHumanInputRef\.current = null;/);
   assert.match(source, /function resetHumanInputState\(\) \{[\s\S]*?discardStoryUntilHumanEchoRef\.current = null;/);
+  assert.match(source, /anchorAcknowledged: shouldAutoAcknowledgeHumanInput\(request, revealAfterEventId\)/);
   assert.match(source, /if \(localHumanSpeechEvent\) \{\s*discardUnreadStoryBeforeHumanInterrupt\(request\);[\s\S]*completeHumanInputRequest\(request\);[\s\S]*showLocalHumanSpeechEvent\(localHumanSpeechEvent\);/s);
   assert.match(source, /else if \(holdSubmittedScene\) \{\s*if \(submittedHumanInputRef\.current === request\) \{[\s\S]*showProcessingHudNow\(\);[\s\S]*setGameStatus\("生成中"\);/s);
   assert.match(source, /function renderHumanInputQuickControls\(\)/);
@@ -1333,7 +1386,7 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /disabled=\{humanSubmitting\}/);
   assert.match(source, /<span>\{speechSubmitLabel\}<\/span>/);
-  assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?submitHumanInput\(\{ decision: false \}\)[\s\S]*?発言せず次へ/s);
+  assert.match(source, /isDiscussionInterrupt \? \(\s*<button[\s\S]*?className="icon-button human-speech-skip-button"[\s\S]*?onClick=\{skipVisibleDiscussionInterruptInput\}[\s\S]*?発言せず次へ/s);
   assert.match(source, /submitHumanInput\(\{ speech: humanSpeech \}\)/);
   assert.match(source, /!\s*speechInputPrompt\s*&&\s*currentEvent\?\.type !== "game_ended"\s*\?\s*\(\s*<div className="story-controls" ref=\{storyControlsRef\}>/s);
   assert.match(css, /\.conversation-log-list p\s*\{[^}]*font-size:\s*18px;/s);
@@ -1382,6 +1435,34 @@ test("non-blocking human input waits until its unread story anchor has been seen
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }, { id: 3 }], false, false), true);
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], true, false), false);
   assert.equal(shouldRevealNonBlockingHumanInputAfterAdvance(2, [{ id: 1 }, { id: 2 }], false, true), false);
+});
+
+test("discussion interrupt skip stays available across already queued story", () => {
+  const request: HumanInputRequest = {
+    id: "request-1",
+    kind: "speech_choice",
+    speechMode: "discussion_interrupt",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion",
+    role: "Villager",
+    task: "昼議論に発言を挟んでください。",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    allowFreeText: true,
+    options: []
+  };
+  const faceoffRequest: HumanInputRequest = {
+    ...request,
+    speechMode: "werewolf_alignment",
+    phase: "werewolf_discussion",
+    role: "Werewolf"
+  };
+
+  assert.equal(shouldDeferDiscussionInterruptSkip(request, 1), true);
+  assert.equal(shouldDeferDiscussionInterruptSkip(request, 0), false);
+  assert.equal(shouldDeferDiscussionInterruptSkip(faceoffRequest, 1), false);
+  assert.equal(shouldDeferDiscussionInterruptSkip(null, 1), false);
 });
 
 test("blocking human input requires an extra advance after the story anchor is visible", () => {
@@ -1518,7 +1599,11 @@ test("guided UI tour spotlights the main controls at match start", () => {
   assert.match(source, /function renderUiTour\(\)/);
   assert.match(source, /\{renderUiTour\(\)\}/);
   assert.match(source, /className="ui-tour-skip" onClick=\{finishTour\}/);
-  assert.doesNotMatch(source, /aria-modal="true"/);
+  const uiTourSource = source.slice(source.indexOf("  function renderUiTour()"), source.indexOf("  function renderOpeningMonologue()"));
+  assert.doesNotMatch(uiTourSource, /aria-modal="true"/);
+  assert.match(source, /type TourRectState = \{ stepIndex: number; rect: DOMRect \| null \};/);
+  assert.match(source, /const rect = tourRect\?\.stepIndex === tourStepIndex \? tourRect\.rect : null;/);
+  assert.match(source, /className=\{rect \? "ui-tour-callout" : "ui-tour-callout is-centered"\}/);
 
   // Focus moves into the callout (no scroll) and Tab is trapped within it.
   assert.match(source, /tourCalloutRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
@@ -1527,6 +1612,8 @@ test("guided UI tour spotlights the main controls at match start", () => {
   // Spotlight + callout styling exists.
   assert.match(css, /\.ui-tour-spotlight\s*\{[^}]*box-shadow:[^}]*100vmax/s);
   assert.match(css, /\.ui-tour-callout\s*\{/);
+  assert.match(css, /\.ui-tour-callout\.is-centered\s*\{[^}]*animation-name:\s*ui-tour-centered-in;/s);
+  assert.match(css, /@keyframes ui-tour-centered-in\s*\{[\s\S]*transform:\s*translate\(-50%, calc\(-50% \+ 6px\)\);[\s\S]*transform:\s*translate\(-50%, -50%\);/);
   assert.match(css, /\.ui-tour-body-list\s*\{[^}]*font-size:\s*18px;/s);
   assert.match(source, /const calloutWidth = Math\.min\(520, viewportWidth - calloutMargin \* 2\);/);
 });

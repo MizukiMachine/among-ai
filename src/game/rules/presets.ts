@@ -22,7 +22,7 @@ export function createRoles(playerCount: number): Role[] {
     fixed.push("Hunter");
   }
   if (playerCount >= 9) {
-    fixed.push("Raven");
+    fixed.push("Trapper");
   }
   if (playerCount >= 11) {
     fixed.push("Idiot");

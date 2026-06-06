@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApp, parseStreamOptions } from "../src/server/app";
-import { HumanInputSession } from "../src/server/humanSessions";
+import { HumanInputSession, registerHumanInputSession, unregisterHumanInputSession } from "../src/server/humanSessions";
 import type { GameEvent } from "../src/game/types";
 
 interface SseFrame {
@@ -25,7 +25,10 @@ function parseSse(text: string): SseFrame[] {
     });
 }
 
-async function readSseUntil(response: Response, predicate: (frame: SseFrame) => boolean): Promise<SseFrame[]> {
+async function readSseUntil(
+  response: Response,
+  predicate: (frame: SseFrame, index: number, frames: SseFrame[]) => boolean
+): Promise<SseFrame[]> {
   assert.ok(response.body);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -150,6 +153,49 @@ test("stream first snapshot honors the requested human camp", async () => {
     assert.ok(firstGameEvent);
     assert.ok(human);
     assert.equal(human.camp, humanCamp);
+  }
+});
+
+test("stream cancels an unanswered optional day speech interrupt and keeps progressing", async () => {
+  const originalTimeout = process.env.AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS;
+  process.env.AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS = "5000";
+
+  try {
+    const app = createApp();
+    const response = await app.request(
+      "/api/games/stream?players=7&provider=demo&summary=deterministic&view=player&speed=0&human=p1&humanCamp=village"
+    );
+
+    const frames = await Promise.race([
+      readSseUntil(response, (frame, _index, frames) => {
+        const cancelIndex = frames.findIndex((entry) => entry.event === "human_input_cancelled");
+        if (cancelIndex === -1) {
+          return false;
+        }
+        return frames.slice(cancelIndex + 1).some((entry) => entry.event === "human_input" || entry.event === "game");
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Timed out waiting for stream progress after optional human input cancellation.")), 8000);
+      })
+    ]);
+    const cancelIndex = frames.findIndex((frame) => frame.event === "human_input_cancelled");
+    const systemFrame = frames.find((frame) => frame.event === "system")?.data as
+      | { humanOptionalInputTimeoutMs?: number }
+      | undefined;
+    const laterHumanInput = frames
+      .slice(cancelIndex + 1)
+      .find((frame) => frame.event === "human_input")?.data as { kind?: string; speechMode?: string } | undefined;
+
+    assert.equal(response.status, 200);
+    assert.equal(systemFrame?.humanOptionalInputTimeoutMs, 5000);
+    assert.ok(cancelIndex >= 0);
+    assert.notEqual(laterHumanInput?.speechMode, "discussion_interrupt");
+  } finally {
+    if (originalTimeout === undefined) {
+      delete process.env.AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS;
+    } else {
+      process.env.AMONG_AI_HUMAN_OPTIONAL_INPUT_TIMEOUT_MS = originalTimeout;
+    }
   }
 });
 
@@ -426,6 +472,94 @@ test("optional human input session requests can be cancelled", async () => {
   assert.deepEqual(await interruptPromise, null);
   assert.deepEqual(session.submit(requestId, { speech: "遅れた発言" }), { ok: false, error: "input_not_pending" });
   session.close();
+});
+
+test("optional human input session records client activity while pending", async () => {
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const interruptPromise = session.requestOptional({
+    kind: "speech_choice",
+    speechMode: "discussion_interrupt",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion",
+    role: "Villager",
+    task: "発言してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: []
+  });
+
+  assert.ok(requestId);
+  assert.equal(session.latestInputActivityAt(), null);
+  assert.deepEqual(session.touch(requestId), { ok: true });
+  assert.ok((session.latestInputActivityAt() ?? 0) > 0);
+  assert.ok((session.latestInputActivityAt({ requestId }) ?? 0) > 0);
+  assert.equal(session.latestInputActivityAt({ requestId: "other-request" }), null);
+  assert.ok((session.latestInputActivityAt({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+  assert.ok((session.latestInputActivityAt({ requestId, kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+  assert.equal(session.latestInputActivityAt({ kind: "target" }), null);
+  assert.deepEqual(session.submit(requestId, { decision: false }), { ok: true });
+  assert.deepEqual(await interruptPromise, { decision: false });
+  assert.equal(session.latestInputActivityAt(), null);
+  assert.deepEqual(session.touch(requestId), { ok: false, error: "input_not_pending" });
+  session.close();
+});
+
+test("human input activity endpoint touches a pending request", async () => {
+  const app = createApp();
+  let requestId = "";
+  const session = new HumanInputSession((request) => {
+    requestId = request.id;
+  });
+  const interruptPromise = session.requestOptional({
+    kind: "speech_choice",
+    speechMode: "discussion_interrupt",
+    nonBlocking: true,
+    playerId: "p1",
+    playerName: "シオン",
+    phase: "day_discussion",
+    role: "Villager",
+    task: "発言してください",
+    context: { notes: [], publicHistory: [], privateHistory: [] },
+    options: []
+  });
+  interruptPromise.catch(() => undefined);
+  registerHumanInputSession(session);
+
+  try {
+    const invalidResponse = await app.request(`/api/games/${session.id}/input/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    assert.equal(invalidResponse.status, 400);
+
+    const missingResponse = await app.request(`/api/games/${session.id}/input/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: "missing-request", reason: "typing" })
+    });
+    assert.equal(missingResponse.status, 404);
+
+    const activityResponse = await app.request(`/api/games/${session.id}/input/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, reason: "typing" })
+    });
+    assert.equal(activityResponse.status, 200);
+    assert.deepEqual(await activityResponse.json(), { ok: true });
+    assert.ok((session.latestInputActivityAt({ kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+    assert.ok((session.latestInputActivityAt({ requestId, kind: "speech_choice", speechMode: "discussion_interrupt" }) ?? 0) > 0);
+    assert.equal(session.latestInputActivityAt({ requestId: "other-request", kind: "speech_choice" }), null);
+
+    assert.deepEqual(session.submit(requestId, { decision: false }), { ok: true });
+    assert.deepEqual(await interruptPromise, { decision: false });
+  } finally {
+    unregisterHumanInputSession(session.id);
+  }
 });
 
 test("optional day discussion input can be skipped", async () => {

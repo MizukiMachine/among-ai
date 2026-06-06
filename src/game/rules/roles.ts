@@ -24,7 +24,7 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
   WolfBeauty: {
     role: "WolfBeauty",
     camp: "werewolf",
-    tags: ["werewolf", "night_action", "team_action", "linked_death", "single_use"],
+    tags: ["werewolf", "night_action", "team_action", "linked_death"],
     nightActions: [...werewolfNightActions, { kind: "wolf_beauty_charm", priority: 75 }],
     deathTriggers: []
   },
@@ -56,11 +56,11 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
     nightActions: [],
     deathTriggers: [{ kind: "hunter_shot", once: true }]
   },
-  Raven: {
-    role: "Raven",
+  Trapper: {
+    role: "Trapper",
     camp: "village",
-    tags: ["village", "night_action", "vote_modifier"],
-    nightActions: [{ kind: "raven_mark", priority: 40 }],
+    tags: ["village", "night_action"],
+    nightActions: [{ kind: "trap_set", priority: 85 }],
     deathTriggers: []
   },
   Idiot: {
