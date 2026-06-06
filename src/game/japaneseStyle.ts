@@ -49,9 +49,14 @@ const chineseVocabularyPatterns: RegExp[] = [
 ];
 
 const simplifiedChineseCharacters = /[发观确该觉认这们说问题对实过还选择辑视况]/u;
+const internalPlayerIdToken = /\bp\d+\b/iu;
 
 export function containsChineseVocabulary(text: string): boolean {
   return chineseVocabularyPatterns.some((pattern) => pattern.test(text)) || simplifiedChineseCharacters.test(text);
+}
+
+export function containsInternalPlayerIdToken(text: string): boolean {
+  return internalPlayerIdToken.test(text);
 }
 
 export function reviewJapaneseOutput(text: string, language: string): { ok: boolean; issues: string[] } {
@@ -62,6 +67,9 @@ export function reviewJapaneseOutput(text: string, language: string): { ok: bool
   const issues: string[] = [];
   if (containsChineseVocabulary(text)) {
     issues.push("contains Chinese vocabulary or simplified Chinese characters");
+  }
+  if (containsInternalPlayerIdToken(text)) {
+    issues.push("contains internal player id token");
   }
 
   return { ok: issues.length === 0, issues };

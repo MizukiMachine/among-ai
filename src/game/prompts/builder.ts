@@ -31,6 +31,28 @@ import {
   type WitchPrivateState
 } from "./schemas";
 
+type PlayerReferenceStyle = "with_ids" | "names_only";
+
+function formatPlayerReference(player: TargetCandidate, style: PlayerReferenceStyle = "with_ids"): string {
+  return style === "names_only" ? player.name : `${player.name} (${player.id})`;
+}
+
+function formatPlayersForPrompt(
+  players: Array<{ id: string; name: string }>,
+  language = defaultLanguage,
+  style: PlayerReferenceStyle = "with_ids"
+): string {
+  return players.length > 0
+    ? players.map((player) => formatPlayerReference(player, style)).join(", ")
+    : isJapaneseLanguage(language)
+      ? "なし"
+      : "none";
+}
+
+function formatSeerResultTarget(result: SeerPrivateResult, style: PlayerReferenceStyle = "with_ids"): string {
+  return style === "names_only" ? result.targetName : `${result.targetName} (${result.targetId})`;
+}
+
 function phaseInstructions(profile: RolePromptProfile, promptPhase: PromptPhase): string[] {
   if (promptPhase === "werewolf_discussion") {
     const phase = promptMaterials.phases.werewolf_discussion;
@@ -78,7 +100,7 @@ function phaseInstructions(profile: RolePromptProfile, promptPhase: PromptPhase)
   ];
 }
 
-function formatSeerResults(results: SeerPrivateResult[], language: string): string[] {
+function formatSeerResults(results: SeerPrivateResult[], language: string, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (results.length === 0) {
     return ["- 占い結果: まだありません。"];
   }
@@ -87,12 +109,12 @@ function formatSeerResults(results: SeerPrivateResult[], language: string): stri
     "- 自分だけが知っている占い結果:",
     ...results.map((result) => {
       const round = result.round ? `第${result.round}ラウンド: ` : "";
-      return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}`;
+      return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}`;
     })
   ];
 }
 
-function formatSeerResultsJa(results: SeerPrivateResult[], language: string): string[] {
+function formatSeerResultsJa(results: SeerPrivateResult[], language: string, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (results.length === 0) {
     return ["- 占い結果: まだありません。"];
   }
@@ -101,18 +123,18 @@ function formatSeerResultsJa(results: SeerPrivateResult[], language: string): st
     "- 自分だけが知っている占い結果:",
     ...results.map((result) => {
       const round = result.round ? `第${result.round}ラウンド: ` : "";
-      return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}`;
+      return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}`;
     })
   ];
 }
 
-function formatWitchState(witch: WitchPrivateState | undefined): string[] {
+function formatWitchState(witch: WitchPrivateState | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!witch) {
     return ["- 薬の情報: 利用できません。"];
   }
 
   const attacked = witch.attackedTarget
-    ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
+    ? formatPlayerReference(witch.attackedTarget, style)
     : "この判断では見えていません";
   return [
     `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
@@ -121,13 +143,13 @@ function formatWitchState(witch: WitchPrivateState | undefined): string[] {
   ];
 }
 
-function formatWitchStateJa(witch: WitchPrivateState | undefined): string[] {
+function formatWitchStateJa(witch: WitchPrivateState | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!witch) {
     return ["- 薬の情報: 利用できません。"];
   }
 
   const attacked = witch.attackedTarget
-    ? `${witch.attackedTarget.name} (${witch.attackedTarget.id})`
+    ? formatPlayerReference(witch.attackedTarget, style)
     : "この判断では見えていません";
   return [
     `- 救命薬: ${witch.savePotion ? "残っています" : "ありません"}。`,
@@ -167,23 +189,27 @@ function roleBreakdownLines(roleBreakdown: RoleBreakdownEntry[] | undefined, lan
   ];
 }
 
-function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+function formatLoverPartner(partner: (TargetCandidate & { alive?: boolean }) | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!partner) {
     return ["- 恋人の相方: まだ見えていません。"];
   }
   const status = partner.alive === undefined ? "" : partner.alive ? " 生存" : " 死亡";
-  return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
+  return [`- 恋人の相方: ${formatPlayerReference(partner, style)}${status}。`];
 }
 
-function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) | undefined): string[] {
+function formatLoverPartnerJa(partner: (TargetCandidate & { alive?: boolean }) | undefined, style: PlayerReferenceStyle = "with_ids"): string[] {
   if (!partner) {
     return ["- 恋人の相方: まだ見えていません。"];
   }
   const status = partner.alive === undefined ? "" : partner.alive ? " 生存" : " 死亡";
-  return [`- 恋人の相方: ${partner.name} (${partner.id})${status}。`];
+  return [`- 恋人の相方: ${formatPlayerReference(partner, style)}${status}。`];
 }
 
-function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, language: string): string[] {
+function formatWerewolfDeceptionJa(
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const deception = secret?.werewolfDeception;
   if (!deception?.claimedRole) {
     return [
@@ -207,21 +233,25 @@ function formatWerewolfDeceptionJa(secret: RoleSecretContext | undefined, langua
         "- 公開で通す偽の占い結果:",
         ...deception.fakeSeerResults.map((result) => {
           const round = result.round ? `第${result.round}ラウンド: ` : "";
-          return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+          return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}判定`;
         })
       );
     }
     if (deception.currentFakeSeerResult) {
       const result = deception.currentFakeSeerResult;
       lines.push(
-        `- 今日必ず出す偽結果: ${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。対象名と判定を明示し、過去の偽結果と矛盾させません。`
+        `- 今日必ず出す偽結果: ${formatSeerResultTarget(result, style)} は${campLabel(result.camp, language)}判定。対象名と判定を明示し、過去の偽結果と矛盾させません。`
       );
     }
   }
   return lines;
 }
 
-function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language: string): string[] {
+function formatSeerDisclosureJa(
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const disclosure = secret?.seerDisclosure;
   if (!disclosure) {
     return [];
@@ -238,7 +268,7 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
       "- 公開済みの占い結果:",
       ...disclosure.announcedResults.map((result) => {
         const round = result.round ? `第${result.round}ラウンド: ` : "";
-        return `  - ${round}${result.targetName} (${result.targetId}) => ${campLabel(result.camp, language)}判定`;
+        return `  - ${round}${formatSeerResultTarget(result, style)} => ${campLabel(result.camp, language)}判定`;
       })
     );
   }
@@ -248,7 +278,7 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
       "- 今日公開する占い結果:",
       ...disclosure.currentResultsToPublish.map((result) => {
         const round = result.round ? `第${result.round}ラウンド: ` : "";
-        return `  - ${round}${result.targetName} (${result.targetId}) は${campLabel(result.camp, language)}判定。公開発言で対象名と判定を明示する。`;
+        return `  - ${round}${formatSeerResultTarget(result, style)} は${campLabel(result.camp, language)}判定。公開発言で対象名と判定を明示する。`;
       })
     );
   }
@@ -256,7 +286,12 @@ function formatSeerDisclosureJa(secret: RoleSecretContext | undefined, language:
   return lines;
 }
 
-function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+function roleVisiblePrivateInfoJa(
+  role: Role,
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   if (isWerewolfRole(role)) {
     const allies = secret?.werewolfAllies ?? [];
     return [
@@ -264,25 +299,25 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
       ...(allies.length > 0
         ? allies.map(
             (ally) =>
-              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+              `  - ${formatPlayerReference(ally, style)}${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
         : ["  - なし"]),
-      ...formatWerewolfDeceptionJa(secret, language)
+      ...formatWerewolfDeceptionJa(secret, language, style)
     ];
   }
 
   if (role === "Seer") {
-    return [...formatSeerResultsJa(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
+    return [...formatSeerResultsJa(secret?.seerResults ?? [], language, style), ...formatSeerDisclosureJa(secret, language, style)];
   }
 
   if (role === "Witch") {
-    return formatWitchStateJa(secret?.witch);
+    return formatWitchStateJa(secret?.witch, style);
   }
 
   if (role === "Lover") {
-    return formatLoverPartnerJa(secret?.loverPartner);
+    return formatLoverPartnerJa(secret?.loverPartner, style);
   }
 
   if (role === "Villager") {
@@ -292,9 +327,14 @@ function roleVisiblePrivateInfoJa(role: Role, secret: RoleSecretContext | undefi
   return ["- 自分の役職と、見えている公開情報だけを使います。"];
 }
 
-function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefined, language: string): string[] {
+function roleVisiblePrivateInfo(
+  role: Role,
+  secret: RoleSecretContext | undefined,
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   if (isJapaneseLanguage(language)) {
-    return roleVisiblePrivateInfoJa(role, secret, language);
+    return roleVisiblePrivateInfoJa(role, secret, language, style);
   }
 
   if (isWerewolfRole(role)) {
@@ -304,25 +344,25 @@ function roleVisiblePrivateInfo(role: Role, secret: RoleSecretContext | undefine
       ...(allies.length > 0
         ? allies.map(
             (ally) =>
-              `  - ${ally.name} (${ally.id})${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
+              `  - ${formatPlayerReference(ally, style)}${ally.role ? `: ${roleLabel(ally.role, language)}` : ""}${
                 ally.alive === undefined ? "" : ally.alive ? " 生存" : " 死亡"
               }`
           )
         : ["  - なし"]),
-      ...formatWerewolfDeceptionJa(secret, language)
+      ...formatWerewolfDeceptionJa(secret, language, style)
     ];
   }
 
   if (role === "Seer") {
-    return [...formatSeerResults(secret?.seerResults ?? [], language), ...formatSeerDisclosureJa(secret, language)];
+    return [...formatSeerResults(secret?.seerResults ?? [], language, style), ...formatSeerDisclosureJa(secret, language, style)];
   }
 
   if (role === "Witch") {
-    return formatWitchState(secret?.witch);
+    return formatWitchState(secret?.witch, style);
   }
 
   if (role === "Lover") {
-    return formatLoverPartner(secret?.loverPartner);
+    return formatLoverPartner(secret?.loverPartner, style);
   }
 
   if (role === "Villager") {
@@ -365,6 +405,35 @@ function firstDaySeerResultRuleLines(phase: Phase, round: number, language: stri
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function playerNameReplacementEntries(options: BuildPromptContextOptions): Array<[string, string]> {
+  const deathPlayers = [...options.lastNightDeaths, ...(options.lastVoteDeaths ?? [])].map((death) => ({
+    id: death.playerId,
+    name: death.playerName
+  }));
+  const players = [options.player, ...options.alivePlayers, ...options.deadPlayers, ...deathPlayers];
+  const byId = new Map<string, string>();
+  for (const player of players) {
+    if (player.id.trim().length > 0 && player.name.trim().length > 0 && !byId.has(player.id)) {
+      byId.set(player.id, player.name);
+    }
+  }
+  return [...byId.entries()].sort(([left], [right]) => right.length - left.length);
+}
+
+function replacePlayerIdsWithNames(text: string, entries: Array<[string, string]>): string {
+  let out = text;
+  for (const [id, name] of entries) {
+    const pattern = new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(id)}(?=$|[^A-Za-z0-9_-])`, "gi");
+    out = out.replace(pattern, `$1${name}`);
+  }
+  return out;
+}
+
+function replacePlayerIdsWithNamesInLines(lines: string[], options: BuildPromptContextOptions): string[] {
+  const entries = playerNameReplacementEntries(options);
+  return entries.length > 0 ? lines.map((line) => replacePlayerIdsWithNames(line, entries)) : lines;
 }
 
 export function getRoleStrategy(role: Role): string {
@@ -697,16 +766,24 @@ function publicUnknownDeathLabel(language: string): string {
 
 function formatPublicDeathInfo(
   death: { playerId: string; playerName: string; publicCauseLabel: string | null },
-  language: string
+  language: string,
+  style: PlayerReferenceStyle = "with_ids"
 ): string {
-  return `${death.playerName} (${death.playerId}) / ${death.publicCauseLabel ?? publicUnknownDeathLabel(language)}`;
+  const playerText = style === "names_only" ? death.playerName : `${death.playerName} (${death.playerId})`;
+  return `${playerText} / ${death.publicCauseLabel ?? publicUnknownDeathLabel(language)}`;
 }
 
-function formatDeadPlayerInfo(playerInfo: TargetCandidate & { publicDeathLabel?: string }): string {
-  return `${playerInfo.name} (${playerInfo.id})${playerInfo.publicDeathLabel ? ` / ${playerInfo.publicDeathLabel}` : ""}`;
+function formatDeadPlayerInfo(
+  playerInfo: TargetCandidate & { publicDeathLabel?: string },
+  style: PlayerReferenceStyle = "with_ids"
+): string {
+  return `${formatPlayerReference(playerInfo, style)}${playerInfo.publicDeathLabel ? ` / ${playerInfo.publicDeathLabel}` : ""}`;
 }
 
-function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[] {
+function publicDayRosterStatusLines(
+  options: BuildPromptContextOptions,
+  style: PlayerReferenceStyle = "with_ids"
+): string[] {
   const {
     phase,
     round,
@@ -723,26 +800,26 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
   const japanese = isJapaneseLanguage(language);
   const lastNightDeaths =
     publicLastNightDeaths.length > 0
-      ? publicLastNightDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
+      ? publicLastNightDeaths.map((death) => formatPublicDeathInfo(death, language, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   const lastVoteDeathList =
     lastVoteDeaths.length > 0
-      ? lastVoteDeaths.map((death) => formatPublicDeathInfo(death, language)).join(", ")
+      ? lastVoteDeaths.map((death) => formatPublicDeathInfo(death, language, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   const deadPlayerList =
     deadPlayers.length > 0
-      ? deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")
+      ? deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, style)).join(", ")
       : japanese
         ? "なし"
         : "none";
   if (japanese) {
     return [
       "現在の参加者ステータス:",
-      `- 生存中: ${formatPlayers(alivePlayers, language)}。`,
+      `- 生存中: ${formatPlayersForPrompt(alivePlayers, language, style)}。`,
       `- 死亡済み: ${deadPlayerList}。`,
       `- 昨夜死亡: ${lastNightDeaths}。`,
       `- 直近の投票処刑: ${lastVoteDeathList}。`,
@@ -752,7 +829,7 @@ function publicDayRosterStatusLines(options: BuildPromptContextOptions): string[
 
   return [
     "Current participant status:",
-    `- Alive: ${formatPlayers(alivePlayers, language)}.`,
+    `- Alive: ${formatPlayersForPrompt(alivePlayers, language, style)}.`,
     `- Dead: ${deadPlayerList}.`,
     `- Last night's deaths: ${lastNightDeaths}.`,
     `- Last vote execution: ${lastVoteDeathList}.`,
@@ -775,10 +852,12 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     extra = []
   } = options;
   const japanese = isJapaneseLanguage(language);
-  const recentPublicHistory = publicHistory.length > 0 ? dayScopedPublicHistoryLines(options, player, language, 24, true) : ["- まだありません。"];
-  const visibleSituation = publicSpeechSituationLines(extra);
-  const privateMemory = privateHistory.length > 0 ? dayScopedMemoryLines(privateHistory, round, language, 12) : ["- なし。"];
-  const rosterStatus = publicDayRosterStatusLines(options);
+  const recentPublicHistory =
+    publicHistory.length > 0 ? replacePlayerIdsWithNamesInLines(dayScopedPublicHistoryLines(options, player, language, 24, true), options) : ["- まだありません。"];
+  const visibleSituation = replacePlayerIdsWithNamesInLines(publicSpeechSituationLines(extra), options);
+  const privateMemory =
+    privateHistory.length > 0 ? replacePlayerIdsWithNamesInLines(dayScopedMemoryLines(privateHistory, round, language, 12), options) : ["- なし。"];
+  const rosterStatus = publicDayRosterStatusLines(options, "names_only");
   const firstDaySeerResultRules = firstDaySeerResultRuleLines(phase, round, language);
 
   if (japanese) {
@@ -790,16 +869,16 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
       "",
       "役職:",
       `- ${roleLabel(player.role, language)}`,
-      ...roleVisiblePrivateInfo(player.role, secret, language),
+      ...roleVisiblePrivateInfo(player.role, secret, language, "names_only"),
       "",
       "現在の状況:",
       `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
       ...firstDaySeerResultRules,
       ...roleBreakdownLines(roleBreakdown, language),
       ...rosterStatus,
-      `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
+      `- 生存者: ${formatPlayersForPrompt(alivePlayers, language, "names_only")}。`,
       deadPlayers.length > 0
-        ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
+        ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, "names_only")).join(", ")}。`
         : "- 死亡者: なし。",
       ...visibleSituation,
       "",
@@ -822,16 +901,16 @@ function buildSimplePublicSpeechContext(options: BuildPromptContextOptions): str
     "",
     "役職:",
     `- ${roleLabel(player.role, language)}`,
-    ...roleVisiblePrivateInfo(player.role, secret, language),
+    ...roleVisiblePrivateInfo(player.role, secret, language, "names_only"),
     "",
     "現在の状況:",
     `- ${phaseHeading(phase, language)}、第${round}ラウンド。`,
     ...firstDaySeerResultRules,
     ...roleBreakdownLines(roleBreakdown, language),
     ...rosterStatus,
-    `- 生存者: ${formatPlayers(alivePlayers, language)}。`,
+    `- 生存者: ${formatPlayersForPrompt(alivePlayers, language, "names_only")}。`,
     deadPlayers.length > 0
-      ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo)).join(", ")}。`
+      ? `- 死亡者: ${deadPlayers.map((playerInfo) => formatDeadPlayerInfo(playerInfo, "names_only")).join(", ")}。`
       : "- 死亡者: なし。",
     ...visibleSituation,
     "",

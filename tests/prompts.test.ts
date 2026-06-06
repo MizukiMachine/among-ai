@@ -277,7 +277,8 @@ test("public context falls back to flat history when day metadata is incomplete"
 test("prompt builder only exposes secrets visible to each role", () => {
   const werewolf = contextFor("Werewolf");
   assert.match(werewolf, /SecretWolf/);
-  assert.match(werewolf, /SecretWolf \(secret-wolf\): α人狼/);
+  assert.match(werewolf, /SecretWolf: α人狼/);
+  assert.doesNotMatch(werewolf, /SecretWolf \(secret-wolf\): α人狼/);
   assert.doesNotMatch(werewolf, /SecretCheck/);
   assert.doesNotMatch(werewolf, /SecretVictim/);
 
@@ -367,7 +368,8 @@ test("role breakdown is public counts only while werewolf ally roles stay secret
     }
   });
 
-  assert.match(wolfContext, /Sena \(p13\): α人狼 生存/);
+  assert.match(wolfContext, /Sena: α人狼 生存/);
+  assert.doesNotMatch(wolfContext, /Sena \(p13\): α人狼 生存/);
 });
 
 test("werewolf public deception context persists fake Seer claim and current fake result", () => {
@@ -401,7 +403,7 @@ test("werewolf public deception context persists fake Seer claim and current fak
   assert.match(context, /公開上の偽装方針/);
   assert.match(context, /あなたは占い師を主張しています/);
   assert.match(context, /二日目以降は毎昼、偽の占い結果/);
-  assert.match(context, /今日必ず出す偽結果: Byron \(p2\) は狼陣営判定/);
+  assert.match(context, /今日必ず出す偽結果: Byron は狼陣営判定/);
   assert.match(context, /嘘だと認めず/);
 });
 
@@ -434,9 +436,9 @@ test("Seer disclosure context persists public claim and current real result", ()
   assert.match(context, /公開CO状態/);
   assert.match(context, /あなたは占い師として名乗っています/);
   assert.match(context, /公開済みの占い結果/);
-  assert.match(context, /Byron \(p2\) => 狼陣営判定/);
+  assert.match(context, /Byron => 狼陣営判定/);
   assert.match(context, /今日公開する占い結果/);
-  assert.match(context, /Curie \(p3\) は人間側判定/);
+  assert.match(context, /Curie は人間側判定/);
 });
 
 test("werewolf private discussion uses private wolf guidance without public speech instructions", () => {
@@ -542,6 +544,37 @@ test("Japanese output review rejects Chinese vocabulary in displayed speech", ()
   const review = reviewJapaneseOutput("初日は发言を控えて、様子を見るべきだと思います", "Japanese");
   assert.equal(review.ok, false);
   assert.match(review.issues.join("\n"), /Chinese vocabulary/);
+});
+
+test("Japanese output review rejects internal player ids in displayed speech", () => {
+  assert.deepEqual(reviewJapaneseOutput("アキオミの占い師主張は事実として追います", "Japanese"), {
+    ok: true,
+    issues: []
+  });
+
+  const review = reviewJapaneseOutput("アキオミの占い師主張がp3で出たのは事実ですね", "Japanese");
+  assert.equal(review.ok, false);
+  assert.match(review.issues.join("\n"), /internal player id/);
+});
+
+test("public speech context replaces player ids in visible text with names", () => {
+  const context = buildPromptContext({
+    player: player("Villager", "p1", "Ada"),
+    phase: "day_discussion",
+    round: 2,
+    alivePlayers: [{ id: "p1", name: "Ada" }, { id: "p3", name: "Curie" }],
+    deadPlayers: [{ id: "p2", name: "Byron" }],
+    publicHistory: ["Curie: p2の占い師主張がp3で出たと言っています。"],
+    privateHistory: ["第1ラウンド: p3を疑い。p2は死亡済み。"],
+    language: "Japanese",
+    lastNightDeaths: [{ playerId: "p2", playerName: "Byron", publicCauseLabel: null }],
+    extra: ["公開上の事実: p2への投票が集まりました。"]
+  });
+
+  assert.match(context, /Curie: Byronの占い師主張がCurieで出た/);
+  assert.match(context, /Curieを疑い。Byronは死亡済み/);
+  assert.match(context, /公開上の事実: Byronへの投票/);
+  assert.doesNotMatch(context, /\bp\d+\b/i);
 });
 
 test("Japanese voting target prompts keep private reasons separate from English strategy labels", () => {
@@ -679,12 +712,13 @@ test("later-day public speech context pins current roster status without full sp
   });
 
   assert.match(context, /現在の参加者ステータス/);
-  assert.match(context, /生存中: Ada \(p1\), Curie \(p3\)/);
-  assert.match(context, /死亡済み: Byron \(p2\) \/ 投票処刑/);
-  assert.match(context, /昨夜死亡: Darwin \(p4\) \/ 公開上原因不明/);
-  assert.match(context, /直近の投票処刑: Byron \(p2\) \/ 投票処刑/);
+  assert.match(context, /生存中: Ada, Curie/);
+  assert.match(context, /死亡済み: Byron \/ 投票処刑/);
+  assert.match(context, /昨夜死亡: Darwin \/ 公開上原因不明/);
+  assert.match(context, /直近の投票処刑: Byron \/ 投票処刑/);
   assert.match(context, /疑い・信頼・投票候補として扱えるのは生存中の人物だけ/);
-  assert.match(context, /生存者: Ada \(p1\), Curie \(p3\)/);
+  assert.match(context, /生存者: Ada, Curie/);
+  assert.doesNotMatch(context, /\bp\d+\b/i);
   assert.doesNotMatch(context, /公開知識|公開上の死因|死因候補を並べるだけで終わらず/);
 });
 
