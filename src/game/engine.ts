@@ -1377,6 +1377,27 @@ export class WerewolfGame {
     return this.isJapanese() ? japanese : english;
   }
 
+  private playerNameOrId(playerId: string, preferredName?: string): string {
+    return preferredName ?? this.players.find((player) => player.id === playerId)?.name ?? playerId;
+  }
+
+  private metadataTargetName(read: { targetId: string; targetName?: string }): string {
+    return this.playerNameOrId(read.targetId, read.targetName);
+  }
+
+  private japaneseSpeechReviewHint(issues: string[]): string {
+    const hints: string[] = [];
+    if (issues.some((issue) => issue.includes("Chinese vocabulary"))) {
+      hints.push("中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで書く。");
+    }
+    if (issues.some((issue) => issue.includes("internal player id"))) {
+      hints.push("内部プレイヤーIDは使わず、相手の名前だけで言う。");
+    }
+    return hints.length > 0
+      ? hints.join(" ")
+      : "同じ意図を保ち、自然な日本語の短い発言だけを出してください。";
+  }
+
   private withPhase<T>(phase: Phase, run: () => T): T {
     const previousPhase = this.phase;
     this.phase = phase;
@@ -2790,10 +2811,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Attack preferences: ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `襲撃希望: ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}`
         )
       );
@@ -2802,10 +2823,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Keep alive for cover: ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `残して利用したい相手: ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}`
         )
       );
@@ -3867,7 +3888,7 @@ export class WerewolfGame {
         )
       ];
     }
-    const resultLine = `${task.result.targetName} (${task.result.targetId}) は${this.campText(task.result.camp)}判定`;
+    const resultLine = `${task.result.targetName}は${this.campText(task.result.camp)}判定`;
     const action =
       task.kind === "claim_seer"
         ? "占い師として名乗り、そのまま偽結果を出す"
@@ -3934,7 +3955,7 @@ export class WerewolfGame {
   private upsertSeerClaimMetadata(metadata: SpeechMetadata, result?: SeerClaimResult): SpeechMetadata {
     const claims = [...metadata.claims];
     const existingIndex = claims.findIndex((claim) => claim.type === "role_claim" && claim.role === "Seer");
-    const note = result ? `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定` : "占い師主張";
+    const note = result ? `${this.playerNameOrId(result.targetId, result.targetName)}は${this.campText(result.camp)}判定` : "占い師主張";
     if (existingIndex >= 0) {
       const existing = claims[existingIndex];
       claims[existingIndex] = {
@@ -4143,7 +4164,7 @@ export class WerewolfGame {
     if (!task) {
       return [];
     }
-    const resultLine = task.results.map((result) => `${result.targetName} (${result.targetId}) は${this.campText(result.camp)}判定`).join("、");
+    const resultLine = task.results.map((result) => `${result.targetName}は${this.campText(result.camp)}判定`).join("、");
     if (task.kind === "claim_seer_with_results") {
       return [
         this.text(
@@ -4203,7 +4224,7 @@ export class WerewolfGame {
   }
 
   private seerResultSpeechList(results: SeerClaimResult[]): string {
-    return results.map((result) => `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定`).join("、");
+    return results.map((result) => `${this.playerNameOrId(result.targetId, result.targetName)}は${this.campText(result.camp)}判定`).join("、");
   }
 
   private seerDisclosureFallbackSpeech(task: SeerDisclosureTask): AgentSpeech {
@@ -5172,15 +5193,13 @@ export class WerewolfGame {
 
       const outputReview = reviewJapaneseOutput(speech.messages.join(" "), this.config.language);
       if (!outputReview.ok) {
+        const revisionHint = this.japaneseSpeechReviewHint(outputReview.issues);
         emitSpeechAttemptDiagnostic({
           kind: "speech_review_rejected",
           attempts,
           issues: outputReview.issues,
           styleIssues: outputReview.issues,
-          revisionHint: this.text(
-            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。",
-            "中国語の語彙や簡体字・繁体字を混ぜず、自然な日本語だけで言い直してください。"
-          )
+          revisionHint
         });
         if (!options.suppressMemorySideEffects) {
           console.warn(
@@ -5197,14 +5216,7 @@ export class WerewolfGame {
         attempts += 1;
         const retryInput: AgentSpeechInput = {
           ...input,
-          context: [
-            input.context,
-            "",
-            this.text(
-              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。",
-              "直前の生成発言に日本語以外の表記が混ざりました。同じ意図を保ち、自然な日本語の短い発言だけを出してください。"
-            )
-          ].join("\n")
+          context: [input.context, "", `直前の生成発言に修正が必要です。${revisionHint}`].join("\n")
         };
         const retrySpeech = this.sanitizeSpeechForPhase(await agent.speak(retryInput), legalPlayers, player);
         if (requestAbortSignal?.aborted) {
@@ -6049,10 +6061,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Public read note (not spoken): ${player.name} suspects ${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `公開読みメモ（発話ではない）: ${player.name}が${speech.metadata.suspects
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}を疑い`
         )
       );
@@ -6061,10 +6073,10 @@ export class WerewolfGame {
       parts.push(
         this.text(
           `Public trust note (not spoken): ${player.name} trusts ${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? ` (${read.reason})` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? ` (${read.reason})` : ""}`)
             .join(", ")}`,
           `公開信頼メモ（発話ではない）: ${player.name}が${speech.metadata.trusts
-            .map((read) => `${read.targetName ?? read.targetId}${read.reason ? `（${read.reason}）` : ""}`)
+            .map((read) => `${this.metadataTargetName(read)}${read.reason ? `（${read.reason}）` : ""}`)
             .join("、")}を信頼`
         )
       );
@@ -6345,9 +6357,10 @@ export class WerewolfGame {
       return result;
     }
     const roundText = result.round ? ` R${result.round}` : "";
+    const targetName = this.playerNameOrId(result.targetId, result.targetName);
     return this.text(
-      `${result.targetName ?? result.targetId} checked ${result.camp}${roundText}`,
-      `${result.targetName ?? result.targetId}は${this.campText(result.camp)}判定${roundText}`
+      `${targetName} checked ${result.camp}${roundText}`,
+      `${targetName}は${this.campText(result.camp)}判定${roundText}`
     );
   }
 

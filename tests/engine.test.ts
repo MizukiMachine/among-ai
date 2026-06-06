@@ -1466,9 +1466,10 @@ test("next-day context carries the successful vote execution target", async () =
   (game as unknown as { round: number; phase: "day_discussion" }).phase = "day_discussion";
   const context = (game as unknown as { contextFor(player: Player): string }).contextFor(players[0]);
 
-  assert.match(context, new RegExp(`死亡済み: .*${players[3].name} \\(${players[3].id}\\) / 投票処刑`));
-  assert.match(context, new RegExp(`直近の投票処刑: ${players[3].name} \\(${players[3].id}\\) / 投票処刑`));
+  assert.match(context, new RegExp(`死亡済み: .*${players[3].name} / 投票処刑`));
+  assert.match(context, new RegExp(`直近の投票処刑: ${players[3].name} / 投票処刑`));
   assert.doesNotMatch(context, new RegExp(`生存中: .*${players[3].name} \\(${players[3].id}\\)`));
+  assert.doesNotMatch(context, /\bp\d+\b/i);
 });
 
 test("human speech influence affects only a probabilistic subset of AI votes", async () => {
@@ -2216,6 +2217,52 @@ test("Japanese public speech retries when Chinese vocabulary appears", async () 
   assert.ok(completed);
   assert.equal(completed.attempts, 2);
   assert.equal(completed.retried, true);
+});
+
+test("Japanese public speech retries without repeating internal player ids in the retry prompt", async () => {
+  const diagnostics: SpeechGenerationDiagnostic[] = [];
+  const game = new WerewolfGame(
+    { ...baseConfig, provider: "llm", model: "scripted", language: "Japanese", prefetchConcurrency: 1 },
+    { onSpeechDiagnostics: (diagnostic) => diagnostics.push(diagnostic) }
+  ) as TestableGame;
+  const players = setTable(game, [
+    { role: "Villager" },
+    { role: "Werewolf" },
+    { role: "Seer" },
+    { role: "Witch" },
+    { role: "Villager" },
+    { role: "Villager" }
+  ]);
+
+  const emptyMetadata: AgentSpeech["metadata"] = { claims: [], suspects: [], trusts: [] };
+  const scriptedAgent = new ScriptedAgent(players[0].name, [], [], [
+    {
+      messages: [`${players[2].name}の占い師主張がp3で出たのは事実ですね`],
+      metadata: emptyMetadata
+    },
+    {
+      messages: [`${players[2].name}の占い師主張は、出たタイミングを事実として追います`],
+      metadata: emptyMetadata
+    }
+  ]);
+  game.agents.set(players[0].id, scriptedAgent);
+
+  const events = await collect(game.runDay());
+  const speechEvent = events.find((event) => event.type === "player_speech" && event.playerId === players[0].id);
+  const rejected = diagnostics.find((diagnostic) => diagnostic.kind === "speech_review_rejected" && diagnostic.playerId === players[0].id);
+  const completed = diagnostics.find((diagnostic) => diagnostic.kind === "speech_completed" && diagnostic.playerId === players[0].id);
+
+  assert.equal(speechEvent?.message, `${players[2].name}の占い師主張は、出たタイミングを事実として追います`);
+  assert.doesNotMatch(speechEvent?.message ?? "", /\bp\d+\b/i);
+  assert.ok(rejected);
+  assert.match(rejected.issues.join("\n"), /internal player id/);
+  assert.doesNotMatch(rejected.revisionHint ?? "", /\bp\d+\b/i);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.kind === "speech_retry_accepted" && diagnostic.playerId === players[0].id));
+  assert.ok(completed);
+  assert.equal(completed.attempts, 2);
+  assert.equal(completed.retried, true);
+  assert.ok(scriptedAgent.speechInputs.length >= 2);
+  assert.doesNotMatch(scriptedAgent.speechInputs[1].context, /\bp\d+\b/i);
 });
 
 test("simple public speech does not run old timeline rejection", async () => {
