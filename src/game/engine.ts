@@ -4318,15 +4318,20 @@ export class WerewolfGame {
     }
     // Give every round-one first-pass speaker a distinct opening move so the table
     // covers varied natural topics instead of degenerating into "様子見"/"保留" filler.
-    // Werewolves roll independently for a fake-role opening. A failed roll falls
-    // back to the same public agenda pool as everyone else, keeping Seer deception
-    // visible without making it automatic in one-wolf games.
+    // The werewolf team rolls once for a fake-role opening. When it hits, only one
+    // wolf takes the Seer deception slot; 3+ wolf teams always assign exactly one
+    // fake-role opener so large games do not randomly have several fake claims or none.
     const assignments = new Map<string, FirstDayOpeningMoveKind>();
     const kinds = [...firstDayOpeningMoveKinds];
     const offset = Math.floor(Math.random() * kinds.length);
+    const werewolfSpeakers = speakers.filter((speaker) => speaker.camp === "werewolf");
+    const shouldAssignFakeRoleOpener =
+      werewolfSpeakers.length >= 3 || (werewolfSpeakers.length > 0 && weightedChance(werewolfFakeRoleOpeningProbability));
+    const fakeRoleOpeningSpeakerId =
+      shouldAssignFakeRoleOpener ? sample(werewolfSpeakers).id : null;
     let cursor = 0;
     for (const speaker of speakers) {
-      if (speaker.camp === "werewolf" && weightedChance(werewolfFakeRoleOpeningProbability)) {
+      if (speaker.id === fakeRoleOpeningSpeakerId) {
         assignments.set(speaker.id, "wolf_fake_role_claim");
         continue;
       }
