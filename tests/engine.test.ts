@@ -1922,6 +1922,33 @@ test("first-day werewolf fake Seer opening is skipped when the deception roll mi
   assert.notEqual(wolfKind, "wolf_fake_role_claim");
 });
 
+test("first-day werewolf fake Seer opening assigns exactly one wolf in three-plus wolf teams", async () => {
+  const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
+  const players = setTable(game, [
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "Werewolf", targets: ["p5"] },
+    { role: "AlphaWolf", targets: ["p5"] },
+    { role: "Seer", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+  (game as unknown as { round: number }).round = 1;
+
+  const originalRandom = Math.random;
+  Math.random = () => 0.99;
+  try {
+    await collect(game.runDay());
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const fakeClaimKinds = players
+    .filter((player) => player.camp === "werewolf")
+    .map((player) => (game.agents.get(player.id) as ScriptedAgent).speechInputs[0].speechPlan?.firstDayOpeningMove?.kind)
+    .filter((kind) => kind === "wolf_fake_role_claim");
+  assert.equal(fakeClaimKinds.length, 1);
+});
+
 test("later day first-pass speakers do not receive opening move prompts", async () => {
   const game = new WerewolfGame({ ...baseConfig, language: "Japanese" }) as TestableGame;
   const players = setTable(game, [
