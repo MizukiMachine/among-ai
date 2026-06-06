@@ -6,7 +6,7 @@ export const roleValues = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -314,6 +314,7 @@ export interface TargetCandidate {
 export type PublicNightDeathCauseKind =
   | "werewolf_attack"
   | "witch_poison"
+  | "trapper_trap"
   | "werewolf_and_witch_overlap"
   | "hunter_death_shot"
   | "alpha_wolf_death_shot"

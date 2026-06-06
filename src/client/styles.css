@@ -435,12 +435,12 @@ textarea:focus-visible {
 }
 
 .role-rule-popover {
-  position: absolute;
-  top: var(--role-rule-top, calc(100% + 10px));
-  left: var(--role-rule-left, 0);
+  position: static;
+  grid-column: 1 / -1;
+  align-self: start;
   z-index: 30;
-  width: min(620px, calc(100vw - 40px));
-  max-width: calc(100vw - 40px);
+  width: min(620px, 100%);
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid rgba(218, 230, 236, 0.22);
   border-radius: 8px;
@@ -5852,7 +5852,7 @@ input[type="range"] {
   }
 
   .role-rule-popover {
-    width: min(620px, calc(100vw - 34px));
+    width: 100%;
     max-height: calc(100vh - 190px);
     overflow-y: auto;
   }

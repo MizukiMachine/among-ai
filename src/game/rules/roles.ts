@@ -56,11 +56,11 @@ export const roleDefinitions: Record<Role, RoleDefinition> = {
     nightActions: [],
     deathTriggers: [{ kind: "hunter_shot", once: true }]
   },
-  Raven: {
-    role: "Raven",
+  Trapper: {
+    role: "Trapper",
     camp: "village",
-    tags: ["village", "night_action", "vote_modifier"],
-    nightActions: [{ kind: "raven_mark", priority: 40 }],
+    tags: ["village", "night_action"],
+    nightActions: [{ kind: "trap_set", priority: 85 }],
     deathTriggers: []
   },
   Idiot: {

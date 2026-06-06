@@ -76,6 +76,7 @@ function labels(language: string) {
     causeLabels: {
       werewolf_attack: japanese ? "人狼の襲撃" : "werewolf attack",
       witch_poison: japanese ? "魔女の毒薬" : "Witch poison potion",
+      trapper_trap: japanese ? "罠師の罠" : "Trapper trap",
       werewolf_and_witch_overlap: japanese ? "人狼の襲撃と魔女の毒薬の重なり" : "overlap of werewolf attack and Witch poison",
       hunter_death_shot: japanese ? "ハンター死亡時の反撃" : "Hunter death shot",
       alpha_wolf_death_shot: japanese ? "α人狼死亡時の反撃" : "Alpha Wolf death shot",
@@ -244,8 +245,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "人狼の偽役職アピール" : "人狼の偽役職アピール",
       instruction: japanese
-        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。ただし初日は占い結果がないため、対象名と判定は出さない。必要なら魔女、ハンター、鴉、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。投票・対抗・自分への疑いを動かす理由につなげる。"
-        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。ただし初日は占い結果がないため、対象名と判定は出さない。必要なら魔女、ハンター、鴉、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。投票・対抗・自分への疑いを動かす理由につなげる。"
+        ? "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。ただし初日は占い結果がないため、対象名と判定は出さない。必要なら魔女、ハンター、罠師、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。投票・対抗・自分への疑いを動かす理由につなげる。"
+        : "あなたは人狼陣営です。公開の初日発言では正体を隠し、占い師騙りを優先して場を揺らす。ただし初日は占い結果がないため、対象名と判定は出さない。必要なら魔女、ハンター、罠師、愚者、長老も村側と同じ条件で名乗る。騎士は通常CO対象にしない。投票・対抗・自分への疑いを動かす理由につなげる。"
     },
     state_vote_criteria: {
       kind,
@@ -279,8 +280,8 @@ export function firstDayOpeningMove(kind: FirstDayOpeningMoveKind, language: str
       kind,
       label: japanese ? "能力者への触れ方が早い" : "能力者への触れ方が早い",
       instruction: japanese
-        ? "占い師、魔女、ハンター、鴉、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
-        : "占い師、魔女、ハンター、鴉、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
+        ? "占い師、魔女、ハンター、罠師、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
+        : "占い師、魔女、ハンター、罠師、愚者、長老のCO方針に早めに触れる。騎士は通常絶対に名乗らない前提で、役職を明かすよう強く迫らず、話題に出す範囲の方針を一つ提案する。"
     }
   };
   return definitions[kind];
@@ -311,6 +312,9 @@ function possibleNightDeathCauses(players: Player[], language: string): PublicNi
   }
   if (roles.has("Witch")) {
     add("witch_poison");
+  }
+  if (roles.has("Trapper")) {
+    add("trapper_trap");
   }
   if (players.some((player) => player.camp === "werewolf") && roles.has("Witch")) {
     add("werewolf_and_witch_overlap");
@@ -501,7 +505,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
       return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,16}(?:村側|人間側|村人|白|吊られたくない)/u.test(text);
     }
     if (move.kind === "wolf_fake_role_claim") {
-      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,30}(?:占い師|魔女|ハンター|鴉|愚者|長老)/u.test(text);
+      return /(?:私|僕|自分|こちら)(?:は|が)?[^。！？!?]{0,30}(?:占い師|魔女|ハンター|罠師|愚者|長老)/u.test(text);
     }
     if (move.kind === "state_vote_criteria") {
       return /(?:投票基準|基準|返答|具体的|理由|便乗|態度)/u.test(text);
@@ -522,7 +526,7 @@ function hasFirstDayOpeningMoveStance(text: string, plan: PublicSpeechPlan | und
     return /\b(I|I'm|I am|my)\b.{0,40}\b(village|villager|town|not a wolf|should not be eliminated)\b/i.test(text);
   }
   if (move.kind === "wolf_fake_role_claim") {
-    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Hunter|Raven|Idiot|Elder|role|claim)\b/i.test(text);
+    return /\b(I|I'm|I am|my)\b.{0,50}\b(Seer|Witch|Hunter|Trapper|Idiot|Elder|role|claim)\b/i.test(text);
   }
   if (move.kind === "state_vote_criteria") {
     return /\b(vote criteria|criteria|concrete answers|speaking volume|take a position|stiffness)\b/i.test(text);

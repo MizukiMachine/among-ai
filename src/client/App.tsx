@@ -30,7 +30,7 @@ import {
   Vote,
   X
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { SciFiStageBackdrop, type StageLightTone } from "./SciFiStageBackdrop";
 import {
   audioManifestPath,
@@ -533,7 +533,7 @@ const roleClass: Partial<Record<Role, string>> = {
   Witch: "role-witch",
   Guard: "role-guard",
   Hunter: "role-villager",
-  Raven: "role-villager",
+  Trapper: "role-villager",
   Idiot: "role-villager",
   Elder: "role-villager",
   Lover: "role-villager",
@@ -1342,7 +1342,7 @@ const headerRoleOrder = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
@@ -1427,11 +1427,6 @@ interface RoleRuleCopy {
   note: string;
 }
 
-interface RoleRulePopoverPosition {
-  left: number;
-  top: number;
-}
-
 const roleRuleJa: Record<Role, RoleRuleCopy> = {
   Werewolf: {
     goal: "狼陣営が人間側と同数以上で勝利",
@@ -1475,11 +1470,11 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
     timing: "処刑・襲撃などで死亡した時",
     note: "撃つ前に疑い先を絞っておく"
   },
-  Raven: {
+  Trapper: {
     goal: "人間側として全人狼を排除",
-    ability: "夜に任意で印を付け、対象へ投票1票を加算",
-    timing: "夜に指定、次の投票で反映",
-    note: "根拠が薄い夜は見送れる"
+    ability: "夜に任意で1人に罠を仕掛け、対象が襲撃されると人狼側1人を死亡させる",
+    timing: "夜に指定、同じ夜の襲撃で発動",
+    note: "襲撃そのものは防がない"
   },
   Idiot: {
     goal: "人間側として全人狼を排除",
@@ -1776,7 +1771,6 @@ export function App() {
   const [activeOverlay, setActiveOverlay] = useState<"history" | "votes" | "rules" | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedRoleRule, setSelectedRoleRule] = useState<Role | null>(null);
-  const [roleRulePopoverPosition, setRoleRulePopoverPosition] = useState<RoleRulePopoverPosition | null>(null);
   // Guided UI tour: null = inactive, otherwise the active step index. The measured
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
@@ -1819,7 +1813,6 @@ export function App() {
   const rulesButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyPopoverRef = useRef<HTMLElement | null>(null);
   const roleDistributionRef = useRef<HTMLElement | null>(null);
-  const roleRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roleRulePopoverRef = useRef<HTMLElement | null>(null);
   const characterProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const characterProfileDialogRef = useRef<HTMLElement | null>(null);
@@ -2277,46 +2270,14 @@ export function App() {
 
   function closeRoleRulePopover() {
     setSelectedRoleRule(null);
-    setRoleRulePopoverPosition(null);
-    roleRuleTriggerRef.current = null;
   }
 
-  function getRoleRulePopoverPosition(trigger: HTMLElement): RoleRulePopoverPosition {
-    const container = roleDistributionRef.current;
-    if (!container) {
-      return { left: 0, top: 0 };
-    }
-
-    const viewportPadding = 20;
-    const popoverWidth = Math.min(620, Math.max(280, window.innerWidth - viewportPadding * 2));
-    const triggerRect = trigger.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const desiredLeft = triggerRect.left - containerRect.left;
-    const maxLeft = Math.max(0, window.innerWidth - containerRect.left - popoverWidth - viewportPadding);
-
-    return {
-      left: Math.min(Math.max(0, desiredLeft), maxLeft),
-      top: triggerRect.bottom - containerRect.top + 8
-    };
-  }
-
-  function repositionRoleRulePopover() {
-    const trigger = roleRuleTriggerRef.current;
-    if (!trigger || !document.body.contains(trigger)) {
-      closeRoleRulePopover();
-      return;
-    }
-    setRoleRulePopoverPosition(getRoleRulePopoverPosition(trigger));
-  }
-
-  function toggleRoleRule(role: Role, event: ReactMouseEvent<HTMLButtonElement>) {
+  function toggleRoleRule(role: Role) {
     if (selectedRoleRule === role) {
       closeRoleRulePopover();
       return;
     }
 
-    roleRuleTriggerRef.current = event.currentTarget;
-    setRoleRulePopoverPosition(getRoleRulePopoverPosition(event.currentTarget));
     setSelectedRoleRule(role);
   }
 
@@ -3287,29 +3248,11 @@ export function App() {
       closeRoleRulePopover();
     }
 
-    let resizeAnimationFrame: number | null = null;
-    function scheduleRoleRuleReposition() {
-      if (resizeAnimationFrame !== null) {
-        window.cancelAnimationFrame(resizeAnimationFrame);
-      }
-      resizeAnimationFrame = window.requestAnimationFrame(() => {
-        resizeAnimationFrame = null;
-        repositionRoleRulePopover();
-      });
-    }
-
     window.addEventListener("keydown", closeRoleRuleOnKeyDown);
     window.addEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
-    window.addEventListener("resize", scheduleRoleRuleReposition);
-    window.addEventListener("orientationchange", scheduleRoleRuleReposition);
     return () => {
-      if (resizeAnimationFrame !== null) {
-        window.cancelAnimationFrame(resizeAnimationFrame);
-      }
       window.removeEventListener("keydown", closeRoleRuleOnKeyDown);
       window.removeEventListener("pointerdown", closeRoleRuleOnPointerDown, true);
-      window.removeEventListener("resize", scheduleRoleRuleReposition);
-      window.removeEventListener("orientationchange", scheduleRoleRuleReposition);
     };
   }, [roleDistributionItems, selectedRoleRule]);
 
@@ -4448,12 +4391,6 @@ export function App() {
   function renderHeaderRoleDistribution() {
     const selectedRoleLabel = selectedRoleRule ? displayRoleLabel(selectedRoleRule, language) : "";
     const selectedRule = selectedRoleRule ? getRoleRuleCopy(selectedRoleRule) : null;
-    const roleRulePopoverStyle = roleRulePopoverPosition
-      ? ({
-          "--role-rule-left": `${roleRulePopoverPosition.left}px`,
-          "--role-rule-top": `${roleRulePopoverPosition.top}px`
-        } as CSSProperties)
-      : undefined;
 
     return (
       <section ref={roleDistributionRef} className="header-role-distribution" aria-label="役職内訳">
@@ -4471,7 +4408,7 @@ export function App() {
                 aria-expanded={selectedRoleRule === role}
                 aria-label={`${displayRoleLabel(role, language)} ${count}人のルールを表示`}
                 className={`header-role-chip ${roleClassName(role)} ${selectedRoleRule === role ? "selected" : ""}`}
-                onClick={(event) => toggleRoleRule(role, event)}
+                onClick={() => toggleRoleRule(role)}
                 title={`${displayRoleLabel(role, language)}のルールを表示`}
                 type="button"
               >
@@ -4488,7 +4425,6 @@ export function App() {
             id="role-rule-panel"
             role="dialog"
             aria-label={`${selectedRoleLabel}のルール`}
-            style={roleRulePopoverStyle}
           >
             <div className="role-rule-header">
               <div>

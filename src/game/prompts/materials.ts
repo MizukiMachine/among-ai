@@ -113,7 +113,7 @@ const expectedRoles = [
   "Witch",
   "Guard",
   "Hunter",
-  "Raven",
+  "Trapper",
   "Idiot",
   "Elder",
   "Lover",
