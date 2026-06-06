@@ -78,10 +78,9 @@ export function createLinkedDeathRecords(
         enqueue({ playerId: status.targetId, cause: "lover", sourceId: death.playerId });
       }
     }
-    for (const status of playerStatuses(state, death.playerId, "charm_anchor")) {
-      if (status.targetId) {
-        enqueue({ playerId: status.targetId, cause: "wolf_beauty_charm", sourceId: death.playerId });
-      }
+    const charmAnchor = playerStatuses(state, death.playerId, "charm_anchor").at(-1);
+    if (charmAnchor?.targetId) {
+      enqueue({ playerId: charmAnchor.targetId, cause: "wolf_beauty_charm", sourceId: death.playerId });
     }
   }
 

@@ -1440,8 +1440,8 @@ const roleRuleJa: Record<Role, RoleRuleCopy> = {
   },
   WolfBeauty: {
     goal: "狼陣営が人間側と同数以上で勝利",
-    ability: "夜に1人を魅了し、自分の死亡時に道連れ",
-    timing: "夜に魅了、死亡時に連鎖",
+    ability: "毎晩1人を魅了し、自分の死亡時に最新対象を道連れ",
+    timing: "毎夜魅了、死亡時に最新対象が連鎖",
     note: "襲撃参加と道連れを両立する"
   },
   Seer: {

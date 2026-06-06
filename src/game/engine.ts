@@ -3363,9 +3363,6 @@ export class WerewolfGame {
     if (!wolfBeauty.alive || wolfBeauty.role !== "WolfBeauty" || !canUseAbilities(this.ruleState, wolfBeauty.id)) {
       return;
     }
-    if ((this.ruleState.players[wolfBeauty.id]?.statuses ?? []).some((status) => status.kind === "charm_anchor")) {
-      return;
-    }
 
     const targets = this.alivePlayers().filter(
       (player) => player.id !== wolfBeauty.id && player.camp !== "werewolf" && !this.isProtectedHumanNightDeathTarget(player)
@@ -3377,8 +3374,8 @@ export class WerewolfGame {
 
     const contextLines = [
       this.text(
-        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。",
-        "魅了する生存者を一人選んでください。あなたが死亡すると、その相手も道連れになります。"
+        "今夜魅了する生存者を一人選んでください。魅了先は毎晩選び直し、あなたが死亡すると最新の魅了先だけが道連れになります。",
+        "今夜魅了する生存者を一人選んでください。魅了先は毎晩選び直し、あなたが死亡すると最新の魅了先だけが道連れになります。"
       )
     ];
     const context = this.contextFor(wolfBeauty, contextLines);
@@ -3395,16 +3392,7 @@ export class WerewolfGame {
     }
 
     const target = this.requirePlayer(decision.targetId);
-    this.ruleState = applyStatusEffects(this.ruleState, [
-      {
-        playerId: wolfBeauty.id,
-        addStatuses: [{ kind: "charm_anchor", sourceId: wolfBeauty.id, targetId: target.id, duration: "game" }]
-      },
-      {
-        playerId: target.id,
-        addStatuses: [{ kind: "charmed", sourceId: wolfBeauty.id, duration: "game" }]
-      }
-    ]);
+    this.replaceWolfBeautyCharm(wolfBeauty.id, target.id);
     wolfBeauty.memories.push(
       this.text(
         `第${this.round}ラウンド: ${target.name}を魅了。理由: ${decision.reason}`,
@@ -3423,6 +3411,37 @@ export class WerewolfGame {
       },
       wolfBeauty,
       target
+    );
+  }
+
+  private replaceWolfBeautyCharm(wolfBeautyId: string, targetId: string): void {
+    const players = Object.fromEntries(
+      Object.entries(this.ruleState.players).map(([playerId, playerState]) => [
+        playerId,
+        {
+          ...playerState,
+          statuses: playerState.statuses.filter((status) => {
+            if (playerId === wolfBeautyId && status.kind === "charm_anchor") {
+              return false;
+            }
+            return !(status.kind === "charmed" && status.sourceId === wolfBeautyId);
+          })
+        }
+      ])
+    );
+
+    this.ruleState = applyStatusEffects(
+      { ...this.ruleState, players },
+      [
+        {
+          playerId: wolfBeautyId,
+          addStatuses: [{ kind: "charm_anchor", sourceId: wolfBeautyId, targetId, duration: "game", round: this.round }]
+        },
+        {
+          playerId: targetId,
+          addStatuses: [{ kind: "charmed", sourceId: wolfBeautyId, duration: "game", round: this.round }]
+        }
+      ]
     );
   }
 

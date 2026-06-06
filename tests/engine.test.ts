@@ -5515,7 +5515,7 @@ test("early human night protection does not block WolfBeauty linked deaths", asy
     prefetchConcurrency: 1
   }) as TestableGame;
   const players = setTable(game, [
-    { role: "WolfBeauty" },
+    { role: "WolfBeauty", targets: ["p3", "p3"] },
     { role: "Witch", decisions: [false], targets: ["p1"] },
     { role: "Villager" },
     { role: "Werewolf", targets: ["p5"] },
@@ -6502,6 +6502,47 @@ test("WolfBeauty charm creates a linked death when WolfBeauty dies", async () =>
   const charmedDeath = events.find((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm");
   assert.ok(charmedDeath);
   assert.doesNotMatch(charmedDeath.message, /Wolf Beauty|charm|美女狼|魅了/);
+});
+
+test("WolfBeauty charm refreshes nightly and links only the latest target", async () => {
+  const game = createGame();
+  const players = setTable(game, [
+    { role: "WolfBeauty", targets: ["p4", "p5", "p2"] },
+    { role: "Werewolf", targets: ["p1"] },
+    { role: "Witch", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] },
+    { role: "Villager", targets: ["p1"] }
+  ]);
+
+  await collect(game.runWolfBeautyCharmAction(players[0]));
+  (game as unknown as { round: number }).round = 2;
+  await collect(game.runWolfBeautyCharmAction(players[0]));
+
+  const wolfBeautyStatuses = game.ruleState.players[players[0].id].statuses.filter((status) => status.kind === "charm_anchor");
+  assert.deepEqual(
+    wolfBeautyStatuses.map((status) => status.targetId),
+    [players[4].id]
+  );
+  assert.equal(
+    game.ruleState.players[players[3].id].statuses.some((status) => status.kind === "charmed" && status.sourceId === players[0].id),
+    false
+  );
+  assert.equal(
+    game.ruleState.players[players[4].id].statuses.some((status) => status.kind === "charmed" && status.sourceId === players[0].id),
+    true
+  );
+
+  const wolfBeautyAgent = game.agents.get(players[0].id) as ScriptedAgent;
+  assert.equal(wolfBeautyAgent.targetInputs.filter((input) => input.action === "Wolf Beauty charm").length, 2);
+
+  const events = await collect(game.runVoting());
+
+  assert.equal(players[0].alive, false);
+  assert.equal(players[3].alive, true);
+  assert.equal(players[4].alive, false);
+  assert.ok(!events.some((event) => event.type === "death" && event.targetId === "p4" && event.data?.cause === "wolf_beauty_charm"));
+  assert.ok(events.some((event) => event.type === "death" && event.targetId === "p5" && event.data?.cause === "wolf_beauty_charm"));
 });
 
 test("lover victory is exposed as winnerCamp while keeping winner fallback compatible", () => {
