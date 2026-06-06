@@ -89,6 +89,7 @@ const MATCH_MAX_ROUNDS = 3;
 let uiTourSeenThisPageLoad = false;
 
 type StreamWaitNotice = "slow" | "stalled";
+type TourRectState = { stepIndex: number; rect: DOMRect | null };
 
 function hasSeenUiTour(): boolean {
   return uiTourSeenThisPageLoad;
@@ -1773,7 +1774,7 @@ export function App() {
   // Guided UI tour: null = inactive, otherwise the active step index. The measured
   // rect of the spotlit element is tracked separately so it follows resize/scroll.
   const [tourStepIndex, setTourStepIndex] = useState<number | null>(null);
-  const [tourRect, setTourRect] = useState<DOMRect | null>(null);
+  const [tourRect, setTourRect] = useState<TourRectState | null>(null);
   // Spotlight shown when a werewolf ally is unveiled at the face-off: frame only that roster
   // card while its role flips, without dimming the main story panel or the rest of the screen.
   const [revealSpotlight, setRevealSpotlight] = useState<{ id: string; rect: DOMRect } | null>(null);
@@ -2072,6 +2073,7 @@ export function App() {
   }
 
   function advanceTour() {
+    setTourRect(null);
     setTourStepIndex((current) => {
       if (current === null) {
         return null;
@@ -2110,6 +2112,7 @@ export function App() {
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0 });
     }
+    setTourRect(null);
     setTourStepIndex(0);
   }, [events.length, tourStepIndex]);
 
@@ -2136,9 +2139,10 @@ export function App() {
       setTourRect(null);
       return;
     }
+    const measuredStepIndex = tourStepIndex;
     const measure = () => {
       const el = step.getEl();
-      setTourRect(el ? el.getBoundingClientRect() : null);
+      setTourRect({ stepIndex: measuredStepIndex, rect: el ? el.getBoundingClientRect() : null });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -2699,6 +2703,7 @@ export function App() {
     hideProcessingHudNow();
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
+    setTourRect(null);
     setGameId(null);
     setSourceDone(false);
     setRunning(false);
@@ -2761,6 +2766,7 @@ export function App() {
     setSourceDone(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
+    setTourRect(null);
     setRunning(true);
     statusBeforePauseRef.current = "生成中";
     setStatus("生成中");
@@ -4981,7 +4987,7 @@ export function App() {
     const stepNumber = (tourStepIndex ?? 0) + 1;
     const isLast = (tourStepIndex ?? 0) >= tourSteps.length - 1;
     const pad = 10;
-    const rect = tourRect;
+    const rect = tourRect?.stepIndex === tourStepIndex ? tourRect.rect : null;
     const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
     const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
     const spotlightStyle: CSSProperties | undefined = rect
@@ -5046,7 +5052,7 @@ export function App() {
       <div className="ui-tour" role="dialog" aria-label={`使い方ガイド ${stepNumber}/${tourSteps.length}：${activeTourStep.title}`}>
         <div className="ui-tour-backdrop" onClick={advanceTour} aria-hidden="true" />
         {rect ? <div className="ui-tour-spotlight" style={spotlightStyle} aria-hidden="true" /> : null}
-        <div className="ui-tour-callout" style={calloutStyle} ref={tourCalloutRef} tabIndex={-1}>
+        <div className={rect ? "ui-tour-callout" : "ui-tour-callout is-centered"} style={calloutStyle} ref={tourCalloutRef} tabIndex={-1}>
           <div className="ui-tour-callout-head">
             <span className="ui-tour-step">ガイド {stepNumber} / {tourSteps.length}</span>
             <button className="ui-tour-skip" onClick={finishTour} type="button">スキップ</button>
