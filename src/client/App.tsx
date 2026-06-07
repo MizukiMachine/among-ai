@@ -80,6 +80,9 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
 const STREAM_WAIT_SLOW_MS = 15_000;
 const STREAM_WAIT_STALLED_MS = 70_000;
+const HUMAN_INPUT_ACTIVITY_TOUCH_THROTTLE_MS = 10_000;
+const HUMAN_INPUT_ACTIVITY_KEEPALIVE_MIN_MS = 1_000;
+const HUMAN_INPUT_ACTIVITY_KEEPALIVE_MAX_MS = 30_000;
 // The match always runs to a 4-round limit (server default `defaultMaxRounds`); the
 // client never overrides it, so the rules copy can treat this as a fixed constant.
 const MATCH_MAX_ROUNDS = 4;
@@ -90,6 +93,19 @@ let uiTourSeenThisPageLoad = false;
 
 type StreamWaitNotice = "slow" | "stalled";
 type TourRectState = { stepIndex: number; rect: DOMRect | null };
+
+export function humanInputActivityKeepaliveMs(timeoutMs: number | null | undefined): number {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+    return HUMAN_INPUT_ACTIVITY_KEEPALIVE_MAX_MS;
+  }
+  if (timeoutMs <= 0) {
+    return HUMAN_INPUT_ACTIVITY_KEEPALIVE_MIN_MS;
+  }
+  return Math.min(
+    HUMAN_INPUT_ACTIVITY_KEEPALIVE_MAX_MS,
+    Math.max(HUMAN_INPUT_ACTIVITY_KEEPALIVE_MIN_MS, Math.floor(timeoutMs / 3))
+  );
+}
 
 function hasSeenUiTour(): boolean {
   return uiTourSeenThisPageLoad;
@@ -392,6 +408,7 @@ preloadCharacterImages(characterThumbnailImages, "high");
 interface StreamSystemPayload {
   gameId?: string | null;
   humanPlayerId?: string | null;
+  humanOptionalInputTimeoutMs?: number | null;
   message?: string;
   prefetchConcurrency?: number | null;
   streamLogId?: string | null;
@@ -1784,6 +1801,7 @@ export function App() {
   const [typedCompleteEventId, setTypedCompleteEventId] = useState<number | null>(null);
   const revealSpotlightTimerRef = useRef<number | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
+  const [humanOptionalInputTimeoutMs, setHumanOptionalInputTimeoutMs] = useState<number | null>(null);
   const [pendingHumanInputs, setPendingHumanInputsState] = useState<PendingHumanInputEntry[]>([]);
   const [humanSpeech, setHumanSpeech] = useState("");
   const [humanTargetId, setHumanTargetId] = useState<string | null>(null);
@@ -2557,7 +2575,11 @@ export function App() {
     }).catch(() => undefined);
   }
 
-  function touchHumanInputActivity(request: HumanInputRequest, reason: "active" | "opened" | "typing") {
+  function touchHumanInputActivity(
+    request: HumanInputRequest,
+    reason: "active" | "opened" | "typing" | "pending",
+    minIntervalMs = HUMAN_INPUT_ACTIVITY_TOUCH_THROTTLE_MS
+  ) {
     const currentGameId = gameId;
     if (!currentGameId || !isOptionalSpeechInput(request)) {
       return;
@@ -2565,7 +2587,7 @@ export function App() {
 
     const now = Date.now();
     const lastTouchAt = humanInputActivityTouchAtRef.current.get(request.id) ?? 0;
-    if (lastTouchAt > 0 && now - lastTouchAt < 10_000) {
+    if (minIntervalMs > 0 && lastTouchAt > 0 && now - lastTouchAt < minIntervalMs) {
       return;
     }
     humanInputActivityTouchAtRef.current.set(request.id, now);
@@ -2674,6 +2696,7 @@ export function App() {
     setTourStepIndex(null);
     setTourRect(null);
     setGameId(null);
+    setHumanOptionalInputTimeoutMs(null);
     setSourceDone(false);
     setRunning(false);
     setAudioStarted(false);
@@ -2732,6 +2755,7 @@ export function App() {
     setGenerationProgress(null);
     hideProcessingHudNow();
     setGameId(null);
+    setHumanOptionalInputTimeoutMs(null);
     setSourceDone(false);
     tourLaunchedRef.current = false;
     setTourStepIndex(null);
@@ -2757,13 +2781,18 @@ export function App() {
 
     const source = new EventSource(`/api/games/stream?${params.toString()}`);
     sourceRef.current = source;
+    const isCurrentSource = () => sourceRef.current === source;
 
     source.addEventListener("system", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("system");
       const payload = JSON.parse((message as MessageEvent).data) as StreamSystemPayload;
       streamLogIdRef.current = payload.streamLogId ?? null;
       clientTraceEnabledRef.current = payload.traceEnabled === true;
       setGameId(payload.gameId ?? null);
+      setHumanOptionalInputTimeoutMs(payload.humanOptionalInputTimeoutMs ?? null);
       if (payload.humanPlayerId) {
         setHumanPlayerId(payload.humanPlayerId);
       }
@@ -2778,11 +2807,17 @@ export function App() {
     });
 
     source.addEventListener("heartbeat", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       const payload = JSON.parse((message as MessageEvent).data) as StreamHeartbeatPayload;
       noteStreamHeartbeat(payload);
     });
 
     source.addEventListener("progress", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("progress");
       const progress = JSON.parse((message as MessageEvent).data) as GenerationProgress;
       postClientTrace("progress", clientTraceProgressSummary(progress) ?? {});
@@ -2794,6 +2829,9 @@ export function App() {
     });
 
     source.addEventListener("game", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("game");
       const event = JSON.parse((message as MessageEvent).data) as GameEvent;
       postClientTrace("game", {
@@ -2849,6 +2887,9 @@ export function App() {
     });
 
     source.addEventListener("human_input", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("human_input");
       const request = JSON.parse((message as MessageEvent).data) as HumanInputRequest;
       const revealAfterEventId =
@@ -2872,6 +2913,9 @@ export function App() {
     });
 
     source.addEventListener("human_input_cancelled", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("human_input_cancelled");
       const payload = JSON.parse((message as MessageEvent).data) as { requestId?: string };
       const requestId = payload.requestId;
@@ -2894,6 +2938,9 @@ export function App() {
     });
 
     source.addEventListener("done", () => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("done");
       postClientTrace("done", {
         eventsCount: eventsRef.current.length,
@@ -2913,6 +2960,9 @@ export function App() {
     });
 
     source.addEventListener("error", (message) => {
+      if (!isCurrentSource()) {
+        return;
+      }
       noteMeaningfulStreamActivity("error");
       postClientTrace("error", {
         eventsCount: eventsRef.current.length,
@@ -3076,7 +3126,7 @@ export function App() {
       return;
     }
     playSfx("ui_confirm");
-    touchHumanInputActivity(availableSpeechInterruptInput, "opened");
+    touchHumanInputActivity(availableSpeechInterruptInput, "opened", 0);
     acknowledgeActiveHumanInput();
     setGameStatus("入力待ち");
   }
@@ -3085,8 +3135,32 @@ export function App() {
     if (!visibleOptionalSpeechInput) {
       return;
     }
-    touchHumanInputActivity(visibleOptionalSpeechInput, "opened");
+    touchHumanInputActivity(visibleOptionalSpeechInput, "opened", 0);
   }, [visibleOptionalSpeechInput?.id, gameId]);
+
+  useEffect(() => {
+    if (!optionalDiscussionInterruptInput || !gameId) {
+      return undefined;
+    }
+    const keepaliveMs = humanInputActivityKeepaliveMs(humanOptionalInputTimeoutMs);
+
+    const touchPendingInput = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      touchHumanInputActivity(optionalDiscussionInterruptInput, "pending", 0);
+    };
+
+    touchPendingInput();
+    const interval = window.setInterval(touchPendingInput, keepaliveMs);
+    const onVisibilityChange = () => touchPendingInput();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [optionalDiscussionInterruptInput?.id, gameId, humanOptionalInputTimeoutMs]);
 
   useEffect(() => {
     return () => {
