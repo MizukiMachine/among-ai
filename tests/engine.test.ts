@@ -23,6 +23,7 @@ import { werewolfFaceoffLineOptionsForPlayer, werewolfFaceoffRoles } from "../sr
 import type {
   Agent,
   AgentBooleanInput,
+  AgentReadInput,
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
@@ -97,6 +98,33 @@ class ScriptedAgent implements Agent {
   async decide(): Promise<boolean> {
     return this.decisions.shift() ?? false;
   }
+}
+
+// Stands in for the LLM shadow agent (humanChoiceAgent) that interprets a human player's
+// free text into structured reads. Tests inject the reads the LLM would have produced, so
+// the engine's influence pipeline can be exercised deterministically without a model call.
+class ReadsAgent extends ScriptedAgent {
+  readonly readInputs: AgentReadInput[] = [];
+
+  constructor(name: string, private readonly reads: SpeechMetadata) {
+    super(name);
+  }
+
+  async readReads(input: AgentReadInput): Promise<SpeechMetadata> {
+    this.readInputs.push(input);
+    const legalIds = new Set(input.legalPlayers.map((candidate) => candidate.id));
+    return {
+      suspects: this.reads.suspects.filter((read) => legalIds.has(read.targetId)),
+      trusts: this.reads.trusts.filter((read) => legalIds.has(read.targetId)),
+      claims: this.reads.claims
+    };
+  }
+}
+
+function setHumanReadShadow(game: TestableGame, reads: SpeechMetadata): ReadsAgent {
+  const shadow = new ReadsAgent("human-read-shadow", reads);
+  (game as unknown as { humanChoiceAgent: Agent }).humanChoiceAgent = shadow;
+  return shadow;
 }
 
 class PreferTargetAgent extends ScriptedAgent {
@@ -1585,7 +1613,6 @@ test("human speech challenge mode avoids redirecting pressure onto the human pla
   const trusted = players[5];
   const challengeVoter = players[5];
   human.model = "human";
-  (game as unknown as { round: number }).round = 3;
   game.lastDiscussion = [
     {
       playerId: human.id,
@@ -1598,6 +1625,24 @@ test("human speech challenge mode avoids redirecting pressure onto the human pla
       }
     }
   ];
+
+  // Challenge mode is rare under strong influence tuning, so find a round whose deterministic
+  // roll puts this voter in challenge mode rather than assuming a fixed round.
+  const readMode = (round: number): string | undefined => {
+    (game as unknown as { round: number }).round = round;
+    return (
+      game as unknown as { humanSocialInfluenceProfile(observer: Player): { mode: string } | null }
+    ).humanSocialInfluenceProfile(challengeVoter)?.mode;
+  };
+  let challengeRound = -1;
+  for (let round = 1; round <= 500; round += 1) {
+    if (readMode(round) === "challenge") {
+      challengeRound = round;
+      break;
+    }
+  }
+  assert.notEqual(challengeRound, -1, "expected a round where the voter challenges the human read");
+  (game as unknown as { round: number }).round = challengeRound;
 
   const events = await collect(game.runVoting());
   const agent = game.agents.get(challengeVoter.id) as ScriptedAgent;
@@ -4631,6 +4676,11 @@ test("human free text reads influence later discussion and voting context", asyn
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
   (game as unknown as { round: number }).round = 1;
+  setHumanReadShadow(game, {
+    suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "suspicious", weight: 0.95 }],
+    trusts: [{ targetId: players[3].id, targetName: players[3].name, reason: "trustworthy", weight: 0.9 }],
+    claims: []
+  });
 
   const events = await collect(game.runDay());
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
@@ -4691,6 +4741,11 @@ test("human free text reads reserve an agreeing AI follow-up speaker", async () 
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
+  setHumanReadShadow(game, {
+    suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "suspicious", weight: 0.95 }],
+    trusts: [],
+    claims: []
+  });
 
   const events = await collect(game.runDay());
   const followUpSpeakers = events
@@ -4730,6 +4785,13 @@ test("human Japanese free text keeps negated trust and vote mentions in the righ
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "Japanese"));
   players[2].model = "human";
+  // The shadow LLM resolves the negations: 信じない→suspect p2, 投票しない→no read on p4,
+  // 投票理由は良い→trust p5. The engine must publish exactly those reads.
+  setHumanReadShadow(game, {
+    suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "信じない", weight: 0.95 }],
+    trusts: [{ targetId: players[4].id, targetName: players[4].name, reason: "投票理由は良い", weight: 0.9 }],
+    claims: []
+  });
 
   const events = await collect(game.runDay());
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
@@ -4768,6 +4830,13 @@ test("human English free text keeps negated trust and vote mentions in the right
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
+  // The shadow LLM resolves the negations: "do not trust p2"→suspect p2, "will not vote
+  // for p4"→no read on p4, "p5 is not suspicious"→trust p5. The engine publishes them as-is.
+  setHumanReadShadow(game, {
+    suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "do not trust", weight: 0.95 }],
+    trusts: [{ targetId: players[4].id, targetName: players[4].name, reason: "not suspicious", weight: 0.9 }],
+    claims: []
+  });
 
   const events = await collect(game.runDay());
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);

@@ -420,12 +420,28 @@ export interface AgentBooleanInput {
   abortSignal?: AbortSignal;
 }
 
+export interface AgentReadInput {
+  /** The free-text statement to interpret (e.g. a human player's words). */
+  message: string;
+  /** Living players the reads may target; ids constrain the extraction. */
+  legalPlayers: TargetCandidate[];
+  abortSignal?: AbortSignal;
+}
+
 export interface Agent {
   name: string;
   model: string;
   speak(input: AgentSpeechInput): Promise<AgentSpeech>;
   chooseTarget(input: AgentTargetInput): Promise<TargetDecision>;
   decide(input: AgentBooleanInput): Promise<boolean>;
+  /**
+   * Optional LLM-based interpretation of a free-text statement into structured
+   * reads (who it suspects / trusts and why). Used to turn a human player's
+   * words into the same SpeechMetadata the engine's social-influence machinery
+   * consumes — without relying on keyword/regex matching. Agents that omit it
+   * leave the speech with empty reads.
+   */
+  readReads?(input: AgentReadInput): Promise<SpeechMetadata>;
   /**
    * Optional fast, single-call opening resolve used for the day-1 warm-up
    * pass (no roles, reads, or votes). Agents that omit it fall back to speak().

@@ -15,11 +15,13 @@ import { sample, weightedChance } from "./random";
 import type {
   Agent,
   AgentBooleanInput,
+  AgentReadInput,
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
   FirstDayOpeningMove,
   Persona,
+  PlayerReadMetadata,
   Role,
   SpeechMetadata,
   TargetCandidate,
@@ -31,6 +33,8 @@ const defaultLlmTimeoutMs = 120_000;
 const defaultLlmMaxTokens = 384;
 const targetDecisionMaxTokens = 160;
 const booleanDecisionMaxTokens = 96;
+const speechReadMaxTokens = 320;
+const speechReadAttempts = 2;
 // Day-1 warm-up opening resolves are short and single-call (no reasoning stage).
 const introMaxTokens = 140;
 const defaultZaiBaseUrl = "https://api.z.ai/api/anthropic";
@@ -651,6 +655,87 @@ function parseTargetSelection(
 function parseBooleanDecision(content: string): { valid: true; decision: boolean } | { valid: false } {
   const parsed = parseJsonObject(content);
   return typeof parsed?.decision === "boolean" ? { valid: true, decision: parsed.decision } : { valid: false };
+}
+
+function buildSpeechReadSystemPrompt(language: string, legalPlayers: TargetCandidate[]): string {
+  const roster = legalPlayers.map((candidate) => `${candidate.id}: ${candidate.name}`).join("\n");
+  if (isJapaneseLanguage(language)) {
+    return [
+      "あなたは人狼ゲームの観戦アナリストです。ある参加者の発言を読み、その発言が『誰を疑っているか(suspects)』『誰を信頼・擁護しているか(trusts)』だけを構造化して取り出します。",
+      "重要な方針:",
+      "- キーワードや名前の一致に頼らず、文脈・言い回し・遠回しな表現・代名詞・状況描写から意図を推し量ってください。名前が明示されていなくても、文脈から対象が特定できるなら拾ってください。",
+      "- 1人につき suspects か trusts のどちらか強い方に分類します。両方には入れません。",
+      "- 発言に読みが含まれないなら、空配列を返します。推測で対象を増やさないでください。",
+      "- reason は、その判断の根拠となった発言内容を、発言と同じ言語で短く(40字以内)言い換えてください。",
+      "- targetId は必ず下のロスターに存在する id だけを使います。発言者自身や、ロスターにない人物は対象にしないでください。",
+      "対象にできる参加者 (id: 名前):",
+      roster,
+      '出力は次の形の厳密な JSON だけ。前後に文章やコードフェンスを付けないでください: {"suspects":[{"targetId":"id","reason":"短い根拠"}],"trusts":[{"targetId":"id","reason":"短い根拠"}]}'
+    ].join("\n");
+  }
+  return [
+    "You are a spectator analyst for a social-deduction (werewolf) game. Read one participant's statement and extract only structured reads: who it suspects, and who it trusts or defends.",
+    "Key policy:",
+    "- Do not rely on keyword or exact-name matching. Infer intent from context, phrasing, indirect wording, pronouns, and situational description. Capture a target even when the name is not stated, as long as context identifies them.",
+    "- Put each person in either suspects or trusts (the stronger reading), never both.",
+    "- If the statement contains no read, return empty arrays. Do not invent targets.",
+    "- reason: a short (<= 80 chars) paraphrase, in the statement's language, of what grounds the read.",
+    "- targetId must be an id present in the roster below. Never target the speaker or anyone not in the roster.",
+    "Targetable participants (id: name):",
+    roster,
+    'Output only strict JSON in this shape, with no surrounding prose or code fences: {"suspects":[{"targetId":"id","reason":"short reason"}],"trusts":[{"targetId":"id","reason":"short reason"}]}'
+  ].join("\n");
+}
+
+function parseSpeechReads(
+  content: string,
+  legalPlayers: TargetCandidate[],
+  language: string
+): SpeechMetadata | null {
+  const parsed = parseJsonObject(content);
+  if (!parsed) {
+    return null;
+  }
+  if (!Object.hasOwn(parsed, "suspects") && !Object.hasOwn(parsed, "trusts")) {
+    return null;
+  }
+  const byId = new Map(legalPlayers.map((candidate) => [candidate.id, candidate.name] as const));
+  const fallbackReason = isJapaneseLanguage(language) ? "発言からの読み。" : "Read inferred from the statement.";
+  const collect = (raw: unknown, weight: number): PlayerReadMetadata[] => {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const reads: PlayerReadMetadata[] = [];
+    const seen = new Set<string>();
+    for (const entry of raw) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const targetId = (entry as { targetId?: unknown }).targetId;
+      if (typeof targetId !== "string" || !byId.has(targetId) || seen.has(targetId)) {
+        continue;
+      }
+      seen.add(targetId);
+      reads.push({
+        targetId,
+        targetName: byId.get(targetId),
+        reason: clampReason((entry as { reason?: unknown }).reason, fallbackReason),
+        weight
+      });
+    }
+    return reads;
+  };
+  const suspects = collect(parsed.suspects, 0.95);
+  const trustedIds = new Set<string>();
+  const trusts = collect(parsed.trusts, 0.9).filter((read) => {
+    // A person classified as suspect cannot also be a trust; keep the suspect reading.
+    if (suspects.some((suspect) => suspect.targetId === read.targetId) || trustedIds.has(read.targetId)) {
+      return false;
+    }
+    trustedIds.add(read.targetId);
+    return true;
+  });
+  return { suspects, trusts, claims: [] };
 }
 
 function targetName(targetId: string, candidates: TargetCandidate[]): string {
@@ -1759,6 +1844,40 @@ class LlmAgent implements Agent {
     }
 
     return false;
+  }
+
+  async readReads(input: AgentReadInput): Promise<SpeechMetadata> {
+    const empty: SpeechMetadata = { suspects: [], trusts: [], claims: [] };
+    const message = input.message.trim();
+    if (!message || input.legalPlayers.length === 0) {
+      return empty;
+    }
+
+    const system = buildSpeechReadSystemPrompt(this.language, input.legalPlayers);
+    const japanese = isJapaneseLanguage(this.language);
+    const messages: MessageParam[] = [
+      {
+        role: "user",
+        content: japanese ? `読み取る発言:\n${message}` : `Statement to interpret:\n${message}`
+      }
+    ];
+
+    for (let attempt = 0; attempt < speechReadAttempts; attempt += 1) {
+      const content = await this.complete(system, messages, speechReadMaxTokens, input.abortSignal, "speech.reads");
+      const reads = parseSpeechReads(content, input.legalPlayers, this.language);
+      if (reads) {
+        return reads;
+      }
+      messages.push({ role: "assistant", content: content || "(empty response)" });
+      messages.push({
+        role: "user",
+        content: japanese
+          ? '直前の返答は不正でした。厳密な JSON だけでやり直してください。形は {"suspects":[{"targetId":"id","reason":"..."}],"trusts":[{"targetId":"id","reason":"..."}]} です。読みが無ければ {"suspects":[],"trusts":[]} を返してください。'
+          : 'The previous reply was invalid. Reply with strict JSON only, shaped {"suspects":[{"targetId":"id","reason":"..."}],"trusts":[{"targetId":"id","reason":"..."}]}. If there is no read, return {"suspects":[],"trusts":[]}.'
+      });
+    }
+
+    return empty;
   }
 
   private async complete(
