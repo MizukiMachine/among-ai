@@ -23,6 +23,7 @@ import { werewolfFaceoffLineOptionsForPlayer, werewolfFaceoffRoles } from "../sr
 import type {
   Agent,
   AgentBooleanInput,
+  AgentReadInput,
   AgentSpeech,
   AgentSpeechInput,
   AgentTargetInput,
@@ -56,12 +57,14 @@ class ScriptedAgent implements Agent {
   readonly model = "scripted";
   readonly speechInputs: AgentSpeechInput[] = [];
   readonly targetInputs: AgentTargetInput[] = [];
+  readonly readInputs: AgentReadInput[] = [];
 
   constructor(
     readonly name: string,
     private readonly targets: Array<string | null> = [],
     private readonly decisions: boolean[] = [],
-    private readonly speeches: AgentSpeech[] = []
+    private readonly speeches: AgentSpeech[] = [],
+    private readonly reads: SpeechMetadata[] = []
   ) {}
 
   async speak(input: AgentSpeechInput): Promise<AgentSpeech> {
@@ -96,6 +99,11 @@ class ScriptedAgent implements Agent {
 
   async decide(): Promise<boolean> {
     return this.decisions.shift() ?? false;
+  }
+
+  async readReads(input: AgentReadInput): Promise<SpeechMetadata> {
+    this.readInputs.push(input);
+    return this.reads.shift() ?? { suspects: [], trusts: [], claims: [] };
   }
 }
 
@@ -679,6 +687,12 @@ function setTable(
   });
   game.ruleState = createInitialRuleState(game.players);
   return players;
+}
+
+function setHumanReadAgent(game: TestableGame, reads: SpeechMetadata[]): ScriptedAgent {
+  const agent = new ScriptedAgent("human read agent", [], [], [], reads);
+  (game as unknown as { humanChoiceAgent: Agent | null }).humanChoiceAgent = agent;
+  return agent;
 }
 
 async function collect(generator: AsyncGenerator<GameEvent>): Promise<GameEvent[]> {
@@ -1541,7 +1555,7 @@ test("human speech influence does not override strong vote evidence", async () =
   const trusted = players[4];
   const strongEvidenceVoter = players[10];
   human.model = "human";
-  game.agents.set(strongEvidenceVoter.id, new ReasonKindTargetAgent(strongEvidenceVoter.name, trusted.id, "claim_reaction"));
+  game.agents.set(strongEvidenceVoter.id, new ReasonKindTargetAgent(strongEvidenceVoter.name, trusted.id, "role_threat"));
   game.lastDiscussion = [
     {
       playerId: human.id,
@@ -1583,9 +1597,10 @@ test("human speech challenge mode avoids redirecting pressure onto the human pla
   const human = players[0];
   const suspect = players[3];
   const trusted = players[5];
-  const challengeVoter = players[5];
+  const challengeVoter = players[2];
   human.model = "human";
-  (game as unknown as { round: number }).round = 3;
+  challengeVoter.persona = "aggressive";
+  (game as unknown as { round: number }).round = 1;
   game.lastDiscussion = [
     {
       playerId: human.id,
@@ -4630,6 +4645,13 @@ test("human free text reads influence later discussion and voting context", asyn
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
+  setHumanReadAgent(game, [
+    {
+      suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "suspicious", weight: 0.95 }],
+      trusts: [{ targetId: players[3].id, targetName: players[3].name, reason: "trustworthy", weight: 0.9 }],
+      claims: []
+    }
+  ]);
   (game as unknown as { round: number }).round = 1;
 
   const events = await collect(game.runDay());
@@ -4691,6 +4713,13 @@ test("human free text reads reserve an agreeing AI follow-up speaker", async () 
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
+  setHumanReadAgent(game, [
+    {
+      suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "suspicious", weight: 0.95 }],
+      trusts: [],
+      claims: []
+    }
+  ]);
 
   const events = await collect(game.runDay());
   const followUpSpeakers = events
@@ -4730,6 +4759,13 @@ test("human Japanese free text keeps negated trust and vote mentions in the righ
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "Japanese"));
   players[2].model = "human";
+  setHumanReadAgent(game, [
+    {
+      suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "信じない", weight: 0.95 }],
+      trusts: [{ targetId: players[4].id, targetName: players[4].name, reason: "投票理由は良い", weight: 0.9 }],
+      claims: []
+    }
+  ]);
 
   const events = await collect(game.runDay());
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
@@ -4768,6 +4804,13 @@ test("human English free text keeps negated trust and vote mentions in the right
   ]);
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
+  setHumanReadAgent(game, [
+    {
+      suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "do not trust", weight: 0.95 }],
+      trusts: [{ targetId: players[4].id, targetName: players[4].name, reason: "not suspicious", weight: 0.9 }],
+      claims: []
+    }
+  ]);
 
   const events = await collect(game.runDay());
   const humanSpeech = events.find((event) => event.type === "player_speech" && event.playerId === players[2].id);
