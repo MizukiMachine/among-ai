@@ -80,9 +80,9 @@ const CHARACTER_THUMBNAIL_ROOT = `${CHARACTER_ASSET_ROOT}/thumbs`;
 const PROCESSING_HUD_MIN_VISIBLE_MS = 2000;
 const STREAM_WAIT_SLOW_MS = 15_000;
 const STREAM_WAIT_STALLED_MS = 70_000;
-// The match always runs to a 3-round limit (server default `defaultMaxRounds`); the
+// The match always runs to a 4-round limit (server default `defaultMaxRounds`); the
 // client never overrides it, so the rules copy can treat this as a fixed constant.
-const MATCH_MAX_ROUNDS = 3;
+const MATCH_MAX_ROUNDS = 4;
 
 // "Seen the tour" is scoped to this page load so a hard reload shows the guide
 // again, while later matches in the same loaded app skip it without a startup gate.
@@ -2008,7 +2008,7 @@ export function App() {
         title: "ゲームのルール",
         body: [
           "1ラウンド（1日）は「昼の議論 → 追放投票 → 夜の襲撃」",
-          "勝負は最大3ラウンドです"
+          `勝負は最大${MATCH_MAX_ROUNDS}ラウンドです`
         ]
       },
       {

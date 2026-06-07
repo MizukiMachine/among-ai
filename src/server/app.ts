@@ -29,7 +29,7 @@ import {
 
 const encoder = new TextEncoder();
 const defaultLlmModel = "glm-5-turbo";
-const defaultMaxRounds = 3;
+const defaultMaxRounds = 4;
 const fixedGenerationConcurrency = 5;
 const defaultHumanOptionalInputTimeoutMs = 120_000;
 const defaultStreamHeartbeatMs = 15_000;

@@ -92,7 +92,7 @@ test("stream options use numeric defaults when params are omitted", () => {
   const options = parseStreamOptions(new URL("http://localhost/api/games/stream"));
 
   assert.equal(options.playerCount, 7);
-  assert.equal(options.maxRounds, 3);
+  assert.equal(options.maxRounds, 4);
   assert.equal(options.speed, 650);
 });
 
