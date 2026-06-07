@@ -4676,7 +4676,7 @@ test("human free text reads influence later discussion and voting context", asyn
   game.agents.set(players[2].id, new HumanInputAgent(players[2].name, humanInput, "English"));
   players[2].model = "human";
   (game as unknown as { round: number }).round = 1;
-  setHumanReadShadow(game, {
+  const shadow = setHumanReadShadow(game, {
     suspects: [{ targetId: players[1].id, targetName: players[1].name, reason: "suspicious", weight: 0.95 }],
     trusts: [{ targetId: players[3].id, targetName: players[3].name, reason: "trustworthy", weight: 0.9 }],
     claims: []
@@ -4699,6 +4699,13 @@ test("human free text reads influence later discussion and voting context", asyn
     players[3].id
   ]);
   assert.ok((humanSpeech?.data?.suspects as Array<{ weight: number }> | undefined)?.every((read) => read.weight >= 0.9));
+  // Contract: the engine delegates extraction to the shadow agent, handing it the player's
+  // own words and the living-player roster (so the LLM can resolve targets without keywords).
+  assert.ok(shadow.readInputs.length >= 1, "shadow agent should be asked to interpret the free text");
+  assert.ok(shadow.readInputs[0].message.includes("suspicious"));
+  const rosterIds = shadow.readInputs[0].legalPlayers.map((candidate) => candidate.id);
+  assert.ok(rosterIds.includes(players[1].id) && rosterIds.includes(players[3].id));
+  assert.ok(!rosterIds.includes(players[2].id), "the human speaker is excluded from their own read roster");
   assert.ok(laterSpeechContext?.includes(players[1].name));
   assert.ok(laterSpeechContext?.includes(players[3].name));
   assert.ok(laterVoteContext?.includes(players[1].name));

@@ -1863,7 +1863,9 @@ class LlmAgent implements Agent {
     ];
 
     for (let attempt = 0; attempt < speechReadAttempts; attempt += 1) {
-      const content = await this.complete(system, messages, speechReadMaxTokens, input.abortSignal, "speech.reads");
+      // Read extraction is a classification task: use a low temperature for stable JSON
+      // and consistent reads rather than the default creative-speech temperature.
+      const content = await this.complete(system, messages, speechReadMaxTokens, input.abortSignal, "speech.reads", 0.1);
       const reads = parseSpeechReads(content, input.legalPlayers, this.language);
       if (reads) {
         return reads;
@@ -1885,9 +1887,10 @@ class LlmAgent implements Agent {
     messages: MessageParam[],
     maxTokens = this.maxTokens,
     signal?: AbortSignal,
-    label?: string
+    label?: string,
+    temperature = 0.8
   ): Promise<string> {
-    return this.completeRequest(system, messages, maxTokens, 0.8, undefined, signal, label);
+    return this.completeRequest(system, messages, maxTokens, temperature, undefined, signal, label);
   }
 }
 

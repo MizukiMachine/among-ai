@@ -1757,7 +1757,7 @@ export class WerewolfGame {
     if (!response) {
       return null;
     }
-    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, abortSignal);
+    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, { abortSignal });
     return customSpeech
       ? { player, speech: this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player), visibleEventId: response.visibleEventId }
       : null;
@@ -1888,18 +1888,24 @@ export class WerewolfGame {
   // Turn a human player's free-text statement into a speech with structured reads.
   // The reads are extracted by the shadow LLM (humanChoiceAgent) interpreting the words
   // in context — no keyword/regex matching — so indirect or name-free phrasing still lands.
+  // Private alignment face-offs (werewolf/lover) pass extractReads:false: their reads have
+  // no downstream influence, so the extra LLM call is skipped.
   private async humanFreeTextSpeech(
     text: string | undefined,
     legalPlayers: TargetCandidate[] = [],
-    abortSignal?: AbortSignal
+    options: { abortSignal?: AbortSignal; extractReads?: boolean } = {}
   ): Promise<AgentSpeech | null> {
     const message = compactHumanSpeech(text, this.config.language);
     if (!message) {
       return null;
     }
+    const metadata =
+      options.extractReads === false
+        ? emptySpeechMetadata()
+        : await this.readHumanSpeechReads(message, legalPlayers, options.abortSignal);
     return {
       messages: [message],
-      metadata: await this.readHumanSpeechReads(message, legalPlayers, abortSignal)
+      metadata
     };
   }
 
@@ -5705,7 +5711,7 @@ export class WerewolfGame {
       return this.defaultHumanWerewolfFaceoffSpeech(player);
     }
 
-    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers);
+    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, { extractReads: false });
     return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanWerewolfFaceoffSpeech(player);
   }
 
@@ -5763,7 +5769,7 @@ export class WerewolfGame {
       return this.defaultHumanLoverFaceoffSpeech(player, partner);
     }
 
-    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers);
+    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, { extractReads: false });
     return customSpeech ? compactWerewolfFaceoffSpeech(customSpeech, this.config.language) : this.defaultHumanLoverFaceoffSpeech(player, partner);
   }
 
@@ -5826,7 +5832,7 @@ export class WerewolfGame {
     });
 
     const chosenIndex = resolveSpeechChoiceIndex(response.choiceId, candidates.length);
-    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, input.abortSignal);
+    const customSpeech = await this.humanFreeTextSpeech(response.speech, legalPlayers, { abortSignal: input.abortSignal });
     if (customSpeech) {
       return this.sanitizeSpeechForPhase(customSpeech, legalPlayers, player);
     }
