@@ -435,13 +435,17 @@ textarea:focus-visible {
 }
 
 .role-rule-popover {
-  position: static;
-  grid-column: 1 / -1;
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
   align-self: start;
-  z-index: 30;
-  width: min(620px, 100%);
-  max-width: 100%;
-  overflow: hidden;
+  z-index: 60;
+  width: min(620px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  max-height: min(640px, calc(100dvh - 160px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(218, 230, 236, 0.22);
   border-radius: 8px;
   background:
@@ -5853,6 +5857,7 @@ input[type="range"] {
 
   .role-rule-popover {
     width: 100%;
+    max-width: 100%;
     max-height: calc(100vh - 190px);
     overflow-y: auto;
   }
