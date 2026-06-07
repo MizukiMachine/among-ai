@@ -17,6 +17,7 @@ import {
   formatMessage,
   getRoleDistributionItems,
   hasSeenHumanInputRevealAnchor,
+  humanInputActivityKeepaliveMs,
   isCurrentHumanInputRevealAnchor,
   mentionedCharactersForEvent,
   mentionedCharactersForText,
@@ -76,6 +77,14 @@ test("app shell renders spectator controls and role distribution", () => {
 test("character public values render as sentence bullets without final periods", () => {
   assert.deepEqual(characterValueBullets("一つ目の人物像。二つ目の人物像。"), ["一つ目の人物像", "二つ目の人物像"]);
   assert.deepEqual(characterValueBullets("  「迷いは見せる。」それでも決める。  "), ["「迷いは見せる」", "それでも決める"]);
+});
+
+test("human input keepalive interval follows the server timeout", () => {
+  assert.equal(humanInputActivityKeepaliveMs(null), 30_000);
+  assert.equal(humanInputActivityKeepaliveMs(undefined), 30_000);
+  assert.equal(humanInputActivityKeepaliveMs(120_000), 30_000);
+  assert.equal(humanInputActivityKeepaliveMs(5_000), 1_666);
+  assert.equal(humanInputActivityKeepaliveMs(2_000), 1_000);
 });
 
 test("roster vote result overlay is wired next to the conversation log", () => {
@@ -1302,16 +1311,25 @@ test("human input waits behind unread story events with a visible notice", () =>
   assert.match(source, /function skipOptionalHumanInputOnStoryAdvance\(\): boolean/);
   assert.match(source, /function skipVisibleDiscussionInterruptInput\(\)/);
   assert.match(source, /function deferActiveHumanInput\(\)/);
-  assert.match(source, /function touchHumanInputActivity\(request: HumanInputRequest, reason: "active" \| "opened" \| "typing"\)/);
+  assert.match(source, /const HUMAN_INPUT_ACTIVITY_KEEPALIVE_MAX_MS = 30_000;/);
+  assert.match(source, /export function humanInputActivityKeepaliveMs\(timeoutMs: number \| null \| undefined\): number/);
+  assert.match(source, /const \[humanOptionalInputTimeoutMs, setHumanOptionalInputTimeoutMs\] = useState<number \| null>\(null\);/);
+  assert.match(source, /setHumanOptionalInputTimeoutMs\(payload\.humanOptionalInputTimeoutMs \?\? null\);/);
+  assert.match(source, /setHumanOptionalInputTimeoutMs\(null\);/);
+  assert.match(source, /function touchHumanInputActivity\(\s*request: HumanInputRequest,\s*reason: "active" \| "opened" \| "typing" \| "pending",\s*minIntervalMs = HUMAN_INPUT_ACTIVITY_TOUCH_THROTTLE_MS\s*\)/);
   assert.match(source, /if \(!currentGameId \|\| !isOptionalSpeechInput\(request\)\) \{/);
-  assert.match(source, /if \(lastTouchAt > 0 && now - lastTouchAt < 10_000\) \{/);
+  assert.match(source, /if \(minIntervalMs > 0 && lastTouchAt > 0 && now - lastTouchAt < minIntervalMs\) \{/);
   assert.match(source, /fetch\(`\/api\/games\/\$\{currentGameId\}\/input\/activity`/);
   assert.match(source, /const visibleOptionalSpeechInput = isOptionalSpeechInput\(visibleHumanInput\) \? visibleHumanInput : null;/);
   assert.match(
     source,
-    /useEffect\(\(\) => \{[\s\S]*touchHumanInputActivity\(visibleOptionalSpeechInput, "opened"\);[\s\S]*\}, \[visibleOptionalSpeechInput\?\.id, gameId\]\);/
+    /useEffect\(\(\) => \{[\s\S]*touchHumanInputActivity\(visibleOptionalSpeechInput, "opened", 0\);[\s\S]*\}, \[visibleOptionalSpeechInput\?\.id, gameId\]\);/
   );
-  assert.match(source, /touchHumanInputActivity\(availableSpeechInterruptInput, "opened"\)/);
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*!optionalDiscussionInterruptInput \|\| !gameId[\s\S]*const keepaliveMs = humanInputActivityKeepaliveMs\(humanOptionalInputTimeoutMs\);[\s\S]*touchHumanInputActivity\(optionalDiscussionInterruptInput, "pending", 0\);[\s\S]*window\.setInterval\(touchPendingInput, keepaliveMs\)[\s\S]*\}, \[optionalDiscussionInterruptInput\?\.id, gameId, humanOptionalInputTimeoutMs\]\);/
+  );
+  assert.match(source, /touchHumanInputActivity\(availableSpeechInterruptInput, "opened", 0\)/);
   assert.match(source, /const tracksInputActivity = isOptionalSpeechInput\(prompt\);/);
   assert.match(source, /if \(tracksInputActivity\) \{[\s\S]*touchHumanInputActivity\(prompt, "typing"\);/);
   assert.match(source, /onCompositionStart=\{\(\) => \{[\s\S]*touchHumanInputActivity\(prompt, "active"\);/);
@@ -1337,6 +1355,8 @@ test("human input waits behind unread story events with a visible notice", () =>
     source,
     /source\.addEventListener\("human_input_cancelled"[\s\S]*humanInputActivityTouchAtRef\.current\.delete\(requestId\);/
   );
+  assert.match(source, /const isCurrentSource = \(\) => sourceRef\.current === source;/);
+  assert.match(source, /source\.addEventListener\("done", \(\) => \{[\s\S]*if \(!isCurrentSource\(\)\) \{[\s\S]*return;[\s\S]*resetHumanInputState\(\);/);
   assert.match(source, /const discardStoryUntilHumanEchoRef = useRef<HumanInputRequest \| null>\(null\);/);
   assert.match(source, /function discardUnreadStoryBeforeHumanInterrupt\(request: HumanInputRequest\)/);
   assert.match(source, /isOptionalDiscussionInterruptInput\(request\) \|\| queuedRef\.current\.length === 0/);
